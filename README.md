@@ -79,8 +79,8 @@ make check
 ~~~
 
 The checked-in JSON Schema is generated from the schema embedded in the Go
-package. CI rejects stale generated output, formatting differences, vet issues,
-race failures, and test failures.
+package. Native change.codes CI rejects stale generated output, formatting
+differences, vet issues, race failures, and test failures.
 
 ## Status and roadmap
 
