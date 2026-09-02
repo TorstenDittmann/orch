@@ -3,13 +3,17 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/control"
 	"change.codes/torsten/better-swarm/internal/store"
 )
 
@@ -294,6 +298,220 @@ func TestClusterBackupMissingStateIsOperationalFailure(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), clusterctl.DatabaseFilename) {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRemoteStatusDeployAndEvents(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "state")
+	contextPath := filepath.Join(root, "config", "context.json")
+	initialized, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
+		Name: "test", Server: "https://127.0.0.1", DataDir: dataDir,
+		ContextPath: contextPath, Now: time.Now, Random: rand.Reader,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := control.Start(context.Background(), control.Options{DataDir: dataDir, Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	rewriteCLIContextServer(t, contextPath, "https://"+server.Addr().String())
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"status", "--context", contextPath, "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("status code = %d, stderr = %s", code, stderr.String())
+	}
+	var status struct {
+		ClusterID string `json:"cluster_id"`
+		Name      string `json:"name"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.ClusterID != initialized.Cluster.ID || status.Name != "test" {
+		t.Fatalf("status = %#v", status)
+	}
+
+	manifestPath := writeManifest(t, cliManifest)
+	stdout.Reset()
+	stderr.Reset()
+	deployArgs := []string{
+		"deploy", "--file", manifestPath, "--context", contextPath,
+		"--idempotency-key", "idempotency-key-one", "--json",
+	}
+	if code := Run(deployArgs, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("deploy code = %d, stderr = %s", code, stderr.String())
+	}
+	firstOutput := append([]byte(nil), stdout.Bytes()...)
+	var deployment struct {
+		Application    string `json:"application"`
+		Generation     uint64 `json:"generation"`
+		RevisionID     string `json:"revision_id"`
+		Changed        bool   `json:"changed"`
+		EventSequence  uint64 `json:"event_sequence"`
+		Status         string `json:"status"`
+		IdempotencyKey string `json:"idempotency_key"`
+		Message        string `json:"message"`
+	}
+	if err := json.Unmarshal(firstOutput, &deployment); err != nil {
+		t.Fatal(err)
+	}
+	if deployment.Application != "hello" || deployment.Generation != 1 || deployment.RevisionID == "" || !deployment.Changed || deployment.EventSequence != 2 || deployment.Status != "PENDING" || deployment.IdempotencyKey != "idempotency-key-one" || !strings.Contains(deployment.Message, "no workload") {
+		t.Fatalf("deployment = %#v", deployment)
+	}
+	if bytes.Contains(firstOutput, []byte("BEGIN ")) {
+		t.Fatal("deploy output contains credential material")
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(deployArgs, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("replay code = %d, stderr = %s", code, stderr.String())
+	}
+	if !bytes.Equal(stdout.Bytes(), firstOutput) {
+		t.Fatalf("replay output differs\nfirst: %s\nagain: %s", firstOutput, stdout.Bytes())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"events", "--context", contextPath, "--limit", "10", "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("events code = %d, stderr = %s", code, stderr.String())
+	}
+	var events struct {
+		Events []struct {
+			Sequence uint64          `json:"sequence"`
+			Kind     string          `json:"kind"`
+			Payload  json.RawMessage `json:"payload"`
+		} `json:"events"`
+		Next uint64 `json:"next_after_sequence"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &events); err != nil {
+		t.Fatal(err)
+	}
+	if len(events.Events) != 2 || events.Events[1].Kind != "application.desired.updated" || events.Next != 2 || !json.Valid(events.Events[1].Payload) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestRemoteCommandsClassifyLocalAndTransportFailures(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"deploy", "--context", "missing", "--idempotency-key", "short", "--json"}, &stdout, &stderr); code != ExitInvalid {
+		t.Fatalf("missing manifest code = %d, want %d", code, ExitInvalid)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"events", "--context", "missing", "--limit", "0", "--json"}, &stdout, &stderr); code != ExitInvalid {
+		t.Fatalf("bad events limit code = %d, want %d", code, ExitInvalid)
+	}
+	if !json.Valid(stderr.Bytes()) {
+		t.Fatalf("events error is not JSON: %s", stderr.String())
+	}
+	largeManifest := filepath.Join(t.TempDir(), "large.toml")
+	if err := os.WriteFile(largeManifest, bytes.Repeat([]byte("x"), (1<<20)+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"deploy", "--file", largeManifest, "--context", "missing", "--json"}, &stdout, &stderr); code != ExitInvalid || !strings.Contains(stderr.String(), "exceeds") {
+		t.Fatalf("large manifest code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestControllerServeStopsCleanlyOnContextCancellation(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "state")
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
+		Name: "test", Server: "https://127.0.0.1", DataDir: dataDir,
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: time.Now, Random: rand.Reader,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	output := newReadyWriter()
+	var stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- RunContext(ctx, []string{
+			"controller", "serve", "--data-dir", dataDir, "--listen", "127.0.0.1:0",
+		}, output, &stderr)
+	}()
+	select {
+	case <-output.ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatalf("controller did not become ready; stderr = %s", stderr.String())
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != ExitOK {
+			t.Fatalf("controller exit code = %d, stderr = %s", code, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("controller did not stop after cancellation")
+	}
+	if !strings.Contains(output.String(), "Controller listening on https://127.0.0.1:") {
+		t.Fatalf("controller output = %q", output.String())
+	}
+}
+
+func TestNewIdempotencyKey(t *testing.T) {
+	t.Parallel()
+	key, err := newIdempotencyKey(bytes.NewReader(make([]byte, 16)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "idem_00000000000000000000000000000000" || !cliIdempotencyKeyPattern.MatchString(key) {
+		t.Fatalf("key = %q", key)
+	}
+	if _, err := newIdempotencyKey(bytes.NewReader(nil)); err == nil {
+		t.Fatal("newIdempotencyKey() ignored short randomness")
+	}
+}
+
+type readyWriter struct {
+	sync.Mutex
+	buffer bytes.Buffer
+	ready  chan struct{}
+	once   sync.Once
+}
+
+func newReadyWriter() *readyWriter {
+	return &readyWriter{ready: make(chan struct{})}
+}
+
+func (writer *readyWriter) Write(contents []byte) (int, error) {
+	writer.Lock()
+	defer writer.Unlock()
+	written, err := writer.buffer.Write(contents)
+	if strings.Contains(writer.buffer.String(), "Controller listening") {
+		writer.once.Do(func() { close(writer.ready) })
+	}
+	return written, err
+}
+
+func (writer *readyWriter) String() string {
+	writer.Lock()
+	defer writer.Unlock()
+	return writer.buffer.String()
+}
+
+func rewriteCLIContextServer(t *testing.T, path, endpoint string) {
+	t.Helper()
+	local, err := clusterctl.LoadContext(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.Server = endpoint
+	contents, err := json.MarshalIndent(local, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(contents, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

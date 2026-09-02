@@ -6,9 +6,10 @@ self-healing, encrypted networking, service discovery, and safe deployments,
 without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
-> The repository currently contains the v0.1 configuration and durable
-> single-controller bootstrap foundation. It does not run containers or expose
-> a controller API yet.
+> The repository currently contains the v0.1 configuration contract and an
+> authenticated single-controller control plane. It accepts durable application
+> intent, but it does not run containers yet. Accepted applications remain
+> explicitly `PENDING` until the agent/runtime slice lands.
 
 ## The contract
 
@@ -23,7 +24,7 @@ The distributed runtime will use OCI images with containerd/runc, direct
 WireGuard routing, local service DNS, and Caddy ingress. The controller will not
 be in the application data path.
 
-## Try the foundation
+## Try the control plane
 
 Install the pinned Go toolchain and build the CLI:
 
@@ -43,8 +44,29 @@ context:
 ~~~console
 bin/orch cluster init \
   --name lab \
-  --server https://controller.example.com:9443 \
+  --server https://127.0.0.1:9443 \
   --data-dir "$PWD/.orch-controller" \
+  --context "$PWD/.orch-client/context.json"
+~~~
+
+Start the controller in one terminal:
+
+~~~console
+bin/orch controller serve \
+  --data-dir "$PWD/.orch-controller" \
+  --listen 127.0.0.1:9443
+~~~
+
+Use the generated mTLS context from another terminal:
+
+~~~console
+bin/orch status --context "$PWD/.orch-client/context.json"
+
+bin/orch deploy \
+  --file examples/hello/orch.toml \
+  --context "$PWD/.orch-client/context.json"
+
+bin/orch events \
   --context "$PWD/.orch-client/context.json"
 
 bin/orch cluster backup \
@@ -58,15 +80,20 @@ credentials. Backup publication refuses to overwrite a file. See
 [docs/security.md](docs/security.md) before using either command outside a
 disposable environment.
 
+`orch deploy` currently means “validate and durably accept desired state.” Its
+output says `PENDING` and confirms that no workload has started. Pass the
+reported idempotency key back with `--idempotency-key` when retrying an
+uncertain request.
+
 Compare two valid application files:
 
 ~~~console
 bin/orch plan --against old.orch.toml --file orch.toml
 ~~~
 
-Add --json to validate or plan for stable machine-readable output. Exit status
-2 means invalid usage or configuration; status 1 is reserved for operational
-failures.
+Add `--json` to supported commands for stable machine-readable output. Exit
+status 2 means invalid usage or configuration; status 1 is reserved for
+operational failures.
 
 ## Example
 
@@ -101,14 +128,15 @@ mise exec -- make generate
 mise exec -- make check
 ~~~
 
-The checked-in JSON Schema is generated from the schema embedded in the Go
-package. Native change.codes CI rejects stale generated output, formatting
-differences, vet issues, race failures, and test failures.
+The checked-in JSON Schema and Protocol Buffer/Connect bindings are generated
+with tools pinned in `mise.toml`. Native change.codes CI rejects stale generated
+output, formatting differences, vet issues, race failures, and test failures.
 
 ## Status and roadmap
 
-The product roadmap is captured in change.codes Plan #1. The durable bootstrap
-slice is change.codes Plan #2. Work is split into reviewable vertical slices:
+The product roadmap is captured in change.codes Plan #1. Durable bootstrap is
+Plan #2, and the authenticated control API is Plan #3. Work is split into
+reviewable vertical slices:
 
 1. Configuration and CLI contract.
 2. Secure single-node controller/agent/runtime.

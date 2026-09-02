@@ -2,15 +2,25 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"os"
+	"regexp"
 	"strings"
+	"time"
 
+	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
+	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/control"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const Version = "0.1.0-dev"
@@ -22,6 +32,10 @@ const (
 )
 
 func Run(args []string, stdout, stderr io.Writer) int {
+	return RunContext(context.Background(), args, stdout, stderr)
+}
+
+func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printHelp(stderr)
 		return ExitInvalid
@@ -29,6 +43,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "cluster":
 		return runCluster(args[1:], stdout, stderr)
+	case "controller":
+		return runController(ctx, args[1:], stdout, stderr)
+	case "status":
+		return runStatus(ctx, args[1:], stdout, stderr)
+	case "events":
+		return runEvents(ctx, args[1:], stdout, stderr)
+	case "deploy":
+		return runDeploy(ctx, args[1:], stdout, stderr)
 	case "validate":
 		return runValidate(args[1:], stdout, stderr)
 	case "plan":
@@ -52,6 +74,301 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		printHelp(stderr)
 		return ExitInvalid
 	}
+}
+
+func runController(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		printControllerHelp(stderr)
+		return ExitInvalid
+	}
+	switch args[0] {
+	case "serve":
+		return runControllerServe(ctx, args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		printControllerHelp(stdout)
+		return ExitOK
+	default:
+		fmt.Fprintf(stderr, "unknown controller command %q\n\n", args[0])
+		printControllerHelp(stderr)
+		return ExitInvalid
+	}
+}
+
+func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("controller serve", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var dataDir, listen string
+	flags.StringVar(&dataDir, "data-dir", "", "initialized controller state directory")
+	flags.StringVar(&listen, "listen", "", "TCP listen address")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "controller serve accepts flags only")
+		return ExitInvalid
+	}
+	if missing := missingFlags(map[string]string{"--data-dir": dataDir, "--listen": listen}); len(missing) != 0 {
+		writeError(stderr, fmt.Errorf("controller serve requires %s", strings.Join(missing, ", ")), false)
+		return ExitInvalid
+	}
+	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen}, func(address net.Addr) {
+		fmt.Fprintf(stdout, "Controller listening on https://%s\n", address.String())
+	})
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	return ExitOK
+}
+
+func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var jsonOutput bool
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "status accepts flags only")
+		return ExitInvalid
+	}
+	if strings.TrimSpace(contextPath) == "" {
+		writeError(stderr, errors.New("status requires --context"), jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	cluster, err := remote.GetCluster(ctx)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	createdAt, err := protobufTime(cluster.GetCreatedAt())
+	if err != nil {
+		writeError(stderr, fmt.Errorf("controller returned invalid cluster creation time: %w", err), jsonOutput)
+		return ExitRuntime
+	}
+	if jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			ClusterID  string    `json:"cluster_id"`
+			Name       string    `json:"name"`
+			Server     string    `json:"server"`
+			Generation uint64    `json:"generation"`
+			CreatedAt  time.Time `json:"created_at"`
+		}{
+			ClusterID: cluster.GetId(), Name: cluster.GetName(), Server: cluster.GetEndpoint(),
+			Generation: cluster.GetGeneration(), CreatedAt: createdAt,
+		})
+	}
+	fmt.Fprintf(stdout, "Cluster:    %s (%s)\nServer:     %s\nGeneration: %d\nCreated:    %s\n",
+		cluster.GetName(), cluster.GetId(), cluster.GetEndpoint(), cluster.GetGeneration(), createdAt.Format(time.RFC3339Nano))
+	return ExitOK
+}
+
+func runEvents(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("events", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var after uint64
+	var limit uint
+	var jsonOutput bool
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.Uint64Var(&after, "after", 0, "exclusive event sequence cursor")
+	flags.UintVar(&limit, "limit", 50, "maximum events to return (1-200)")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "events accepts flags only")
+		return ExitInvalid
+	}
+	if strings.TrimSpace(contextPath) == "" || limit < 1 || limit > 200 {
+		writeError(stderr, errors.New("events requires --context and --limit between 1 and 200"), jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	response, err := remote.ListEvents(ctx, after, uint32(limit))
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	type eventOutput struct {
+		Sequence  uint64          `json:"sequence"`
+		Kind      string          `json:"kind"`
+		Payload   json.RawMessage `json:"payload"`
+		CreatedAt time.Time       `json:"created_at"`
+	}
+	events := make([]eventOutput, 0, len(response.GetEvents()))
+	for _, event := range response.GetEvents() {
+		createdAt, err := protobufTime(event.GetCreatedAt())
+		if err != nil || event.GetSequence() == 0 || !json.Valid([]byte(event.GetPayloadJson())) {
+			writeError(stderr, errors.New("controller returned an invalid event"), jsonOutput)
+			return ExitRuntime
+		}
+		events = append(events, eventOutput{
+			Sequence: event.GetSequence(), Kind: event.GetKind(),
+			Payload: json.RawMessage(event.GetPayloadJson()), CreatedAt: createdAt,
+		})
+	}
+	if jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			Events            []eventOutput `json:"events"`
+			NextAfterSequence uint64        `json:"next_after_sequence"`
+		}{Events: events, NextAfterSequence: response.GetNextAfterSequence()})
+	}
+	for _, event := range events {
+		fmt.Fprintf(stdout, "%d  %s  %s  %s\n", event.Sequence,
+			event.CreatedAt.Format(time.RFC3339Nano), event.Kind, event.Payload)
+	}
+	return ExitOK
+}
+
+var cliIdempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
+
+func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var file, contextPath, idempotencyKey string
+	var jsonOutput bool
+	flags.StringVar(&file, "file", "orch.toml", "manifest path")
+	flags.StringVar(&file, "f", "orch.toml", "manifest path")
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.StringVar(&idempotencyKey, "idempotency-key", "", "stable key for safe retries")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "deploy accepts flags only")
+		return ExitInvalid
+	}
+	if strings.TrimSpace(contextPath) == "" {
+		writeError(stderr, errors.New("deploy requires --context"), jsonOutput)
+		return ExitInvalid
+	}
+	manifestTOML, err := readLimitedFile(file, 1<<20)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("read manifest %q: %w", file, err), jsonOutput)
+		return ExitInvalid
+	}
+	manifest, err := config.Parse(manifestTOML)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("%s: %w", file, err), jsonOutput)
+		return ExitInvalid
+	}
+	if idempotencyKey == "" {
+		idempotencyKey, err = newIdempotencyKey(rand.Reader)
+		if err != nil {
+			writeError(stderr, errors.New("generate idempotency key"), jsonOutput)
+			return ExitRuntime
+		}
+	}
+	if !cliIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		writeError(stderr, errors.New("idempotency key must be 16-128 URL-safe characters"), jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	response, err := remote.ApplyApplication(ctx, manifestTOML, idempotencyKey)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("deploy request failed; retry with --idempotency-key %s: %w", idempotencyKey, err), jsonOutput)
+		return ExitRuntime
+	}
+	digest, _ := config.Digest(manifest)
+	if response.GetName() != manifest.Name || response.GetDigest() != digest || response.GetGeneration() == 0 || response.GetRevisionId() == "" || response.GetExecutionStatus() != orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_PENDING {
+		writeError(stderr, errors.New("controller returned inconsistent application state"), jsonOutput)
+		return ExitRuntime
+	}
+	createdAt, err := protobufTime(response.GetCreatedAt())
+	if err != nil {
+		writeError(stderr, errors.New("controller returned an invalid application creation time"), jsonOutput)
+		return ExitRuntime
+	}
+	updatedAt, err := protobufTime(response.GetUpdatedAt())
+	if err != nil {
+		writeError(stderr, errors.New("controller returned an invalid application update time"), jsonOutput)
+		return ExitRuntime
+	}
+	const message = "desired state accepted; no agent is connected and no workload has been started"
+	if jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			Application    string    `json:"application"`
+			Generation     uint64    `json:"generation"`
+			RevisionID     string    `json:"revision_id"`
+			Digest         string    `json:"digest"`
+			Changed        bool      `json:"changed"`
+			EventSequence  uint64    `json:"event_sequence"`
+			Status         string    `json:"status"`
+			IdempotencyKey string    `json:"idempotency_key"`
+			CreatedAt      time.Time `json:"created_at"`
+			UpdatedAt      time.Time `json:"updated_at"`
+			Message        string    `json:"message"`
+		}{
+			Application: response.GetName(), Generation: response.GetGeneration(),
+			RevisionID: response.GetRevisionId(), Digest: response.GetDigest(), Changed: response.GetChanged(),
+			EventSequence: response.GetEventSequence(), Status: "PENDING", IdempotencyKey: idempotencyKey,
+			CreatedAt: createdAt, UpdatedAt: updatedAt, Message: message,
+		})
+	}
+	if response.GetChanged() {
+		fmt.Fprintf(stdout, "Accepted desired state for %s (generation %d, %s).\n", response.GetName(), response.GetGeneration(), response.GetDigest())
+	} else {
+		fmt.Fprintf(stdout, "Desired state for %s is already current (generation %d, %s).\n", response.GetName(), response.GetGeneration(), response.GetDigest())
+	}
+	fmt.Fprintln(stdout, "Status: PENDING — no agent is connected; no workload has been started.")
+	fmt.Fprintf(stdout, "Idempotency key: %s\n", idempotencyKey)
+	return ExitOK
+}
+
+func protobufTime(value *timestamppb.Timestamp) (time.Time, error) {
+	if value == nil {
+		return time.Time{}, errors.New("timestamp is missing")
+	}
+	if err := value.CheckValid(); err != nil {
+		return time.Time{}, err
+	}
+	return value.AsTime(), nil
+}
+
+func newIdempotencyKey(random io.Reader) (string, error) {
+	value := make([]byte, 16)
+	if _, err := io.ReadFull(random, value); err != nil {
+		return "", err
+	}
+	return "idem_" + hex.EncodeToString(value), nil
+}
+
+func readLimitedFile(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(contents)) > limit {
+		return nil, fmt.Errorf("manifest exceeds %d bytes", limit)
+	}
+	return contents, nil
 }
 
 func runCluster(args []string, stdout, stderr io.Writer) int {
@@ -168,7 +485,7 @@ func runClusterBackup(args []string, stdout, stderr io.Writer) int {
 }
 
 func missingFlags(values map[string]string) []string {
-	ordered := []string{"--name", "--server", "--data-dir", "--context", "--output"}
+	ordered := []string{"--name", "--server", "--data-dir", "--context", "--output", "--listen"}
 	missing := make([]string, 0)
 	for _, name := range ordered {
 		if value, present := values[name]; present && strings.TrimSpace(value) == "" {
@@ -403,6 +720,10 @@ func printHelp(output io.Writer) {
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
   orch cluster backup --data-dir DIR --output FILE [--json]
+  orch controller serve --data-dir DIR --listen ADDRESS
+  orch status --context FILE [--json]
+  orch events --context FILE [--after SEQUENCE] [--limit N] [--json]
+  orch deploy [-f orch.toml] --context FILE [--idempotency-key KEY] [--json]
   orch validate [-f orch.toml] [--json]
   orch plan [-f orch.toml] [--against previous.toml] [--json]
   orch render [-f orch.toml]
@@ -421,4 +742,11 @@ func printClusterHelp(output io.Writer) {
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
   orch cluster backup --data-dir DIR --output FILE [--json]`)
+}
+
+func printControllerHelp(output io.Writer) {
+	fmt.Fprintln(output, `orch controller runs the single control-plane process.
+
+Usage:
+  orch controller serve --data-dir DIR --listen ADDRESS`)
 }

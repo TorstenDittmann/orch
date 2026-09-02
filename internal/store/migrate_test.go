@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestLoadMigrationsRequiresContiguousNames(t *testing.T) {
@@ -102,6 +105,76 @@ func TestMigrationsFailClosedOnChangedHistory(t *testing.T) {
 				t.Fatalf("applyMigrations() = %v, want %q", err, test.needle)
 			}
 		})
+	}
+}
+
+func TestOpenExistingMigratesVersionOneStateWithoutLoss(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "control.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstMigration, err := fs.ReadFile(embeddedMigrations, "migrations/001_control_core.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := fstest.MapFS{
+		"migrations/001_control_core.sql": &fstest.MapFile{Data: firstMigration},
+	}
+	if err := applyMigrations(ctx, db, v1, testCreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	stamp := testCreatedAt.Format(time.RFC3339Nano)
+	if _, err := db.ExecContext(ctx, `INSERT INTO clusters
+		(singleton, id, name, endpoint, generation, created_at)
+		VALUES (1, 'cluster-one', 'test', 'https://controller.example', 1, ?)`, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO events
+		(cluster_id, kind, payload, created_at)
+		VALUES ('cluster-one', 'cluster.initialized', '{}', ?)`, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO idempotency_keys
+		(key, operation, response, created_at)
+		VALUES ('legacy-key', 'reserved', '{}', ?)`, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(databasePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := OpenExisting(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	cluster, err := state.Cluster(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cluster.ID != "cluster-one" || cluster.Name != "test" {
+		t.Fatalf("migrated cluster = %#v", cluster)
+	}
+	var migrationCount, eventCount int
+	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM events").Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	var operation, requestHash, response string
+	if err := state.db.QueryRowContext(ctx, `SELECT operation, request_hash, response
+		FROM idempotency_keys WHERE key = 'legacy-key'`).Scan(&operation, &requestHash, &response); err != nil {
+		t.Fatal(err)
+	}
+	if migrationCount != 2 || eventCount != 1 || operation != "reserved" || requestHash != strings.Repeat("0", 64) || response != "{}" {
+		t.Fatalf("migrated state: migrations=%d events=%d operation=%q hash=%q response=%q", migrationCount, eventCount, operation, requestHash, response)
 	}
 }
 

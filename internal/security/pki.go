@@ -254,19 +254,10 @@ func VerifyIdentity(caPEM []byte, pair KeyPair, clusterID, role, server string, 
 	if err != nil {
 		return fmt.Errorf("parse %s certificate: %w", role, err)
 	}
-	expectedUsages := []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
-	if role == RoleController {
-		expectedUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
-	} else if role != RoleAdministrator {
-		return fmt.Errorf("unknown identity role %q", role)
+	if err := VerifyPeerIdentity(certificate, clusterID, role); err != nil {
+		return err
 	}
-	if !sameUsages(certificate.ExtKeyUsage, expectedUsages) {
-		return fmt.Errorf("%s certificate has unexpected extended key usages", role)
-	}
-	expectedURI := IdentityURI(clusterID, role).String()
-	if len(certificate.URIs) != 1 || certificate.URIs[0].String() != expectedURI {
-		return fmt.Errorf("%s certificate does not contain identity %s", role, expectedURI)
-	}
+	expectedUsages, _ := identityUsages(role)
 	if err := verifyPrivateKey(certificate, pair.PrivateKeyPEM); err != nil {
 		return fmt.Errorf("verify %s private key: %w", role, err)
 	}
@@ -286,6 +277,40 @@ func VerifyIdentity(caPEM []byte, pair KeyPair, clusterID, role, server string, 
 		}
 	}
 	return nil
+}
+
+// VerifyPeerIdentity enforces the exact role and cluster URI carried by an
+// already chain-verified TLS peer certificate.
+func VerifyPeerIdentity(certificate *x509.Certificate, clusterID, role string) error {
+	if certificate == nil {
+		return fmt.Errorf("%s certificate is missing", role)
+	}
+	expectedUsages, err := identityUsages(role)
+	if err != nil {
+		return err
+	}
+	if certificate.IsCA {
+		return fmt.Errorf("%s identity must not be a CA certificate", role)
+	}
+	if !sameUsages(certificate.ExtKeyUsage, expectedUsages) {
+		return fmt.Errorf("%s certificate has unexpected extended key usages", role)
+	}
+	expectedURI := IdentityURI(clusterID, role).String()
+	if len(certificate.URIs) != 1 || certificate.URIs[0].String() != expectedURI {
+		return fmt.Errorf("%s certificate does not contain identity %s", role, expectedURI)
+	}
+	return nil
+}
+
+func identityUsages(role string) ([]x509.ExtKeyUsage, error) {
+	switch role {
+	case RoleController:
+		return []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, nil
+	case RoleAdministrator:
+		return []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, nil
+	default:
+		return nil, fmt.Errorf("unknown identity role %q", role)
+	}
 }
 
 func sameUsages(actual, expected []x509.ExtKeyUsage) bool {

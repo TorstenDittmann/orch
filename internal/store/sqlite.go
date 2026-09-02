@@ -315,11 +315,19 @@ func scanCluster(row rowScanner) (model.Cluster, error) {
 }
 
 func (s *Store) Events(ctx context.Context, limit int) ([]model.Event, error) {
+	return s.EventsAfter(ctx, 0, limit)
+}
+
+// EventsAfter returns events strictly after a durable sequence cursor.
+func (s *Store) EventsAfter(ctx context.Context, after int64, limit int) ([]model.Event, error) {
+	if after < 0 {
+		return nil, fmt.Errorf("event cursor must not be negative")
+	}
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("event limit must be between 1 and 1000")
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT sequence, cluster_id, kind, payload, created_at
-        FROM events ORDER BY sequence ASC LIMIT ?`, limit)
+		FROM events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read events: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"io"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -99,6 +100,38 @@ func TestVerifyIdentityRejectsWrongPrivateKey(t *testing.T) {
 	pair.PrivateKeyPEM = bundle.Controller.PrivateKeyPEM
 	if err := VerifyIdentity(bundle.CACertificatePEM, pair, "e6207444-6574-4b99-a2d2-3d6db1325c14", RoleAdministrator, "https://controller.example", pkiTestTime); err == nil {
 		t.Fatal("VerifyIdentity() accepted a mismatched key")
+	}
+}
+
+func TestVerifyPeerIdentityRequiresExactRoleURIAndUsages(t *testing.T) {
+	t.Parallel()
+	const clusterID = "e6207444-6574-4b99-a2d2-3d6db1325c14"
+	bundle, err := Generate(GenerateOptions{
+		ClusterID: clusterID, ClusterName: "test", Server: "https://controller.example",
+		Now: pkiTestTime, Random: rand.Reader,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	administrator := mustCertificate(t, bundle.Administrator.CertificatePEM)
+	if err := VerifyPeerIdentity(administrator, clusterID, RoleAdministrator); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPeerIdentity(nil, clusterID, RoleAdministrator); err == nil {
+		t.Fatal("VerifyPeerIdentity() accepted a missing certificate")
+	}
+	duplicateURI := *administrator
+	duplicateURI.URIs = append(append([]*url.URL(nil), administrator.URIs...), administrator.URIs[0])
+	if err := VerifyPeerIdentity(&duplicateURI, clusterID, RoleAdministrator); err == nil {
+		t.Fatal("VerifyPeerIdentity() accepted duplicate identity URIs")
+	}
+	wrongUsage := *administrator
+	wrongUsage.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	if err := VerifyPeerIdentity(&wrongUsage, clusterID, RoleAdministrator); err == nil {
+		t.Fatal("VerifyPeerIdentity() accepted the wrong extended key usage")
+	}
+	if err := VerifyPeerIdentity(administrator, "00000000-0000-4000-8000-000000000000", RoleAdministrator); err == nil {
+		t.Fatal("VerifyPeerIdentity() accepted the wrong cluster")
 	}
 }
 

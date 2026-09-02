@@ -7,6 +7,9 @@ one service is required.
 The machine-readable schema is [schema/orch.schema.json](../schema/orch.schema.json).
 Run orch schema to print the exact schema shipped by the binary.
 Run orch render to inspect the canonical manifest with all defaults resolved.
+The controller repeats the same strict parse, default, validation, and
+canonicalization steps for every `orch deploy`; local validation is not a trust
+boundary.
 
 ## Top level
 
@@ -101,6 +104,9 @@ and mount sets, and encodes a deterministic JSON representation. The displayed
 sha256 digest identifies that resolved contract, not the TOML byte layout.
 Equivalent field ordering therefore produces the same digest.
 
-During the foundation stage, orch plan compares a target file with an optional
---against file. A later controller-backed plan will compare this same canonical
-contract against the active application revision.
+`orch plan` compares a target file with an optional `--against` file and remains
+local/read-only. `orch deploy` sends the TOML to the authenticated controller,
+which stores the canonical form as an immutable desired-state revision. A
+formatting-only resubmission has the same digest. Until the agent/runtime slice
+lands, every accepted revision has execution status `PENDING` and starts no
+container.

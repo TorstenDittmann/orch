@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +33,8 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 1 {
-		t.Fatalf("migration count = %d, want 1", migrations)
+	if migrations != 2 {
+		t.Fatalf("migration count = %d, want 2", migrations)
 	}
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
@@ -57,8 +58,8 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := reopened.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 1 {
-		t.Fatalf("migration count after reopen = %d, want 1", migrations)
+	if migrations != 2 {
+		t.Fatalf("migration count after reopen = %d, want 2", migrations)
 	}
 }
 
@@ -146,6 +147,11 @@ func TestBackupIsOnlineVerifiedAndNoClobber(t *testing.T) {
 	if err := state.InitializeCluster(ctx, cluster); err != nil {
 		t.Fatal(err)
 	}
+	input := applicationInput(`{"name":"hello"}`, "revision-one", "idempotency-key-one", testCreatedAt)
+	wantApply, err := state.ApplyApplication(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
 	directory := t.TempDir()
 	destination := filepath.Join(directory, "backups", "cluster.db")
 	if err := state.Backup(ctx, destination); err != nil {
@@ -168,6 +174,20 @@ func TestBackupIsOnlineVerifiedAndNoClobber(t *testing.T) {
 	}
 	if got != cluster {
 		t.Fatalf("backup cluster = %#v, want %#v", got, cluster)
+	}
+	application, err := backup.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.RevisionID != wantApply.RevisionID || application.Digest != wantApply.Digest {
+		t.Fatalf("backup application = %#v, want apply %#v", application, wantApply)
+	}
+	replayed, err := backup.ApplyApplication(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(replayed, wantApply) {
+		t.Fatalf("backup replay = %#v, want %#v", replayed, wantApply)
 	}
 	if err := backup.Close(); err != nil {
 		t.Fatal(err)

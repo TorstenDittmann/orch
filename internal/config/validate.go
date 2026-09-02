@@ -200,6 +200,18 @@ func Validate(manifest *Manifest) error {
 	return &ValidationError{Problems: problems}
 }
 
+// ValidateApplicationName applies the public DNS-label rule used by manifests.
+func ValidateApplicationName(name string) error {
+	var problems []Problem
+	validateDNSLabel("name", name, func(field, message string) {
+		problems = append(problems, Problem{Path: field, Message: message})
+	})
+	if len(problems) == 0 {
+		return nil
+	}
+	return &ValidationError{Problems: problems}
+}
+
 func validateDNSLabel(field, value string, add func(string, string)) {
 	if !dnsLabelPattern.MatchString(value) {
 		add(field, "must be a lowercase DNS label of at most 63 characters")
