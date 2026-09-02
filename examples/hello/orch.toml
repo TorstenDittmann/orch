@@ -1,0 +1,25 @@
+schema = "v1alpha1"
+name = "hello"
+
+[services.web]
+image = "ghcr.io/acme/hello:1.2.3"
+replicas = 2
+
+[services.web.resources]
+cpu = "500m"
+memory = "256Mi"
+
+[services.web.http]
+port = 8080
+domains = ["hello.example.com"]
+health_path = "/healthz"
+
+[services.web.env]
+APP_ENV = "production"
+
+[services.web.secret_env]
+DATABASE_URL = "database-url"
+
+[services.worker]
+image = "ghcr.io/acme/hello:1.2.3"
+command = ["./hello", "worker"]

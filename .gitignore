@@ -1,0 +1,5 @@
+/bin/
+/dist/
+*.cover
+coverage.out
+.DS_Store

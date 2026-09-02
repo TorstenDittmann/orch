@@ -1,0 +1,48 @@
+{
+  "schema": "v1alpha1",
+  "name": "hello",
+  "services": {
+    "web": {
+      "image": "ghcr.io/acme/hello:1.2.3",
+      "replicas": 2,
+      "restart": "always",
+      "resources": {
+        "cpu": "500m",
+        "memory": "256Mi"
+      },
+      "http": {
+        "port": 8080,
+        "domains": [
+          "hello.example.com"
+        ],
+        "health_path": "/healthz",
+        "https": true
+      },
+      "env": {
+        "APP_ENV": "production"
+      },
+      "secret_env": {
+        "DATABASE_URL": "database-url"
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/acme/hello:1.2.3",
+      "command": [
+        "./hello",
+        "worker"
+      ],
+      "replicas": 1,
+      "restart": "always",
+      "resources": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      }
+    }
+  },
+  "deploy": {
+    "max_surge": 1,
+    "max_unavailable": 0,
+    "health_deadline": "2m",
+    "auto_rollback": true
+  }
+}
