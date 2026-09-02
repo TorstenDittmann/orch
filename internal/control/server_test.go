@@ -79,6 +79,17 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	if cluster.GetId() != clusterID || cluster.GetName() != "test" {
 		t.Fatalf("cluster = %#v", cluster)
 	}
+	unknownRequest := &orchv1alpha1.GetClusterRequest{}
+	unknownRequest.ProtoReflect().SetUnknown([]byte{0x08, 0x01})
+	credentialsForUnknown, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownClient := generatedClient(tlsHTTPClient(credentialsForUnknown.RootCAs, credentialsForUnknown.Certificate), endpoint)
+	_, err = unknownClient.GetCluster(context.Background(), connect.NewRequest(unknownRequest))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unknown request field = %v, want invalid argument", err)
+	}
 	first, err := remote.ApplyApplication(context.Background(), []byte(controlTestManifest), "idempotency-key-one")
 	if err != nil {
 		t.Fatal(err)

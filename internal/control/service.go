@@ -16,6 +16,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -41,8 +42,11 @@ func newService(state *store.Store, cluster model.Cluster, now func() time.Time)
 	return &service{state: state, cluster: cluster, now: now}
 }
 
-func (s *service) GetCluster(ctx context.Context, _ *connect.Request[orchv1alpha1.GetClusterRequest]) (*connect.Response[orchv1alpha1.GetClusterResponse], error) {
+func (s *service) GetCluster(ctx context.Context, request *connect.Request[orchv1alpha1.GetClusterRequest]) (*connect.Response[orchv1alpha1.GetClusterResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(s.cluster)}), nil
@@ -50,6 +54,9 @@ func (s *service) GetCluster(ctx context.Context, _ *connect.Request[orchv1alpha
 
 func (s *service) GetApplication(ctx context.Context, request *connect.Request[orchv1alpha1.GetApplicationRequest]) (*connect.Response[orchv1alpha1.GetApplicationResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}
 	name := request.Msg.GetName()
@@ -68,6 +75,9 @@ func (s *service) GetApplication(ctx context.Context, request *connect.Request[o
 
 func (s *service) ListEvents(ctx context.Context, request *connect.Request[orchv1alpha1.ListEventsRequest]) (*connect.Response[orchv1alpha1.ListEventsResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}
 	after := request.Msg.GetAfterSequence()
@@ -103,6 +113,9 @@ func (s *service) ListEvents(ctx context.Context, request *connect.Request[orchv
 
 func (s *service) ApplyApplication(ctx context.Context, request *connect.Request[orchv1alpha1.ApplyApplicationRequest]) (*connect.Response[orchv1alpha1.ApplyApplicationResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}
 	manifestTOML := request.Msg.GetManifestToml()
@@ -143,6 +156,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("persist application desired state"))
 	}
+	if result.ExecutionStatus != model.ExecutionPending {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("stored application response has an invalid execution status"))
+	}
 	return connect.NewResponse(applyApplicationMessage(result)), nil
 }
 
@@ -175,4 +191,14 @@ func applyApplicationMessage(result model.ApplyApplicationResult) *orchv1alpha1.
 func newRevisionID(clusterID, idempotencyKey, digest string) string {
 	sum := sha256.Sum256([]byte(clusterID + "\x00" + idempotencyKey + "\x00" + digest))
 	return "rev_" + hex.EncodeToString(sum[:])
+}
+
+func rejectUnknownFields(message proto.Message) error {
+	if message == nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("request message is required"))
+	}
+	if len(message.ProtoReflect().GetUnknown()) != 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("request contains unknown fields"))
+	}
+	return nil
 }

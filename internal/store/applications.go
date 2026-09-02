@@ -69,7 +69,8 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 	stampText := stamp.Format(time.RFC3339Nano)
 	result := model.ApplyApplicationResult{
 		Name: input.Name, Digest: input.Digest, Changed: true,
-		RevisionID: input.RevisionID, CreatedAt: stamp, UpdatedAt: stamp,
+		RevisionID: input.RevisionID, ExecutionStatus: model.ExecutionPending,
+		CreatedAt: stamp, UpdatedAt: stamp,
 	}
 
 	if errors.Is(err, ErrApplicationNotFound) {
@@ -83,7 +84,8 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		result = model.ApplyApplicationResult{
 			Name: current.Name, Generation: current.Generation,
 			RevisionID: current.RevisionID, Digest: current.Digest,
-			Changed: false, CreatedAt: current.CreatedAt, UpdatedAt: current.UpdatedAt,
+			Changed: false, ExecutionStatus: model.ExecutionPending,
+			CreatedAt: current.CreatedAt, UpdatedAt: current.UpdatedAt,
 		}
 	} else {
 		result.Generation = current.Generation + 1
@@ -224,7 +226,7 @@ func insertApplicationEvent(ctx context.Context, tx *sql.Tx, result model.ApplyA
 		Status     string `json:"status"`
 	}{
 		Name: result.Name, Generation: result.Generation, RevisionID: result.RevisionID,
-		Digest: result.Digest, Status: model.ExecutionPending,
+		Digest: result.Digest, Status: result.ExecutionStatus,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("encode application event: %w", err)
