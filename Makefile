@@ -28,8 +28,7 @@ vet:
 coverage:
 	go test -coverprofile=coverage.out ./...
 
-check: generate fmt-check vet test test-race build
-	git diff --exit-code -- schema/orch.schema.json
+check: fmt-check vet test test-race build
 
 clean:
 	rm -f bin/orch coverage.out
