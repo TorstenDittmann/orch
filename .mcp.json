@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "change-codes": {
+      "command": "change",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

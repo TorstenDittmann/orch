@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "change-codes": {
+      "type": "local",
+      "command": [
+        "change",
+        "mcp",
+        "serve"
+      ],
+      "enabled": true
+    }
+  }
+}
