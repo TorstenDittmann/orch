@@ -619,7 +619,7 @@ func TestRemoteCommandsClassifyLocalAndTransportFailures(t *testing.T) {
 }
 
 func TestRuntimeCommandsClassifyInvalidInputAndStayInPublicHelp(t *testing.T) {
-	t.Parallel()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "xdg"))
 	tests := []struct {
 		name string
 		args []string
@@ -650,7 +650,7 @@ func TestRuntimeCommandsClassifyInvalidInputAndStayInPublicHelp(t *testing.T) {
 	if code := Run([]string{"help"}, &stdout, &stderr); code != ExitOK {
 		t.Fatalf("help = %d, %s", code, stderr.String())
 	}
-	for _, command := range []string{"agent init", "node join create", "nodes --context", "app status", "logs APP", "exec APP", "remove APP"} {
+	for _, command := range []string{"agent init", "target import", "orch tui", "node join create", "nodes [--target", "app status", "logs APP", "exec APP", "remove APP"} {
 		if !strings.Contains(stdout.String(), command) {
 			t.Errorf("help does not contain %q", command)
 		}
@@ -786,6 +786,60 @@ exec "$ORCH_REAL_PKL" "$@"
 	t.Setenv("ORCH_PKL_EVALUATION_LOG", logPath)
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return logPath
+}
+
+func TestRememberedTargetWorkflowAndSelectorPrecedence(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
+	contextPath := filepath.Join(root, "source", "context.json")
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: filepath.Join(root, "source-state"), ContextPath: contextPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"target", "import", "production", contextPath, "--use", "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("target import code=%d stderr=%q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"target", "list", "--json"}, &stdout, &stderr); code != ExitOK || !strings.Contains(stdout.String(), `"name": "production"`) || !strings.Contains(stdout.String(), `"current": true`) {
+		t.Fatalf("target list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	prepared, err := prepareConnectionArgs([]string{"status", "--json"})
+	if err != nil || !strings.Contains(strings.Join(prepared, " "), "target://production") {
+		t.Fatalf("prepared args=%q err=%v", prepared, err)
+	}
+	if _, err := prepareConnectionArgs([]string{"status", "--context", contextPath, "--target", "production"}); err == nil {
+		t.Fatal("conflicting selectors succeeded")
+	}
+}
+
+func TestClusterInitCreatesAndSelectsManagedTarget(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"cluster", "init", "--name", "local", "--server", "https://controller.example",
+		"--data-dir", filepath.Join(root, "state"), "--json",
+	}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("cluster init code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"target": "local"`) || strings.Contains(stdout.String(), `"context"`) {
+		t.Fatalf("cluster init output=%q", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"cluster", "init", "--name", "local", "--server", "https://controller.example",
+		"--data-dir", filepath.Join(root, "state"), "--json",
+	}, &stdout, &stderr); code != ExitOK || !strings.Contains(stdout.String(), `"created": false`) {
+		t.Fatalf("idempotent cluster init code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	prepared, err := prepareConnectionArgs([]string{"nodes", "--json"})
+	if err != nil || !strings.Contains(strings.Join(prepared, " "), "target://local") {
+		t.Fatalf("prepared args=%q err=%v", prepared, err)
+	}
 }
 
 func countPklEvaluations(t *testing.T, logPath string) int {

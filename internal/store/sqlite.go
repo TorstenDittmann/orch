@@ -374,6 +374,40 @@ func (s *Store) EventsAfter(ctx context.Context, after int64, limit int) ([]mode
 	return events, nil
 }
 
+// RecentEvents returns the newest bounded event window in chronological order.
+func (s *Store) RecentEvents(ctx context.Context, limit int) ([]model.Event, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("event limit must be between 1 and 1000")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT sequence, cluster_id, kind, payload, created_at
+		FROM events ORDER BY sequence DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read recent events: %w", err)
+	}
+	defer rows.Close()
+	events := make([]model.Event, 0, limit)
+	for rows.Next() {
+		var event model.Event
+		var payload, createdAt string
+		if err := rows.Scan(&event.Sequence, &event.ClusterID, &event.Kind, &payload, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan recent event: %w", err)
+		}
+		event.Payload = json.RawMessage(payload)
+		event.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("read recent event creation time: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recent events: %w", err)
+	}
+	for left, right := 0, len(events)-1; left < right; left, right = left+1, right-1 {
+		events[left], events[right] = events[right], events[left]
+	}
+	return events, nil
+}
+
 type sqliteBackuper interface {
 	NewBackup(string) (*modernsqlite.Backup, error)
 }

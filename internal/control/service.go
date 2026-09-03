@@ -136,6 +136,24 @@ func (s *service) GetApplication(ctx context.Context, request *connect.Request[o
 	return connect.NewResponse(&orchv1alpha1.GetApplicationResponse{Application: applicationMessage(application)}), nil
 }
 
+func (s *service) ListApplications(ctx context.Context, request *connect.Request[orchv1alpha1.ListApplicationsRequest]) (*connect.Response[orchv1alpha1.ListApplicationsResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	applications, err := s.state.Applications(ctx, false)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read applications"))
+	}
+	response := &orchv1alpha1.ListApplicationsResponse{Applications: make([]*orchv1alpha1.ApplicationSummary, 0, len(applications))}
+	for _, application := range applications {
+		response.Applications = append(response.Applications, applicationSummaryMessage(application))
+	}
+	return connect.NewResponse(response), nil
+}
+
 func (s *service) ListEvents(ctx context.Context, request *connect.Request[orchv1alpha1.ListEventsRequest]) (*connect.Response[orchv1alpha1.ListEventsResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
 		return nil, err
@@ -170,6 +188,36 @@ func (s *service) ListEvents(ctx context.Context, request *connect.Request[orchv
 			PayloadJson: string(event.Payload), CreatedAt: timestamppb.New(event.CreatedAt),
 		})
 		response.NextAfterSequence = uint64(event.Sequence)
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *service) ListRecentEvents(ctx context.Context, request *connect.Request[orchv1alpha1.ListRecentEventsRequest]) (*connect.Response[orchv1alpha1.ListRecentEventsResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	limit := request.Msg.GetLimit()
+	if limit == 0 {
+		limit = defaultEventLimit
+	}
+	if limit > maxEventLimit {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("limit must not exceed %d", maxEventLimit))
+	}
+	events, err := s.state.RecentEvents(ctx, int(limit))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read recent cluster events"))
+	}
+	response := &orchv1alpha1.ListRecentEventsResponse{Events: make([]*orchv1alpha1.Event, 0, len(events))}
+	for _, event := range events {
+		message, messageErr := eventMessage(event)
+		if messageErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, messageErr)
+		}
+		response.Events = append(response.Events, message)
+		response.NextAfterSequence = message.GetSequence()
 	}
 	return connect.NewResponse(response), nil
 }
@@ -1117,6 +1165,28 @@ func applicationMessage(application model.Application) *orchv1alpha1.Application
 		message.CronJobs = append(message.CronJobs, cronJobStatusMessage(job))
 	}
 	return message
+}
+
+func applicationSummaryMessage(application model.Application) *orchv1alpha1.ApplicationSummary {
+	return &orchv1alpha1.ApplicationSummary{
+		Name: application.Name, Generation: application.Generation, RevisionId: application.RevisionID,
+		ExecutionStatus:    executionStatusMessage(application.Execution.Status),
+		ObservedGeneration: application.Execution.ObservedGeneration,
+		ActiveGeneration:   application.Execution.ActiveGeneration,
+		ExecutionReason:    application.Execution.Reason, ExecutionMessage: application.Execution.Message,
+		CreatedAt: timestamppb.New(application.CreatedAt), UpdatedAt: timestamppb.New(application.UpdatedAt),
+		ExecutionUpdatedAt: timestamppb.New(application.Execution.UpdatedAt),
+	}
+}
+
+func eventMessage(event model.Event) (*orchv1alpha1.Event, error) {
+	if event.Sequence < 1 {
+		return nil, errors.New("stored event has an invalid sequence")
+	}
+	return &orchv1alpha1.Event{
+		Sequence: uint64(event.Sequence), Kind: event.Kind,
+		PayloadJson: string(event.Payload), CreatedAt: timestamppb.New(event.CreatedAt),
+	}, nil
 }
 
 func applyApplicationMessage(result model.ApplyApplicationResult) *orchv1alpha1.ApplyApplicationResponse {

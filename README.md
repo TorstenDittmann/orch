@@ -6,9 +6,10 @@ self-healing, encrypted networking, service discovery, and safe deployments,
 without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
-> The repository contains the 1–20 node placement and managed WireGuard slice.
-> The first enrolled node is ingress-enabled for upgrade compatibility;
-> additional nodes start compute-only until explicitly enabled.
+> The repository contains the 1–20 node runtime plus remembered local targets
+> and the built-in operator TUI. The first enrolled node is ingress-enabled for
+> upgrade compatibility; additional nodes start compute-only until explicitly
+> enabled.
 
 ## The contract
 
@@ -43,15 +44,14 @@ bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
-Initialize local state for a single controller and create an administrator
-context:
+Initialize local state for a single controller. The command installs the
+administrator identity into a private local target named `lab` and selects it:
 
 ~~~console
 bin/orch cluster init \
   --name lab \
   --server https://127.0.0.1:9443 \
-  --data-dir "$PWD/.orch-controller" \
-  --context "$PWD/.orch-client/context.json"
+  --data-dir "$PWD/.orch-controller"
 ~~~
 
 Start the controller in one terminal:
@@ -62,15 +62,14 @@ bin/orch controller serve \
   --listen 127.0.0.1:9443
 ~~~
 
-Create a short-lived join artifact with the administrator context, transfer it
+Create a short-lived join artifact with the selected target, transfer it
 privately to the Linux execution host, and enroll the agent without copying
 administrator credentials to that host:
 
 ~~~console
 bin/orch node join create node-1 \
   --ttl 15m \
-  --output "$PWD/node-1.join" \
-  --context "$PWD/.orch-client/context.json"
+  --output "$PWD/node-1.join"
 
 bin/orch agent init \
   --join-file "$PWD/node-1.join" \
@@ -79,8 +78,7 @@ bin/orch agent init \
 # Before the first workload makes the network immutable, this optional command
 # changes the default 10.88.0.0/16 workload CIDR.
 bin/orch network configure \
-  --cidr 10.96.0.0/16 \
-  --context "$PWD/.orch-client/context.json"
+  --cidr 10.96.0.0/16
 
 sudo bin/orch agent serve \
   --data-dir /var/lib/orch-agent \
@@ -115,56 +113,72 @@ must permit the configured WireGuard UDP port (51820 by default). Manage
 placement and ingress explicitly:
 
 ~~~console
-bin/orch node label node-1 region=eu-west storage=fast --context "$PWD/.orch-client/context.json"
-bin/orch node cordon node-1 --context "$PWD/.orch-client/context.json"
-bin/orch node drain node-1 --context "$PWD/.orch-client/context.json"
-bin/orch node ingress node-2 --enable --context "$PWD/.orch-client/context.json"
-bin/orch node join list --context "$PWD/.orch-client/context.json"
-bin/orch node join revoke JOIN_ID --context "$PWD/.orch-client/context.json"
+bin/orch node label node-1 region=eu-west storage=fast
+bin/orch node cordon node-1
+bin/orch node drain node-1
+bin/orch node ingress node-2 --enable
+bin/orch node join list
+bin/orch node join revoke JOIN_ID
 ~~~
 
 See [docs/operations.md](docs/operations.md) before draining or removing a node;
 local-volume and cron workloads deliberately have stricter handoff rules.
 
-Use the generated mTLS context from another terminal:
+Use the selected target from another terminal. Start the keyboard-first
+operator interface with `bin/orch tui`, or use the same connection through the
+non-interactive commands:
 
 ~~~console
-bin/orch status --context "$PWD/.orch-client/context.json"
+bin/orch tui
 
-bin/orch nodes --context "$PWD/.orch-client/context.json"
+bin/orch status
+
+bin/orch nodes
 
 bin/orch deploy \
   --root . \
-  --file examples/runtime/orch.pkl \
-  --context "$PWD/.orch-client/context.json"
+  --file examples/runtime/orch.pkl
 
 printf '%s' "$APP_TOKEN" | bin/orch secret set runtime-demo token \
-  --from-stdin --context "$PWD/.orch-client/context.json"
+  --from-stdin
 
 printf '%s' "$REGISTRY_TOKEN" | bin/orch registry login registry.example \
-  --username robot --password-stdin \
-  --context "$PWD/.orch-client/context.json"
+  --username robot --password-stdin
 
-bin/orch app status runtime-demo \
-  --context "$PWD/.orch-client/context.json"
+bin/orch app status runtime-demo
 
-bin/orch logs runtime-demo worker --replica 1 --tail 100 \
-  --context "$PWD/.orch-client/context.json"
+bin/orch logs runtime-demo worker --replica 1 --tail 100
 
-bin/orch exec runtime-demo worker --replica 1 \
-  --context "$PWD/.orch-client/context.json" -- /bin/echo ok
+bin/orch exec runtime-demo worker --replica 1 -- /bin/echo ok
 
-bin/orch remove runtime-demo \
-  --context "$PWD/.orch-client/context.json"
+bin/orch remove runtime-demo
 
-bin/orch events \
-  --context "$PWD/.orch-client/context.json"
+bin/orch events
 
 bin/orch cluster backup \
   --data-dir "$PWD/.orch-controller" \
   --output "$PWD/backups/lab.db" \
   --secret-key-output "$PWD/offline-keys/lab-secret.key"
 ~~~
+
+For an existing cluster, import its context once and stop passing the path on
+every command:
+
+~~~console
+bin/orch target import production ./context.json --use
+bin/orch target test production
+~~~
+
+Targets can use the controller directly, an address routed by an existing
+WireGuard interface, or an existing OpenSSH host alias:
+
+~~~console
+bin/orch target transport production wireguard --address 10.20.0.10:9443
+bin/orch target transport production ssh --host prod-controller
+~~~
+
+Use `--target staging` for a one-off override or `ORCH_TARGET=staging` in a
+shell or script. `--context FILE` remains supported for compatibility.
 
 Initialization is idempotent for identical inputs and never rotates existing
 credentials. Backup publication refuses to overwrite a file. See

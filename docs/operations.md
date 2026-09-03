@@ -7,16 +7,14 @@ rotation, and automated restore are not included.
 
 ## Initialize a cluster
 
-Choose separate locations for controller state and the administrator context.
-Both should live on storage controlled by the operator. Existing directories
-used for private identities must not permit group or world access.
+Choose a location for controller state. The CLI creates a private, remembered
+local target with the cluster name and selects it automatically.
 
 ~~~console
 orch cluster init \
   --name lab \
   --server https://controller.example.com:9443 \
-  --data-dir /var/lib/orch \
-  --context "$HOME/.config/orch/context.json"
+  --data-dir /var/lib/orch
 ~~~
 
 The name is a lowercase DNS label. The server must be an HTTPS origin without
@@ -34,18 +32,72 @@ The command creates this layout:
     └── controller-key.pem
 
 ~/.config/orch/
-├── context.json
-└── identities/<cluster-id>/
-    ├── ca.pem
-    ├── admin.pem
-    └── admin-key.pem
+├── current.json
+└── targets/lab/
+    ├── target.json
+    ├── context.json
+    └── identities/<cluster-id>/
+        ├── ca.pem
+        ├── admin.pem
+        └── admin-key.pem
 ~~~
 
-The context contains relative credential paths, so the context file and its
-`identities` directory can be moved together. Running the same command again
-validates and returns the existing cluster. It does not rewrite the database,
-context, or keys. A changed name or server, or missing/mismatched identity
-material, fails closed.
+Target files are versioned and private. Running initialization with an explicit
+`--context FILE` retains the old portable-context workflow for automation.
+Existing clusters can migrate once with `orch target import NAME CONTEXT
+--use`; the imported target owns private copies, so routine commands no longer
+depend on the original path.
+
+Back up the whole platform configuration directory as administrator material,
+not individual files from inside a target. If the selected target is broken,
+select a known-good one with `orch target use NAME`, use `ORCH_TARGET=NAME` for
+an immediate override, or import the recovered context under a new name. Orch
+never prints credential contents while listing or testing targets.
+
+## Connect from a workstation
+
+All remote commands and `orch tui` use the current target by default. Select a
+different remembered target with `orch target use NAME`, override one command
+with `--target NAME`, or set `ORCH_TARGET` for a shell or script.
+
+~~~console
+orch target list
+orch target use production
+orch target test
+orch tui
+~~~
+
+Direct transport uses the controller URL in the imported context. WireGuard
+transport changes only the dial address and expects the operating system to
+already own the interface and route:
+
+~~~console
+orch target transport production wireguard --address 10.20.0.10:9443
+~~~
+
+SSH transport uses the system OpenSSH client and an existing host alias. Make
+sure `ssh prod-controller` already succeeds with the intended host-key policy,
+agent, key, and optional ProxyJump, then configure and test it:
+
+~~~console
+orch target transport production ssh --host prod-controller
+orch target test production
+~~~
+
+The SSH forward listens only on loopback and exits with the command or TUI.
+Both WireGuard and SSH preserve the canonical controller hostname for TLS and
+the same administrator mTLS identity. Orch does not provision workstation
+WireGuard interfaces, manage SSH keys, weaken host-key checks, or copy an
+administrator key from a server.
+
+Inside the TUI, `ctrl+p` opens the command palette and fuzzy resource switcher,
+`tab` changes view, `?` shows contextual help, and `q` exits. In the event and
+log views, `/` filters locally. Logs support next/prior matches, stream
+selection, wrapping, pause, and snapshot reload; workload allocations and the
+latest retained cron run are available through the palette after application
+detail is loaded. Node cordon, uncordon, drain, and ingress changes require
+confirmation. The TUI keeps the last good snapshot visibly marked degraded
+during connection loss.
 
 The first controller start also creates `/var/lib/orch/controller.lock`. The
 file remains as harmless ownership metadata after a clean stop; the advisory
@@ -105,8 +157,7 @@ from `/16` through `/19`:
 
 ~~~console
 orch network configure \
-  --cidr 10.96.0.0/16 \
-  --context "$HOME/.config/orch/context.json"
+  --cidr 10.96.0.0/16
 ~~~
 
 The command is idempotent and reports its retry key. The first `READY` network
@@ -123,8 +174,7 @@ one exact node name:
 ~~~console
 orch node join create node-1 \
   --ttl 15m \
-  --output ./node-1.join \
-  --context "$HOME/.config/orch/context.json"
+  --output ./node-1.join
 ~~~
 
 The artifact expires after 15 minutes by default; `--ttl` accepts one minute
@@ -134,8 +184,8 @@ protected channel, do not place its contents in arguments or logs, and revoke
 it promptly after suspected disclosure:
 
 ~~~console
-orch node join list --context "$HOME/.config/orch/context.json"
-orch node join revoke JOIN_ID --context "$HOME/.config/orch/context.json"
+orch node join list
+orch node join revoke JOIN_ID
 ~~~
 
 On the worker, either read that private regular file or stream it over stdin:
@@ -261,14 +311,14 @@ orch-labeled tasks are adopted; mismatched objects are refused.
 The node-management commands are:
 
 ~~~console
-orch node label node-1 region=eu-west storage=fast --context "$HOME/.config/orch/context.json"
-orch node unlabel node-1 storage --context "$HOME/.config/orch/context.json"
-orch node cordon node-1 --context "$HOME/.config/orch/context.json"
-orch node uncordon node-1 --context "$HOME/.config/orch/context.json"
-orch node ingress node-1 --enable --context "$HOME/.config/orch/context.json"
-orch node drain node-1 --context "$HOME/.config/orch/context.json"
-orch node remove node-1 --context "$HOME/.config/orch/context.json"
-orch node remove node-1 --lost --confirm-fenced --context "$HOME/.config/orch/context.json"
+orch node label node-1 region=eu-west storage=fast
+orch node unlabel node-1 storage
+orch node cordon node-1
+orch node uncordon node-1
+orch node ingress node-1 --enable
+orch node drain node-1
+orch node remove node-1
+orch node remove node-1 --lost --confirm-fenced
 ~~~
 
 Labels are bounded exact key/value placement data. The `orch.*` prefix is
@@ -300,17 +350,15 @@ duplicate run.
 
 ## Inspect and submit desired state
 
-Every remote CLI command uses the administrator context and mTLS:
+Every remote CLI command uses the selected target and mTLS:
 
 ~~~console
-orch status --context "$HOME/.config/orch/context.json"
+orch status
 
 orch deploy \
-  --file orch.pkl \
-  --context "$HOME/.config/orch/context.json"
+  --file orch.pkl
 
 orch events \
-  --context "$HOME/.config/orch/context.json" \
   --after 0 \
   --limit 50
 ~~~
@@ -348,14 +396,12 @@ Event pagination uses an exclusive sequence cursor and returns the next cursor.
 ## Inspect and operate workloads
 
 ~~~console
-orch nodes --context "$HOME/.config/orch/context.json"
-orch app status runtime-demo --context "$HOME/.config/orch/context.json"
+orch nodes
+orch app status runtime-demo
 
-orch logs runtime-demo worker --replica 1 --tail 100 \
-  --context "$HOME/.config/orch/context.json"
+orch logs runtime-demo worker --replica 1 --tail 100
 
-orch exec runtime-demo worker --replica 1 \
-  --context "$HOME/.config/orch/context.json" -- /bin/echo ok
+orch exec runtime-demo worker --replica 1 -- /bin/echo ok
 ~~~
 
 Node lifecycle is durable; connection is the current controller process's
@@ -377,8 +423,7 @@ than reaching an old process.
 ## Remove an application
 
 ~~~console
-orch remove runtime-demo \
-  --context "$HOME/.config/orch/context.json"
+orch remove runtime-demo
 ~~~
 
 Removal first tombstones desired state and returns `STOPPING`. The agent stops
@@ -458,5 +503,5 @@ failures. Graceful drain transfers ownership only after an active run finishes
 and the old node acknowledges removal. An unreachable owner is not replaced
 until external fencing is explicitly confirmed; exactly-once execution is not
 claimed. Use
-`orch cron runs APP JOB --context FILE` for the latest 20 outcomes and
-`orch cron logs APP JOB RUN_ID --context FILE` for a retained run's logs.
+`orch cron runs APP JOB` for the latest 20 outcomes and
+`orch cron logs APP JOB RUN_ID` for a retained run's logs.

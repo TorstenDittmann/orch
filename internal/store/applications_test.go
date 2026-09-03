@@ -257,6 +257,23 @@ func TestEventsAfterUsesExclusiveCursor(t *testing.T) {
 	if len(events) != 1 || events[0].Sequence != 2 {
 		t.Fatalf("EventsAfter() = %#v", events)
 	}
+	recent, err := state.RecentEvents(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 1 || recent[0].Sequence != 2 {
+		t.Fatalf("RecentEvents(1) = %#v", recent)
+	}
+	recent, err = state.RecentEvents(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 2 || recent[0].Sequence != 1 || recent[1].Sequence != 2 {
+		t.Fatalf("RecentEvents(2) = %#v", recent)
+	}
+	if _, err := state.RecentEvents(ctx, 0); err == nil {
+		t.Fatal("RecentEvents() accepted a zero limit")
+	}
 	if _, err := state.EventsAfter(ctx, -1, 1); err == nil {
 		t.Fatal("EventsAfter() accepted a negative cursor")
 	}

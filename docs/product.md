@@ -27,6 +27,8 @@ governance.
    composable `orch.pkl` module.
 4. Run orch plan and understand the intended change.
 5. Run orch deploy and receive a healthy HTTPS endpoint.
+6. Operate the cluster locally through remembered targets and a discoverable,
+   keyboard-first TUI without repeatedly locating credential files.
 
 The target for three clean hosts is under 15 minutes without installing an
 external database, discovery service, secret manager, or ingress controller.
@@ -71,7 +73,8 @@ until their different safety requirements are satisfied.
 - Docker Engine or Docker Swarm compatibility.
 - Multi-region operation, multi-tenant RBAC, autoscaling, or preemption.
 - Distributed storage, automatic database failover, or volume replication.
-- A dashboard, hosted service, build platform, or mandatory GitOps controller.
+- A browser dashboard, hosted service, build platform, or mandatory GitOps
+  controller. The built-in local terminal UI is part of the single CLI.
 - NAT traversal, Windows, rootless nodes, IPv6 overlay networking, service
   meshes, and public non-HTTP protocols.
 
@@ -98,7 +101,8 @@ execution, private per-node CNI subnets, readiness-gated global DNS,
 exact-domain Caddy ingress with automatic HTTPS, raw TCP ingress, encrypted
 application secrets, authenticated exact-host registry pulls, deterministic
 placement, direct WireGuard routing, secure single-use worker joins, automatic
-same-key agent-certificate renewal, and node operations. This remains a
+same-key agent-certificate renewal, remembered direct/WireGuard/SSH operator
+targets, a built-in terminal dashboard, and node operations. This remains a
 single-controller design: during a controller outage
 agents preserve their last accepted data plane, but deployments, scheduling,
 drain, and rollout progress pause. See

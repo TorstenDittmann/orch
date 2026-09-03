@@ -46,6 +46,22 @@ usage, or an expired certificate is rejected. The CLI performs the symmetric
 controller role/cluster check in addition to normal TLS hostname and chain
 verification.
 
+Remembered workstation targets copy the validated administrator context and
+credentials into a versioned private directory under the user configuration
+directory. Target directories use mode `0700` and files mode `0600`; imports
+reject symlinks, unsafe names, unexpected fields, and overwrite. Target listing
+and diagnostics never print key material or credential paths.
+
+A target route cannot relax controller authentication. Direct transport uses
+the canonical URL. WireGuard transport substitutes only a `host:port` dial
+address reachable through an interface already configured by the operating
+system, while TLS still verifies the canonical hostname. SSH transport starts
+the system OpenSSH client with argv (never a shell), an option-safe host alias,
+batch authentication, forwarding-failure detection, and a loopback-only local
+forward. OpenSSH retains responsibility for host keys, agents, keys, and
+ProxyJump. The forwarded connection still performs controller TLS validation
+and administrator mTLS; no credential is read from the SSH host.
+
 The agent stream is a separate ConnectRPC route. It requires the exact active
 node's enrolled certificate, public-key fingerprint, certificate serial,
 cluster ID, and node ID. An administrator or controller certificate cannot
@@ -193,7 +209,7 @@ credentials.
 ## Operator responsibilities
 
 - Restrict operating-system access to the controller account and
-  administrator context.
+  administrator targets. Treat a copied target as administrator access.
 - Back up controller PKI and administrator credentials separately from the
   verified database backup, using encryption and access controls appropriate
   for private keys.

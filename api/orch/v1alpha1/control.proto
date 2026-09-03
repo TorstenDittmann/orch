@@ -10,7 +10,9 @@ option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1a
 service ControlService {
   rpc GetCluster(GetClusterRequest) returns (GetClusterResponse);
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+  rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc ListRecentEvents(ListRecentEventsRequest) returns (ListRecentEventsResponse);
   rpc ApplyApplication(ApplyApplicationRequest) returns (ApplyApplicationResponse);
   rpc EnrollAgent(EnrollAgentRequest) returns (EnrollAgentResponse) {
     option deprecated = true;
@@ -162,12 +164,41 @@ message GetApplicationResponse {
   Application application = 1;
 }
 
+message ApplicationSummary {
+  string name = 1;
+  uint64 generation = 2;
+  string revision_id = 3;
+  ExecutionStatus execution_status = 4;
+  uint64 observed_generation = 5;
+  uint64 active_generation = 6;
+  string execution_reason = 7;
+  string execution_message = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp execution_updated_at = 11;
+}
+
+message ListApplicationsRequest {}
+
+message ListApplicationsResponse {
+  repeated ApplicationSummary applications = 1;
+}
+
 message ListEventsRequest {
   uint64 after_sequence = 1;
   uint32 limit = 2;
 }
 
 message ListEventsResponse {
+  repeated Event events = 1;
+  uint64 next_after_sequence = 2;
+}
+
+message ListRecentEventsRequest {
+  uint32 limit = 1;
+}
+
+message ListRecentEventsResponse {
   repeated Event events = 1;
   uint64 next_after_sequence = 2;
 }

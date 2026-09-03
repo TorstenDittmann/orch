@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/control"
+	"change.codes/torsten/better-swarm/internal/target"
 	pklschema "change.codes/torsten/better-swarm/pkl"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -41,7 +43,15 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		printHelp(stderr)
 		return ExitInvalid
 	}
+	prepared, err := prepareConnectionArgs(args)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitInvalid
+	}
+	args = prepared
 	switch args[0] {
+	case "target":
+		return runTarget(ctx, args[1:], stdout, stderr)
 	case "cluster":
 		return runCluster(args[1:], stdout, stderr)
 	case "agent":
@@ -78,6 +88,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runEvents(ctx, args[1:], stdout, stderr)
 	case "deploy":
 		return runDeploy(ctx, args[1:], stdout, stderr)
+	case "tui":
+		return runTUI(ctx, args[1:], stdout, stderr)
 	case "validate":
 		return runValidate(ctx, args[1:], stdout, stderr)
 	case "plan":
@@ -428,10 +440,42 @@ func runClusterInit(args []string, stdout, stderr io.Writer) int {
 		return ExitInvalid
 	}
 	if missing := missingFlags(map[string]string{
-		"--name": name, "--server": server, "--data-dir": dataDir, "--context": contextPath,
+		"--name": name, "--server": server, "--data-dir": dataDir,
 	}); len(missing) != 0 {
 		writeError(stderr, fmt.Errorf("cluster init requires %s", strings.Join(missing, ", ")), jsonOutput)
 		return ExitInvalid
+	}
+	managedTarget := contextPath == ""
+	var targetStore *target.Store
+	var stagingDirectory string
+	targetExists := false
+	if managedTarget {
+		var err error
+		targetStore, err = target.Default()
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		if existing, err := targetStore.Get(name); err == nil {
+			contextPath = existing.ContextPath
+			targetExists = true
+		} else if !errors.Is(err, target.ErrNotFound) {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		if !targetExists {
+			stagingDirectory, err = os.MkdirTemp("", "orch-cluster-init-")
+			if err != nil {
+				writeError(stderr, fmt.Errorf("stage administrator identity: %w", err), jsonOutput)
+				return ExitRuntime
+			}
+			defer os.RemoveAll(stagingDirectory)
+			if err := os.Chmod(stagingDirectory, 0o700); err != nil {
+				writeError(stderr, fmt.Errorf("protect staged administrator identity: %w", err), jsonOutput)
+				return ExitRuntime
+			}
+			contextPath = filepath.Join(stagingDirectory, "context.json")
+		}
 	}
 	result, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
 		Name: name, Server: server, DataDir: dataDir, ContextPath: contextPath,
@@ -443,6 +487,28 @@ func runClusterInit(args []string, stdout, stderr io.Writer) int {
 		}
 		return ExitRuntime
 	}
+	if managedTarget {
+		if !result.Created && !targetExists {
+			writeError(stderr, errors.New("the cluster already exists; pass its administrator context once with --context, then import it with 'orch target import'"), jsonOutput)
+			return ExitInvalid
+		}
+		if targetExists {
+			local, loadErr := clusterctl.LoadContext(contextPath)
+			if loadErr != nil || local.Cluster.ID != result.Cluster.ID {
+				writeError(stderr, fmt.Errorf("target %q does not belong to controller state %s", name, result.DataDir), jsonOutput)
+				return ExitInvalid
+			}
+		} else {
+			if _, err := targetStore.Import(name, contextPath); err != nil {
+				writeError(stderr, fmt.Errorf("install local target: %w", err), jsonOutput)
+				return ExitRuntime
+			}
+		}
+		if err := targetStore.Use(name); err != nil {
+			writeError(stderr, fmt.Errorf("select local target: %w", err), jsonOutput)
+			return ExitRuntime
+		}
+	}
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
 			Created   bool   `json:"created"`
@@ -450,10 +516,23 @@ func runClusterInit(args []string, stdout, stderr io.Writer) int {
 			Name      string `json:"name"`
 			Server    string `json:"server"`
 			DataDir   string `json:"data_dir"`
-			Context   string `json:"context"`
+			Context   string `json:"context,omitempty"`
+			Target    string `json:"target,omitempty"`
 		}{
 			Created: result.Created, ClusterID: result.Cluster.ID, Name: result.Cluster.Name,
-			Server: result.Cluster.Endpoint, DataDir: result.DataDir, Context: result.ContextPath,
+			Server: result.Cluster.Endpoint, DataDir: result.DataDir,
+			Context: func() string {
+				if managedTarget {
+					return ""
+				}
+				return result.ContextPath
+			}(),
+			Target: func() string {
+				if managedTarget {
+					return name
+				}
+				return ""
+			}(),
 		})
 	}
 	if result.Created {
@@ -461,7 +540,12 @@ func runClusterInit(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "Cluster %s already initialized (%s)\n", result.Cluster.Name, result.Cluster.ID)
 	}
-	fmt.Fprintf(stdout, "Server:  %s\nData:    %s\nContext: %s\n", result.Cluster.Endpoint, result.DataDir, result.ContextPath)
+	fmt.Fprintf(stdout, "Server:  %s\nData:    %s\n", result.Cluster.Endpoint, result.DataDir)
+	if managedTarget {
+		fmt.Fprintf(stdout, "Target:  %s (selected)\n", name)
+	} else {
+		fmt.Fprintf(stdout, "Context: %s\n", result.ContextPath)
+	}
 	return ExitOK
 }
 
@@ -754,31 +838,36 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch manages small application clusters.
 
 Usage:
-  orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
+  orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
+  orch target import NAME CONTEXT [--use]
+  orch target use NAME
+  orch target transport NAME direct|wireguard|ssh [OPTIONS]
+  orch target test [NAME]
+  orch tui [--target NAME] [--refresh 2s]
   orch controller serve --data-dir DIR --listen ADDRESS
   orch agent init --join-file FILE|- --data-dir DIR [--json]
   orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
-  orch network configure --cidr CIDR --context FILE [--idempotency-key KEY] [--json]
-  orch nodes --context FILE [--json]
-  orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE
-  orch node join create NODE --ttl 15m --output FILE --context FILE
-  orch node join list|revoke --context FILE
-  orch app status NAME --context FILE [--json]
-  orch logs APP SERVICE --replica N --tail N --context FILE
-  orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]
-  orch cron runs APP JOB --context FILE [--limit N] [--json]
-  orch cron logs APP JOB RUN_ID --context FILE [--tail N]
-  orch secret set APP NAME --from-stdin --context FILE [--json]
-  orch secret list APP --context FILE [--json]
-  orch secret delete APP NAME --context FILE [--json]
-  orch registry login HOST --username USER --password-stdin --context FILE [--json]
-  orch registry list --context FILE [--json]
-  orch registry logout HOST --context FILE [--json]
-  orch remove APP --context FILE [--idempotency-key KEY] [--json]
-  orch status --context FILE [--json]
-  orch events --context FILE [--after SEQUENCE] [--limit N] [--json]
-  orch deploy [-f orch.pkl] [--root DIR] --context FILE [--idempotency-key KEY] [--json]
+  orch network configure --cidr CIDR [--target NAME] [--idempotency-key KEY] [--json]
+  orch nodes [--target NAME] [--json]
+  orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE [--target NAME]
+  orch node join create NODE --ttl 15m --output FILE [--target NAME]
+  orch node join list|revoke [--target NAME]
+  orch app status NAME [--target NAME] [--json]
+  orch logs APP SERVICE --replica N --tail N [--target NAME]
+  orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
+  orch cron runs APP JOB [--target NAME] [--limit N] [--json]
+  orch cron logs APP JOB RUN_ID [--target NAME] [--tail N]
+  orch secret set APP NAME --from-stdin [--target NAME] [--json]
+  orch secret list APP [--target NAME] [--json]
+  orch secret delete APP NAME [--target NAME] [--json]
+  orch registry login HOST --username USER --password-stdin [--target NAME] [--json]
+  orch registry list [--target NAME] [--json]
+  orch registry logout HOST [--target NAME] [--json]
+  orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
+  orch status [--target NAME] [--json]
+  orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]
+  orch deploy [-f orch.pkl] [--root DIR] [--target NAME] [--idempotency-key KEY] [--json]
   orch validate [-f orch.pkl] [--root DIR] [--json]
   orch plan [-f orch.pkl] [--root DIR] [--against previous.pkl] [--json]
   orch render [-f orch.pkl] [--root DIR]
@@ -789,14 +878,17 @@ Usage:
 Exit codes:
   0  command succeeded
   1  operational failure
-  2  usage or manifest validation failure`)
+  2  usage or manifest validation failure
+
+Remote commands use the selected target. --target overrides it for one command;
+--context FILE remains available for compatibility.`)
 }
 
 func printClusterHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch cluster manages local controller state.
 
 Usage:
-  orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
+  orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]`)
 }
 

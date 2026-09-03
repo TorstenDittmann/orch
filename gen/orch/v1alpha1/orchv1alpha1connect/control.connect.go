@@ -39,9 +39,15 @@ const (
 	// ControlServiceGetApplicationProcedure is the fully-qualified name of the ControlService's
 	// GetApplication RPC.
 	ControlServiceGetApplicationProcedure = "/orch.v1alpha1.ControlService/GetApplication"
+	// ControlServiceListApplicationsProcedure is the fully-qualified name of the ControlService's
+	// ListApplications RPC.
+	ControlServiceListApplicationsProcedure = "/orch.v1alpha1.ControlService/ListApplications"
 	// ControlServiceListEventsProcedure is the fully-qualified name of the ControlService's ListEvents
 	// RPC.
 	ControlServiceListEventsProcedure = "/orch.v1alpha1.ControlService/ListEvents"
+	// ControlServiceListRecentEventsProcedure is the fully-qualified name of the ControlService's
+	// ListRecentEvents RPC.
+	ControlServiceListRecentEventsProcedure = "/orch.v1alpha1.ControlService/ListRecentEvents"
 	// ControlServiceApplyApplicationProcedure is the fully-qualified name of the ControlService's
 	// ApplyApplication RPC.
 	ControlServiceApplyApplicationProcedure = "/orch.v1alpha1.ControlService/ApplyApplication"
@@ -106,7 +112,9 @@ const (
 type ControlServiceClient interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
+	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
+	ListRecentEvents(context.Context, *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
 	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
@@ -153,10 +161,22 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("GetApplication")),
 			connect.WithClientOptions(opts...),
 		),
+		listApplications: connect.NewClient[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse](
+			httpClient,
+			baseURL+ControlServiceListApplicationsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListApplications")),
+			connect.WithClientOptions(opts...),
+		),
 		listEvents: connect.NewClient[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse](
 			httpClient,
 			baseURL+ControlServiceListEventsProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("ListEvents")),
+			connect.WithClientOptions(opts...),
+		),
+		listRecentEvents: connect.NewClient[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse](
+			httpClient,
+			baseURL+ControlServiceListRecentEventsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListRecentEvents")),
 			connect.WithClientOptions(opts...),
 		),
 		applyApplication: connect.NewClient[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse](
@@ -286,7 +306,9 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 type controlServiceClient struct {
 	getCluster        *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
 	getApplication    *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listApplications  *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
 	listEvents        *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	listRecentEvents  *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
 	applyApplication  *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
 	enrollAgent       *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
 	listNodes         *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
@@ -319,9 +341,19 @@ func (c *controlServiceClient) GetApplication(ctx context.Context, req *connect.
 	return c.getApplication.CallUnary(ctx, req)
 }
 
+// ListApplications calls orch.v1alpha1.ControlService.ListApplications.
+func (c *controlServiceClient) ListApplications(ctx context.Context, req *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error) {
+	return c.listApplications.CallUnary(ctx, req)
+}
+
 // ListEvents calls orch.v1alpha1.ControlService.ListEvents.
 func (c *controlServiceClient) ListEvents(ctx context.Context, req *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error) {
 	return c.listEvents.CallUnary(ctx, req)
+}
+
+// ListRecentEvents calls orch.v1alpha1.ControlService.ListRecentEvents.
+func (c *controlServiceClient) ListRecentEvents(ctx context.Context, req *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error) {
+	return c.listRecentEvents.CallUnary(ctx, req)
 }
 
 // ApplyApplication calls orch.v1alpha1.ControlService.ApplyApplication.
@@ -430,7 +462,9 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
+	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
+	ListRecentEvents(context.Context, *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
 	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
@@ -473,10 +507,22 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("GetApplication")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceListApplicationsHandler := connect.NewUnaryHandler(
+		ControlServiceListApplicationsProcedure,
+		svc.ListApplications,
+		connect.WithSchema(controlServiceMethods.ByName("ListApplications")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceListEventsHandler := connect.NewUnaryHandler(
 		ControlServiceListEventsProcedure,
 		svc.ListEvents,
 		connect.WithSchema(controlServiceMethods.ByName("ListEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListRecentEventsHandler := connect.NewUnaryHandler(
+		ControlServiceListRecentEventsProcedure,
+		svc.ListRecentEvents,
+		connect.WithSchema(controlServiceMethods.ByName("ListRecentEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceApplyApplicationHandler := connect.NewUnaryHandler(
@@ -605,8 +651,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceGetClusterHandler.ServeHTTP(w, r)
 		case ControlServiceGetApplicationProcedure:
 			controlServiceGetApplicationHandler.ServeHTTP(w, r)
+		case ControlServiceListApplicationsProcedure:
+			controlServiceListApplicationsHandler.ServeHTTP(w, r)
 		case ControlServiceListEventsProcedure:
 			controlServiceListEventsHandler.ServeHTTP(w, r)
+		case ControlServiceListRecentEventsProcedure:
+			controlServiceListRecentEventsHandler.ServeHTTP(w, r)
 		case ControlServiceApplyApplicationProcedure:
 			controlServiceApplyApplicationHandler.ServeHTTP(w, r)
 		case ControlServiceEnrollAgentProcedure:
@@ -664,8 +714,16 @@ func (UnimplementedControlServiceHandler) GetApplication(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetApplication is not implemented"))
 }
 
+func (UnimplementedControlServiceHandler) ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListApplications is not implemented"))
+}
+
 func (UnimplementedControlServiceHandler) ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListEvents is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListRecentEvents(context.Context, *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListRecentEvents is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error) {

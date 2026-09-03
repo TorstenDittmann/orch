@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"sync"
 	"time"
 
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/security"
+	"change.codes/torsten/better-swarm/internal/target"
 	"connectrpc.com/connect"
 )
 
@@ -21,11 +24,46 @@ type Client struct {
 	context clusterctl.LocalContext
 	service orchv1alpha1connect.ControlServiceClient
 	http    *http.Client
+	target  string
+	mode    string
+	tunnel  *sshTunnel
+	close   sync.Once
 }
 
 // New loads a protected administrator context and creates an mTLS client.
 func New(contextPath string) (*Client, error) {
-	credentials, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now())
+	endpoint := Endpoint{ContextPath: contextPath, Transport: target.Transport{Type: target.TransportDirect}}
+	if target.IsReference(contextPath) {
+		store, err := target.Default()
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := store.ResolveReference(contextPath)
+		if err != nil {
+			return nil, err
+		}
+		endpoint = Endpoint{ContextPath: resolved.ContextPath, Target: resolved.Name, Transport: resolved.Transport}
+	}
+	return NewEndpoint(endpoint)
+}
+
+type Endpoint struct {
+	ContextPath string
+	Target      string
+	Transport   target.Transport
+	SSHBinary   string
+}
+
+// NewEndpoint creates an mTLS client whose route may differ from its canonical
+// HTTPS authority. TLS always verifies the server name from the context.
+func NewEndpoint(endpoint Endpoint) (*Client, error) {
+	if endpoint.Transport.Type == "" {
+		endpoint.Transport.Type = target.TransportDirect
+	}
+	if err := target.ValidateTransport(endpoint.Transport); err != nil {
+		return nil, err
+	}
+	credentials, err := clusterctl.LoadAdministratorCredentials(endpoint.ContextPath, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +82,51 @@ func New(contextPath string) (*Client, error) {
 			return nil
 		},
 	}
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	dialContext := dialer.DialContext
+	proxy := http.ProxyFromEnvironment
+	var tunnel *sshTunnel
+	switch endpoint.Transport.Type {
+	case target.TransportWG:
+		address := endpoint.Transport.Address
+		dialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			connection, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, fmt.Errorf("wireguard route %s: %w", address, err)
+			}
+			return connection, nil
+		}
+		proxy = nil
+	case target.TransportSSH:
+		destination := endpoint.Transport.SSHDestination
+		if destination == "" {
+			serverURL, parseErr := url.Parse(credentials.Context.Server)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse canonical controller URL: %w", parseErr)
+			}
+			port := serverURL.Port()
+			if port == "" {
+				port = "443"
+			}
+			destination = net.JoinHostPort(serverURL.Hostname(), port)
+		}
+		tunnel, err = startSSHTunnel(endpoint.SSHBinary, endpoint.Transport.SSHHost, destination)
+		if err != nil {
+			return nil, err
+		}
+		address := tunnel.Address()
+		dialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			connection, dialErr := dialer.DialContext(ctx, network, address)
+			if dialErr != nil {
+				return nil, fmt.Errorf("SSH tunnel via %s: %w", endpoint.Transport.SSHHost, dialErr)
+			}
+			return connection, nil
+		}
+		proxy = nil
+	}
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout: 5 * time.Second, KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:                 proxy,
+		DialContext:           dialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       60 * time.Second,
@@ -62,7 +140,10 @@ func New(contextPath string) (*Client, error) {
 		connect.WithSendMaxBytes(maxMessageBytes),
 		connect.WithReadMaxBytes(maxMessageBytes),
 	)
-	return &Client{context: credentials.Context, service: service, http: httpClient}, nil
+	return &Client{
+		context: credentials.Context, service: service, http: httpClient,
+		target: endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
+	}, nil
 }
 
 func (client *Client) Context() clusterctl.LocalContext {
@@ -73,9 +154,30 @@ func (client *Client) Context() clusterctl.LocalContext {
 }
 
 func (client *Client) CloseIdleConnections() {
-	if client != nil && client.http != nil {
-		client.http.CloseIdleConnections()
+	_ = client.Close()
+}
+
+func (client *Client) Close() error {
+	if client == nil {
+		return nil
 	}
+	var closeErr error
+	client.close.Do(func() {
+		if client.http != nil {
+			client.http.CloseIdleConnections()
+		}
+		if client.tunnel != nil {
+			closeErr = client.tunnel.Close()
+		}
+	})
+	return closeErr
+}
+
+func (client *Client) Target() (string, string) {
+	if client == nil {
+		return "", ""
+	}
+	return client.target, client.mode
 }
 
 func (client *Client) GetCluster(ctx context.Context) (*orchv1alpha1.Cluster, error) {
@@ -101,10 +203,26 @@ func (client *Client) GetApplication(ctx context.Context, name string) (*orchv1a
 	return response.Msg.GetApplication(), nil
 }
 
+func (client *Client) ListApplications(ctx context.Context) ([]*orchv1alpha1.ApplicationSummary, error) {
+	response, err := client.service.ListApplications(ctx, connect.NewRequest(&orchv1alpha1.ListApplicationsRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetApplications(), nil
+}
+
 func (client *Client) ListEvents(ctx context.Context, after uint64, limit uint32) (*orchv1alpha1.ListEventsResponse, error) {
 	response, err := client.service.ListEvents(ctx, connect.NewRequest(&orchv1alpha1.ListEventsRequest{
 		AfterSequence: after, Limit: limit,
 	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListRecentEvents(ctx context.Context, limit uint32) (*orchv1alpha1.ListRecentEventsResponse, error) {
+	response, err := client.service.ListRecentEvents(ctx, connect.NewRequest(&orchv1alpha1.ListRecentEventsRequest{Limit: limit}))
 	if err != nil {
 		return nil, err
 	}

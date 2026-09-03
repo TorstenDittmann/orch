@@ -32,6 +32,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
+	"change.codes/torsten/better-swarm/internal/target"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -102,6 +103,30 @@ func TestJoinEnrollmentIsTheOnlyCertificateFreeControlSurface(t *testing.T) {
 	withoutCertificate := generatedClient(httpClient, endpoint)
 	if _, err := withoutCertificate.ListJoinTokens(context.Background(), connect.NewRequest(&orchv1alpha1.ListJoinTokensRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("certificate-free token list = %v", err)
+	}
+}
+
+func TestWireGuardDialOverridePreservesCanonicalTLSIdentity(t *testing.T) {
+	_, dataDir, contextPath, _ := bootstrapController(t)
+	server, err := Start(context.Background(), Options{DataDir: dataDir, Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	remote, err := controlclient.NewEndpoint(controlclient.Endpoint{
+		ContextPath: contextPath,
+		Transport:   target.Transport{Type: target.TransportWG, Address: server.Addr().String()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(remote.CloseIdleConnections)
+	cluster, err := remote.GetCluster(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cluster.GetName() != "test" {
+		t.Fatalf("cluster name = %q", cluster.GetName())
 	}
 }
 
@@ -207,6 +232,20 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	}
 	if application.GetDigest() != first.GetDigest() || !json.Valid([]byte(application.GetCanonicalManifestJson())) {
 		t.Fatalf("application = %#v", application)
+	}
+	applications, err := remote.ListApplications(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applications) != 1 || applications[0].GetName() != "hello" || applications[0].GetGeneration() != 1 || applications[0].GetRevisionId() != first.GetRevisionId() {
+		t.Fatalf("application summaries = %#v", applications)
+	}
+	recent, err := remote.ListRecentEvents(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent.GetEvents()) != 1 || recent.GetEvents()[0].GetSequence() != 2 || recent.GetNextAfterSequence() != 2 {
+		t.Fatalf("recent event page = %#v", recent)
 	}
 	events, err := remote.ListEvents(context.Background(), 0, 1)
 	if err != nil {
