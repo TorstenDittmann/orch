@@ -162,7 +162,7 @@ func TestWireGuardReconcileOwnsInterfaceAndOrdersRouteChanges(t *testing.T) {
 	if err := manager.Reconcile(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := backend.operations, []string{"create", "route+:10.88.0.0/16", "route+:10.88.1.0/24", "configure", "up"}; !slices.Equal(got, want) {
+	if got, want := backend.operations, []string{"create", "up", "route+:10.88.0.0/16", "route+:10.88.1.0/24", "configure"}; !slices.Equal(got, want) {
 		t.Fatalf("first operations = %v, want %v", got, want)
 	}
 	if backend.configuration.ListenPort != model.DefaultWireGuardListenPort || len(backend.configuration.Peers) != 1 ||
@@ -185,7 +185,7 @@ func TestWireGuardReconcileOwnsInterfaceAndOrdersRouteChanges(t *testing.T) {
 	if err := manager.Reconcile(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := backend.operations, []string{"route+:10.88.0.0/16", "route+:10.88.2.0/24", "configure", "up", "route-:10.88.1.0/24"}; !slices.Equal(got, want) {
+	if got, want := backend.operations, []string{"up", "route+:10.88.0.0/16", "route+:10.88.2.0/24", "configure", "route-:10.88.1.0/24"}; !slices.Equal(got, want) {
 		t.Fatalf("replacement operations = %v, want %v", got, want)
 	}
 	if _, exists := backend.routes[netip.MustParsePrefix("10.88.1.0/24")]; exists {
@@ -276,7 +276,7 @@ func TestWireGuardReconcileTracksPartialRouteAdditionsForLaterCleanup(t *testing
 	if err := manager.Reconcile(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := backend.operations, []string{"route+:10.88.0.0/16", "route+:10.88.2.0/24", "configure", "up", "route-:10.88.1.0/24"}; !slices.Equal(got, want) {
+	if got, want := backend.operations, []string{"up", "route+:10.88.0.0/16", "route+:10.88.2.0/24", "configure", "route-:10.88.1.0/24"}; !slices.Equal(got, want) {
 		t.Fatalf("recovery operations = %v, want %v", got, want)
 	}
 }

@@ -236,6 +236,12 @@ func (m *wireGuardManager) Reconcile(ctx context.Context, configuration model.Wi
 		}
 		currentOwner = workingOwner
 	}
+	// A fresh point-to-point interface must be up before Linux accepts routes
+	// through it. It is still an inert sink here: peer configuration happens
+	// only after all desired route additions have succeeded.
+	if err := m.backend.SetLinkUp(m.name); err != nil {
+		return fmt.Errorf("bring WireGuard interface %q up: %w", m.name, err)
+	}
 	// Install additions before changing peers, then withdraw only routes listed
 	// in our previous marker. This makes retries safe after partial failure and
 	// never removes a route merely because it points at the orch interface.
@@ -251,9 +257,6 @@ func (m *wireGuardManager) Reconcile(ctx context.Context, configuration model.Wi
 	}
 	if err := m.backend.Configure(m.name, device); err != nil {
 		return fmt.Errorf("configure WireGuard interface %q: %w", m.name, err)
-	}
-	if err := m.backend.SetLinkUp(m.name); err != nil {
-		return fmt.Errorf("bring WireGuard interface %q up: %w", m.name, err)
 	}
 	desiredSet := make(map[string]struct{}, len(wantOwner.Routes))
 	for _, prefix := range wantOwner.Routes {
