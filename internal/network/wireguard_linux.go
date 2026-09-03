@@ -20,7 +20,29 @@ const orchWireGuardRouteProtocol = 99
 
 type linuxWireGuardBackend struct {
 	client *wgctrl.Client
+	links  wireGuardLinkManager
 }
+
+type wireGuardLinkManager interface {
+	Add(netlink.Link) error
+	ByName(string) (netlink.Link, error)
+	SetAlias(netlink.Link, string) error
+	Delete(netlink.Link) error
+}
+
+type netlinkWireGuardLinkManager struct{}
+
+func (netlinkWireGuardLinkManager) Add(link netlink.Link) error { return netlink.LinkAdd(link) }
+
+func (netlinkWireGuardLinkManager) ByName(name string) (netlink.Link, error) {
+	return netlink.LinkByName(name)
+}
+
+func (netlinkWireGuardLinkManager) SetAlias(link netlink.Link, alias string) error {
+	return netlink.LinkSetAlias(link, alias)
+}
+
+func (netlinkWireGuardLinkManager) Delete(link netlink.Link) error { return netlink.LinkDel(link) }
 
 // NewWireGuard constructs the Linux kernel WireGuard manager. Kernel support
 // and permissions are checked by Preflight before reconciliation is allowed.
@@ -77,9 +99,29 @@ func (*linuxWireGuardBackend) Link(name string) (wireGuardLink, bool, error) {
 	return wireGuardLink{Name: link.Attrs().Name, Alias: link.Attrs().Alias, Kind: link.Type()}, true, nil
 }
 
-func (*linuxWireGuardBackend) CreateLink(name, alias string) error {
-	link := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name, Alias: alias}, LinkType: "wireguard"}
-	return netlink.LinkAdd(link)
+func (b *linuxWireGuardBackend) CreateLink(name, alias string) error {
+	links := b.links
+	if links == nil {
+		links = netlinkWireGuardLinkManager{}
+	}
+	// IFLA_IFALIAS is not reliably applied when a generic link is created.
+	// Label the materialized interface explicitly before ownership verification.
+	candidate := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name}, LinkType: "wireguard"}
+	if err := links.Add(candidate); err != nil {
+		return err
+	}
+	created, err := links.ByName(name)
+	if err != nil {
+		return fmt.Errorf("inspect newly created WireGuard interface %q: %w", name, err)
+	}
+	if err := links.SetAlias(created, alias); err != nil {
+		labelErr := fmt.Errorf("label newly created WireGuard interface %q: %w", name, err)
+		if cleanupErr := links.Delete(created); cleanupErr != nil {
+			return errors.Join(labelErr, fmt.Errorf("remove unlabelled WireGuard interface %q: %w", name, cleanupErr))
+		}
+		return labelErr
+	}
+	return nil
 }
 
 func (*linuxWireGuardBackend) EnsureRoute(interfaceName string, prefix netip.Prefix, source netip.Addr) error {
