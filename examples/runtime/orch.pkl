@@ -1,0 +1,36 @@
+amends "orch:/v1alpha1/Application.pkl"
+
+name = "runtime-demo"
+
+services {
+  ["worker"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command {
+      "/bin/sh"
+    }
+    args {
+      "-c"
+      "echo \"$MESSAGE\"; echo diagnostic >&2; echo started >> /data/starts; trap 'exit 0' TERM INT; while sleep 30; do echo tick; done"
+    }
+    replicas = 1
+    restart = "always"
+    resources {
+      cpu = "100m"
+      memory = "64Mi"
+    }
+    env {
+      ["MESSAGE"] = "hello from orch"
+    }
+    mounts {
+      new Mount {
+        source = "data"
+        target = "/data"
+      }
+    }
+  }
+}
+
+volumes {
+  ["data"] {}
+}

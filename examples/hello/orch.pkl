@@ -1,0 +1,34 @@
+amends "orch:/v1alpha1/Application.pkl"
+
+name = "hello"
+
+services {
+  ["web"] {
+    image = "ghcr.io/acme/hello:1.2.3"
+    replicas = 2
+    resources {
+      cpu = "500m"
+      memory = "256Mi"
+    }
+    http = new Http {
+      port = 8080
+      domains {
+        "hello.example.com"
+      }
+      healthPath = "/healthz"
+    }
+    env {
+      ["APP_ENV"] = "production"
+    }
+    secretEnv {
+      ["DATABASE_URL"] = "database-url"
+    }
+  }
+  ["worker"] {
+    image = "ghcr.io/acme/hello:1.2.3"
+    command {
+      "./hello"
+      "worker"
+    }
+  }
+}

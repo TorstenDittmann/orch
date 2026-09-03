@@ -186,7 +186,7 @@ Every remote CLI command uses the administrator context and mTLS:
 orch status --context "$HOME/.config/orch/context.json"
 
 orch deploy \
-  --file orch.toml \
+  --file orch.pkl \
   --context "$HOME/.config/orch/context.json"
 
 orch events \
@@ -195,10 +195,13 @@ orch events \
   --limit 50
 ~~~
 
-The controller—not the CLI—is authoritative for strict TOML parsing,
-defaulting, validation, canonical JSON, and the SHA-256 digest. A changed apply
+The CLI evaluates the typed Pkl module locally with a restricted root, applies
+defaults and validation, and sends its exact canonical JSON. The controller is
+authoritative for strict canonical decoding, Go validation, canonical-byte
+verification, and the SHA-256 digest; it never runs Pkl. A changed apply
 atomically commits the application generation, immutable revision, ordered
-`application.desired.updated` event, and idempotency response.
+`application.desired.updated` event, and idempotency response. Upgrade CLI and
+controller together when moving from the former TOML transport.
 
 `orch deploy` generates and reports a random idempotency key by default. For
 automation or an explicit retry, supply a stable 16–128 character key with

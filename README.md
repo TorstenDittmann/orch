@@ -15,7 +15,8 @@ without exposing the Kubernetes or Docker Swarm APIs.
 
 ## The contract
 
-- One strict, versioned TOML file describes an application.
+- One typed, versioned Pkl module describes an application and may compose
+  other local Pkl modules inside an explicit root.
 - Unknown fields are errors rather than silently ignored configuration.
 - Defaults are resolved before hashing or planning.
 - Plans are semantic and deterministic.
@@ -30,16 +31,16 @@ subnets with WireGuard without changing the application contract.
 
 ## Try the single-node runtime
 
-Install the pinned Go toolchain and build the CLI:
+Install the pinned Go and Pkl toolchain and build the CLI:
 
 ~~~console
 mise install
 mise exec -- make build
 
-bin/orch validate --file examples/hello/orch.toml
-bin/orch plan --file examples/hello/orch.toml
-bin/orch render --file examples/hello/orch.toml
-bin/orch schema > /tmp/orch.schema.json
+bin/orch validate --file examples/hello/orch.pkl
+bin/orch plan --file examples/hello/orch.pkl
+bin/orch render --file examples/hello/orch.pkl
+bin/orch schema > /tmp/Application.pkl
 ~~~
 
 Initialize local state for a single controller and create an administrator
@@ -103,7 +104,7 @@ bin/orch status --context "$PWD/.orch-client/context.json"
 bin/orch nodes --context "$PWD/.orch-client/context.json"
 
 bin/orch deploy \
-  --file examples/runtime/orch.toml \
+  --file examples/runtime/orch.pkl \
   --context "$PWD/.orch-client/context.json"
 
 bin/orch app status runtime-demo \
@@ -141,7 +142,7 @@ volume contents.
 Compare two valid application files:
 
 ~~~console
-bin/orch plan --against old.orch.toml --file orch.toml
+bin/orch plan --against old.orch.pkl --file orch.pkl
 ~~~
 
 Add `--json` to supported commands for stable machine-readable output. Exit
@@ -150,22 +151,24 @@ operational failures.
 
 ## Executable example
 
-~~~toml
-schema = "v1alpha1"
+~~~pkl
+amends "orch:/v1alpha1/Application.pkl"
+
 name = "runtime-demo"
 
-[services.worker]
-image = "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
-command = ["/bin/sh"]
-args = ["-c", "echo $MESSAGE; echo diagnostic >&2; exec sleep 3600"]
-
-[services.worker.env]
-MESSAGE = "hello from orch"
+services {
+  ["worker"] {
+    image = "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command { "/bin/sh" }
+    args { "-c"; "echo $MESSAGE; echo diagnostic >&2; exec sleep 3600" }
+    env { ["MESSAGE"] = "hello from orch" }
+  }
+}
 ~~~
 
 The runtime examples demonstrate a preserved local volume and a readiness-gated
-private HTTP service. See [examples/runtime/orch.toml](examples/runtime/orch.toml),
-[examples/http/orch.toml](examples/http/orch.toml),
+private HTTP service. See [examples/runtime/orch.pkl](examples/runtime/orch.pkl),
+[examples/http/orch.pkl](examples/http/orch.pkl),
 [docs/configuration.md](docs/configuration.md), and
 [docs/product.md](docs/product.md).
 
@@ -176,10 +179,11 @@ mise exec -- make generate
 mise exec -- make check
 ~~~
 
-The checked-in JSON Schema and Protocol Buffer/Connect bindings are generated
-with tools pinned in `mise.toml`; the same file pins Pebble for isolated ACME
-verification. Native change.codes CI rejects stale generated
-output, formatting differences, vet issues, race failures, and test failures.
+The embedded Pkl schema and generated Protocol Buffer/Connect bindings are
+verified with tools pinned in `mise.toml`; the same file pins Pebble for
+isolated ACME verification. Native change.codes CI rejects stale generated
+output, Pkl or Go formatting differences, vet issues, race failures, and test
+failures.
 The real containerd/network/DNS/Caddy lifecycle is additionally available as
 `make containerd-e2e` on a dedicated compatible Linux host. `make network-e2e`
 checks the complete network slice and isolated-ACME prerequisites before

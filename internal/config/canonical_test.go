@@ -2,17 +2,14 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestHelloCanonicalGolden(t *testing.T) {
-	data, err := os.ReadFile("../../examples/hello/orch.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := Parse(data)
+	manifest, err := Load(context.Background(), "../../examples/hello/orch.pkl", LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,23 +24,21 @@ func TestHelloCanonicalGolden(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("canonical contract changed (-want +got):\nwant:\n%s\ngot:\n%s", want, got)
 	}
+	const legacyDigest = "sha256:e1681709e2d1f82a25ec5ee03bfb384544bb67e937a0bbc78fc0d0575083dbd4"
+	if digest := DigestCanonicalJSON(got); digest != legacyDigest {
+		t.Fatalf("Pkl migration changed the hello digest: got %s, want %s", digest, legacyDigest)
+	}
 }
 
-func TestCanonicalJSONIsIndependentOfTOMLOrdering(t *testing.T) {
-	first, err := Parse([]byte(validManifest))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestCanonicalJSONIsIndependentOfPklOrdering(t *testing.T) {
+	first := loadManifest(t, validManifest)
 	secondInput := strings.Replace(
 		validManifest,
-		"domains = [\"api.example.com\", \"www.example.com\"]",
-		"domains = [\"www.example.com\", \"api.example.com\"]",
+		"        \"api.example.com\"\n        \"www.example.com\"",
+		"        \"www.example.com\"\n        \"api.example.com\"",
 		1,
 	)
-	second, err := Parse([]byte(secondInput))
-	if err != nil {
-		t.Fatal(err)
-	}
+	second := loadManifest(t, secondInput)
 	firstJSON, err := CanonicalJSON(first)
 	if err != nil {
 		t.Fatal(err)
@@ -63,15 +58,9 @@ func TestCanonicalJSONIsIndependentOfTOMLOrdering(t *testing.T) {
 }
 
 func TestDiffReportsSemanticFieldChanges(t *testing.T) {
-	before, err := Parse([]byte(validManifest))
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := loadManifest(t, validManifest)
 	afterInput := strings.Replace(validManifest, "replicas = 2", "replicas = 3", 1)
-	after, err := Parse([]byte(afterInput))
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := loadManifest(t, afterInput)
 	changes, err := Diff(before, after)
 	if err != nil {
 		t.Fatal(err)
@@ -86,10 +75,7 @@ func TestDiffReportsSemanticFieldChanges(t *testing.T) {
 }
 
 func TestDiffForNewApplicationIsConcise(t *testing.T) {
-	manifest, err := Parse([]byte(validManifest))
-	if err != nil {
-		t.Fatal(err)
-	}
+	manifest := loadManifest(t, validManifest)
 	changes, err := Diff(nil, manifest)
 	if err != nil {
 		t.Fatal(err)

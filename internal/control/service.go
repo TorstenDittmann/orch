@@ -181,31 +181,28 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 		return nil, err
 	}
 	manifestTOML := request.Msg.GetManifestToml()
-	if len(manifestTOML) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("manifest_toml is required"))
+	canonical := request.Msg.GetCanonicalManifestJson()
+	if len(manifestTOML) != 0 {
+		if len(canonical) != 0 {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("manifest_toml and canonical_manifest_json cannot both be set"))
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("manifest_toml is no longer supported; evaluate Pkl locally and send canonical_manifest_json"))
 	}
-	if len(manifestTOML) > maxManifestBytes {
-		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("manifest_toml exceeds %d bytes", maxManifestBytes))
+	if len(canonical) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("canonical_manifest_json is required"))
+	}
+	if len(canonical) > maxManifestBytes {
+		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("canonical_manifest_json exceeds %d bytes", maxManifestBytes))
 	}
 	idempotencyKey := request.Msg.GetIdempotencyKey()
 	if !idempotencyKeyPattern.MatchString(idempotencyKey) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
 	}
-	manifest, err := config.Parse(manifestTOML)
+	manifest, err := config.ParseCanonicalJSON(canonical)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	canonical, err := config.CanonicalJSON(manifest)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("canonicalize application manifest"))
-	}
-	if len(canonical) > maxManifestBytes {
-		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("canonical manifest exceeds %d bytes", maxManifestBytes))
-	}
-	digest, err := config.Digest(manifest)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("digest application manifest"))
-	}
+	digest := config.DigestCanonicalJSON(canonical)
 	revisionID := newRevisionID(s.cluster.ID, idempotencyKey, digest)
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: manifest.Name, RevisionID: revisionID, Digest: digest,

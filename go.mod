@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	connectrpc.com/connect v1.19.2
+	github.com/apple/pkl-go v0.14.0
 	github.com/containerd/containerd/v2 v2.3.4
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v1.0.0-rc.4
@@ -12,7 +13,6 @@ require (
 	github.com/google/nftables v0.3.0
 	github.com/miekg/dns v1.1.73
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0
@@ -58,6 +58,8 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0 // indirect

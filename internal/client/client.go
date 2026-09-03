@@ -111,9 +111,9 @@ func (client *Client) ListEvents(ctx context.Context, after uint64, limit uint32
 	return response.Msg, nil
 }
 
-func (client *Client) ApplyApplication(ctx context.Context, manifest []byte, idempotencyKey string) (*orchv1alpha1.ApplyApplicationResponse, error) {
+func (client *Client) ApplyApplication(ctx context.Context, canonicalManifest []byte, idempotencyKey string) (*orchv1alpha1.ApplyApplicationResponse, error) {
 	response, err := client.service.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
-		ManifestToml: manifest, IdempotencyKey: idempotencyKey,
+		CanonicalManifestJson: append([]byte(nil), canonicalManifest...), IdempotencyKey: idempotencyKey,
 	}))
 	if err != nil {
 		return nil, err

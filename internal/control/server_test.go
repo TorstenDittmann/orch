@@ -26,17 +26,13 @@ import (
 	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/security"
+	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 )
-
-const controlTestManifest = `schema = "v1alpha1"
-name = "hello"
-
-[services.web]
-image = "example/web:1"
-`
 
 func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	root, dataDir, contextPath, clusterID := bootstrapController(t)
@@ -90,29 +86,47 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("unknown request field = %v, want invalid argument", err)
 	}
-	first, err := remote.ApplyApplication(context.Background(), []byte(controlTestManifest), "idempotency-key-one")
+	legacyRequest := &orchv1alpha1.ApplyApplicationRequest{
+		ManifestToml: []byte("legacy"), IdempotencyKey: "idempotency-key-legacy",
+	}
+	_, err = unknownClient.ApplyApplication(context.Background(), connect.NewRequest(legacyRequest))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("legacy manifest = %v, want migration error", err)
+	}
+	emptyRequest := &orchv1alpha1.ApplyApplicationRequest{IdempotencyKey: "idempotency-key-empty"}
+	_, err = unknownClient.ApplyApplication(context.Background(), connect.NewRequest(emptyRequest))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "canonical_manifest_json is required") {
+		t.Fatalf("empty manifest = %v, want required-field error", err)
+	}
+
+	manifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web:1"},
+	}))
+	first, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !first.GetChanged() || first.GetGeneration() != 1 || first.GetEventSequence() != 2 || first.GetExecutionStatus() != orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_PENDING {
 		t.Fatalf("first apply = %#v", first)
 	}
-	replay, err := remote.ApplyApplication(context.Background(), []byte("\n"+controlTestManifest), "idempotency-key-one")
+	replay, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !proto.Equal(replay, first) {
 		t.Fatalf("semantic replay = %#v, want %#v", replay, first)
 	}
-	noOp, err := remote.ApplyApplication(context.Background(), []byte(controlTestManifest), "idempotency-key-two")
+	noOp, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-two")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if noOp.GetChanged() || noOp.GetGeneration() != 1 || noOp.GetRevisionId() != first.GetRevisionId() || noOp.GetEventSequence() != 0 {
 		t.Fatalf("no-op apply = %#v", noOp)
 	}
-	conflictingManifest := strings.Replace(controlTestManifest, "example/web:1", "example/web:2", 1)
-	_, err = remote.ApplyApplication(context.Background(), []byte(conflictingManifest), "idempotency-key-one")
+	conflictingManifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web:2"},
+	}))
+	_, err = remote.ApplyApplication(context.Background(), conflictingManifest, "idempotency-key-one")
 	if connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Fatalf("idempotency conflict = %v, want already exists", err)
 	}
@@ -156,9 +170,101 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("invalid manifest = %v, want invalid argument", err)
 	}
+	invalidCanonical := map[string][]byte{
+		"trailing": append(append([]byte(nil), manifest...), []byte("{}")...),
+		"unknown JSON field": bytes.Replace(
+			manifest,
+			[]byte("{\n"),
+			[]byte("{\n  \"unknown\": true,\n"),
+			1,
+		),
+		"semantically invalid": bytes.Replace(
+			manifest,
+			[]byte(`"name": "hello"`),
+			[]byte(`"name": "Not-Valid"`),
+			1,
+		),
+	}
+	for name, document := range invalidCanonical {
+		t.Run(name, func(t *testing.T) {
+			key := "idempotency-key-invalid-" + strings.ReplaceAll(name, " ", "-")
+			_, applyErr := remote.ApplyApplication(context.Background(), document, key)
+			if connect.CodeOf(applyErr) != connect.CodeInvalidArgument {
+				t.Fatalf("invalid canonical manifest = %v, want invalid argument", applyErr)
+			}
+		})
+	}
 	_, err = remote.ApplyApplication(context.Background(), bytes.Repeat([]byte("x"), maxManifestBytes+1), "idempotency-key-too-large")
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("oversized manifest = %v, want resource exhausted", err)
+	}
+	noncanonical := append([]byte("\n"), manifest...)
+	_, err = remote.ApplyApplication(context.Background(), noncanonical, "idempotency-key-noncanonical")
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("noncanonical manifest = %v, want invalid argument", err)
+	}
+	both := &orchv1alpha1.ApplyApplicationRequest{
+		ManifestToml: []byte("legacy"), CanonicalManifestJson: manifest, IdempotencyKey: "idempotency-key-both-fields",
+	}
+	_, err = unknownClient.ApplyApplication(context.Background(), connect.NewRequest(both))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "cannot both") {
+		t.Fatalf("both manifest fields = %v, want invalid argument", err)
+	}
+	unknownApply := &orchv1alpha1.ApplyApplicationRequest{
+		CanonicalManifestJson: manifest,
+		IdempotencyKey:        "idempotency-key-unknown-protobuf",
+	}
+	unknownApply.ProtoReflect().SetUnknown([]byte{0x20, 0x01})
+	_, err = unknownClient.ApplyApplication(context.Background(), connect.NewRequest(unknownApply))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unknown apply field = %v, want invalid argument", err)
+	}
+}
+
+func TestControllerReconcilesStoredCanonicalStateWithoutPkl(t *testing.T) {
+	_, dataDir, contextPath, _ := bootstrapController(t)
+	manifest := newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web:1"},
+	})
+	canonical := mustCanonicalConfig(t, manifest)
+	digest, err := config.Digest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Open(context.Background(), filepath.Join(dataDir, clusterctl.DatabaseFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ApplyApplication(context.Background(), model.ApplyApplication{
+		Name: manifest.Name, RevisionID: "revision-existing", Digest: digest,
+		CanonicalManifest: canonical, IdempotencyKey: "idempotency-existing-state",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		_ = state.Close()
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", t.TempDir())
+	server, err := Start(context.Background(), Options{DataDir: dataDir, Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	rewriteContextServer(t, contextPath, "https://"+server.Addr().String())
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(remote.CloseIdleConnections)
+	application, err := remote.GetApplication(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.GetDigest() != digest || application.GetCanonicalManifestJson() != string(canonical) {
+		t.Fatalf("stored application changed without Pkl: %#v", application)
 	}
 }
 
@@ -252,7 +358,10 @@ func TestControllerExcludesConcurrentOwnerAndRestartsWithState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstApply, err := remote.ApplyApplication(context.Background(), []byte(controlTestManifest), "idempotency-key-one")
+	manifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web:1"},
+	}))
+	firstApply, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +381,7 @@ func TestControllerExcludesConcurrentOwnerAndRestartsWithState(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(restarted.CloseIdleConnections)
-	replay, err := restarted.ApplyApplication(context.Background(), []byte(controlTestManifest), "idempotency-key-one")
+	replay, err := restarted.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {
 		t.Fatal(err)
 	}

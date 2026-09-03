@@ -130,8 +130,9 @@ message ListEventsResponse {
 }
 
 message ApplyApplicationRequest {
-  bytes manifest_toml = 1;
+  bytes manifest_toml = 1 [deprecated = true];
   string idempotency_key = 2;
+  bytes canonical_manifest_json = 3;
 }
 
 message ApplyApplicationResponse {

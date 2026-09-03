@@ -23,6 +23,12 @@ func Digest(manifest *Manifest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return DigestCanonicalJSON(data), nil
+}
+
+// DigestCanonicalJSON hashes bytes that have already passed
+// ParseCanonicalJSON or were returned by CanonicalJSON.
+func DigestCanonicalJSON(data []byte) string {
 	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

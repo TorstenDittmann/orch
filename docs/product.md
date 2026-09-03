@@ -23,7 +23,8 @@ governance.
 
 1. Initialize a controller.
 2. Join one or more workers with an expiring, single-use token.
-3. declare services, resources, routes, and secret references in orch.toml.
+3. Declare services, resources, routes, and secret references in a typed,
+   composable `orch.pkl` module.
 4. Run orch plan and understand the intended change.
 5. Run orch deploy and receive a healthy HTTPS endpoint.
 

@@ -25,6 +25,7 @@ import (
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/control"
 	"change.codes/torsten/better-swarm/internal/discovery"
 	"change.codes/torsten/better-swarm/internal/ingress"
@@ -169,7 +170,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 		caddyBinary, caddyUser, ingressDataDir, enrolled.Config)
 	waitForNode(t, ctx, remote, running, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
 
-	created, err := remote.ApplyApplication(ctx, runtimeManifest(imageReference, "worker-v1"), "containerd-e2e-deploy-one")
+	created, err := remote.ApplyApplication(ctx, runtimeManifest(t, imageReference, "worker-v1"), "containerd-e2e-deploy-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +326,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 
 	stablePIDs := servicePIDs(t, ctx, raw, application, "stable")
 	oldWorkerID := orchruntime.ObjectID(worker.GetId(), worker.GetSpecDigest())
-	updated, err := remote.ApplyApplication(ctx, runtimeManifest(imageReference, "worker-v2"), "containerd-e2e-deploy-two")
+	updated, err := remote.ApplyApplication(ctx, runtimeManifest(t, imageReference, "worker-v2"), "containerd-e2e-deploy-two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +360,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 		t.Fatal("continuous service traffic did not start")
 	}
 	healthyUpdate, err := remote.ApplyApplication(ctx,
-		runtimeManifestWithStableRevision(imageReference, "worker-v2", "stable-v2", false),
+		runtimeManifestWithStableRevision(t, imageReference, "worker-v2", "stable-v2", false),
 		"containerd-e2e-deploy-three")
 	if err != nil {
 		stopTraffic()
@@ -384,7 +385,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	}
 
 	rolledBack, err := remote.ApplyApplication(ctx,
-		runtimeManifestWithStableRevision(imageReference, "worker-v2", "stable-bad", true),
+		runtimeManifestWithStableRevision(t, imageReference, "worker-v2", "stable-bad", true),
 		"containerd-e2e-deploy-four")
 	if err != nil {
 		t.Fatal(err)
@@ -609,69 +610,50 @@ func importFixture(ctx context.Context, client *containerdclient.Client, path, r
 	return fmt.Errorf("OCI fixture did not import exact image reference %q: %#v", reference, imported)
 }
 
-func runtimeManifest(imageReference, workerToken string) []byte {
-	return runtimeManifestWithStableRevision(imageReference, workerToken, "stable-v1", false)
+func runtimeManifest(t *testing.T, imageReference, workerToken string) []byte {
+	t.Helper()
+	return runtimeManifestWithStableRevision(t, imageReference, workerToken, "stable-v1", false)
 }
 
-func runtimeManifestWithStableRevision(imageReference, workerToken, stableRevision string, failHealth bool) []byte {
+func runtimeManifestWithStableRevision(t *testing.T, imageReference, workerToken, stableRevision string, failHealth bool) []byte {
+	t.Helper()
 	healthFailure := "0"
 	if failHealth {
 		healthFailure = "1"
 	}
-	return []byte(fmt.Sprintf(`schema = "v1alpha1"
-name = "runtime-e2e"
-
-[services.stable]
-image = %q
-command = ["/orch-fixture"]
-args = ["serve", "stable"]
-replicas = 2
-restart = "always"
-
-[services.stable.resources]
-cpu = "125m"
-memory = "32Mi"
-
-[services.stable.env]
-ORCH_E2E_TOKEN = "stable"
-ORCH_E2E_HTTP_PORT = "8080"
-ORCH_E2E_REVISION = %q
-ORCH_E2E_HEALTH_FAIL = %q
-
-[services.stable.http]
-port = 8080
-domains = [%q]
-health_path = "/healthz"
-https = false
-
-[services.worker]
-image = %q
-command = ["/orch-fixture"]
-args = ["serve", %q]
-replicas = 1
-restart = "always"
-
-[services.worker.resources]
-cpu = "250m"
-memory = "64Mi"
-
-[services.worker.env]
-ORCH_E2E_TOKEN = %q
-ORCH_E2E_START_FILE = "/data/starts"
-
-[[services.worker.mounts]]
-source = "state"
-target = "/data"
-
-[volumes.state]
-driver = "local"
-
-[deploy]
-max_surge = 1
-max_unavailable = 0
-health_deadline = "30s"
-auto_rollback = true
-`, imageReference, stableRevision, healthFailure, e2eIngressDomain, imageReference, workerToken, workerToken))
+	manifest := &config.Manifest{
+		Schema: config.SchemaVersion,
+		Name:   e2eApplication,
+		Services: map[string]config.Service{
+			"stable": {
+				Image: imageReference, Command: []string{"/orch-fixture"}, Args: []string{"serve", "stable"},
+				Replicas: 2, Restart: "always", Resources: config.Resources{CPU: "125m", Memory: "32Mi"},
+				Env: map[string]string{
+					"ORCH_E2E_TOKEN": "stable", "ORCH_E2E_HTTP_PORT": "8080",
+					"ORCH_E2E_REVISION": stableRevision, "ORCH_E2E_HEALTH_FAIL": healthFailure,
+				},
+				HTTP: &config.HTTP{Port: 8080, Domains: []string{e2eIngressDomain}, HealthPath: "/healthz", HTTPS: false},
+			},
+			"worker": {
+				Image: imageReference, Command: []string{"/orch-fixture"}, Args: []string{"serve", workerToken},
+				Replicas: 1, Restart: "always", Resources: config.Resources{CPU: "250m", Memory: "64Mi"},
+				Env:    map[string]string{"ORCH_E2E_TOKEN": workerToken, "ORCH_E2E_START_FILE": "/data/starts"},
+				Mounts: []config.Mount{{Source: "state", Target: "/data"}},
+			},
+		},
+		Volumes: map[string]config.Volume{"state": {Driver: "local"}},
+		Deploy: config.Deployment{
+			MaxSurge: 1, MaxUnavailable: 0, HealthDeadline: "30s", AutoRollback: true,
+		},
+	}
+	if err := config.Validate(manifest); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := config.CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
 }
 
 func assertDNSRecords(t *testing.T, nodeSubnet, name string, want []string) {

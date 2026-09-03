@@ -1,0 +1,31 @@
+amends "orch:/v1alpha1/Application.pkl"
+
+name = "notes"
+
+services {
+  ["database"] {
+    image = "docker.io/library/postgres:17-alpine"
+    replicas = 1
+    resources {
+      cpu = "500m"
+      memory = "1Gi"
+    }
+    env {
+      ["POSTGRES_DB"] = "notes"
+      ["POSTGRES_USER"] = "notes"
+    }
+    secretEnv {
+      ["POSTGRES_PASSWORD"] = "database-password"
+    }
+    mounts {
+      new Mount {
+        source = "database"
+        target = "/var/lib/postgresql/data"
+      }
+    }
+  }
+}
+
+volumes {
+  ["database"] {}
+}

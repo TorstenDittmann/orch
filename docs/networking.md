@@ -120,7 +120,7 @@ gateway and using the application service zone as its search suffix.
 
 ## Readiness, updates, and DNS drain
 
-Process phase and health are separate. For an HTTP service with `health_path`,
+Process phase and health are separate. For an HTTP service with `healthPath`,
 the agent sends a direct GET to the allocation IP and declared port, sets Host
 to `service.application.svc.internal`, rejects redirects, and accepts status
 200 through 399. An HTTP service without a path and without public domains uses
@@ -131,9 +131,9 @@ Only serving addresses enter DNS and Caddy. A stateless update keeps the old
 endpoint while its candidate starts and passes readiness. After one atomic
 serving-snapshot and Caddy update, the old address is withdrawn and its task is
 retained for at least the five-second DNS TTL before removal. Application-wide
-`max_surge` and `max_unavailable` budgets gate concurrent replacements.
+`maxSurge` and `maxUnavailable` budgets gate concurrent replacements.
 
-When `auto_rollback = true`, an expired health deadline restores only the
+When `autoRollback = true`, an expired health deadline restores only the
 previous spec explicitly authorized in the controller assignment. A local
 volume update is stop-before-start, can have an availability gap, and does not
 provide transactional data rollback. With rollback disabled, the failed

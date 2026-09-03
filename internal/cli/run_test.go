@@ -5,28 +5,34 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/control"
 	"change.codes/torsten/better-swarm/internal/store"
 )
 
-const cliManifest = `schema = "v1alpha1"
+const cliManifest = `amends "orch:/v1alpha1/Application.pkl"
+
 name = "hello"
-
-[services.web]
-image = "example/web:1"
-
-[services.web.http]
-port = 8080
-domains = ["hello.example.com"]
-health_path = "/healthz"
+services {
+  ["web"] {
+    image = "example/web:1"
+    http = new Http {
+      port = 8080
+      domains { "hello.example.com" }
+      healthPath = "/healthz"
+    }
+  }
+}
 `
 
 func TestValidate(t *testing.T) {
@@ -41,8 +47,48 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestAuthoringCommandsUseExplicitCompositionRoot(t *testing.T) {
+	root := t.TempDir()
+	applicationDir := filepath.Join(root, "environments", "production")
+	if err := os.MkdirAll(applicationDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(root, "base.pkl")
+	if err := os.WriteFile(base, []byte(cliManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(applicationDir, "orch.pkl")
+	if err := os.WriteFile(target, []byte(`amends "../../base.pkl"
+
+services {
+  ["web"] { replicas = 2 }
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := map[string][]string{
+		"validate": {"validate", "--file", target},
+		"render":   {"render", "--file", target},
+		"plan":     {"plan", "--file", target, "--against", base},
+	}
+	for name, args := range commands {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := Run(args, &stdout, &stderr); code != ExitInvalid {
+				t.Fatalf("without root = %d, want %d", code, ExitInvalid)
+			}
+			stdout.Reset()
+			stderr.Reset()
+			withRoot := append(append([]string(nil), args...), "--root", root)
+			if code := Run(withRoot, &stdout, &stderr); code != ExitOK {
+				t.Fatalf("with root = %d, stderr = %s", code, stderr.String())
+			}
+		})
+	}
+}
+
 func TestValidateJSONError(t *testing.T) {
-	path := writeManifest(t, strings.Replace(cliManifest, "health_path = \"/healthz\"\n", "", 1))
+	path := writeManifest(t, strings.Replace(cliManifest, "      healthPath = \"/healthz\"\n", "", 1))
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"validate", "--file", path, "--json"}, &stdout, &stderr)
 	if code != ExitInvalid {
@@ -74,8 +120,8 @@ func TestValidateJSONDecodeErrorIncludesUnknownField(t *testing.T) {
 	if err := json.Unmarshal(stderr.Bytes(), &payload); err != nil {
 		t.Fatalf("stderr is not JSON: %v\n%s", err, stderr.String())
 	}
-	if !strings.Contains(payload.Error, "imag") || !strings.Contains(payload.Error, "unknown field") {
-		t.Fatalf("error = %q, want unknown field context", payload.Error)
+	if !strings.Contains(payload.Error, "imag") || !strings.Contains(payload.Error, "orch.pkl") {
+		t.Fatalf("error = %q, want typed Pkl source context", payload.Error)
 	}
 }
 
@@ -113,14 +159,37 @@ func TestPlanJSONUsesEmptyChangeArray(t *testing.T) {
 	}
 }
 
+func TestPlanTreatsCompositionRefactorAsNoChange(t *testing.T) {
+	root := t.TempDir()
+	direct := filepath.Join(root, "direct.pkl")
+	base := filepath.Join(root, "base.pkl")
+	composed := filepath.Join(root, "composed.pkl")
+	for _, path := range []string{direct, base} {
+		if err := os.WriteFile(path, []byte(cliManifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(composed, []byte(`amends "base.pkl"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"plan", "--file", composed, "--against", direct, "--root", root}, &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No changes.") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestSchema(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"schema"}, &stdout, &stderr)
 	if code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
 	}
-	if !json.Valid(stdout.Bytes()) {
-		t.Fatalf("stdout is not valid JSON: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "module orch.Application") || !strings.Contains(stdout.String(), "class Service") {
+		t.Fatalf("stdout is not the Pkl application schema: %s", stdout.String())
 	}
 }
 
@@ -133,6 +202,33 @@ func TestRenderShowsResolvedDefaults(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"cpu": "100m"`) || !strings.Contains(stdout.String(), `"auto_rollback": true`) {
 		t.Fatalf("resolved defaults missing from stdout: %s", stdout.String())
+	}
+}
+
+func TestAuthoringCommandsEvaluateEachReferencedManifestOnce(t *testing.T) {
+	logPath := installCountingPkl(t)
+	before := writeManifest(t, cliManifest)
+	after := writeManifest(t, strings.Replace(cliManifest, "example/web:1", "example/web:2", 1))
+	tests := []struct {
+		name        string
+		args        []string
+		evaluations int
+	}{
+		{name: "validate", args: []string{"validate", "--file", before}, evaluations: 1},
+		{name: "render", args: []string{"render", "--file", before}, evaluations: 1},
+		{name: "plan", args: []string{"plan", "--file", after, "--against", before}, evaluations: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			start := countPklEvaluations(t, logPath)
+			var stdout, stderr bytes.Buffer
+			if code := Run(test.args, &stdout, &stderr); code != ExitOK {
+				t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+			}
+			if got := countPklEvaluations(t, logPath) - start; got != test.evaluations {
+				t.Fatalf("Pkl evaluations = %d, want %d", got, test.evaluations)
+			}
+		})
 	}
 }
 
@@ -334,15 +430,34 @@ func TestRemoteStatusDeployAndEvents(t *testing.T) {
 		t.Fatalf("status = %#v", status)
 	}
 
-	manifestPath := writeManifest(t, cliManifest)
-	stdout.Reset()
+	applicationDir := filepath.Join(root, "application")
+	if err := os.Mkdir(applicationDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "base.pkl"), []byte(cliManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(applicationDir, "orch.pkl")
+	if err := os.WriteFile(manifestPath, []byte(`amends "../base.pkl"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evaluationLog := installCountingPkl(t)
+	var rendered bytes.Buffer
+	if code := Run([]string{"render", "--file", manifestPath, "--root", root}, &rendered, &stderr); code != ExitOK {
+		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
+	}
 	stderr.Reset()
+	beforeDeployEvaluations := countPklEvaluations(t, evaluationLog)
+	stdout.Reset()
 	deployArgs := []string{
-		"deploy", "--file", manifestPath, "--context", contextPath,
+		"deploy", "--file", manifestPath, "--root", root, "--context", contextPath,
 		"--idempotency-key", "idempotency-key-one", "--json",
 	}
 	if code := Run(deployArgs, &stdout, &stderr); code != ExitOK {
 		t.Fatalf("deploy code = %d, stderr = %s", code, stderr.String())
+	}
+	if got := countPklEvaluations(t, evaluationLog) - beforeDeployEvaluations; got != 1 {
+		t.Fatalf("deploy Pkl evaluations = %d, want 1", got)
 	}
 	firstOutput := append([]byte(nil), stdout.Bytes()...)
 	var deployment struct {
@@ -363,6 +478,18 @@ func TestRemoteStatusDeployAndEvents(t *testing.T) {
 	}
 	if bytes.Contains(firstOutput, []byte("BEGIN ")) {
 		t.Fatal("deploy output contains credential material")
+	}
+	applicationClient, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(applicationClient.CloseIdleConnections)
+	application, err := applicationClient.GetApplication(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.GetCanonicalManifestJson() != rendered.String() {
+		t.Fatalf("deploy did not send rendered bytes\nrendered:\n%s\nstored:\n%s", rendered.String(), application.GetCanonicalManifestJson())
 	}
 
 	stdout.Reset()
@@ -409,7 +536,7 @@ func TestRemoteCommandsClassifyLocalAndTransportFailures(t *testing.T) {
 	if !json.Valid(stderr.Bytes()) {
 		t.Fatalf("events error is not JSON: %s", stderr.String())
 	}
-	largeManifest := filepath.Join(t.TempDir(), "large.toml")
+	largeManifest := filepath.Join(t.TempDir(), "large.pkl")
 	if err := os.WriteFile(largeManifest, bytes.Repeat([]byte("x"), (1<<20)+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -559,9 +686,45 @@ func rewriteCLIContextServer(t *testing.T, path, endpoint string) {
 
 func writeManifest(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "orch.toml")
+	path := filepath.Join(t.TempDir(), "orch.pkl")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func installCountingPkl(t *testing.T) string {
+	t.Helper()
+	realPkl, err := exec.LookPath("pkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	wrapper := filepath.Join(directory, "pkl")
+	logPath := filepath.Join(directory, "evaluations.log")
+	script := `#!/bin/sh
+if [ "$1" != "--version" ]; then
+  printf 'evaluate\n' >> "$ORCH_PKL_EVALUATION_LOG"
+fi
+exec "$ORCH_REAL_PKL" "$@"
+`
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ORCH_REAL_PKL", realPkl)
+	t.Setenv("ORCH_PKL_EVALUATION_LOG", logPath)
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return logPath
+}
+
+func countPklEvaluations(t *testing.T, logPath string) int {
+	t.Helper()
+	contents, err := os.ReadFile(logPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes.Count(contents, []byte("evaluate\n"))
 }

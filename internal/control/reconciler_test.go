@@ -20,7 +20,7 @@ func TestReconcilerLeavesApplicationsPendingWithoutAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
-	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	applyManifest(t, state, runtimeManifest(executableImage), "revision-one", "application-key-one", reconcilerTestTime)
 	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
@@ -36,21 +36,7 @@ func TestReconcilerPlansDeterministicAllocationsAndPreservesUnaffectedSpecs(t *t
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)
-	firstManifest := `schema = "v1alpha1"
-name = "hello"
-
-[services.api]
-image = "` + executableImage + `"
-replicas = 2
-
-[services.api.env]
-MODE = "one"
-
-[services.worker]
-image = "` + executableImage + `"
-command = ["/bin/sleep"]
-args = ["3600"]
-`
+	firstManifest := reconcilerServicesManifest("one")
 	applyManifest(t, state, firstManifest, "revision-one", "application-key-one", reconcilerTestTime)
 	var published []model.Assignment
 	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, func(assignment model.Assignment) {
@@ -102,7 +88,7 @@ args = ["3600"]
 		t.Fatalf("unchanged reconcile advanced state: node %#v -> %#v, events %d -> %d, callbacks %d", nodeBefore, nodeAfter, len(eventsBefore), len(eventsAfter), len(published))
 	}
 
-	updatedManifest := strings.Replace(firstManifest, `MODE = "one"`, `MODE = "two"`, 1)
+	updatedManifest := reconcilerServicesManifest("two")
 	applyManifest(t, state, updatedManifest, "revision-two", "application-key-two", reconcilerTestTime.Add(3*time.Minute))
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
@@ -138,7 +124,7 @@ func TestReconcilerPreservesLegacyWorkloadsDuringNetworkPreflight(t *testing.T) 
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)
-	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	applyManifest(t, state, runtimeManifest(executableImage), "revision-one", "application-key-one", reconcilerTestTime)
 	application, err := state.Application(ctx, "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +224,7 @@ func TestReconcilerPreservesAssignedWorkloadsWhenNodeCapabilityRegresses(t *test
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)
-	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	applyManifest(t, state, runtimeManifest(executableImage), "revision-one", "application-key-one", reconcilerTestTime)
 	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, nil)
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
@@ -281,13 +267,17 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
-		manifest string
+		manifest *config.Manifest
 		reason   string
 	}{
-		{name: "tag image", manifest: runtimeManifest("docker.io/library/busybox:latest", ""), reason: "unsupported_image_tag"},
-		{name: "private registry", manifest: runtimeManifest("localhost:5000/example/app@sha256:"+strings.Repeat("a", 64), ""), reason: "private_registry_unsupported"},
-		{name: "secret", manifest: runtimeManifest(executableImage, "\n[services.worker.secret_env]\nTOKEN = \"token\"\n"), reason: "secrets_unsupported"},
-		{name: "constraint", manifest: runtimeManifest(executableImage, "\n[services.worker.constraints]\nregion = \"local\"\n"), reason: "constraints_unsupported"},
+		{name: "tag image", manifest: runtimeManifest("docker.io/library/busybox:latest"), reason: "unsupported_image_tag"},
+		{name: "private registry", manifest: runtimeManifest("localhost:5000/example/app@sha256:" + strings.Repeat("a", 64)), reason: "private_registry_unsupported"},
+		{name: "secret", manifest: runtimeManifest(executableImage, func(service *config.Service) {
+			service.SecretEnv = map[string]string{"TOKEN": "token"}
+		}), reason: "secrets_unsupported"},
+		{name: "constraint", manifest: runtimeManifest(executableImage, func(service *config.Service) {
+			service.Constraints = map[string]string{"region": "local"}
+		}), reason: "constraints_unsupported"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -322,7 +312,7 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 
 func TestNodeCapabilityBlockersAreExplicit(t *testing.T) {
 	t.Parallel()
-	application := model.Application{Name: "hello", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, runtimeManifest(executableImage, ""))}
+	application := model.Application{Name: "hello", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, runtimeManifest(executableImage))}
 	tests := []struct {
 		name   string
 		node   model.Node
@@ -363,7 +353,7 @@ func TestReconcilerPublishesRemovalTombstone(t *testing.T) {
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)
-	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	applyManifest(t, state, runtimeManifest(executableImage), "revision-one", "application-key-one", reconcilerTestTime)
 	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
@@ -455,10 +445,9 @@ func freezeReconcilerNetwork(t *testing.T, state *store.Store, assignment model.
 	}
 }
 
-func applyManifest(t *testing.T, state *store.Store, source, revision, key string, now time.Time) {
+func applyManifest(t *testing.T, state *store.Store, manifest *config.Manifest, revision, key string, now time.Time) {
 	t.Helper()
-	manifest, err := config.Parse([]byte(source))
-	if err != nil {
+	if err := config.Validate(manifest); err != nil {
 		t.Fatal(err)
 	}
 	canonical, err := config.CanonicalJSON(manifest)
@@ -477,10 +466,9 @@ func applyManifest(t *testing.T, state *store.Store, source, revision, key strin
 	}
 }
 
-func mustCanonicalManifest(t *testing.T, source string) []byte {
+func mustCanonicalManifest(t *testing.T, manifest *config.Manifest) []byte {
 	t.Helper()
-	manifest, err := config.Parse([]byte(source))
-	if err != nil {
+	if err := config.Validate(manifest); err != nil {
 		t.Fatal(err)
 	}
 	canonical, err := config.CanonicalJSON(manifest)
@@ -490,15 +478,25 @@ func mustCanonicalManifest(t *testing.T, source string) []byte {
 	return canonical
 }
 
-func runtimeManifest(image, extra string) string {
-	return `schema = "v1alpha1"
-name = "hello"
+func runtimeManifest(image string, mutations ...func(*config.Service)) *config.Manifest {
+	service := config.Service{
+		Image: image, Command: []string{"/bin/sleep"}, Args: []string{"3600"},
+	}
+	for _, mutate := range mutations {
+		mutate(&service)
+	}
+	return newTestManifest("hello", map[string]config.Service{"worker": service})
+}
 
-[services.worker]
-image = "` + image + `"
-command = ["/bin/sleep"]
-args = ["3600"]
-` + extra
+func reconcilerServicesManifest(mode string) *config.Manifest {
+	return newTestManifest("hello", map[string]config.Service{
+		"api": {
+			Image: executableImage, Replicas: 2, Env: map[string]string{"MODE": mode},
+		},
+		"worker": {
+			Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"},
+		},
+	})
 }
 
 func allocationForService(t *testing.T, assignment model.Assignment, service string, replica uint32) model.AllocationDesired {

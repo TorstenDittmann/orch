@@ -980,11 +980,13 @@ func (x *ListEventsResponse) GetNextAfterSequence() uint64 {
 }
 
 type ApplyApplicationRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ManifestToml   []byte                 `protobuf:"bytes,1,opt,name=manifest_toml,json=manifestToml,proto3" json:"manifest_toml,omitempty"`
-	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated: Marked as deprecated in orch/v1alpha1/control.proto.
+	ManifestToml          []byte `protobuf:"bytes,1,opt,name=manifest_toml,json=manifestToml,proto3" json:"manifest_toml,omitempty"`
+	IdempotencyKey        string `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	CanonicalManifestJson []byte `protobuf:"bytes,3,opt,name=canonical_manifest_json,json=canonicalManifestJson,proto3" json:"canonical_manifest_json,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ApplyApplicationRequest) Reset() {
@@ -1017,6 +1019,7 @@ func (*ApplyApplicationRequest) Descriptor() ([]byte, []int) {
 	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{10}
 }
 
+// Deprecated: Marked as deprecated in orch/v1alpha1/control.proto.
 func (x *ApplyApplicationRequest) GetManifestToml() []byte {
 	if x != nil {
 		return x.ManifestToml
@@ -1029,6 +1032,13 @@ func (x *ApplyApplicationRequest) GetIdempotencyKey() string {
 		return x.IdempotencyKey
 	}
 	return ""
+}
+
+func (x *ApplyApplicationRequest) GetCanonicalManifestJson() []byte {
+	if x != nil {
+		return x.CanonicalManifestJson
+	}
+	return nil
 }
 
 type ApplyApplicationResponse struct {
@@ -1892,10 +1902,11 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\"r\n" +
 	"\x12ListEventsResponse\x12,\n" +
 	"\x06events\x18\x01 \x03(\v2\x14.orch.v1alpha1.EventR\x06events\x12.\n" +
-	"\x13next_after_sequence\x18\x02 \x01(\x04R\x11nextAfterSequence\"g\n" +
-	"\x17ApplyApplicationRequest\x12#\n" +
-	"\rmanifest_toml\x18\x01 \x01(\fR\fmanifestToml\x12'\n" +
-	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x89\x03\n" +
+	"\x13next_after_sequence\x18\x02 \x01(\x04R\x11nextAfterSequence\"\xa3\x01\n" +
+	"\x17ApplyApplicationRequest\x12'\n" +
+	"\rmanifest_toml\x18\x01 \x01(\fB\x02\x18\x01R\fmanifestToml\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x126\n" +
+	"\x17canonical_manifest_json\x18\x03 \x01(\fR\x15canonicalManifestJson\"\x89\x03\n" +
 	"\x18ApplyApplicationResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +

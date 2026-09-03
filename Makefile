@@ -2,8 +2,9 @@ MISE ?= mise
 GO := GOTOOLCHAIN=local $(MISE) exec -- go
 GOFMT := $(MISE) exec -- gofmt
 BUF := $(MISE) exec -- buf
+PKL := $(MISE) exec -- pkl
 
-.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e test test-race vet
+.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet
 
 all: check
 
@@ -13,25 +14,26 @@ build:
 
 generate:
 	$(BUF) generate
-	$(GO) generate ./...
 
 generate-check:
 	@set -eu; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 		$(BUF) format -d --exit-code; \
 		$(BUF) lint; \
 		$(BUF) generate --output "$$tmp"; \
-		$(GO) run ./cmd/schema-gen -out "$$tmp/orch.schema.json"; \
 		diff -ru gen "$$tmp/gen" || \
-		(echo "Generated protobuf files are stale; run make generate" && exit 1); \
-		cmp schema/orch.schema.json "$$tmp/orch.schema.json" || \
-		(echo "Generated files are stale; run make generate" && exit 1)
+		(echo "Generated protobuf files are stale; run make generate" && exit 1)
 
 fmt:
-	$(GOFMT) -w $$(find cmd internal test -name '*.go' -type f)
+	$(GOFMT) -w $$(find cmd internal pkl test -name '*.go' -type f)
+	$(PKL) format -w pkl examples
 
 fmt-check:
-	@test -z "$$($(GOFMT) -l $$(find cmd internal test -name '*.go' -type f))" || \
+	@test -z "$$($(GOFMT) -l $$(find cmd internal pkl test -name '*.go' -type f))" || \
 		(echo "Go files need formatting; run make fmt" && exit 1)
+	$(PKL) format --diff-name-only pkl examples
+
+pkl-test:
+	$(PKL) test --no-project --root-dir . pkl/tests/*.pkl
 
 test:
 	$(GO) test ./...
@@ -45,7 +47,7 @@ vet:
 coverage:
 	$(GO) test -coverprofile=coverage.out ./...
 
-check: generate-check fmt-check vet test test-race build
+check: generate-check fmt-check pkl-test vet test test-race build
 
 containerd-e2e:
 	./scripts/containerd-e2e.sh

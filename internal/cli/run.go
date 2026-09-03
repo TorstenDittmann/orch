@@ -20,6 +20,7 @@ import (
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/control"
+	pklschema "change.codes/torsten/better-swarm/pkl"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -68,13 +69,15 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	case "deploy":
 		return runDeploy(ctx, args[1:], stdout, stderr)
 	case "validate":
-		return runValidate(args[1:], stdout, stderr)
+		return runValidate(ctx, args[1:], stdout, stderr)
 	case "plan":
-		return runPlan(args[1:], stdout, stderr)
+		return runPlan(ctx, args[1:], stdout, stderr)
 	case "render":
-		return runRender(args[1:], stdout, stderr)
+		return runRender(ctx, args[1:], stdout, stderr)
 	case "schema":
 		return runSchema(args[1:], stdout, stderr)
+	case "pkl":
+		return runPkl(args[1:], stdout, stderr)
 	case "version":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "version accepts no arguments")
@@ -262,10 +265,11 @@ var cliIdempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1
 func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var file, contextPath, idempotencyKey string
+	var file, root, contextPath, idempotencyKey string
 	var jsonOutput bool
-	flags.StringVar(&file, "file", "orch.toml", "manifest path")
-	flags.StringVar(&file, "f", "orch.toml", "manifest path")
+	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.StringVar(&idempotencyKey, "idempotency-key", "", "stable key for safe retries")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
@@ -280,15 +284,15 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, errors.New("deploy requires --context"), jsonOutput)
 		return ExitInvalid
 	}
-	manifestTOML, err := readLimitedFile(file, 1<<20)
+	manifest, err := config.Load(ctx, file, config.LoadOptions{RootDir: root})
 	if err != nil {
-		writeError(stderr, fmt.Errorf("read manifest %q: %w", file, err), jsonOutput)
+		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
-	manifest, err := config.Parse(manifestTOML)
+	canonical, err := config.CanonicalJSON(manifest)
 	if err != nil {
-		writeError(stderr, fmt.Errorf("%s: %w", file, err), jsonOutput)
-		return ExitInvalid
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
 	}
 	if idempotencyKey == "" {
 		idempotencyKey, err = newIdempotencyKey(rand.Reader)
@@ -307,12 +311,12 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	response, err := remote.ApplyApplication(ctx, manifestTOML, idempotencyKey)
+	response, err := remote.ApplyApplication(ctx, canonical, idempotencyKey)
 	if err != nil {
 		writeError(stderr, fmt.Errorf("deploy request failed; retry with --idempotency-key %s: %w", idempotencyKey, err), jsonOutput)
 		return ExitRuntime
 	}
-	digest, _ := config.Digest(manifest)
+	digest := config.DigestCanonicalJSON(canonical)
 	if response.GetName() != manifest.Name || response.GetDigest() != digest || response.GetGeneration() == 0 || response.GetRevisionId() == "" || response.GetExecutionStatus() != orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_PENDING {
 		writeError(stderr, errors.New("controller returned inconsistent application state"), jsonOutput)
 		return ExitRuntime
@@ -374,22 +378,6 @@ func newIdempotencyKey(random io.Reader) (string, error) {
 		return "", err
 	}
 	return "idem_" + hex.EncodeToString(value), nil
-}
-
-func readLimitedFile(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(contents)) > limit {
-		return nil, fmt.Errorf("manifest exceeds %d bytes", limit)
-	}
-	return contents, nil
 }
 
 func runCluster(args []string, stdout, stderr io.Writer) int {
@@ -516,13 +504,14 @@ func missingFlags(values map[string]string) []string {
 	return missing
 }
 
-func runValidate(args []string, stdout, stderr io.Writer) int {
+func runValidate(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var file string
+	var file, root string
 	var jsonOutput bool
-	flags.StringVar(&file, "file", "orch.toml", "manifest path")
-	flags.StringVar(&file, "f", "orch.toml", "manifest path")
+	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
@@ -532,7 +521,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		return ExitInvalid
 	}
 
-	manifest, err := config.Load(file)
+	manifest, err := config.Load(ctx, file, config.LoadOptions{RootDir: root})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
@@ -561,15 +550,15 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
-func runPlan(args []string, stdout, stderr io.Writer) int {
+func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var file string
-	var against string
+	var file, root, against string
 	var jsonOutput bool
-	flags.StringVar(&file, "file", "orch.toml", "target manifest path")
-	flags.StringVar(&file, "f", "orch.toml", "target manifest path")
-	flags.StringVar(&against, "against", "", "existing manifest to compare against")
+	flags.StringVar(&file, "file", "orch.pkl", "target Pkl manifest path")
+	flags.StringVar(&file, "f", "orch.pkl", "target Pkl manifest path")
+	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to each manifest directory)")
+	flags.StringVar(&against, "against", "", "existing Pkl manifest to compare against")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
@@ -579,14 +568,14 @@ func runPlan(args []string, stdout, stderr io.Writer) int {
 		return ExitInvalid
 	}
 
-	target, err := config.Load(file)
+	target, err := config.Load(ctx, file, config.LoadOptions{RootDir: root})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
 	var current *config.Manifest
 	if against != "" {
-		current, err = config.Load(against)
+		current, err = config.Load(ctx, against, config.LoadOptions{RootDir: root})
 		if err != nil {
 			writeError(stderr, err, jsonOutput)
 			return ExitInvalid
@@ -643,11 +632,7 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "schema accepts no arguments")
 		return ExitInvalid
 	}
-	data, err := config.SchemaJSON()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return ExitRuntime
-	}
+	data := pklschema.ApplicationSource()
 	if _, err := stdout.Write(data); err != nil {
 		fmt.Fprintln(stderr, err)
 		return ExitRuntime
@@ -655,12 +640,13 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
-func runRender(args []string, stdout, stderr io.Writer) int {
+func runRender(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("render", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var file string
-	flags.StringVar(&file, "file", "orch.toml", "manifest path")
-	flags.StringVar(&file, "f", "orch.toml", "manifest path")
+	var file, root string
+	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
+	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
@@ -668,7 +654,7 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "render accepts flags only")
 		return ExitInvalid
 	}
-	manifest, err := config.Load(file)
+	manifest, err := config.Load(ctx, file, config.LoadOptions{RootDir: root})
 	if err != nil {
 		writeError(stderr, err, false)
 		return ExitInvalid
@@ -680,6 +666,18 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	}
 	if _, err := stdout.Write(data); err != nil {
 		fmt.Fprintln(stderr, err)
+		return ExitRuntime
+	}
+	return ExitOK
+}
+
+func runPkl(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 || args[0] != "reader" {
+		fmt.Fprintln(stderr, "usage: orch pkl reader")
+		return ExitInvalid
+	}
+	if err := pklschema.RunExternalReader(os.Stdin, stdout); err != nil {
+		fmt.Fprintf(stderr, "run Pkl schema reader: %v\n", err)
 		return ExitRuntime
 	}
 	return ExitOK
@@ -752,11 +750,12 @@ Usage:
   orch remove APP --context FILE [--idempotency-key KEY] [--json]
   orch status --context FILE [--json]
   orch events --context FILE [--after SEQUENCE] [--limit N] [--json]
-  orch deploy [-f orch.toml] --context FILE [--idempotency-key KEY] [--json]
-  orch validate [-f orch.toml] [--json]
-  orch plan [-f orch.toml] [--against previous.toml] [--json]
-  orch render [-f orch.toml]
+  orch deploy [-f orch.pkl] [--root DIR] --context FILE [--idempotency-key KEY] [--json]
+  orch validate [-f orch.pkl] [--root DIR] [--json]
+  orch plan [-f orch.pkl] [--root DIR] [--against previous.pkl] [--json]
+  orch render [-f orch.pkl] [--root DIR]
   orch schema
+  orch pkl reader
   orch version
 
 Exit codes:

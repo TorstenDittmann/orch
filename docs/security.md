@@ -61,6 +61,26 @@ The metadata-free `/healthz` endpoint is the only route that permits a TLS
 connection without a client certificate. It reports no version, cluster,
 application, or event information.
 
+## Configuration evaluation
+
+Pkl executes only on the operator machine for `deploy`, `validate`, `plan`, and
+`render`. The evaluator accepts the pinned Pkl version, a single bounded entry
+module, local module imports below a real-path root, standard-library modules,
+and the embedded versioned `orch:` schema. Its ten-second deadline follows CLI
+cancellation.
+
+The evaluator denies every resource scheme, including environment variables,
+external properties, local files, HTTP, and packages. It also denies network,
+package, project-package, module-path, REPL, and unregistered module schemes.
+It does not load user settings or `PklProject` evaluator settings. Root and
+symlink boundary tests, plus a loopback request sentinel, enforce that policy.
+
+Pkl source and imports never cross the API. The authenticated apply request
+contains only deterministic canonical JSON. The controller strictly decodes
+that JSON, rejects unknown/trailing/noncanonical data, reruns Go validation,
+and stores the same canonical contract used by agents. Controllers and agents
+start and reconcile without Pkl present on `PATH`.
+
 ## Secret placement
 
 The CA private key and controller private key stay under the controller data

@@ -1,0 +1,94 @@
+module orch.Application
+
+/// The resolved application contract produced by every orch configuration.
+fixed schema: "v1alpha1" = "v1alpha1"
+
+/// A DNS-label application name.
+name: DnsLabel
+
+/// Services keyed by their DNS-label name.
+services: Mapping<DnsLabel, Service>(length.isBetween(1, 100))
+
+/// Node-local volumes keyed by their DNS-label name.
+volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
+
+/// Rolling deployment behavior.
+deploy: Deployment = new {}
+
+typealias RestartPolicy = "always" | "on-failure" | "never"
+
+typealias DnsLabel = String(length <= 63, matches(Regex(#"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"#)))
+
+typealias EnvironmentName = String(matches(Regex(#"^[A-Za-z_][A-Za-z0-9_]*$"#)))
+
+typealias ManifestString = String(length <= 4096)
+
+class Service {
+  image: String(!isBlank, length <= 1024)
+
+  command: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  args: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  replicas: Int(isBetween(1, 100)) = 1
+
+  restart: RestartPolicy = "always"
+
+  resources: Resources = new {}
+
+  http: Http? = null
+
+  env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
+
+  secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  secretFiles: Listing<SecretFile>(length <= 64) = new {}
+
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
+
+  mounts: Listing<Mount>(length <= 64) = new {}
+}
+
+class Resources {
+  cpu: String(matches(Regex(#"^[1-9][0-9]*(?:m)?$"#))) = "100m"
+
+  memory: String(matches(Regex(#"^[1-9][0-9]*(?:Ki|Mi|Gi|Ti)$"#))) = "128Mi"
+}
+
+class Http {
+  port: Int(isBetween(1, 65535))
+
+  domains: Listing<String>(length <= 100, isDistinct) = new {}
+
+  healthPath: String(length <= 2048) = ""
+
+  https: Boolean = true
+}
+
+class SecretFile {
+  source: DnsLabel
+
+  target: ManifestString
+}
+
+class Mount {
+  source: DnsLabel
+
+  target: ManifestString
+
+  readOnly: Boolean = false
+}
+
+class Volume {
+  driver: "local" = "local"
+}
+
+class Deployment {
+  maxSurge: Int(isBetween(0, 100)) = 1
+
+  maxUnavailable: Int(isBetween(0, 100)) = 0
+
+  healthDeadline: String = "2m"
+
+  autoRollback: Boolean = true
+}

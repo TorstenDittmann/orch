@@ -31,7 +31,7 @@ The runtime applies image defaults plus manifest command/args overrides, plain
 environment variables, replica count, `always`/`on-failure`/`never` restart
 policy, CPU quota, memory limit, and agent-managed local volume mounts.
 
-The runnable example is [examples/runtime/orch.toml](../examples/runtime/orch.toml).
+The runnable example is [examples/runtime/orch.pkl](../examples/runtime/orch.pkl).
 Its BusyBox image is a Docker Official Image multi-platform index pinned by
 digest for amd64 and arm64. A digest is immutable; update it deliberately rather
 than changing it through a tag.
@@ -109,10 +109,10 @@ restart. Unchanged allocation spec digests continue running through application
 updates.
 
 Stateless replacement starts the new object before stopping the prior object
-when `max_surge` permits it. Reconciliation enforces the application surge
+when `maxSurge` permits it. Reconciliation enforces the application surge
 budget and retains the serving revision until its replacement is ready. A
 local-volume replacement is stop-then-start and therefore has an availability
-gap. With `auto_rollback`, three failed readiness probes or an expired health
+gap. With `autoRollback`, three failed readiness probes or an expired health
 deadline restores the controller-authorized previous spec; if the prior object
 was stopped, the agent recreates it from the controller-issued assignment snapshot.
 

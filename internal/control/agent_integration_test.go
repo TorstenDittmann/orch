@@ -15,6 +15,7 @@ import (
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/discovery"
 	"change.codes/torsten/better-swarm/internal/ingress"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
@@ -65,15 +66,11 @@ func TestLoopbackAgentRunsOperatesAdoptsAndRemovesWorkload(t *testing.T) {
 		t.Fatalf("Enroll() = %#v, %v", result, err)
 	}
 
-	manifest := []byte(`schema = "v1alpha1"
-name = "hello"
-
-[services.worker]
-image = "` + executableImage + `"
-command = ["/bin/sleep"]
-args = ["3600"]
-restart = "always"
-`)
+	manifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"worker": {
+			Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"}, Restart: "always",
+		},
+	}))
 	if _, err := remote.ApplyApplication(context.Background(), manifest, "integration-deploy-key-one"); err != nil {
 		t.Fatal(err)
 	}

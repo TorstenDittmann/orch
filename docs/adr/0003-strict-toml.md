@@ -1,6 +1,6 @@
 # ADR 0003: use strict, versioned TOML
 
-Status: Accepted by Plan #1.
+Status: Superseded by ADR 0008 and Plan #6.
 
 Applications use one TOML document with an explicit schema version. The parser
 rejects unknown fields, resolves visible defaults, emits a deterministic

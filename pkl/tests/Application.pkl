@@ -1,0 +1,26 @@
+amends "pkl:test"
+
+import "../v1alpha1/Application.pkl" as app
+
+local service = new app.Service {
+  image = "example/web:1"
+}
+
+local deployment = new app.Deployment {}
+
+facts {
+  ["service defaults"] {
+    service.replicas == 1
+    service.restart == "always"
+    service.resources.cpu == "100m"
+    service.resources.memory == "128Mi"
+    service.http == null
+    service.env.isEmpty
+  }
+  ["deployment defaults"] {
+    deployment.maxSurge == 1
+    deployment.maxUnavailable == 0
+    deployment.healthDeadline == "2m"
+    deployment.autoRollback
+  }
+}
