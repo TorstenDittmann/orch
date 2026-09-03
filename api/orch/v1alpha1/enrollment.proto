@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package orch.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1";
+
+service EnrollmentService {
+  rpc EnrollAgent(EnrollmentServiceEnrollAgentRequest) returns (EnrollmentServiceEnrollAgentResponse);
+}
+
+message EnrollmentServiceEnrollAgentRequest {
+  string join_id = 1;
+  bytes secret = 2;
+  string name = 3;
+  bytes certificate_request_der = 4;
+  string idempotency_key = 5;
+}
+
+message EnrollmentServiceEnrollAgentResponse {
+  string node_id = 1;
+  string node_name = 2;
+  string cluster_id = 3;
+  string controller_endpoint = 4;
+  bytes ca_certificate_pem = 5;
+  bytes agent_certificate_pem = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  bool changed = 8;
+  uint64 event_sequence = 9;
+}

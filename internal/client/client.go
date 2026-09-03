@@ -155,6 +155,30 @@ func (client *Client) RemoveNode(ctx context.Context, request *orchv1alpha1.Remo
 	return response.Msg, nil
 }
 
+func (client *Client) CreateJoinToken(ctx context.Context, request *orchv1alpha1.CreateJoinTokenRequest) (*orchv1alpha1.CreateJoinTokenResponse, error) {
+	response, err := client.service.CreateJoinToken(ctx, connect.NewRequest(request))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListJoinTokens(ctx context.Context) ([]*orchv1alpha1.JoinTokenMetadata, error) {
+	response, err := client.service.ListJoinTokens(ctx, connect.NewRequest(&orchv1alpha1.ListJoinTokensRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetTokens(), nil
+}
+
+func (client *Client) RevokeJoinToken(ctx context.Context, id, idempotencyKey string) (*orchv1alpha1.RevokeJoinTokenResponse, error) {
+	response, err := client.service.RevokeJoinToken(ctx, connect.NewRequest(&orchv1alpha1.RevokeJoinTokenRequest{Id: id, IdempotencyKey: idempotencyKey}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 func (client *Client) ConfigureNetwork(ctx context.Context, cidr, idempotencyKey string) (*orchv1alpha1.ConfigureNetworkResponse, error) {
 	response, err := client.service.ConfigureNetwork(ctx, connect.NewRequest(&orchv1alpha1.ConfigureNetworkRequest{
 		Cidr: cidr, IdempotencyKey: idempotencyKey,

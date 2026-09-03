@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -19,7 +18,6 @@ import (
 	"change.codes/torsten/better-swarm/internal/agent/state"
 	"change.codes/torsten/better-swarm/internal/model"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	"change.codes/torsten/better-swarm/internal/security"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -34,14 +32,17 @@ const (
 )
 
 type sessionRunner struct {
-	credentials  Credentials
-	cache        *state.Store
-	supervisor   *Supervisor
-	capabilities orchruntime.Capabilities
-	bootID       string
-	now          func() time.Time
-	random       io.Reader
-	reportSeq    uint64
+	credentials    Credentials
+	cache          *state.Store
+	supervisor     *Supervisor
+	capabilities   orchruntime.Capabilities
+	bootID         string
+	now            func() time.Time
+	random         io.Reader
+	reportSeq      uint64
+	dataDir        string
+	renewalRetryAt time.Time
+	renewalBackoff time.Duration
 }
 
 type controllerMessage struct {
@@ -113,7 +114,25 @@ func (r *sessionRunner) run(ctx context.Context) error {
 		if err := r.reconcileCached(ctx); err != nil {
 			return err
 		}
-		err := r.connect(ctx)
+		renewed, err := r.maybeRenewCertificate(ctx)
+		if err != nil {
+			r.noteRenewalFailure()
+		} else if renewed {
+			r.renewalRetryAt = time.Time{}
+			r.renewalBackoff = 0
+		}
+		if r.certificateExpired() {
+			// An expired identity cannot reconnect or renew, but cached workload
+			// supervision remains useful and must not stop with the control plane.
+			if r.renewalRetryAt.IsZero() {
+				r.noteRenewalFailure()
+			}
+			if err := r.waitToReconnect(ctx, r.certificateRenewalDelay()); err != nil {
+				return err
+			}
+			continue
+		}
+		err = r.connect(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -186,16 +205,7 @@ func reconnectJitter(source io.Reader, maximum time.Duration) (time.Duration, er
 }
 
 func (r *sessionRunner) connect(ctx context.Context) error {
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13, RootCAs: r.credentials.RootCAs,
-		Certificates: []tls.Certificate{r.credentials.Certificate}, ServerName: r.credentials.ServerName,
-		VerifyConnection: func(connection tls.ConnectionState) error {
-			if len(connection.PeerCertificates) == 0 || len(connection.VerifiedChains) == 0 {
-				return errors.New("controller certificate was not verified")
-			}
-			return security.VerifyPeerIdentity(connection.PeerCertificates[0], r.credentials.Config.ClusterID, security.RoleController)
-		},
-	}
+	tlsConfig := r.agentTLSConfig()
 	transport := &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
 		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -252,8 +262,10 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	}
 	heartbeat := time.NewTicker(heartbeatInterval)
 	reconcile := time.NewTicker(reconcileInterval)
+	renewal := time.NewTimer(r.certificateRenewalDelay())
 	defer heartbeat.Stop()
 	defer reconcile.Stop()
+	defer renewal.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -294,6 +306,8 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 			if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
 				return err
 			}
+		case <-renewal.C:
+			return errCertificateRenewalDue
 		}
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/control"
@@ -522,6 +525,74 @@ func TestRemoteStatusDeployAndEvents(t *testing.T) {
 	}
 }
 
+func TestNodeJoinCLIEnrollsWithoutAdministratorContextOnWorker(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "controller")
+	contextPath := filepath.Join(root, "operator", "context.json")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
+		Name: "test", Server: "https://" + address, DataDir: dataDir,
+		ContextPath: contextPath, Now: time.Now, Random: rand.Reader,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := control.Start(context.Background(), control.Options{DataDir: dataDir, Listen: address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+
+	joinPath := filepath.Join(root, "node-1.join")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"node", "join", "create", "node-1", "--ttl", "15m", "--output", joinPath, "--context", contextPath, "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("join create code = %d, stderr = %s", code, stderr.String())
+	}
+	info, err := os.Stat(joinPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("join artifact mode = %v, %v", info, err)
+	}
+	artifact, err := agentctl.ReadJoinArtifact(joinPath, nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(stdout.Bytes(), artifact.Secret) || strings.Contains(stdout.String(), base64.StdEncoding.EncodeToString(artifact.Secret)) {
+		t.Fatal("join creation output contains bearer secret")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"node", "join", "create", "node-1", "--output", joinPath, "--context", contextPath}, &stdout, &stderr); code != ExitInvalid {
+		t.Fatalf("join overwrite code = %d, want %d", code, ExitInvalid)
+	}
+	agentDir := filepath.Join(root, "worker")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"agent", "init", "--join-file", joinPath, "--data-dir", agentDir, "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("agent init code = %d, stderr = %s", code, stderr.String())
+	}
+	if _, err := agentctl.Load(agentDir, time.Now()); err != nil {
+		t.Fatalf("load joined agent: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(agentDir, agentctl.EnrollmentFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("completed enrollment stage remains: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"node", "join", "list", "--context", contextPath, "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("join list code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), base64.StdEncoding.EncodeToString(artifact.Secret)) || !strings.Contains(stdout.String(), "CONSUMED") {
+		t.Fatalf("join list output = %s", stdout.String())
+	}
+}
+
 func TestRemoteCommandsClassifyLocalAndTransportFailures(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
@@ -553,8 +624,8 @@ func TestRuntimeCommandsClassifyInvalidInputAndStayInPublicHelp(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "agent init", args: []string{"agent", "init", "--name", "node-1"}},
-		{name: "agent init name", args: []string{"agent", "init", "--name", "Node_1", "--context", "missing", "--data-dir", "/tmp/orch-agent-invalid"}},
+		{name: "agent init", args: []string{"agent", "init", "--data-dir", "/tmp/orch-agent-invalid"}},
+		{name: "agent init legacy flags", args: []string{"agent", "init", "--name", "node-1", "--context", "missing", "--data-dir", "/tmp/orch-agent-invalid"}},
 		{name: "agent serve", args: []string{"agent", "serve", "--data-dir", "/tmp/agent"}},
 		{name: "nodes", args: []string{"nodes"}},
 		{name: "app status", args: []string{"app", "status", "hello"}},
@@ -579,7 +650,7 @@ func TestRuntimeCommandsClassifyInvalidInputAndStayInPublicHelp(t *testing.T) {
 	if code := Run([]string{"help"}, &stdout, &stderr); code != ExitOK {
 		t.Fatalf("help = %d, %s", code, stderr.String())
 	}
-	for _, command := range []string{"agent init", "nodes --context", "app status", "logs APP", "exec APP", "remove APP"} {
+	for _, command := range []string{"agent init", "node join create", "nodes --context", "app status", "logs APP", "exec APP", "remove APP"} {
 		if !strings.Contains(stdout.String(), command) {
 			t.Errorf("help does not contain %q", command)
 		}

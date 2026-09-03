@@ -305,6 +305,7 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 	}
 	response := &orchv1alpha1.ListNodesResponse{Nodes: make([]*orchv1alpha1.Node, 0, len(nodes))}
 	for _, node := range nodes {
+		store.DecorateCertificateState(&node, s.now())
 		assignedCPU, assignedMemory, err := s.state.NodeAssignedResources(ctx, node.ID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read node resource reservations"))
@@ -324,6 +325,97 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 		response.Nodes = append(response.Nodes, nodeMessage(node))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (s *service) CreateJoinToken(ctx context.Context, request *connect.Request[orchv1alpha1.CreateJoinTokenRequest]) (*connect.Response[orchv1alpha1.CreateJoinTokenResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) || !idempotencyKeyPattern.MatchString(request.Msg.GetId()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("join id and idempotency_key must be 16-128 URL-safe characters"))
+	}
+	if err := config.ValidateApplicationName(request.Msg.GetNodeName()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid node name: %w", err))
+	}
+	if len(request.Msg.GetSecretHash()) != sha256.Size || request.Msg.GetExpiresAt() == nil || request.Msg.GetExpiresAt().CheckValid() != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("secret_hash must be 32 bytes and expires_at must be valid"))
+	}
+	now := s.now().UTC()
+	expires := request.Msg.GetExpiresAt().AsTime().UTC()
+	hashRequest := proto.Clone(request.Msg).(*orchv1alpha1.CreateJoinTokenRequest)
+	hashRequest.IdempotencyKey = ""
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(hashRequest)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("encode join credential creation"))
+	}
+	digest := sha256.Sum256(encoded)
+	result, err := s.state.CreateJoinToken(ctx, model.CreateJoinToken{
+		ID: request.Msg.GetId(), NodeName: request.Msg.GetNodeName(), SecretHash: hex.EncodeToString(request.Msg.GetSecretHash()),
+		ExpiresAt: expires, IdempotencyKey: request.Msg.GetIdempotencyKey(), RequestHash: hex.EncodeToString(digest[:]), CreatedAt: now,
+	})
+	if errors.Is(err, store.ErrIdempotencyConflict) || errors.Is(err, store.ErrJoinTokenUnavailable) || errors.Is(err, store.ErrNodeAlreadyEnrolled) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if errors.Is(err, store.ErrJoinTokenLimit) {
+		return nil, connect.NewError(connect.CodeResourceExhausted, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&orchv1alpha1.CreateJoinTokenResponse{
+		Token: joinTokenMessage(result.Token), Changed: result.Changed, EventSequence: result.EventSequence,
+	}), nil
+}
+
+func (s *service) ListJoinTokens(ctx context.Context, request *connect.Request[orchv1alpha1.ListJoinTokensRequest]) (*connect.Response[orchv1alpha1.ListJoinTokensResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	tokens, err := s.state.JoinTokens(ctx, s.now().UTC())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("list join credentials"))
+	}
+	response := &orchv1alpha1.ListJoinTokensResponse{Tokens: make([]*orchv1alpha1.JoinTokenMetadata, 0, len(tokens))}
+	for _, token := range tokens {
+		response.Tokens = append(response.Tokens, joinTokenMessage(token))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *service) RevokeJoinToken(ctx context.Context, request *connect.Request[orchv1alpha1.RevokeJoinTokenRequest]) (*connect.Response[orchv1alpha1.RevokeJoinTokenResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetId()) || !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("join id and idempotency_key must be 16-128 URL-safe characters"))
+	}
+	hashRequest := proto.Clone(request.Msg).(*orchv1alpha1.RevokeJoinTokenRequest)
+	hashRequest.IdempotencyKey = ""
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(hashRequest)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("encode join credential revocation"))
+	}
+	digest := sha256.Sum256(encoded)
+	result, err := s.state.RevokeJoinToken(ctx, model.RevokeJoinToken{ID: request.Msg.GetId(), IdempotencyKey: request.Msg.GetIdempotencyKey(), RequestHash: hex.EncodeToString(digest[:]), RevokedAt: s.now().UTC()})
+	if errors.Is(err, store.ErrJoinTokenUnavailable) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&orchv1alpha1.RevokeJoinTokenResponse{Token: joinTokenMessage(result.Token), Changed: result.Changed, EventSequence: result.EventSequence}), nil
 }
 
 func (s *service) UpdateNode(ctx context.Context, request *connect.Request[orchv1alpha1.UpdateNodeRequest]) (*connect.Response[orchv1alpha1.UpdateNodeResponse], error) {
@@ -374,6 +466,7 @@ func (s *service) UpdateNode(ctx context.Context, request *connect.Request[orchv
 			return nil, connect.NewError(connect.CodeInternal, errors.New("reconcile node update"))
 		}
 	}
+	store.DecorateCertificateState(&result.Node, s.now())
 	return connect.NewResponse(&orchv1alpha1.UpdateNodeResponse{
 		Node: nodeMessage(result.Node), Changed: result.Changed, EventSequence: result.EventSequence,
 	}), nil
@@ -1098,6 +1191,8 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		AdvertiseAddress: node.AdvertiseAddress, WireguardPublicKey: node.WireGuardPublicKey,
 		WireguardListenPort: node.WireGuardListenPort,
 		DrainBlockers:       append([]string(nil), node.DrainBlockers...),
+		CertificateNotAfter: timestamppb.New(node.CertificateNotAfter), CertificateState: node.CertificateState,
+		CertificateReason: node.CertificateReason,
 	}
 	if node.LastSeenAt != nil {
 		message.LastSeenAt = timestamppb.New(*node.LastSeenAt)
@@ -1113,6 +1208,11 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		message.ConnectionStatus = orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_ENROLLED
 	}
 	return message
+}
+
+func joinTokenMessage(token model.JoinToken) *orchv1alpha1.JoinTokenMetadata {
+	return &orchv1alpha1.JoinTokenMetadata{Id: token.ID, NodeName: token.NodeName,
+		CreatedAt: timestamppb.New(token.CreatedAt), ExpiresAt: timestamppb.New(token.ExpiresAt), State: token.State}
 }
 
 func lifecycleMessage(value string) orchv1alpha1.NodeLifecycle {

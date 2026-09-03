@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -113,7 +114,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	reconciler.secretBox = secretBox
 	reconciler.sessions = sessions
 	implementation.reconciler = reconciler
-	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now}
+	enrollmentImplementation := newEnrollmentService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, now)
+	enrollmentImplementation.reconciler = reconciler
+	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now,
+		caPEM: append([]byte(nil), credentials.CACertificatePEM...), caKey: append([]byte(nil), credentials.CAPrivateKeyPEM...), random: rand.Reader}
 	path, handler := orchv1alpha1connect.NewControlServiceHandler(
 		implementation,
 		connect.WithReadMaxBytes(maxHTTPBodyBytes),
@@ -121,6 +125,12 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, authenticateAdministrator(cluster.ID, http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
+		enrollmentImplementation,
+		connect.WithReadMaxBytes(64<<10),
+		connect.WithSendMaxBytes(64<<10),
+	)
+	mux.Handle(enrollmentPath, http.MaxBytesHandler(enrollmentHandler, 64<<10))
 	agentPath, agentHandler := orchv1alpha1connect.NewAgentServiceHandler(
 		agentImplementation,
 		connect.WithReadMaxBytes(maxAgentMessageBytes),

@@ -91,6 +91,15 @@ const (
 	// ControlServiceRemoveNodeProcedure is the fully-qualified name of the ControlService's RemoveNode
 	// RPC.
 	ControlServiceRemoveNodeProcedure = "/orch.v1alpha1.ControlService/RemoveNode"
+	// ControlServiceCreateJoinTokenProcedure is the fully-qualified name of the ControlService's
+	// CreateJoinToken RPC.
+	ControlServiceCreateJoinTokenProcedure = "/orch.v1alpha1.ControlService/CreateJoinToken"
+	// ControlServiceListJoinTokensProcedure is the fully-qualified name of the ControlService's
+	// ListJoinTokens RPC.
+	ControlServiceListJoinTokensProcedure = "/orch.v1alpha1.ControlService/ListJoinTokens"
+	// ControlServiceRevokeJoinTokenProcedure is the fully-qualified name of the ControlService's
+	// RevokeJoinToken RPC.
+	ControlServiceRevokeJoinTokenProcedure = "/orch.v1alpha1.ControlService/RevokeJoinToken"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -99,6 +108,7 @@ type ControlServiceClient interface {
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
+	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
 	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
@@ -115,6 +125,9 @@ type ControlServiceClient interface {
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
+	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
+	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
+	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -248,6 +261,24 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
 			connect.WithClientOptions(opts...),
 		),
+		createJoinToken: connect.NewClient[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse](
+			httpClient,
+			baseURL+ControlServiceCreateJoinTokenProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("CreateJoinToken")),
+			connect.WithClientOptions(opts...),
+		),
+		listJoinTokens: connect.NewClient[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse](
+			httpClient,
+			baseURL+ControlServiceListJoinTokensProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListJoinTokens")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeJoinToken: connect.NewClient[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse](
+			httpClient,
+			baseURL+ControlServiceRevokeJoinTokenProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RevokeJoinToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -273,6 +304,9 @@ type controlServiceClient struct {
 	logoutRegistry    *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
 	updateNode        *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
 	removeNode        *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	createJoinToken   *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
+	listJoinTokens    *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
+	revokeJoinToken   *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -296,6 +330,8 @@ func (c *controlServiceClient) ApplyApplication(ctx context.Context, req *connec
 }
 
 // EnrollAgent calls orch.v1alpha1.ControlService.EnrollAgent.
+//
+// Deprecated: do not use.
 func (c *controlServiceClient) EnrollAgent(ctx context.Context, req *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error) {
 	return c.enrollAgent.CallUnary(ctx, req)
 }
@@ -375,12 +411,28 @@ func (c *controlServiceClient) RemoveNode(ctx context.Context, req *connect.Requ
 	return c.removeNode.CallUnary(ctx, req)
 }
 
+// CreateJoinToken calls orch.v1alpha1.ControlService.CreateJoinToken.
+func (c *controlServiceClient) CreateJoinToken(ctx context.Context, req *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error) {
+	return c.createJoinToken.CallUnary(ctx, req)
+}
+
+// ListJoinTokens calls orch.v1alpha1.ControlService.ListJoinTokens.
+func (c *controlServiceClient) ListJoinTokens(ctx context.Context, req *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error) {
+	return c.listJoinTokens.CallUnary(ctx, req)
+}
+
+// RevokeJoinToken calls orch.v1alpha1.ControlService.RevokeJoinToken.
+func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error) {
+	return c.revokeJoinToken.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
+	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
 	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
@@ -397,6 +449,9 @@ type ControlServiceHandler interface {
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
+	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
+	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
+	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -526,6 +581,24 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceCreateJoinTokenHandler := connect.NewUnaryHandler(
+		ControlServiceCreateJoinTokenProcedure,
+		svc.CreateJoinToken,
+		connect.WithSchema(controlServiceMethods.ByName("CreateJoinToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListJoinTokensHandler := connect.NewUnaryHandler(
+		ControlServiceListJoinTokensProcedure,
+		svc.ListJoinTokens,
+		connect.WithSchema(controlServiceMethods.ByName("ListJoinTokens")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRevokeJoinTokenHandler := connect.NewUnaryHandler(
+		ControlServiceRevokeJoinTokenProcedure,
+		svc.RevokeJoinToken,
+		connect.WithSchema(controlServiceMethods.ByName("RevokeJoinToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -568,6 +641,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceUpdateNodeHandler.ServeHTTP(w, r)
 		case ControlServiceRemoveNodeProcedure:
 			controlServiceRemoveNodeHandler.ServeHTTP(w, r)
+		case ControlServiceCreateJoinTokenProcedure:
+			controlServiceCreateJoinTokenHandler.ServeHTTP(w, r)
+		case ControlServiceListJoinTokensProcedure:
+			controlServiceListJoinTokensHandler.ServeHTTP(w, r)
+		case ControlServiceRevokeJoinTokenProcedure:
+			controlServiceRevokeJoinTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -655,4 +734,16 @@ func (UnimplementedControlServiceHandler) UpdateNode(context.Context, *connect.R
 
 func (UnimplementedControlServiceHandler) RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveNode is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.CreateJoinToken is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListJoinTokens is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RevokeJoinToken is not implemented"))
 }

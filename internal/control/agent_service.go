@@ -2,6 +2,8 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,9 +14,11 @@ import (
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -31,6 +35,9 @@ type agentService struct {
 	sessions   *sessionManager
 	reconciler *Reconciler
 	now        func() time.Time
+	caPEM      []byte
+	caKey      []byte
+	random     io.Reader
 }
 
 type receivedAgentMessage struct {
@@ -39,10 +46,11 @@ type receivedAgentMessage struct {
 }
 
 func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[orchv1alpha1.ConnectRequest, orchv1alpha1.ConnectResponse]) error {
-	nodeID, err := requireAgent(ctx)
+	credential, err := requireAgentCredential(ctx)
 	if err != nil {
 		return err
 	}
+	nodeID := credential.nodeID
 	received := make(chan receivedAgentMessage, 1)
 	receiveContext, cancelReceive := context.WithCancel(ctx)
 	defer cancelReceive()
@@ -70,6 +78,11 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	}
 	if err := validateHello(hello, nodeID); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if credential.slot == "PENDING" {
+		if _, err := s.state.PromoteAgentCertificate(ctx, nodeID, credential.serial, s.now().UTC()); err != nil {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("activate pending agent certificate"))
+		}
 	}
 
 	sessionContext, cancel := context.WithCancel(ctx)
@@ -151,6 +164,55 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 			heartbeat.Reset(agentHeartbeatTimeout)
 		}
 	}
+}
+
+func (s *agentService) RenewCertificate(ctx context.Context, request *connect.Request[orchv1alpha1.RenewCertificateRequest]) (*connect.Response[orchv1alpha1.RenewCertificateResponse], error) {
+	credential, err := requireAgentCredential(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if credential.slot != "CURRENT" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("pending agent certificate must activate before another renewal"))
+	}
+	if err := rejectUnknownMessage(request.Msg); err != nil {
+		return nil, err
+	}
+	csrDER := request.Msg.GetCertificateRequestDer()
+	if len(csrDER) == 0 || len(csrDER) > 16<<10 || !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("certificate request or idempotency key is invalid"))
+	}
+	node, err := s.state.NodeByID(ctx, credential.nodeID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent node is unavailable"))
+	}
+	publicKeyHash, err := security.AgentCSRPublicKeyHash(csrDER)
+	if err != nil || publicKeyHash != node.PublicKeyHash {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("renewal CSR does not use the enrolled agent key"))
+	}
+	now := s.now().UTC()
+	randomSource := s.random
+	if randomSource == nil {
+		randomSource = rand.Reader
+	}
+	signed, err := security.SignAgentCertificate(s.caPEM, s.caKey, node.ClusterID, node.ID, csrDER, now, randomSource)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("sign renewed agent certificate"))
+	}
+	digest := sha256.Sum256(csrDER)
+	result, err := s.state.IssueAgentCertificateRenewal(ctx, model.RenewAgentCertificate{
+		NodeID: node.ID, CurrentSerial: credential.serial, PublicKeyHash: publicKeyHash,
+		CertificateSerial: signed.Serial, CertificatePEM: signed.CertificatePEM, CertificateNotAfter: signed.NotAfter,
+		IdempotencyKey: request.Msg.GetIdempotencyKey(), RequestHash: hex.EncodeToString(digest[:]), CreatedAt: now,
+	})
+	if errors.Is(err, store.ErrIdempotencyConflict) || errors.Is(err, store.ErrCertificateRenewalPending) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&orchv1alpha1.RenewCertificateResponse{NodeId: result.NodeID,
+		AgentCertificatePem: append([]byte(nil), result.CertificatePEM...), ExpiresAt: timestamppb.New(result.ExpiresAt),
+		Changed: result.Changed, EventSequence: result.EventSequence}), nil
 }
 
 func receiveAgentMessages(ctx context.Context, stream *connect.BidiStream[orchv1alpha1.ConnectRequest, orchv1alpha1.ConnectResponse], output chan<- receivedAgentMessage) {

@@ -266,6 +266,30 @@ func GenerateAgentCertificateRequest(nodeName string, random io.Reader) (csrDER,
 	return csrDER, privateKeyPEM, publicKeyHash, nil
 }
 
+// CreateAgentCertificateRequest signs a renewal CSR with an existing protected
+// agent key. Reusing the key preserves the node ID and durable placement identity.
+func CreateAgentCertificateRequest(nodeName string, privateKeyPEM []byte, random io.Reader) ([]byte, string, error) {
+	if nodeName == "" || len(privateKeyPEM) == 0 || random == nil {
+		return nil, "", fmt.Errorf("node name, private key, and random source are required")
+	}
+	key, err := parseECDSAPrivateKey(privateKeyPEM)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse agent private key: %w", err)
+	}
+	csrDER, err := x509.CreateCertificateRequest(random, &x509.CertificateRequest{
+		Subject:            pkix.Name{CommonName: "orch-agent-" + nodeName, Organization: []string{"orch"}},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("create agent certificate request: %w", err)
+	}
+	publicKeyHash, err := hashPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("hash agent public key: %w", err)
+	}
+	return csrDER, publicKeyHash, nil
+}
+
 // AgentCSRPublicKeyHash validates a signed P-256 CSR and returns the canonical
 // SHA-256 fingerprint of its public key.
 func AgentCSRPublicKeyHash(csrDER []byte) (string, error) {

@@ -12,7 +12,9 @@ service ControlService {
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
   rpc ApplyApplication(ApplyApplicationRequest) returns (ApplyApplicationResponse);
-  rpc EnrollAgent(EnrollAgentRequest) returns (EnrollAgentResponse);
+  rpc EnrollAgent(EnrollAgentRequest) returns (EnrollAgentResponse) {
+    option deprecated = true;
+  }
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
   rpc RemoveApplication(RemoveApplicationRequest) returns (RemoveApplicationResponse);
   rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
@@ -28,6 +30,9 @@ service ControlService {
   rpc LogoutRegistry(LogoutRegistryRequest) returns (LogoutRegistryResponse);
   rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
+  rpc ListJoinTokens(ListJoinTokensRequest) returns (ListJoinTokensResponse);
+  rpc RevokeJoinToken(RevokeJoinTokenRequest) returns (RevokeJoinTokenResponse);
 }
 
 enum ExecutionStatus {
@@ -131,6 +136,9 @@ message Node {
   uint64 assigned_cpu_millis = 35;
   uint64 assigned_memory_bytes = 36;
   repeated string drain_blockers = 37;
+  google.protobuf.Timestamp certificate_not_after = 38;
+  string certificate_state = 39;
+  string certificate_reason = 40;
 }
 
 message Event {
@@ -231,6 +239,45 @@ message RemoveNodeRequest {
 
 message RemoveNodeResponse {
   string name = 1;
+  bool changed = 2;
+  uint64 event_sequence = 3;
+}
+
+message JoinTokenMetadata {
+  string id = 1;
+  string node_name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string state = 5;
+}
+
+message CreateJoinTokenRequest {
+  string id = 1;
+  string node_name = 2;
+  bytes secret_hash = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string idempotency_key = 5;
+}
+
+message CreateJoinTokenResponse {
+  JoinTokenMetadata token = 1;
+  bool changed = 2;
+  uint64 event_sequence = 3;
+}
+
+message ListJoinTokensRequest {}
+
+message ListJoinTokensResponse {
+  repeated JoinTokenMetadata tokens = 1;
+}
+
+message RevokeJoinTokenRequest {
+  string id = 1;
+  string idempotency_key = 2;
+}
+
+message RevokeJoinTokenResponse {
+  JoinTokenMetadata token = 1;
   bool changed = 2;
   uint64 event_sequence = 3;
 }

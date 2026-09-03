@@ -62,13 +62,18 @@ bin/orch controller serve \
   --listen 127.0.0.1:9443
 ~~~
 
-On the first Linux execution host, enroll an agent while the controller is
-running:
+Create a short-lived join artifact with the administrator context, transfer it
+privately to the Linux execution host, and enroll the agent without copying
+administrator credentials to that host:
 
 ~~~console
+bin/orch node join create node-1 \
+  --ttl 15m \
+  --output "$PWD/node-1.join" \
+  --context "$PWD/.orch-client/context.json"
+
 bin/orch agent init \
-  --name node-1 \
-  --context "$PWD/.orch-client/context.json" \
+  --join-file "$PWD/node-1.join" \
   --data-dir /var/lib/orch-agent
 
 # Before the first workload makes the network immutable, this optional command
@@ -101,16 +106,21 @@ uniquely named nftables table. See
 [docs/networking.md](docs/networking.md) for network and ingress operations and
 [docs/runtime.md](docs/runtime.md) for the exact support boundary.
 
-For multiple nodes, repeat `agent init` with a unique name and data directory
-on each host. Their advertised private IPv4 addresses must be mutually
-reachable, and host/provider firewalls must permit the configured WireGuard
-UDP port (51820 by default). Manage placement and ingress explicitly:
+For multiple nodes, create one join artifact per unique node name and run
+`agent init` with a private data directory on each host. A join artifact is a
+bearer credential: keep it mode `0600`, transfer it over a protected channel,
+and revoke it immediately if it may have been disclosed. Their advertised
+private IPv4 addresses must be mutually reachable, and host/provider firewalls
+must permit the configured WireGuard UDP port (51820 by default). Manage
+placement and ingress explicitly:
 
 ~~~console
 bin/orch node label node-1 region=eu-west storage=fast --context "$PWD/.orch-client/context.json"
 bin/orch node cordon node-1 --context "$PWD/.orch-client/context.json"
 bin/orch node drain node-1 --context "$PWD/.orch-client/context.json"
 bin/orch node ingress node-2 --enable --context "$PWD/.orch-client/context.json"
+bin/orch node join list --context "$PWD/.orch-client/context.json"
+bin/orch node join revoke JOIN_ID --context "$PWD/.orch-client/context.json"
 ~~~
 
 See [docs/operations.md](docs/operations.md) before draining or removing a node;

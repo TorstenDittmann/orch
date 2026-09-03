@@ -1,9 +1,9 @@
 # Cluster operations
 
-orch runs one durable controller and one through 20 administrator-enrolled
+orch runs one durable controller and one through 20 token-enrolled
 execution agents. Agents use an externally installed containerd/runc runtime.
-Controller HA, automatic
-host fencing, certificate rotation, and automated restore are not included.
+Controller HA, automatic host fencing, CA/controller/administrator certificate
+rotation, and automated restore are not included.
 
 ## Initialize a cluster
 
@@ -117,22 +117,50 @@ the first `/24` and existing workload objects.
 
 ## Enroll and run the agent
 
-`agent init` creates a P-256 private key locally, stages its CSR and retry key,
-and asks the running controller to enroll a uniquely named node:
+On an administrator machine, create an expiring single-use artifact bound to
+one exact node name:
+
+~~~console
+orch node join create node-1 \
+  --ttl 15m \
+  --output ./node-1.join \
+  --context "$HOME/.config/orch/context.json"
+~~~
+
+The artifact expires after 15 minutes by default; `--ttl` accepts one minute
+through 24 hours. It is a bearer credential until consumed or expired. The CLI
+creates it as a new mode-`0600` file and refuses overwrite. Transfer it over a
+protected channel, do not place its contents in arguments or logs, and revoke
+it promptly after suspected disclosure:
+
+~~~console
+orch node join list --context "$HOME/.config/orch/context.json"
+orch node join revoke JOIN_ID --context "$HOME/.config/orch/context.json"
+~~~
+
+On the worker, either read that private regular file or stream it over stdin:
 
 ~~~console
 orch agent init \
-  --name node-1 \
-  --context "$HOME/.config/orch/context.json" \
+  --join-file ./node-1.join \
   --data-dir /var/lib/orch-agent
+
+# Equivalent streaming form:
+orch agent init --join-file - --data-dir /var/lib/orch-agent < ./node-1.join
 ~~~
 
-The controller receives only the signed CSR and returns public certificates.
-If the request outcome is uncertain, rerun the exact command with the same data
-directory; orch resumes the staged CSR and idempotency key. Repeat the command
-on each host with a unique node name and private data directory. At most 20
-active nodes may be enrolled; replacing a key for an existing identity is
-rejected.
+`agent init` generates a P-256 private key locally, durably stages the exact CSR
+and retry key, pins bootstrap TLS to the artifact's CA, endpoint, cluster, and
+controller identity, and sends no administrator credential to the worker. The
+controller stores only a SHA-256 hash of the random token secret. If the request
+outcome is uncertain, rerun the exact command with the same data directory and
+artifact; orch resumes the staged request and receives the frozen response. A
+changed CSR, name, token, or retry key is rejected. At most 20 active nodes may
+be enrolled and at most 100 unexpired unused artifacts may exist.
+
+The original artifact is no longer needed after successful initialization; the
+completed data directory is self-contained. Repeat the create/init flow for
+each host with a unique node name and private data directory.
 
 Start the agent on a supported Linux host:
 
@@ -180,6 +208,21 @@ network/ingress role must be ready before the first network generation is
 accepted. Missing capabilities are reported to the controller as explicit
 blockers. Run only one agent process for the data directory; `agent.lock`
 enforces local ownership.
+
+Agent certificates last one year and renew automatically when they enter the
+final 90 days, with stable per-node jitter. Renewal reuses the protected agent
+key and node ID. The controller first records a pending certificate, and only
+activates it after the agent publishes it and reconnects successfully.
+`orch nodes` reports certificate expiry and `HEALTHY`, `RENEWAL_DUE`,
+`RENEWAL_PENDING`, or `RENEWAL_FAILED`. Renewal retries use bounded backoff and
+do not stop cached workload, DNS, ingress, WireGuard, cron, or restart
+supervision.
+
+Automatic recovery after certificate expiry is deliberately unsupported. An
+already-running agent continues its cached local work, but a stopped or
+disconnected expired agent cannot authenticate. Recovering that identity needs
+a future key-recovery design; do not weaken TLS or copy the cluster CA key to a
+worker.
 
 See [networking.md](networking.md) for CIDR conflict recovery, DNS behavior,
 firewall ownership, public DNS and port requirements, Caddy persistence, and

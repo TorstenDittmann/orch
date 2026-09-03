@@ -6,9 +6,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -32,7 +34,76 @@ import (
 	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestJoinEnrollmentIsTheOnlyCertificateFreeControlSurface(t *testing.T) {
+	_, dataDir, contextPath, clusterID := bootstrapController(t)
+	server, err := Start(context.Background(), Options{DataDir: dataDir, Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	endpoint := "https://" + server.Addr().String()
+	rewriteContextServer(t, contextPath, endpoint)
+	credentials, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(remote.CloseIdleConnections)
+	secret := bytes.Repeat([]byte{7}, 32)
+	secretHash := sha256.Sum256(secret)
+	created, err := remote.CreateJoinToken(context.Background(), &orchv1alpha1.CreateJoinTokenRequest{Id: "join_0123456789abcdef0123456789abcdef", NodeName: "node-1", SecretHash: secretHash[:], ExpiresAt: timestamppb.New(time.Now().Add(15 * time.Minute)), IdempotencyKey: "join-create-key-one"})
+	if err != nil || created.GetToken().GetState() != model.JoinTokenPending {
+		t.Fatalf("CreateJoinToken() = %#v, %v", created, err)
+	}
+	httpClient := tlsHTTPClient(credentials.RootCAs, tls.Certificate{})
+	enrollment := orchv1alpha1connect.NewEnrollmentServiceClient(httpClient, endpoint)
+	csr, _, _, err := security.GenerateAgentCertificateRequest("node-1", rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &orchv1alpha1.EnrollmentServiceEnrollAgentRequest{JoinId: created.GetToken().GetId(), Secret: bytes.Repeat([]byte{8}, 32), Name: "node-1", CertificateRequestDer: csr, IdempotencyKey: "joined-enroll-key-one"}
+	if _, err := enrollment.EnrollAgent(context.Background(), connect.NewRequest(request)); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("wrong join secret = %v", err)
+	}
+	request.Secret = secret
+	response, err := enrollment.EnrollAgent(context.Background(), connect.NewRequest(request))
+	if err != nil || response.Msg.GetClusterId() != clusterID || response.Msg.GetNodeName() != "node-1" {
+		t.Fatalf("joined enrollment = %#v, %v", response, err)
+	}
+	replay, err := enrollment.EnrollAgent(context.Background(), connect.NewRequest(request))
+	if err != nil || !proto.Equal(replay.Msg, response.Msg) {
+		t.Fatalf("joined replay = %#v, %v", replay, err)
+	}
+	request.CertificateRequestDer = append([]byte(nil), csr...)
+	request.CertificateRequestDer[len(request.CertificateRequestDer)-1] ^= 1
+	if _, err := enrollment.EnrollAgent(context.Background(), connect.NewRequest(request)); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("changed consumed request = %v", err)
+	}
+	tokens, err := remote.ListJoinTokens(context.Background())
+	if err != nil || len(tokens) != 1 || tokens[0].GetState() != model.JoinTokenConsumed {
+		t.Fatalf("consumed join metadata = %#v, %v", tokens, err)
+	}
+	events, err := remote.ListEvents(context.Background(), 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedSecret := base64.StdEncoding.EncodeToString(secret)
+	for _, event := range events.GetEvents() {
+		if bytes.Contains([]byte(event.GetPayloadJson()), secret) || strings.Contains(event.GetPayloadJson(), encodedSecret) {
+			t.Fatalf("event %s contains join secret", event.GetKind())
+		}
+	}
+	withoutCertificate := generatedClient(httpClient, endpoint)
+	if _, err := withoutCertificate.ListJoinTokens(context.Background(), connect.NewRequest(&orchv1alpha1.ListJoinTokensRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("certificate-free token list = %v", err)
+	}
+}
 
 func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	root, dataDir, contextPath, clusterID := bootstrapController(t)

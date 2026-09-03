@@ -35,11 +35,15 @@ const (
 const (
 	// AgentServiceConnectProcedure is the fully-qualified name of the AgentService's Connect RPC.
 	AgentServiceConnectProcedure = "/orch.v1alpha1.AgentService/Connect"
+	// AgentServiceRenewCertificateProcedure is the fully-qualified name of the AgentService's
+	// RenewCertificate RPC.
+	AgentServiceRenewCertificateProcedure = "/orch.v1alpha1.AgentService/RenewCertificate"
 )
 
 // AgentServiceClient is a client for the orch.v1alpha1.AgentService service.
 type AgentServiceClient interface {
 	Connect(context.Context) *connect.BidiStreamForClient[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]
+	RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the orch.v1alpha1.AgentService service. By default,
@@ -59,12 +63,19 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("Connect")),
 			connect.WithClientOptions(opts...),
 		),
+		renewCertificate: connect.NewClient[v1alpha1.RenewCertificateRequest, v1alpha1.RenewCertificateResponse](
+			httpClient,
+			baseURL+AgentServiceRenewCertificateProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	connect *connect.Client[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]
+	connect          *connect.Client[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]
+	renewCertificate *connect.Client[v1alpha1.RenewCertificateRequest, v1alpha1.RenewCertificateResponse]
 }
 
 // Connect calls orch.v1alpha1.AgentService.Connect.
@@ -72,9 +83,15 @@ func (c *agentServiceClient) Connect(ctx context.Context) *connect.BidiStreamFor
 	return c.connect.CallBidiStream(ctx)
 }
 
+// RenewCertificate calls orch.v1alpha1.AgentService.RenewCertificate.
+func (c *agentServiceClient) RenewCertificate(ctx context.Context, req *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error) {
+	return c.renewCertificate.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the orch.v1alpha1.AgentService service.
 type AgentServiceHandler interface {
 	Connect(context.Context, *connect.BidiStream[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]) error
+	RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -90,10 +107,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("Connect")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceRenewCertificateHandler := connect.NewUnaryHandler(
+		AgentServiceRenewCertificateProcedure,
+		svc.RenewCertificate,
+		connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceConnectProcedure:
 			agentServiceConnectHandler.ServeHTTP(w, r)
+		case AgentServiceRenewCertificateProcedure:
+			agentServiceRenewCertificateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -105,4 +130,8 @@ type UnimplementedAgentServiceHandler struct{}
 
 func (UnimplementedAgentServiceHandler) Connect(context.Context, *connect.BidiStream[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.AgentService.Connect is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.AgentService.RenewCertificate is not implemented"))
 }

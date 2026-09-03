@@ -43,6 +43,13 @@ func TestAgentCSRSigningAndIdentityRoundTrip(t *testing.T) {
 	if err := VerifyAgentIdentity(bundle.CACertificatePEM, KeyPair{CertificatePEM: signed.CertificatePEM, PrivateKeyPEM: key}, clusterID, nodeID, pkiTestTime); err != nil {
 		t.Fatal(err)
 	}
+	renewalCSR, renewalHash, err := CreateAgentCertificateRequest("node-1", key, rand.Reader)
+	if err != nil || renewalHash != wantHash {
+		t.Fatalf("CreateAgentCertificateRequest() = %q, %v; want %q", renewalHash, err, wantHash)
+	}
+	if err := VerifyAgentCertificateRequestKey(renewalCSR, key); err != nil {
+		t.Fatal(err)
+	}
 	certificate := mustCertificate(t, signed.CertificatePEM)
 	if len(certificate.URIs) != 1 || certificate.URIs[0].String() != AgentIdentityURI(clusterID, nodeID).String() {
 		t.Fatalf("agent URIs = %v", certificate.URIs)

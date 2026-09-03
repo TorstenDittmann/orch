@@ -757,11 +757,13 @@ Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch controller serve --data-dir DIR --listen ADDRESS
-  orch agent init --name NAME --context FILE --data-dir DIR [--json]
+  orch agent init --join-file FILE|- --data-dir DIR [--json]
   orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
   orch network configure --cidr CIDR --context FILE [--idempotency-key KEY] [--json]
   orch nodes --context FILE [--json]
   orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE
+  orch node join create NODE --ttl 15m --output FILE --context FILE
+  orch node join list|revoke --context FILE
   orch app status NAME --context FILE [--json]
   orch logs APP SERVICE --replica N --tail N --context FILE
   orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]

@@ -2,8 +2,10 @@
 
 The current slice establishes local identity, secure file boundaries, an
 authenticated HTTPS API for one controller, and administrator-authorized
-enrollment of at most 20 active agents. It does not provide certificate rotation,
-revocation lists, additional administrator issuance, or multi-user RBAC.
+creation of join credentials for at most 20 active agents. It automatically
+renews agent leaf certificates, but does not provide CA, controller,
+administrator, or agent-key rotation, revocation lists, additional administrator
+issuance, or multi-user RBAC.
 
 ## Identity hierarchy
 
@@ -19,10 +21,10 @@ Each agent enrollment later signs another leaf identity:
 - Each leaf has a cluster- and role-specific SPIFFE URI of the form
   `spiffe://orch/cluster/<cluster-id>/<role>`; the agent URI adds its node ID.
 
-The CA is valid for ten years and the leaf identities for one year, with a
-small clock-skew allowance. These lifetimes are an initial bootstrap contract,
-not a rotation policy. Expired or damaged material causes repeated
-initialization to fail; it is never silently replaced.
+The CA is valid for ten years and leaf identities for one year, with a small
+clock-skew allowance. Agent leaf certificates renew automatically with the same
+private key and stable node identity. Other expired or damaged identity material
+is never silently replaced.
 
 ## Transport and authorization
 
@@ -51,18 +53,41 @@ open it. One healthy stream is permitted per node identity; concurrent streams
 from different active nodes are independent. A removed node certificate is
 rejected immediately.
 
-Enrollment itself is an administrator-only API, bounded to 20 active nodes.
-The agent private key never
-crosses the network: `agent init` durably stages the private key, CSR, and
-idempotency key before sending the CSR. The controller ignores requested CSR
-SANs and signs only the computed node identity. Lost or expired agent identity
-cannot be silently replaced in this release. Removal is not proof of host
-fencing: an unreachable node must be powered off or otherwise isolated by the
-operator before `--lost --confirm-fenced` is used.
+An administrator registers an expiring join ID, exact node name, and SHA-256
+hash of a locally generated 256-bit secret. The controller never receives or
+stores the plaintext secret until it is presented for enrollment. Join list and
+event records contain metadata only. A join is single-use, may be revoked before
+use, expires at its declared instant, and binds exact replay to the same token,
+node, CSR, and idempotency key.
 
-The metadata-free `/healthz` endpoint is the only route that permits a TLS
-connection without a client certificate. It reports no version, cluster,
-application, or event information.
+`EnrollmentService.EnrollAgent` is the only ConnectRPC method that permits a TLS
+connection without a client certificate. Its client pins the CA embedded in the
+join artifact and still verifies the advertised hostname, controller role, and
+cluster ID. All invalid, expired, revoked, unknown, or conflicting credentials
+share one public authentication error. The agent private key never crosses the
+network: `agent init` durably stages it, its CSR, and its retry key before sending
+the request. The controller ignores requested CSR SANs and signs only the
+computed node identity.
+
+The metadata-free `/healthz` endpoint is the only other route without a client
+certificate. It reports no version, cluster, application, or event information.
+The deprecated administrator-authenticated enrollment RPC remains available
+only for wire compatibility; the official CLI never uses it for fresh nodes.
+
+Agent renewal is authenticated by the exact current certificate and accepts a
+CSR only when its public key matches the enrolled key. Issuance creates one
+pending credential without retiring the current one. Either credential may
+authenticate the reconnect, but the pending credential cannot request another
+renewal. A successful Hello atomically promotes it; later connections using the
+old serial fail. Renewal events contain the node and expiry, never key or token
+material.
+
+If renewal does not finish before expiry, an already-running agent continues
+cached local supervision but cannot reauthenticate after a disconnect or
+restart. Lost/expired identity recovery and private-key replacement are outside
+this release. Removal remains the immediate node revocation mechanism and is not
+proof of host fencing: isolate an unreachable node before using
+`--lost --confirm-fenced`.
 
 ## Configuration evaluation
 

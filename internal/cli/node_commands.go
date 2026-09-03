@@ -18,6 +18,9 @@ func runNode(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE")
 		return ExitInvalid
 	}
+	if args[0] == "join" {
+		return runNodeJoin(ctx, args[1:], stdout, stderr)
+	}
 	command := args[0]
 	flags := flag.NewFlagSet("node "+command, flag.ContinueOnError)
 	flags.SetOutput(stderr)

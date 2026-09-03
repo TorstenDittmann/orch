@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -48,24 +49,19 @@ func runAgent(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 func runAgentInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("agent init", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var name, contextPath, dataDir string
+	var joinFile, dataDir string
 	var jsonOutput bool
-	flags.StringVar(&name, "name", "", "agent DNS-label name")
-	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.StringVar(&joinFile, "join-file", "", "private join artifact path or - for stdin")
 	flags.StringVar(&dataDir, "data-dir", "", "agent state directory")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
-	if flags.NArg() != 0 || name == "" || contextPath == "" || dataDir == "" {
-		writeError(stderr, errors.New("agent init requires --name, --context, and --data-dir"), jsonOutput)
+	if flags.NArg() != 0 || joinFile == "" || dataDir == "" {
+		writeError(stderr, errors.New("agent init requires --join-file and --data-dir"), jsonOutput)
 		return ExitInvalid
 	}
-	if err := config.ValidateApplicationName(name); err != nil {
-		writeError(stderr, fmt.Errorf("invalid agent name: %w", err), jsonOutput)
-		return ExitInvalid
-	}
-	result, err := agentctl.Enroll(ctx, agentctl.EnrollOptions{Name: name, ContextPath: contextPath, DataDir: dataDir})
+	result, err := agentctl.EnrollWithJoin(ctx, agentctl.JoinEnrollOptions{JoinFile: joinFile, JoinInput: os.Stdin, DataDir: dataDir})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
@@ -275,6 +271,11 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetAdvertiseAddress(), node.GetWireguardListenPort(), node.GetWireguardPublicKey() != "", node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
 			node.GetDnsAvailable(), node.GetDnsState(), node.GetIngress(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
 		fmt.Fprintf(stdout, "  drain-blockers=%s\n", statusValue(strings.Join(node.GetDrainBlockers(), ",")))
+		certificateExpiry := "unknown"
+		if node.GetCertificateNotAfter() != nil && node.GetCertificateNotAfter().CheckValid() == nil {
+			certificateExpiry = node.GetCertificateNotAfter().AsTime().Format(time.RFC3339Nano)
+		}
+		fmt.Fprintf(stdout, "  certificate=%s expires=%s reason=%s\n", node.GetCertificateState(), certificateExpiry, statusValue(node.GetCertificateReason()))
 	}
 	return ExitOK
 }
@@ -734,7 +735,7 @@ func printAgentHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch agent manages an execution agent.
 
 Usage:
-  orch agent init --name NAME --context FILE --data-dir DIR [--json]
+  orch agent init --join-file FILE|- --data-dir DIR [--json]
 	  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME \
 	    --advertise-address PRIVATE_IPV4 [--wireguard-port PORT] \
 	    [--system-reserved-cpu CPU] [--system-reserved-memory MEMORY] \

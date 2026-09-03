@@ -16,6 +16,8 @@ type agentPrincipalKey struct{}
 
 type authenticatedAgent struct {
 	nodeID string
+	serial string
+	slot   string
 	err    error
 	code   connect.Code
 }
@@ -55,11 +57,14 @@ func authenticateAgent(clusterID string, state *store.Store, next http.Handler) 
 					principal.code = connect.CodePermissionDenied
 				} else {
 					fingerprint, err := security.CertificatePublicKeyHash(certificate)
-					if err != nil || fingerprint != node.PublicKeyHash || certificate.SerialNumber.String() != node.CertificateSerial {
+					slot, slotErr := state.AgentCertificateSlot(request.Context(), nodeID, certificate.SerialNumber.String(), fingerprint)
+					if err != nil || slotErr != nil {
 						principal.err = errors.New("agent certificate does not match enrolled identity")
 						principal.code = connect.CodePermissionDenied
 					} else {
 						principal.nodeID = node.ID
+						principal.serial = certificate.SerialNumber.String()
+						principal.slot = slot
 					}
 				}
 			}
@@ -69,18 +74,23 @@ func authenticateAgent(clusterID string, state *store.Store, next http.Handler) 
 	})
 }
 
-func requireAgent(ctx context.Context) (string, error) {
+func requireAgentCredential(ctx context.Context) (authenticatedAgent, error) {
 	principal, ok := ctx.Value(agentPrincipalKey{}).(authenticatedAgent)
 	if !ok {
-		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("agent authentication was not evaluated"))
+		return authenticatedAgent{}, connect.NewError(connect.CodeUnauthenticated, errors.New("agent authentication was not evaluated"))
 	}
 	if principal.err != nil {
-		return "", connect.NewError(principal.code, principal.err)
+		return authenticatedAgent{}, connect.NewError(principal.code, principal.err)
 	}
-	if principal.nodeID == "" {
-		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("agent identity is empty"))
+	if principal.nodeID == "" || principal.serial == "" || principal.slot == "" {
+		return authenticatedAgent{}, connect.NewError(connect.CodeUnauthenticated, errors.New("agent identity is empty"))
 	}
-	return principal.nodeID, nil
+	return principal, nil
+}
+
+func requireAgent(ctx context.Context) (string, error) {
+	principal, err := requireAgentCredential(ctx)
+	return principal.nodeID, err
 }
 
 func authenticateAdministrator(clusterID string, next http.Handler) http.Handler {

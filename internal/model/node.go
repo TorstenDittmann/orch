@@ -12,6 +12,11 @@ const (
 	EventRouteFailed              = "route.failed"
 	EventNodeUpdated              = "node.updated"
 	EventNodeRemoved              = "node.removed"
+	EventJoinTokenCreated         = "node.join.created"
+	EventJoinTokenConsumed        = "node.join.consumed"
+	EventJoinTokenRevoked         = "node.join.revoked"
+	EventCertificateRenewalIssued = "node.certificate.renewal.issued"
+	EventCertificateActivated     = "node.certificate.activated"
 
 	NodeEnrolled     = "ENROLLED"
 	NodeConnected    = "CONNECTED"
@@ -22,59 +27,133 @@ const (
 	NodeLifecycleCordoned = "CORDONED"
 	NodeLifecycleDraining = "DRAINING"
 	NodeLifecycleRemoved  = "REMOVED"
+
+	JoinTokenPending  = "PENDING"
+	JoinTokenConsumed = "CONSUMED"
+	JoinTokenExpired  = "EXPIRED"
+	JoinTokenRevoked  = "REVOKED"
+
+	CertificateHealthy        = "HEALTHY"
+	CertificateRenewalDue     = "RENEWAL_DUE"
+	CertificateRenewalPending = "RENEWAL_PENDING"
+	CertificateRenewalFailed  = "RENEWAL_FAILED"
 )
 
 // Node is one enrolled execution agent. Placement and lifecycle fields are
 // controller-owned; capability and observation fields are agent-reported.
 type Node struct {
-	ID                     string            `json:"id"`
-	ClusterID              string            `json:"cluster_id"`
-	Name                   string            `json:"name"`
-	PublicKeyHash          string            `json:"public_key_hash,omitempty"`
-	CertificateSerial      string            `json:"certificate_serial,omitempty"`
-	CertificatePEM         []byte            `json:"-"`
-	CertificateNotAfter    time.Time         `json:"certificate_not_after"`
-	CreatedAt              time.Time         `json:"created_at"`
-	LastSeenAt             *time.Time        `json:"last_seen_at,omitempty"`
-	OperatingSystem        string            `json:"operating_system,omitempty"`
-	Architecture           string            `json:"architecture,omitempty"`
-	RuntimeVersion         string            `json:"runtime_version,omitempty"`
-	Snapshotter            string            `json:"snapshotter,omitempty"`
-	CgroupsV2              bool              `json:"cgroups_v2"`
-	CNIVersion             string            `json:"cni_version,omitempty"`
-	CNIPluginsVersion      string            `json:"cni_plugins_version,omitempty"`
-	Nftables               bool              `json:"nftables"`
-	DNSAvailable           bool              `json:"dns_available"`
-	CaddyVersion           string            `json:"caddy_version,omitempty"`
-	NodeSubnet             string            `json:"node_subnet,omitempty"`
-	NetworkGeneration      uint64            `json:"network_generation"`
-	NetworkState           string            `json:"network_state,omitempty"`
-	NetworkReason          string            `json:"network_reason,omitempty"`
-	NetworkMessage         string            `json:"network_message,omitempty"`
-	DNSState               string            `json:"dns_state,omitempty"`
-	IngressState           string            `json:"ingress_state,omitempty"`
-	DrainingObjects        uint32            `json:"draining_objects"`
-	AssignmentGeneration   uint64            `json:"assignment_generation"`
-	AcknowledgedGeneration uint64            `json:"acknowledged_generation"`
-	AcknowledgedDigest     string            `json:"acknowledged_digest,omitempty"`
-	LastBootID             string            `json:"last_boot_id,omitempty"`
-	LastReportSequence     uint64            `json:"last_report_sequence"`
-	ConnectionStatus       string            `json:"connection_status"`
-	Ordinal                uint32            `json:"ordinal"`
-	Lifecycle              string            `json:"lifecycle"`
-	Labels                 map[string]string `json:"labels,omitempty"`
-	Ingress                bool              `json:"ingress"`
-	TotalCPUMillis         uint64            `json:"total_cpu_millis"`
-	TotalMemoryBytes       uint64            `json:"total_memory_bytes"`
-	AllocatableCPUMillis   uint64            `json:"allocatable_cpu_millis"`
-	AllocatableMemoryBytes uint64            `json:"allocatable_memory_bytes"`
-	AssignedCPUMillis      uint64            `json:"assigned_cpu_millis"`
-	AssignedMemoryBytes    uint64            `json:"assigned_memory_bytes"`
-	AdvertiseAddress       string            `json:"advertise_address,omitempty"`
-	WireGuardPublicKey     string            `json:"wireguard_public_key,omitempty"`
-	WireGuardListenPort    uint32            `json:"wireguard_listen_port"`
-	DrainBlockers          []string          `json:"drain_blockers,omitempty"`
-	RemovedAt              *time.Time        `json:"removed_at,omitempty"`
+	ID                            string            `json:"id"`
+	ClusterID                     string            `json:"cluster_id"`
+	Name                          string            `json:"name"`
+	PublicKeyHash                 string            `json:"public_key_hash,omitempty"`
+	CertificateSerial             string            `json:"certificate_serial,omitempty"`
+	CertificatePEM                []byte            `json:"-"`
+	CertificateNotAfter           time.Time         `json:"certificate_not_after"`
+	PendingCertificateSerial      string            `json:"-"`
+	PendingCertificatePEM         []byte            `json:"-"`
+	PendingCertificateNotAfter    *time.Time        `json:"-"`
+	PendingCertificateRequestHash string            `json:"-"`
+	PendingCertificateIssuedAt    *time.Time        `json:"-"`
+	CertificateState              string            `json:"certificate_state"`
+	CertificateReason             string            `json:"certificate_reason,omitempty"`
+	CreatedAt                     time.Time         `json:"created_at"`
+	LastSeenAt                    *time.Time        `json:"last_seen_at,omitempty"`
+	OperatingSystem               string            `json:"operating_system,omitempty"`
+	Architecture                  string            `json:"architecture,omitempty"`
+	RuntimeVersion                string            `json:"runtime_version,omitempty"`
+	Snapshotter                   string            `json:"snapshotter,omitempty"`
+	CgroupsV2                     bool              `json:"cgroups_v2"`
+	CNIVersion                    string            `json:"cni_version,omitempty"`
+	CNIPluginsVersion             string            `json:"cni_plugins_version,omitempty"`
+	Nftables                      bool              `json:"nftables"`
+	DNSAvailable                  bool              `json:"dns_available"`
+	CaddyVersion                  string            `json:"caddy_version,omitempty"`
+	NodeSubnet                    string            `json:"node_subnet,omitempty"`
+	NetworkGeneration             uint64            `json:"network_generation"`
+	NetworkState                  string            `json:"network_state,omitempty"`
+	NetworkReason                 string            `json:"network_reason,omitempty"`
+	NetworkMessage                string            `json:"network_message,omitempty"`
+	DNSState                      string            `json:"dns_state,omitempty"`
+	IngressState                  string            `json:"ingress_state,omitempty"`
+	DrainingObjects               uint32            `json:"draining_objects"`
+	AssignmentGeneration          uint64            `json:"assignment_generation"`
+	AcknowledgedGeneration        uint64            `json:"acknowledged_generation"`
+	AcknowledgedDigest            string            `json:"acknowledged_digest,omitempty"`
+	LastBootID                    string            `json:"last_boot_id,omitempty"`
+	LastReportSequence            uint64            `json:"last_report_sequence"`
+	ConnectionStatus              string            `json:"connection_status"`
+	Ordinal                       uint32            `json:"ordinal"`
+	Lifecycle                     string            `json:"lifecycle"`
+	Labels                        map[string]string `json:"labels,omitempty"`
+	Ingress                       bool              `json:"ingress"`
+	TotalCPUMillis                uint64            `json:"total_cpu_millis"`
+	TotalMemoryBytes              uint64            `json:"total_memory_bytes"`
+	AllocatableCPUMillis          uint64            `json:"allocatable_cpu_millis"`
+	AllocatableMemoryBytes        uint64            `json:"allocatable_memory_bytes"`
+	AssignedCPUMillis             uint64            `json:"assigned_cpu_millis"`
+	AssignedMemoryBytes           uint64            `json:"assigned_memory_bytes"`
+	AdvertiseAddress              string            `json:"advertise_address,omitempty"`
+	WireGuardPublicKey            string            `json:"wireguard_public_key,omitempty"`
+	WireGuardListenPort           uint32            `json:"wireguard_listen_port"`
+	DrainBlockers                 []string          `json:"drain_blockers,omitempty"`
+	RemovedAt                     *time.Time        `json:"removed_at,omitempty"`
+}
+
+type JoinToken struct {
+	ID                     string     `json:"id"`
+	ClusterID              string     `json:"cluster_id,omitempty"`
+	NodeName               string     `json:"node_name"`
+	SecretHash             string     `json:"-"`
+	CreatedAt              time.Time  `json:"created_at"`
+	ExpiresAt              time.Time  `json:"expires_at"`
+	RevokedAt              *time.Time `json:"revoked_at,omitempty"`
+	ConsumedAt             *time.Time `json:"consumed_at,omitempty"`
+	ConsumedRequestHash    string     `json:"-"`
+	ConsumedIdempotencyKey string     `json:"-"`
+	State                  string     `json:"state"`
+}
+
+type CreateJoinToken struct {
+	ID             string
+	NodeName       string
+	SecretHash     string
+	ExpiresAt      time.Time
+	IdempotencyKey string
+	RequestHash    string
+	CreatedAt      time.Time
+}
+
+type JoinTokenMutationResult struct {
+	Token         JoinToken `json:"token"`
+	Changed       bool      `json:"changed"`
+	EventSequence uint64    `json:"event_sequence"`
+}
+
+type RevokeJoinToken struct {
+	ID             string
+	IdempotencyKey string
+	RequestHash    string
+	RevokedAt      time.Time
+}
+
+type RenewAgentCertificate struct {
+	NodeID              string
+	CurrentSerial       string
+	PublicKeyHash       string
+	CertificateSerial   string
+	CertificatePEM      []byte
+	CertificateNotAfter time.Time
+	IdempotencyKey      string
+	RequestHash         string
+	CreatedAt           time.Time
+}
+
+type RenewAgentCertificateResult struct {
+	NodeID         string    `json:"node_id"`
+	CertificatePEM []byte    `json:"certificate_pem"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	Changed        bool      `json:"changed"`
+	EventSequence  uint64    `json:"event_sequence"`
 }
 
 type EnrollAgent struct {

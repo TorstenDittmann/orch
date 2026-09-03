@@ -97,7 +97,8 @@ The repository implements these journeys for one through 20 nodes: containerd
 execution, private per-node CNI subnets, readiness-gated global DNS,
 exact-domain Caddy ingress with automatic HTTPS, raw TCP ingress, encrypted
 application secrets, authenticated exact-host registry pulls, deterministic
-placement, direct WireGuard routing, and node operations. This remains a
+placement, direct WireGuard routing, secure single-use worker joins, automatic
+same-key agent-certificate renewal, and node operations. This remains a
 single-controller design: during a controller outage
 agents preserve their last accepted data plane, but deployments, scheduling,
 drain, and rollout progress pause. See

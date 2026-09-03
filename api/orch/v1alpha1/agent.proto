@@ -8,6 +8,20 @@ option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1a
 
 service AgentService {
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+}
+
+message RenewCertificateRequest {
+  bytes certificate_request_der = 1;
+  string idempotency_key = 2;
+}
+
+message RenewCertificateResponse {
+  string node_id = 1;
+  bytes agent_certificate_pem = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  bool changed = 4;
+  uint64 event_sequence = 5;
 }
 
 enum AllocationPhase {

@@ -249,5 +249,6 @@ Linux; real-runtime evidence must come from a compatible dedicated host.
 The multi-node contract has no controller HA, distributed storage, automatic
 host fencing, strong singleton execution, exactly-once cron, NAT traversal,
 relay, virtual service IP, routing mesh, autoscaling, preemption, disk/GPU
-scheduling, agent certificate rotation/revocation, installer ownership, or
-automated restore. Those omissions are surfaced rather than silently ignored.
+scheduling, agent private-key rotation or general certificate revocation,
+installer ownership, or automated restore. Those omissions are surfaced rather
+than silently ignored.

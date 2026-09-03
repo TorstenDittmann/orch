@@ -16,12 +16,15 @@ import (
 const enrollAgentOperation = "agent.enroll"
 
 var (
-	ErrNodeNotFound         = errors.New("node was not found")
-	ErrNodeAlreadyEnrolled  = errors.New("a node is already enrolled")
-	ErrStaleAgentReport     = errors.New("agent report is stale")
-	ErrNodeLimitReached     = errors.New("the cluster already has 20 active nodes")
-	ErrNodeRemoved          = errors.New("node was removed")
-	ErrMeshIdentityConflict = errors.New("mesh advertise address or WireGuard public key is already used by another node")
+	ErrNodeNotFound              = errors.New("node was not found")
+	ErrNodeAlreadyEnrolled       = errors.New("a node is already enrolled")
+	ErrStaleAgentReport          = errors.New("agent report is stale")
+	ErrNodeLimitReached          = errors.New("the cluster already has 20 active nodes")
+	ErrNodeRemoved               = errors.New("node was removed")
+	ErrMeshIdentityConflict      = errors.New("mesh advertise address or WireGuard public key is already used by another node")
+	ErrJoinTokenUnavailable      = errors.New("join credential is invalid or unavailable")
+	ErrJoinTokenLimit            = errors.New("cluster already has 100 pending join credentials")
+	ErrCertificateRenewalPending = errors.New("agent already has a pending certificate renewal")
 )
 
 const maxActiveNodes = 20
@@ -42,7 +45,17 @@ func (s *Store) EnrollAgent(ctx context.Context, input model.EnrollAgent) (model
 		return model.EnrollAgentResult{}, fmt.Errorf("begin agent enrollment: %w", err)
 	}
 	defer tx.Rollback()
+	result, err := enrollAgentInTransaction(ctx, tx, input)
+	if err != nil {
+		return model.EnrollAgentResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.EnrollAgentResult{}, fmt.Errorf("commit agent enrollment: %w", err)
+	}
+	return result, nil
+}
 
+func enrollAgentInTransaction(ctx context.Context, tx *sql.Tx, input model.EnrollAgent) (model.EnrollAgentResult, error) {
 	replayed, found, err := replayEnrollment(ctx, tx, input.IdempotencyKey, input.RequestHash)
 	if err != nil || found {
 		return replayed, err
@@ -130,9 +143,6 @@ func (s *Store) EnrollAgent(ctx context.Context, input model.EnrollAgent) (model
 		input.IdempotencyKey, enrollAgentOperation, input.RequestHash, string(response),
 		input.CreatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return model.EnrollAgentResult{}, fmt.Errorf("record enrollment response: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return model.EnrollAgentResult{}, fmt.Errorf("commit agent enrollment: %w", err)
 	}
 	return result, nil
 }
@@ -286,7 +296,8 @@ func (s *Store) NodeDrainBlockers(ctx context.Context, node model.Node) ([]strin
 }
 
 const nodeSelect = `SELECT id, cluster_id, name, public_key_hash, certificate_serial,
-	certificate_pem, certificate_not_after, created_at, last_seen_at,
+	certificate_pem, certificate_not_after, pending_certificate_serial, pending_certificate_pem,
+	pending_certificate_not_after, pending_certificate_request_hash, pending_certificate_issued_at, created_at, last_seen_at,
 	operating_system, architecture, runtime_version, snapshotter, cgroups_v2,
 		cni_version, cni_plugins_version, nftables, dns_available, caddy_version, node_subnet, network_generation,
 	network_state, network_reason, network_message, dns_state, ingress_state,
@@ -302,13 +313,14 @@ func nodeByIDInTransaction(ctx context.Context, tx *sql.Tx, nodeID string) (mode
 
 func scanNode(row rowScanner) (model.Node, error) {
 	var node model.Node
-	var notAfter, createdAt, labelsJSON string
+	var notAfter, pendingNotAfter, pendingIssuedAt, createdAt, labelsJSON string
 	var lastSeen, removedAt sql.NullString
 	var cgroups, nftables, dnsAvailable, ingress int
 	var assignmentGeneration, acknowledgedGeneration, networkGeneration, lastReport, drainingObjects, ordinal int64
 	var totalCPU, totalMemory, allocatableCPU, allocatableMemory, wireGuardPort int64
 	err := row.Scan(&node.ID, &node.ClusterID, &node.Name, &node.PublicKeyHash, &node.CertificateSerial,
-		&node.CertificatePEM, &notAfter, &createdAt, &lastSeen,
+		&node.CertificatePEM, &notAfter, &node.PendingCertificateSerial, &node.PendingCertificatePEM,
+		&pendingNotAfter, &node.PendingCertificateRequestHash, &pendingIssuedAt, &createdAt, &lastSeen,
 		&node.OperatingSystem, &node.Architecture, &node.RuntimeVersion,
 		&node.Snapshotter, &cgroups, &node.CNIVersion, &node.CNIPluginsVersion, &nftables, &dnsAvailable, &node.CaddyVersion,
 		&node.NodeSubnet, &networkGeneration, &node.NetworkState, &node.NetworkReason,
@@ -351,6 +363,20 @@ func scanNode(row rowScanner) (model.Node, error) {
 	node.CertificateNotAfter, err = time.Parse(time.RFC3339Nano, notAfter)
 	if err != nil {
 		return model.Node{}, fmt.Errorf("read node certificate expiry: %w", err)
+	}
+	if pendingNotAfter != "" {
+		stamp, parseErr := time.Parse(time.RFC3339Nano, pendingNotAfter)
+		if parseErr != nil {
+			return model.Node{}, fmt.Errorf("read pending node certificate expiry: %w", parseErr)
+		}
+		node.PendingCertificateNotAfter = &stamp
+	}
+	if pendingIssuedAt != "" {
+		stamp, parseErr := time.Parse(time.RFC3339Nano, pendingIssuedAt)
+		if parseErr != nil {
+			return model.Node{}, fmt.Errorf("read pending node certificate issue time: %w", parseErr)
+		}
+		node.PendingCertificateIssuedAt = &stamp
 	}
 	node.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {

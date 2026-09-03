@@ -128,7 +128,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	}
 	runner := sessionRunner{
 		credentials: credentials, cache: cache, supervisor: supervisor,
-		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource,
+		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
 	}
 	return runner.run(ctx)
 }

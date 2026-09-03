@@ -40,10 +40,11 @@ type LocalContext struct {
 
 // AdministratorCredentials is a verified context and its TLS material.
 type AdministratorCredentials struct {
-	Context     LocalContext
-	Certificate tls.Certificate
-	RootCAs     *x509.CertPool
-	ServerName  string
+	Context          LocalContext
+	Certificate      tls.Certificate
+	RootCAs          *x509.CertPool
+	ServerName       string
+	CACertificatePEM []byte
 }
 
 // LoadContext reads one strict JSON context and rejects insecure permissions.
@@ -160,6 +161,7 @@ func LoadAdministratorCredentials(contextPath string, now time.Time) (Administra
 	serverURL, _ := url.Parse(local.Server)
 	return AdministratorCredentials{
 		Context: local, Certificate: pair, RootCAs: roots, ServerName: serverURL.Hostname(),
+		CACertificatePEM: append([]byte(nil), caPEM...),
 	}, nil
 }
 

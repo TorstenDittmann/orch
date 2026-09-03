@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +13,10 @@ import (
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
+	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/security"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -61,6 +65,99 @@ func TestAdministratorCannotOpenAgentStream(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("administrator agent stream = %v, want permission denied", err)
 	}
+}
+
+func TestAgentCertificateRenewalPromotesOnReconnect(t *testing.T) {
+	root := t.TempDir()
+	controllerDir := filepath.Join(root, "controller")
+	contextPath := filepath.Join(root, "operator", "context.json")
+	address := reserveLoopbackAddress(t)
+	endpoint := "https://" + address
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{Name: "test", Server: endpoint,
+		DataDir: controllerDir, ContextPath: contextPath, Now: time.Now, Random: rand.Reader}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := Start(context.Background(), Options{DataDir: controllerDir, Listen: address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	agentDir := filepath.Join(root, "agent")
+	if _, err := agentctl.Enroll(context.Background(), agentctl.EnrollOptions{Name: "node-1", ContextPath: contextPath, DataDir: agentDir, Now: time.Now, Random: rand.Reader}); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := agentctl.Load(agentDir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, hash, err := security.CreateAgentCertificateRequest(credentials.Config.NodeName, credentials.PrivateKeyPEM, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentHash, err := security.CertificatePublicKeyHash(credentials.Certificate.Leaf)
+	if err != nil || hash != currentHash {
+		t.Fatalf("renewal key hash = %q, %v; want %q", hash, err, currentHash)
+	}
+	oldHTTP := tlsHTTPClient(credentials.RootCAs, credentials.Certificate)
+	defer oldHTTP.CloseIdleConnections()
+	oldClient := orchv1alpha1connect.NewAgentServiceClient(oldHTTP, endpoint)
+	wrongCSR, _, _, err := security.GenerateAgentCertificateRequest("node-1", rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldClient.RenewCertificate(context.Background(), connect.NewRequest(&orchv1alpha1.RenewCertificateRequest{CertificateRequestDer: wrongCSR, IdempotencyKey: "renew-wrong-key-one"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("wrong-key renewal = %v", err)
+	}
+	renewRequest := &orchv1alpha1.RenewCertificateRequest{CertificateRequestDer: csr, IdempotencyKey: "renew-certificate-one"}
+	renewed, err := oldClient.RenewCertificate(context.Background(), connect.NewRequest(renewRequest))
+	if err != nil || renewed.Msg.GetNodeId() != credentials.Config.NodeID {
+		t.Fatalf("RenewCertificate() = %#v, %v", renewed, err)
+	}
+	replayed, err := oldClient.RenewCertificate(context.Background(), connect.NewRequest(renewRequest))
+	if err != nil || !proto.Equal(replayed.Msg, renewed.Msg) {
+		t.Fatalf("renewal replay = %#v, %v", replayed, err)
+	}
+	admin, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.CloseIdleConnections()
+	nodes, err := admin.ListNodes(context.Background())
+	if err != nil || len(nodes) != 1 || nodes[0].GetCertificateState() != model.CertificateRenewalPending {
+		t.Fatalf("pending nodes = %#v, %v", nodes, err)
+	}
+	newPair, err := tls.X509KeyPair(renewed.Msg.GetAgentCertificatePem(), credentials.PrivateKeyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHTTP := tlsHTTPClient(credentials.RootCAs, newPair)
+	defer newHTTP.CloseIdleConnections()
+	newClient := orchv1alpha1connect.NewAgentServiceClient(newHTTP, endpoint)
+	if _, err := newClient.RenewCertificate(context.Background(), connect.NewRequest(&orchv1alpha1.RenewCertificateRequest{CertificateRequestDer: csr, IdempotencyKey: "renew-pending-cert-one"})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("pending-certificate renewal = %v", err)
+	}
+	streamContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := newClient.Connect(streamContext)
+	if err := stream.Send(&orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Hello{Hello: validAgentHello(credentials.Config.NodeID)}}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		nodes, err = admin.ListNodes(context.Background())
+		if err == nil && len(nodes) == 1 && nodes[0].GetCertificateState() == model.CertificateHealthy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("certificate was not activated: %#v, %v", nodes, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := oldClient.RenewCertificate(context.Background(), connect.NewRequest(&orchv1alpha1.RenewCertificateRequest{CertificateRequestDer: csr, IdempotencyKey: "renew-certificate-old"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("retired certificate renewal = %v", err)
+	}
+	_ = stream.CloseRequest()
+	_ = stream.CloseResponse()
 }
 
 func TestValidateHelloRejectsProtocolAndShapeErrors(t *testing.T) {

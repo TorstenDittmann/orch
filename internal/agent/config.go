@@ -40,10 +40,13 @@ type Config struct {
 }
 
 type Credentials struct {
-	Config      Config
-	Certificate tls.Certificate
-	RootCAs     *x509.CertPool
-	ServerName  string
+	Config           Config
+	Certificate      tls.Certificate
+	RootCAs          *x509.CertPool
+	ServerName       string
+	DataDir          string
+	CACertificatePEM []byte
+	PrivateKeyPEM    []byte
 }
 
 // Load validates a complete protected agent identity before it can be used.
@@ -119,7 +122,8 @@ func Load(dataDir string, now time.Time) (Credentials, error) {
 	if !roots.AppendCertsFromPEM(caPEM) {
 		return Credentials{}, fmt.Errorf("load agent CA certificate")
 	}
-	return Credentials{Config: config, Certificate: pair, RootCAs: roots, ServerName: server.Hostname()}, nil
+	return Credentials{Config: config, Certificate: pair, RootCAs: roots, ServerName: server.Hostname(), DataDir: absolute,
+		CACertificatePEM: append([]byte(nil), caPEM...), PrivateKeyPEM: append([]byte(nil), keyPEM...)}, nil
 }
 
 func normalizeDataDir(raw string) (string, error) {
