@@ -165,7 +165,8 @@ func OpenInitialized(ctx context.Context, databasePath string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect initialized cluster: %w", err)
 	}
-	_, readErr := scanCluster(db.QueryRowContext(ctx, `SELECT id, name, endpoint, generation, created_at
+	_, readErr := scanCluster(db.QueryRowContext(ctx, `SELECT id, name, endpoint, generation, created_at,
+		workload_cidr, network_generation, network_frozen_at
 		FROM clusters WHERE singleton = 1`))
 	closeErr := db.Close()
 	if readErr != nil {
@@ -240,6 +241,15 @@ func (s *Store) InitializeCluster(ctx context.Context, cluster model.Cluster) er
 	if cluster.CreatedAt.IsZero() {
 		return fmt.Errorf("cluster creation time is required")
 	}
+	if cluster.WorkloadCIDR == "" {
+		cluster.WorkloadCIDR = model.DefaultWorkloadCIDR
+	}
+	if _, err := model.ParseWorkloadCIDR(cluster.WorkloadCIDR); err != nil {
+		return err
+	}
+	if cluster.NetworkGeneration == 0 {
+		cluster.NetworkGeneration = 1
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin cluster initialization: %w", err)
@@ -256,9 +266,10 @@ func (s *Store) InitializeCluster(ctx context.Context, cluster model.Cluster) er
 	}
 	createdAt := cluster.CreatedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO clusters
-        (singleton, id, name, endpoint, generation, created_at)
-        VALUES (1, ?, ?, ?, ?, ?)`,
+	        (singleton, id, name, endpoint, generation, created_at, workload_cidr, network_generation, network_updated_at)
+	        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cluster.ID, cluster.Name, cluster.Endpoint, cluster.Generation, createdAt,
+		cluster.WorkloadCIDR, cluster.NetworkGeneration, createdAt,
 	); err != nil {
 		return fmt.Errorf("insert cluster: %w", err)
 	}
@@ -282,7 +293,8 @@ func (s *Store) InitializeCluster(ctx context.Context, cluster model.Cluster) er
 }
 
 func (s *Store) Cluster(ctx context.Context) (model.Cluster, error) {
-	return scanCluster(s.db.QueryRowContext(ctx, `SELECT id, name, endpoint, generation, created_at
+	return scanCluster(s.db.QueryRowContext(ctx, `SELECT id, name, endpoint, generation, created_at,
+		workload_cidr, network_generation, network_frozen_at
 		FROM clusters WHERE singleton = 1`))
 }
 
@@ -292,10 +304,12 @@ type rowScanner interface {
 
 func scanCluster(row rowScanner) (model.Cluster, error) {
 	var cluster model.Cluster
-	var generation int64
+	var generation, networkGeneration int64
 	var createdAt string
+	var frozenAt sql.NullString
 	err := row.Scan(
 		&cluster.ID, &cluster.Name, &cluster.Endpoint, &generation, &createdAt,
+		&cluster.WorkloadCIDR, &networkGeneration, &frozenAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Cluster{}, ErrNotInitialized
@@ -303,13 +317,21 @@ func scanCluster(row rowScanner) (model.Cluster, error) {
 	if err != nil {
 		return model.Cluster{}, fmt.Errorf("read cluster: %w", err)
 	}
-	if generation < 1 {
+	if generation < 1 || networkGeneration < 1 {
 		return model.Cluster{}, fmt.Errorf("read cluster: invalid generation %d", generation)
 	}
 	cluster.Generation = uint64(generation)
+	cluster.NetworkGeneration = uint64(networkGeneration)
 	cluster.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
 		return model.Cluster{}, fmt.Errorf("read cluster creation time: %w", err)
+	}
+	if frozenAt.Valid {
+		stamp, err := time.Parse(time.RFC3339Nano, frozenAt.String)
+		if err != nil {
+			return model.Cluster{}, fmt.Errorf("read network freeze time: %w", err)
+		}
+		cluster.NetworkFrozenAt = &stamp
 	}
 	return cluster, nil
 }

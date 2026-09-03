@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 	"change.codes/torsten/better-swarm/internal/store"
 	"github.com/distribution/reference"
 )
@@ -38,6 +40,10 @@ func NewReconciler(state *store.Store, cluster model.Cluster, now func() time.Ti
 // Reconcile is safe to call after every desired-state, enrollment, capability,
 // or connection change. Identical allocation sets do not advance generation.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
+	cluster, err := r.state.Cluster(ctx)
+	if err != nil {
+		return fmt.Errorf("read cluster network configuration: %w", err)
+	}
 	applications, err := r.state.Applications(ctx, true)
 	if err != nil {
 		return fmt.Errorf("list desired applications: %w", err)
@@ -60,6 +66,22 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 
 	node := nodes[0]
+	networkConfig, err := model.FirstNodeNetwork(cluster.WorkloadCIDR, cluster.NetworkGeneration)
+	if err != nil {
+		return fmt.Errorf("derive first-node network: %w", err)
+	}
+	domainOwners, err := desiredDomainOwners(applications)
+	if err != nil {
+		return err
+	}
+	previousByID := make(map[string]model.AllocationDesired)
+	if previous, previousErr := r.state.CurrentAssignment(ctx, node.ID); previousErr == nil {
+		for _, allocation := range previous.Allocations {
+			previousByID[allocation.ID] = allocation
+		}
+	} else if !errors.Is(previousErr, store.ErrAssignmentNotFound) {
+		return fmt.Errorf("read previous assignment: %w", previousErr)
+	}
 	allocations := make([]model.AllocationDesired, 0)
 	states := make(map[string]model.ApplicationExecution, len(applications))
 	for _, application := range applications {
@@ -70,11 +92,15 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 			}
 			continue
 		}
-		planned, blocked, err := planApplication(r.cluster.ID, node, application)
+		planned, blocked, err := planApplicationForNetwork(cluster.ID, node, application,
+			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, previousByID)
 		if err != nil {
 			return fmt.Errorf("plan application %q: %w", application.Name, err)
 		}
 		if blocked != nil {
+			if blocked.preservePrevious {
+				allocations = append(allocations, previousApplicationAllocations(previousByID, application.Name)...)
+			}
 			status := blocked.status
 			if status == "" {
 				status = model.ExecutionBlocked
@@ -91,13 +117,12 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		}
 	}
 	sort.Slice(allocations, func(i, j int) bool { return allocations[i].ID < allocations[j].ID })
-	payload, err := json.Marshal(allocations)
+	payload, digest, err := model.AssignmentPayload(networkConfig, allocations)
 	if err != nil {
-		return fmt.Errorf("encode assignment snapshot: %w", err)
+		return err
 	}
-	digest := sha256.Sum256(payload)
 	assignment, changed, err := r.state.PublishAssignment(ctx, model.PublishAssignment{
-		NodeID: node.ID, Digest: "sha256:" + hex.EncodeToString(digest[:]), Payload: payload,
+		NodeID: node.ID, Digest: digest, Payload: payload, Network: networkConfig,
 		Allocations: allocations, ApplicationStates: states, CreatedAt: now,
 	})
 	if err != nil {
@@ -110,12 +135,24 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 }
 
 type blockReason struct {
-	status  string
-	reason  string
-	message string
+	status           string
+	reason           string
+	message          string
+	preservePrevious bool
 }
 
 func planApplication(clusterID string, node model.Node, application model.Application) ([]model.AllocationDesired, *blockReason, error) {
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return planApplicationForNetwork(clusterID, node, application, networkConfig, true, nil, nil)
+}
+
+func planApplicationForNetwork(clusterID string, node model.Node, application model.Application,
+	networkConfig model.NetworkConfig, networkFrozen bool, domainOwners map[string]string,
+	previousByID map[string]model.AllocationDesired,
+) ([]model.AllocationDesired, *blockReason, error) {
 	var manifest config.Manifest
 	if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
 		return nil, nil, fmt.Errorf("decode stored manifest: %w", err)
@@ -164,12 +201,24 @@ func planApplication(clusterID string, node model.Node, application model.Applic
 				message: base + ".constraints requires a later scheduling release",
 			}, nil
 		}
-		if service.HTTP != nil {
-			return nil, &blockReason{
-				reason:  "http_unsupported",
-				message: base + ".http requires networking and health gates that are not available in this release",
-			}, nil
+		if service.HTTP != nil && len(service.HTTP.Domains) != 0 {
+			for _, domain := range service.HTTP.Domains {
+				owner := application.Name + "/" + name
+				if domainOwners != nil && domainOwners[domain] != owner {
+					return nil, &blockReason{reason: "domain_conflict", message: base + ".http domain " + domain + " is already owned by an earlier application"}, nil
+				}
+			}
 		}
+	}
+	if !networkFrozen || node.NetworkGeneration != networkConfig.Generation ||
+		node.NodeSubnet != networkConfig.NodeSubnet || node.NetworkState != model.NetworkReady ||
+		node.DNSState != model.SubsystemReady {
+		return nil, &blockReason{
+			status:           model.ExecutionPending,
+			reason:           "network_initializing",
+			message:          "waiting for the agent to validate and freeze the workload network",
+			preservePrevious: true,
+		}, nil
 	}
 
 	allocations := make([]model.AllocationDesired, 0)
@@ -209,10 +258,36 @@ func planApplication(clusterID string, node model.Node, application model.Applic
 				StartDeadlineSeconds: uint32(startDeadline / time.Second),
 				AutoRollback:         manifest.Deploy.AutoRollback,
 				StartBeforeStop:      len(mounts) == 0 && manifest.Deploy.MaxSurge > 0,
+				NetworkGeneration:    networkConfig.Generation,
+				MaxSurge:             uint32(manifest.Deploy.MaxSurge),
+				MaxUnavailable:       uint32(manifest.Deploy.MaxUnavailable),
+			}
+			if service.HTTP != nil {
+				allocation.HTTP = &model.HTTPDesired{
+					Port: uint32(service.HTTP.Port), Domains: append([]string(nil), service.HTTP.Domains...),
+					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS,
+				}
 			}
 			allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
 			if err != nil {
 				return nil, nil, err
+			}
+			if previous := previousByID[allocation.ID]; previous.SpecDigest != "" {
+				sameDesiredRevision := previous.ApplicationGeneration == allocation.ApplicationGeneration &&
+					previous.RevisionID == allocation.RevisionID && previous.SpecDigest == allocation.SpecDigest
+				if sameDesiredRevision {
+					allocation.Rollback = cloneRollbackSpec(previous.Rollback)
+				} else if previous.Rollback != nil &&
+					previous.Rollback.ApplicationGeneration == application.Execution.ActiveGeneration &&
+					previous.Rollback.RevisionID == application.Execution.ActiveRevisionID {
+					allocation.Rollback = cloneRollbackSpec(previous.Rollback)
+				} else {
+					// Every allocation carries application-level rollback authority,
+					// including services whose immutable runtime spec did not change.
+					// That lets one failed service restore coherent revision metadata
+					// for the whole application without restarting equivalent tasks.
+					allocation.Rollback = rollbackSpec(previous)
+				}
 			}
 			allocations = append(allocations, allocation)
 		}
@@ -220,26 +295,141 @@ func planApplication(clusterID string, node model.Node, application model.Applic
 	return allocations, nil, nil
 }
 
+func previousApplicationAllocations(previous map[string]model.AllocationDesired, application string) []model.AllocationDesired {
+	result := make([]model.AllocationDesired, 0)
+	for _, allocation := range previous {
+		if allocation.Application == application {
+			result = append(result, allocation)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
 func nodeBlocker(node model.Node) *blockReason {
 	if node.OperatingSystem == "" {
-		return &blockReason{status: model.ExecutionPending, reason: "agent_capabilities_pending", message: "waiting for the enrolled agent to report runtime capabilities"}
+		return nodeBlock(model.ExecutionPending, "agent_capabilities_pending", "waiting for the enrolled agent to report runtime capabilities")
 	}
 	if node.OperatingSystem != "linux" || (node.Architecture != "amd64" && node.Architecture != "arm64") {
-		return &blockReason{reason: "unsupported_platform", message: "this release requires a Linux amd64 or arm64 agent"}
+		return nodeBlock("", "unsupported_platform", "this release requires a Linux amd64 or arm64 agent")
 	}
 	if !node.CgroupsV2 {
-		return &blockReason{reason: "cgroups_v2_required", message: "the enrolled agent does not report cgroups v2 support"}
+		return nodeBlock("", "cgroups_v2_required", "the enrolled agent does not report cgroups v2 support")
 	}
 	if strings.TrimSpace(node.RuntimeVersion) == "" {
-		return &blockReason{reason: "containerd_unavailable", message: "the enrolled agent did not report a compatible containerd runtime"}
+		return nodeBlock("", "containerd_unavailable", "the enrolled agent did not report a compatible containerd runtime")
 	}
 	if node.RuntimeVersion != "containerd 2.3.4" {
-		return &blockReason{reason: "unsupported_runtime_version", message: "this release requires containerd 2.3.4"}
+		return nodeBlock("", "unsupported_runtime_version", "this release requires containerd 2.3.4")
 	}
 	if strings.TrimSpace(node.Snapshotter) == "" {
-		return &blockReason{reason: "snapshotter_unavailable", message: "the enrolled agent did not report a configured containerd snapshotter"}
+		return nodeBlock("", "snapshotter_unavailable", "the enrolled agent did not report a configured containerd snapshotter")
+	}
+	if node.CNIVersion != network.CNISpecVersion {
+		return nodeBlock("", "cni_unavailable", "the enrolled agent does not report CNI 1.1.0 support")
+	}
+	if node.CNIPluginsVersion != network.CNIPluginsVersion {
+		return nodeBlock("", "cni_plugins_unavailable", "the enrolled agent does not report the official CNI plugins v1.9.1 bundle")
+	}
+	if !node.Nftables {
+		return nodeBlock("", "nftables_required", "the enrolled agent does not report nftables support")
+	}
+	if !node.DNSAvailable {
+		return nodeBlock("", "dns_unavailable", "the enrolled agent does not report an available workload DNS service")
+	}
+	if node.CaddyVersion != ingress.RequiredCaddyVersion {
+		return nodeBlock("", "caddy_unavailable", "the enrolled agent does not report Caddy "+ingress.RequiredCaddyVersion)
+	}
+	if node.NetworkState == model.NetworkFailed {
+		reason := node.NetworkReason
+		if reason == "" {
+			reason = "network_preflight_failed"
+		}
+		message := node.NetworkMessage
+		if message == "" {
+			message = "the enrolled agent could not prepare the workload network"
+		}
+		return nodeBlock("", reason, message)
 	}
 	return nil
+}
+
+func nodeBlock(status, reason, message string) *blockReason {
+	return &blockReason{status: status, reason: reason, message: message, preservePrevious: true}
+}
+
+func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
+	return &model.RollbackSpec{
+		ApplicationGeneration: allocation.ApplicationGeneration, RevisionID: allocation.RevisionID,
+		SpecDigest: allocation.SpecDigest, Image: allocation.Image,
+		Command: append([]string(nil), allocation.Command...), Args: append([]string(nil), allocation.Args...),
+		Environment: cloneEnvironment(allocation.Environment), RestartPolicy: allocation.RestartPolicy,
+		CPUMillis: allocation.CPUMillis, MemoryBytes: allocation.MemoryBytes,
+		Mounts:               append([]model.VolumeMount(nil), allocation.Mounts...),
+		StartDeadlineSeconds: allocation.StartDeadlineSeconds,
+		HTTP:                 allocation.HTTP, NetworkGeneration: allocation.NetworkGeneration,
+		AutoRollback: allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
+	}
+}
+
+func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
+	if input == nil {
+		return nil
+	}
+	result := *input
+	result.Command = append([]string(nil), input.Command...)
+	result.Args = append([]string(nil), input.Args...)
+	result.Environment = cloneEnvironment(input.Environment)
+	result.Mounts = append([]model.VolumeMount(nil), input.Mounts...)
+	if input.HTTP != nil {
+		http := *input.HTTP
+		http.Domains = append([]string(nil), input.HTTP.Domains...)
+		result.HTTP = &http
+	}
+	return &result
+}
+
+func desiredDomainOwners(applications []model.Application) (map[string]string, error) {
+	type candidate struct {
+		created time.Time
+		app     string
+		service string
+		domain  string
+	}
+	var candidates []candidate
+	for _, application := range applications {
+		if application.DeletedAt != nil {
+			continue
+		}
+		var manifest config.Manifest
+		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
+			return nil, fmt.Errorf("decode stored manifest for domain ownership: %w", err)
+		}
+		for serviceName, service := range manifest.Services {
+			if service.HTTP == nil {
+				continue
+			}
+			for _, domain := range service.HTTP.Domains {
+				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, domain})
+			}
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if !candidates[i].created.Equal(candidates[j].created) {
+			return candidates[i].created.Before(candidates[j].created)
+		}
+		if candidates[i].app != candidates[j].app {
+			return candidates[i].app < candidates[j].app
+		}
+		return candidates[i].service < candidates[j].service
+	})
+	owners := make(map[string]string)
+	for _, candidate := range candidates {
+		if _, exists := owners[candidate.domain]; !exists {
+			owners[candidate.domain] = candidate.app + "/" + candidate.service
+		}
+	}
+	return owners, nil
 }
 
 func allocationID(clusterID, application, service string, replica uint32) string {

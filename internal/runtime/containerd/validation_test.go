@@ -1,6 +1,7 @@
 package containerd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -30,6 +31,15 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 		}},
 		{name: "restart policy", want: "restart policy", edit: func(value *model.AllocationDesired) { value.RestartPolicy = "sometimes" }},
 		{name: "empty command", want: "command", edit: func(value *model.AllocationDesired) { value.Command = []string{""} }},
+		{name: "oversized argument", want: "bounded", edit: func(value *model.AllocationDesired) {
+			value.Args = []string{strings.Repeat("x", (4<<10)+1)}
+		}},
+		{name: "too many environment entries", want: "too many", edit: func(value *model.AllocationDesired) {
+			value.Environment = make(map[string]string, 257)
+			for index := 0; index <= 256; index++ {
+				value.Environment[fmt.Sprintf("KEY_%d", index)] = "value"
+			}
+		}},
 		{name: "environment", want: "environment", edit: func(value *model.AllocationDesired) { value.Environment = map[string]string{"BAD=KEY": "value"} }},
 		{name: "environment syntax", want: "environment", edit: func(value *model.AllocationDesired) { value.Environment = map[string]string{"BAD-NAME": "value"} }},
 		{name: "volume name", want: "volume mount", edit: func(value *model.AllocationDesired) {
@@ -38,8 +48,15 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 		{name: "protected mount", want: "volume mount", edit: func(value *model.AllocationDesired) {
 			value.Mounts = []model.VolumeMount{{Name: "data", Target: "/proc/data"}}
 		}},
+		{name: "resolver mount", want: "volume mount", edit: func(value *model.AllocationDesired) {
+			value.Mounts = []model.VolumeMount{{Name: "data", Target: "/etc/resolv.conf"}}
+		}},
 		{name: "duplicate mount", want: "duplicated", edit: func(value *model.AllocationDesired) {
 			value.Mounts = []model.VolumeMount{{Name: "data", Target: "/data"}, {Name: "cache", Target: "/data"}}
+		}},
+		{name: "too many domains", want: "too many domains", edit: func(value *model.AllocationDesired) {
+			value.NetworkGeneration = 1
+			value.HTTP = &model.HTTPDesired{Port: 8080, HealthPath: "/healthz", Domains: make([]string, 101)}
 		}},
 	}
 	for _, test := range tests {
@@ -57,6 +74,46 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 	mismatch.Args = []string{"changed"}
 	if err := validateAllocation(mismatch); err == nil || !strings.Contains(err.Error(), "spec digest") {
 		t.Fatalf("spec mismatch = %v", err)
+	}
+}
+
+func TestValidateAllocationAcceptsOnlyExactPlan4DigestDuringUpgrade(t *testing.T) {
+	t.Parallel()
+	legacy := runtimeTestAllocation(t)
+	var err error
+	legacy.SpecDigest, err = model.Plan4AllocationSpecDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAllocation(legacy); err != nil {
+		t.Fatalf("validate legacy allocation: %v", err)
+	}
+	legacy.MaxSurge = 1
+	if err := validateAllocation(legacy); err == nil || !strings.Contains(err.Error(), "spec digest") {
+		t.Fatalf("extended allocation with legacy digest = %v", err)
+	}
+}
+
+func TestValidateAllocationAcceptsMetadataOnlyApplicationRollback(t *testing.T) {
+	t.Parallel()
+	previous := runtimeTestAllocation(t)
+	updated := previous
+	updated.ApplicationGeneration = 2
+	updated.RevisionID = "revision-two"
+	updated.Rollback = &model.RollbackSpec{
+		ApplicationGeneration: previous.ApplicationGeneration, RevisionID: previous.RevisionID,
+		SpecDigest: previous.SpecDigest, Image: previous.Image,
+		Command: append([]string(nil), previous.Command...), Args: append([]string(nil), previous.Args...),
+		Environment: previous.Environment, RestartPolicy: previous.RestartPolicy,
+		CPUMillis: previous.CPUMillis, MemoryBytes: previous.MemoryBytes,
+		StartDeadlineSeconds: previous.StartDeadlineSeconds,
+		AutoRollback:         previous.AutoRollback, StartBeforeStop: previous.StartBeforeStop,
+	}
+	if updated.SpecDigest != updated.Rollback.SpecDigest {
+		t.Fatal("test setup does not use one immutable runtime spec")
+	}
+	if err := validateAllocation(updated); err != nil {
+		t.Fatalf("metadata-only rollback: %v", err)
 	}
 }
 

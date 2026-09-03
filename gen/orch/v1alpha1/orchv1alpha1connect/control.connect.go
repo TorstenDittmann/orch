@@ -58,6 +58,9 @@ const (
 	ControlServiceTailLogsProcedure = "/orch.v1alpha1.ControlService/TailLogs"
 	// ControlServiceExecProcedure is the fully-qualified name of the ControlService's Exec RPC.
 	ControlServiceExecProcedure = "/orch.v1alpha1.ControlService/Exec"
+	// ControlServiceConfigureNetworkProcedure is the fully-qualified name of the ControlService's
+	// ConfigureNetwork RPC.
+	ControlServiceConfigureNetworkProcedure = "/orch.v1alpha1.ControlService/ConfigureNetwork"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -71,6 +74,7 @@ type ControlServiceClient interface {
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error)
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error)
+	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -138,6 +142,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("Exec")),
 			connect.WithClientOptions(opts...),
 		),
+		configureNetwork: connect.NewClient[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse](
+			httpClient,
+			baseURL+ControlServiceConfigureNetworkProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ConfigureNetwork")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -152,6 +162,7 @@ type controlServiceClient struct {
 	removeApplication *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
 	tailLogs          *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
 	exec              *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	configureNetwork  *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -199,6 +210,11 @@ func (c *controlServiceClient) Exec(ctx context.Context, req *connect.Request[v1
 	return c.exec.CallServerStream(ctx, req)
 }
 
+// ConfigureNetwork calls orch.v1alpha1.ControlService.ConfigureNetwork.
+func (c *controlServiceClient) ConfigureNetwork(ctx context.Context, req *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {
+	return c.configureNetwork.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
@@ -210,6 +226,7 @@ type ControlServiceHandler interface {
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error
+	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -273,6 +290,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("Exec")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceConfigureNetworkHandler := connect.NewUnaryHandler(
+		ControlServiceConfigureNetworkProcedure,
+		svc.ConfigureNetwork,
+		connect.WithSchema(controlServiceMethods.ByName("ConfigureNetwork")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -293,6 +316,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceTailLogsHandler.ServeHTTP(w, r)
 		case ControlServiceExecProcedure:
 			controlServiceExecHandler.ServeHTTP(w, r)
+		case ControlServiceConfigureNetworkProcedure:
+			controlServiceConfigureNetworkHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -336,4 +361,8 @@ func (UnimplementedControlServiceHandler) TailLogs(context.Context, *connect.Req
 
 func (UnimplementedControlServiceHandler) Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.Exec is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ConfigureNetwork is not implemented"))
 }

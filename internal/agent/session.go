@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	reconcileInterval = 5 * time.Second
-	heartbeatInterval = 10 * time.Second
-	maxOperationChunk = 64 << 10
+	reconcileInterval      = 2 * time.Second
+	heartbeatInterval      = 10 * time.Second
+	maxOperationChunk      = 64 << 10
+	maxAssignedAllocations = 1000
 )
 
 type sessionRunner struct {
@@ -209,10 +210,12 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		return fmt.Errorf("read cached assignment: %w", cachedErr)
 	}
 	hello := &orchv1alpha1.AgentHello{
-		ProtocolVersion: "v1alpha1", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		ProtocolVersion: "v1alpha1-network-1", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
 		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
 		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
-		CgroupsV2: r.capabilities.CgroupsV2,
+		CgroupsV2: r.capabilities.CgroupsV2, CniVersion: r.capabilities.CNIVersion,
+		CniPluginsVersion: r.capabilities.CNIPluginsVersion, Nftables: r.capabilities.Nftables,
+		CaddyVersion: r.capabilities.CaddyVersion, DnsAvailable: r.capabilities.DNSAvailable,
 	}
 	if cachedErr == nil {
 		hello.CachedAssignmentGeneration = cached.Generation
@@ -374,9 +377,11 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 
 func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectRequest, assignment model.Assignment, statuses []model.AllocationStatus) error {
 	r.reportSeq++
+	routes, networkStatus := r.supervisor.Observations()
 	report := &orchv1alpha1.AllocationReport{
 		BootId: r.bootID, Sequence: r.reportSeq, AssignmentGeneration: assignment.Generation,
 		AssignmentDigest: assignment.Digest, Allocations: make([]*orchv1alpha1.AllocationStatus, 0, len(statuses)),
+		Routes: make([]*orchv1alpha1.RouteStatus, 0, len(routes)),
 	}
 	for _, status := range statuses {
 		item := &orchv1alpha1.AllocationStatus{
@@ -384,12 +389,36 @@ func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectReque
 			ApplicationGeneration: status.ApplicationGeneration, SpecDigest: status.SpecDigest,
 			Phase: allocationPhaseProto(status.Phase), Reason: status.Reason, Message: status.Message,
 			RestartCount: status.RestartCount, UpdatedAt: timestamppb.New(status.UpdatedAt),
+			HealthStatus: healthStatusProto(status.HealthStatus), Address: status.Address,
+			ActiveSpecDigest:            status.ActiveSpecDigest,
+			ActiveApplicationGeneration: status.ActiveGeneration, ActiveRevisionId: status.ActiveRevisionID,
+			DeclaredPort: status.DeclaredPort,
 		}
 		if status.ExitCode != nil {
 			item.HasExitCode = true
 			item.ExitCode = *status.ExitCode
 		}
+		if status.ReadyAt != nil {
+			item.ReadyAt = timestamppb.New(*status.ReadyAt)
+		}
 		report.Allocations = append(report.Allocations, item)
+	}
+	for _, route := range routes {
+		report.Routes = append(report.Routes, &orchv1alpha1.RouteStatus{
+			Application: route.Application, Service: route.Service, Domain: route.Domain,
+			Https: route.HTTPS, State: routeStateProto(route.State), CertificateState: route.CertificateState,
+			UpstreamCount: route.UpstreamCount, Reason: route.Reason, Message: route.Message,
+			UpdatedAt: timestamppb.New(route.UpdatedAt),
+		})
+	}
+	if networkStatus.Generation != 0 {
+		report.Network = &orchv1alpha1.NetworkStatus{
+			Generation: networkStatus.Generation, State: networkStateProto(networkStatus.State),
+			ClusterCidr: networkStatus.ClusterCIDR, NodeSubnet: networkStatus.NodeSubnet,
+			Gateway: networkStatus.Gateway, Reason: networkStatus.Reason, Message: networkStatus.Message,
+			DnsState: networkStatus.DNSState, IngressState: networkStatus.IngressState,
+			DrainingObjects: networkStatus.DrainingObjects,
+		}
 	}
 	return enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AllocationReport{AllocationReport: report}})
 }
@@ -511,6 +540,25 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment volume mount contains unknown fields"))
 			}
 		}
+		if allocation.GetHttp() != nil && len(allocation.GetHttp().ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment HTTP intent contains unknown fields"))
+		}
+		if allocation.GetRollback() != nil {
+			if len(allocation.GetRollback().ProtoReflect().GetUnknown()) != 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback spec contains unknown fields"))
+			}
+			if allocation.GetRollback().GetHttp() != nil && len(allocation.GetRollback().GetHttp().ProtoReflect().GetUnknown()) != 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback HTTP intent contains unknown fields"))
+			}
+			for _, mount := range allocation.GetRollback().GetMounts() {
+				if mount == nil || len(mount.ProtoReflect().GetUnknown()) != 0 {
+					return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback mount contains unknown fields"))
+				}
+			}
+		}
+	}
+	if snapshot.GetNetwork() != nil && len(snapshot.GetNetwork().ProtoReflect().GetUnknown()) != 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment network contains unknown fields"))
 	}
 	return nil
 }
@@ -533,9 +581,20 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 		snapshot.GetCreatedAt() == nil || snapshot.GetCreatedAt().CheckValid() != nil {
 		return model.Assignment{}, errors.New("assignment snapshot is incomplete or for another node")
 	}
+	if len(snapshot.GetAllocations()) > maxAssignedAllocations {
+		return model.Assignment{}, fmt.Errorf("assignment exceeds the %d allocation limit", maxAssignedAllocations)
+	}
 	assignment := model.Assignment{
 		NodeID: nodeID, Generation: snapshot.GetGeneration(), Digest: snapshot.GetDigest(),
 		CreatedAt: snapshot.GetCreatedAt().AsTime(), Allocations: make([]model.AllocationDesired, 0, len(snapshot.GetAllocations())),
+	}
+	if network := snapshot.GetNetwork(); network != nil {
+		assignment.Network = model.NetworkConfig{Generation: network.GetGeneration(), ClusterCIDR: network.GetClusterCidr(),
+			NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(), DNSZone: network.GetDnsZone()}
+		expected, err := model.FirstNodeNetwork(assignment.Network.ClusterCIDR, assignment.Network.Generation)
+		if err != nil || expected != assignment.Network {
+			return model.Assignment{}, errors.New("assignment network is invalid")
+		}
 	}
 	previousID := ""
 	for _, item := range snapshot.GetAllocations() {
@@ -553,12 +612,40 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			Args: append([]string(nil), item.GetArgs()...), Environment: cloneStringMap(item.GetEnvironment()),
 			RestartPolicy: item.GetRestartPolicy(), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
 			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
+			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
+		}
+		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
+			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
 		}
 		for _, mount := range item.GetMounts() {
 			allocation.Mounts = append(allocation.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
 		}
+		if rollback := item.GetRollback(); rollback != nil {
+			allocation.Rollback = &model.RollbackSpec{
+				ApplicationGeneration: rollback.GetApplicationGeneration(), RevisionID: rollback.GetRevisionId(),
+				SpecDigest: rollback.GetSpecDigest(), Image: rollback.GetImage(), Command: append([]string(nil), rollback.GetCommand()...),
+				Args: append([]string(nil), rollback.GetArgs()...), Environment: cloneStringMap(rollback.GetEnvironment()),
+				RestartPolicy: rollback.GetRestartPolicy(), CPUMillis: rollback.GetCpuMillis(), MemoryBytes: rollback.GetMemoryBytes(),
+				StartDeadlineSeconds: rollback.GetStartDeadlineSeconds(), NetworkGeneration: rollback.GetNetworkGeneration(),
+				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
+			}
+			if rollback.GetHttp() != nil {
+				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
+			}
+			for _, mount := range rollback.GetMounts() {
+				allocation.Rollback.Mounts = append(allocation.Rollback.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
+			}
+		}
 		if err := orchruntime.ValidateAllocation(allocation); err != nil {
 			return model.Assignment{}, fmt.Errorf("assignment allocation %q is invalid: %w", allocation.ID, err)
+		}
+		legacy, err := model.IsPlan4Allocation(allocation)
+		if err != nil {
+			return model.Assignment{}, fmt.Errorf("validate legacy allocation %q: %w", allocation.ID, err)
+		}
+		legacyPreflight := legacy && allocation.NetworkGeneration == 0 && assignment.Network.Generation != 0
+		if allocation.NetworkGeneration != assignment.Network.Generation && !legacyPreflight {
+			return model.Assignment{}, fmt.Errorf("assignment allocation %q does not match the assignment network generation", allocation.ID)
 		}
 		assignment.Allocations = append(assignment.Allocations, allocation)
 	}
@@ -616,6 +703,47 @@ func allocationPhaseProto(phase string) orchv1alpha1.AllocationPhase {
 		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_FAILED
 	default:
 		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_UNSPECIFIED
+	}
+}
+
+func healthStatusProto(status string) orchv1alpha1.HealthStatus {
+	switch status {
+	case model.HealthNotConfigured:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_NOT_CONFIGURED
+	case model.HealthChecking:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_CHECKING
+	case model.HealthReady:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_READY
+	case model.HealthUnhealthy:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_UNHEALTHY
+	default:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_UNSPECIFIED
+	}
+}
+
+func networkStateProto(status string) orchv1alpha1.NetworkState {
+	switch status {
+	case model.NetworkPending:
+		return orchv1alpha1.NetworkState_NETWORK_STATE_PENDING
+	case model.NetworkReady:
+		return orchv1alpha1.NetworkState_NETWORK_STATE_READY
+	case model.NetworkFailed:
+		return orchv1alpha1.NetworkState_NETWORK_STATE_FAILED
+	default:
+		return orchv1alpha1.NetworkState_NETWORK_STATE_UNSPECIFIED
+	}
+}
+
+func routeStateProto(status string) orchv1alpha1.RouteState {
+	switch status {
+	case model.RoutePending:
+		return orchv1alpha1.RouteState_ROUTE_STATE_PENDING
+	case model.RouteActive:
+		return orchv1alpha1.RouteState_ROUTE_STATE_ACTIVE
+	case model.RouteFailed:
+		return orchv1alpha1.RouteState_ROUTE_STATE_FAILED
+	default:
+		return orchv1alpha1.RouteState_ROUTE_STATE_UNSPECIFIED
 	}
 }
 

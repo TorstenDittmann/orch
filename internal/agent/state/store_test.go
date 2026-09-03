@@ -3,9 +3,12 @@ package state
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 )
 
 var stateTestTime = time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
@@ -116,6 +120,34 @@ func TestAssignmentRejectsNonCanonicalAllocationOrder(t *testing.T) {
 	}
 }
 
+func TestAssignmentCommitPreservesPlan4AllocationDuringNetworkPreflight(t *testing.T) {
+	t.Parallel()
+	cache := openTestCache(t)
+	allocation := testAllocation(t, "sha256:"+strings.Repeat("a", 64))
+	var err error
+	allocation.SpecDigest, err = model.Plan4AllocationSpecDigest(allocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, digest, err := model.AssignmentPayload(network, []model.AllocationDesired{allocation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := model.Assignment{NodeID: "node-one", Generation: 2, Digest: digest, Payload: payload,
+		Allocations: []model.AllocationDesired{allocation}, Network: network, CreatedAt: stateTestTime}
+	if changed, err := cache.CommitAssignment(context.Background(), assignment); err != nil || !changed {
+		t.Fatalf("CommitAssignment(legacy preflight) = %t, %v", changed, err)
+	}
+	got, err := cache.Assignment(context.Background())
+	if err != nil || len(got.Allocations) != 1 || got.Allocations[0].SpecDigest != allocation.SpecDigest || got.Network != network {
+		t.Fatalf("Assignment(legacy preflight) = %#v, %v", got, err)
+	}
+}
+
 func TestAllocationRestartStateSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -129,7 +161,7 @@ func TestAllocationRestartStateSurvivesReopen(t *testing.T) {
 	want := AllocationState{
 		ID: "alloc-one", SpecDigest: "sha256:" + strings.Repeat("a", 64), Phase: model.AllocationBackoff,
 		RestartCount: 3, NextAttemptAt: &next, ExitCode: &exit, Reason: "restart_backoff",
-		Message: "waiting", UpdatedAt: stateTestTime,
+		Message: "waiting", UpdatedAt: stateTestTime, HealthStatus: model.HealthNotConfigured,
 	}
 	if err := cache.SaveAllocationState(ctx, want); err != nil {
 		t.Fatal(err)
@@ -222,7 +254,7 @@ func TestOpenRejectsUnsafeAndNewerAgentState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (2, 'future.sql', 'future')`); err != nil {
+		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (3, 'future.sql', 'future')`); err != nil {
 			t.Fatal(err)
 		}
 		if err := cache.Close(); err != nil {
@@ -232,6 +264,193 @@ func TestOpenRejectsUnsafeAndNewerAgentState(t *testing.T) {
 			t.Fatalf("Open() = %v", err)
 		}
 	})
+}
+
+func TestVersionOneAgentStateMigratesWithoutIdentityOrRuntimeLoss(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(privateTestDir(t), "agent.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL) STRICT`); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := fs.ReadFile(migrationFiles, "migrations/001_agent_core.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, string(contents)); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(contents)
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum)
+		VALUES (1, '001_agent_core.sql', ?)`, hex.EncodeToString(digest[:])); err != nil {
+		t.Fatal(err)
+	}
+	allocation := testAllocation(t, "sha256:"+strings.Repeat("a", 64))
+	assignment := testAssignment(t, "node-one", 1, allocation)
+	encodedAllocation, err := json.Marshal(allocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_identity(singleton, cluster_id, node_id)
+		VALUES (1, 'cluster-one', 'node-one')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO assignment(singleton, generation, digest, payload, created_at)
+		VALUES (1, 1, ?, ?, ?)`, assignment.Digest, string(assignment.Payload), stateTestTime.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO desired_allocations(id, spec_digest, spec)
+		VALUES (?, ?, ?)`, allocation.ID, allocation.SpecDigest, string(encodedAllocation)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO allocation_state
+		(id, spec_digest, phase, restart_count, reason, message, updated_at)
+		VALUES (?, ?, 'RUNNING', 2, 'process_running', 'running', ?)`, allocation.ID,
+		allocation.SpecDigest, stateTestTime.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cache, err := Open(ctx, path, "cluster-one", "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	gotAssignment, err := cache.Assignment(ctx)
+	if err != nil || gotAssignment.Generation != 1 || len(gotAssignment.Allocations) != 1 ||
+		gotAssignment.Allocations[0].SpecDigest != allocation.SpecDigest {
+		t.Fatalf("migrated assignment = %#v, %v", gotAssignment, err)
+	}
+	states, err := cache.AllocationStates(ctx)
+	if err != nil || len(states) != 1 {
+		t.Fatalf("migrated allocation states = %#v, %v", states, err)
+	}
+	if states[0].Phase != model.AllocationRunning || states[0].RestartCount != 2 ||
+		states[0].HealthStatus != model.HealthNotConfigured || states[0].SpecDigest != allocation.SpecDigest {
+		t.Fatalf("migrated allocation state = %#v", states[0])
+	}
+	var migrations int
+	if err := cache.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
+		t.Fatal(err)
+	}
+	if migrations != 2 {
+		t.Fatalf("migration count = %d, want 2", migrations)
+	}
+}
+
+func TestNetworkAttachmentsAreDurableAndOwnershipBound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := openTestCache(t)
+	attachment := network.Attachment{
+		AllocationID: "alloc-one", ObjectID: "object-one", SpecDigest: "sha256:" + strings.Repeat("a", 64),
+		NetworkGeneration: 1, Address: netip.MustParseAddr("10.88.0.2"), NetNS: "/proc/123/ns/net", CreatedAt: stateTestTime,
+	}
+	if err := cache.SaveAttachment(ctx, attachment); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.SaveAttachment(ctx, attachment); err != nil {
+		t.Fatalf("idempotent SaveAttachment() = %v", err)
+	}
+	mismatch := attachment
+	mismatch.SpecDigest = "sha256:" + strings.Repeat("b", 64)
+	if err := cache.SaveAttachment(ctx, mismatch); !errors.Is(err, network.ErrOwnershipMismatch) {
+		t.Fatalf("mismatched SaveAttachment() = %v", err)
+	}
+	stored, err := cache.Attachment(ctx, attachment.ObjectID)
+	if err != nil || stored.AllocationID != attachment.AllocationID || stored.Address != attachment.Address {
+		t.Fatalf("Attachment() = %#v, %v", stored, err)
+	}
+	all, err := cache.Attachments(ctx)
+	if err != nil || len(all) != 1 || all[0].ObjectID != attachment.ObjectID {
+		t.Fatalf("Attachments() = %#v, %v", all, err)
+	}
+	if err := cache.DeleteAttachment(ctx, attachment.ObjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Attachment(ctx, attachment.ObjectID); !errors.Is(err, network.ErrNotFound) {
+		t.Fatalf("Attachment() after delete = %v", err)
+	}
+}
+
+func TestServingSnapshotAndDrainAreDurableAndAtomic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(privateTestDir(t), "agent.db")
+	cache, err := Open(ctx, path, "cluster-one", "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := ServingEndpoint{
+		AllocationID: "alloc-one", Application: "hello", Service: "web", Address: "10.88.0.2",
+		SpecDigest: "sha256:" + strings.Repeat("a", 64), UpdatedAt: stateTestTime,
+	}
+	if err := cache.ReplaceServingEndpoints(ctx, []ServingEndpoint{endpoint}); err != nil {
+		t.Fatal(err)
+	}
+	replacement := endpoint
+	replacement.Address = "10.88.0.3"
+	replacement.SpecDigest = "sha256:" + strings.Repeat("b", 64)
+	replacement.UpdatedAt = stateTestTime.Add(time.Second)
+	if err := cache.StageServingEndpoints(ctx, []ServingEndpoint{replacement}); err != nil {
+		t.Fatal(err)
+	}
+	if endpoints, err := cache.ServingEndpoints(ctx); err != nil || !reflect.DeepEqual(endpoints, []ServingEndpoint{endpoint}) {
+		t.Fatalf("accepted snapshot changed while staged = %#v, %v", endpoints, err)
+	}
+	if err := cache.CommitServingEndpoints(ctx); err != nil {
+		t.Fatal(err)
+	}
+	until := stateTestTime.Add(5 * time.Second)
+	drain := Drain{ObjectID: "object-one", AllocationID: endpoint.AllocationID, SpecDigest: endpoint.SpecDigest, Until: until}
+	gotUntil, err := cache.BeginDrain(ctx, drain)
+	if err != nil || !gotUntil.Equal(until) {
+		t.Fatalf("BeginDrain() = %v, %v", gotUntil, err)
+	}
+	extended := drain
+	extended.Until = until.Add(time.Hour)
+	gotUntil, err = cache.BeginDrain(ctx, extended)
+	if err != nil || !gotUntil.Equal(until) {
+		t.Fatalf("idempotent BeginDrain() = %v, %v", gotUntil, err)
+	}
+	if err := cache.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cache, err = Open(ctx, path, "cluster-one", "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	endpoints, err := cache.ServingEndpoints(ctx)
+	if err != nil || !reflect.DeepEqual(endpoints, []ServingEndpoint{replacement}) {
+		t.Fatalf("ServingEndpoints() = %#v, %v", endpoints, err)
+	}
+	drains, err := cache.Drains(ctx)
+	if err != nil || !reflect.DeepEqual(drains, []Drain{drain}) {
+		t.Fatalf("Drains() = %#v, %v", drains, err)
+	}
+	if err := cache.ReplaceServingEndpoints(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if endpoints, err := cache.ServingEndpoints(ctx); err != nil || len(endpoints) != 0 {
+		t.Fatalf("cleared ServingEndpoints() = %#v, %v", endpoints, err)
+	}
+	if err := cache.DeleteDrain(ctx, drain.ObjectID); err != nil {
+		t.Fatal(err)
+	}
+	if drains, err := cache.Drains(ctx); err != nil || len(drains) != 0 {
+		t.Fatalf("cleared Drains() = %#v, %v", drains, err)
+	}
 }
 
 func openTestCache(t *testing.T) *Store {

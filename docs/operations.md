@@ -81,6 +81,23 @@ restart supervision, and converges with the controller after reconnecting.
 probes. It returns only `ok`, never cluster metadata. All ConnectRPC operator
 methods require a verified administrator certificate.
 
+## Configure the workload CIDR
+
+New clusters use `10.88.0.0/16`. Before the first agent reports a ready
+workload network, an administrator may select another canonical RFC1918 prefix
+from `/16` through `/19`:
+
+~~~console
+orch network configure \
+  --cidr 10.96.0.0/16 \
+  --context "$HOME/.config/orch/context.json"
+~~~
+
+The command is idempotent and reports its retry key. The first `READY` network
+observation freezes the CIDR permanently for this cluster; later attempts to
+change it fail closed. The one supported node owns the first `/24` and uses its
+first usable address as the bridge and DNS gateway.
+
 ## Enroll and run the agent
 
 `agent init` creates a P-256 private key locally, stages its CSR and retry key,
@@ -100,18 +117,41 @@ replacement key for the enrolled node is rejected.
 
 Start the agent on a supported Linux host:
 
+Install the official CNI plugins 1.9.1 in `/opt/cni/bin`, enable
+`net.ipv4.ip_forward=1`, and make nftables available. Install Caddy 2.11.3 as a
+root-owned executable with only the low-port capability, then prepare its
+dedicated identity and private state directory. Exact account-management
+commands vary by distribution; the resulting invariants can be checked with:
+
+~~~console
+setcap cap_net_bind_service=+ep /usr/bin/caddy
+install -d -m 0700 -o orch-ingress -g orch-ingress /var/lib/orch-ingress
+~~~
+
 ~~~console
 orch agent serve \
   --data-dir /var/lib/orch-agent \
   --containerd-socket /run/containerd/containerd.sock \
-  --snapshotter overlayfs
+  --snapshotter overlayfs \
+  --cni-bin-dir /opt/cni/bin \
+  --caddy-binary /usr/bin/caddy \
+  --ingress-user orch-ingress \
+  --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
 The process validates the protected identity and SQLite cache before contacting
 containerd. It then requires Linux `amd64` or `arm64`, cgroups v2, containerd
-2.3.4, the configured snapshotter, `containerd-shim-runc-v2`, and `runc`.
-Startup fails closed if any prerequisite or identity check fails. Run only one
+2.3.4, the configured snapshotter, `containerd-shim-runc-v2`, `runc`, official
+CNI plugins 1.9.1 with CNI 1.1.0 support, IPv4 forwarding, nftables, and the
+exact Caddy version, file capability, dedicated user, and owned admin socket.
+DNS and validated Caddy must both be ready before the first network generation
+is frozen, even when no public route is declared. Missing network/ingress
+capabilities are reported to the controller as explicit blockers. Run only one
 agent process for the data directory; `agent.lock` enforces local ownership.
+
+See [networking.md](networking.md) for CIDR conflict recovery, DNS behavior,
+firewall ownership, public DNS and port requirements, Caddy persistence, and
+the endpoint drain/removal contract.
 
 The resulting layout is:
 
@@ -125,6 +165,12 @@ The resulting layout is:
 │   ├── agent.pem
 │   └── agent-key.pem
 ├── logs/
+├── network/
+│   ├── cni-cache/
+│   ├── host-local/
+│   ├── firewall-owner.json
+│   ├── resolv.conf
+│   └── resolv-<application>.conf
 └── volumes/
 ~~~
 
@@ -189,10 +235,11 @@ orch exec runtime-demo worker --replica 1 \
 ~~~
 
 Node connection state is the current controller process's observation. An
-application reports desired and observed generations plus ordered allocation
-states. `RUNNING` means the exact desired processes are alive—not healthy,
-ready, or reachable. See [runtime.md](runtime.md) for every status and runtime
-limit.
+application reports desired and active generations plus ordered allocation and
+route states. `RUNNING` means the exact desired processes are alive. HTTP
+applications reach `HEALTHY` only after readiness and all requested routes are
+active; `ROLLED_BACK` identifies the still-active previous generation. See
+[runtime.md](runtime.md) for every status and runtime limit.
 
 Logs are a finite tail, not follow mode. Stdout and stderr remain separate and
 are streamed through the controller without being persisted there. Exec has no

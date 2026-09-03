@@ -139,6 +139,16 @@ func (client *Client) ListNodes(ctx context.Context) ([]*orchv1alpha1.Node, erro
 	return response.Msg.GetNodes(), nil
 }
 
+func (client *Client) ConfigureNetwork(ctx context.Context, cidr, idempotencyKey string) (*orchv1alpha1.ConfigureNetworkResponse, error) {
+	response, err := client.service.ConfigureNetwork(ctx, connect.NewRequest(&orchv1alpha1.ConfigureNetworkRequest{
+		Cidr: cidr, IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 func (client *Client) RemoveApplication(ctx context.Context, name, idempotencyKey string) (*orchv1alpha1.RemoveApplicationResponse, error) {
 	response, err := client.service.RemoveApplication(ctx, connect.NewRequest(&orchv1alpha1.RemoveApplicationRequest{
 		Name: name, IdempotencyKey: idempotencyKey,

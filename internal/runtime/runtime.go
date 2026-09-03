@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 )
 
 var (
@@ -16,29 +17,38 @@ var (
 )
 
 type Capabilities struct {
-	OperatingSystem string
-	Architecture    string
-	RuntimeVersion  string
-	Snapshotter     string
-	CgroupsV2       bool
+	OperatingSystem   string
+	Architecture      string
+	RuntimeVersion    string
+	Snapshotter       string
+	CgroupsV2         bool
+	CNIVersion        string
+	CNIPluginsVersion string
+	Nftables          bool
+	CaddyVersion      string
+	DNSAvailable      bool
 }
 
 type Options struct {
-	ClusterID   string
-	NodeID      string
-	Snapshotter string
-	LogsDir     string
-	VolumesDir  string
-	LoggerPath  string
+	ClusterID    string
+	NodeID       string
+	Snapshotter  string
+	LogsDir      string
+	VolumesDir   string
+	LoggerPath   string
+	ResolverPath string
+	Network      network.Manager
 }
 
 type Object struct {
-	ID           string
-	AllocationID string
-	SpecDigest   string
-	Running      bool
-	ExitCode     *int32
-	StartedAt    time.Time
+	ID                string
+	AllocationID      string
+	SpecDigest        string
+	Running           bool
+	ExitCode          *int32
+	StartedAt         time.Time
+	Address           string
+	NetworkGeneration uint64
 }
 
 type LogFrame struct {
@@ -59,6 +69,7 @@ type ExecFrame struct {
 // operate only within the configured namespace and verified ownership labels.
 type Runtime interface {
 	Preflight(context.Context) (Capabilities, error)
+	PrepareNetwork(context.Context, model.NetworkConfig) error
 	ListOwned(context.Context) ([]Object, error)
 	Ensure(context.Context, model.AllocationDesired) (Object, error)
 	Inspect(context.Context, string) (Object, error)

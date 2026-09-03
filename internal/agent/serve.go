@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/agent/state"
+	"change.codes/torsten/better-swarm/internal/discovery"
+	"change.codes/torsten/better-swarm/internal/ingress"
+	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 )
 
@@ -18,6 +21,8 @@ type ServeOptions struct {
 	DataDir     string
 	Snapshotter string
 	Runtime     orchruntime.Runtime
+	Discovery   discovery.Controller
+	Ingress     ingress.Controller
 	Now         func() time.Time
 	Random      io.Reader
 }
@@ -45,6 +50,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		return fmt.Errorf("open agent cache: %w", err)
 	}
 	defer cache.Close()
+	if configurable, ok := options.Runtime.(interface{ SetAttachmentStore(network.AttachmentStore) }); ok {
+		configurable.SetAttachmentStore(cache)
+	}
 	capabilities, err := options.Runtime.Preflight(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime preflight: %w", err)
@@ -58,11 +66,30 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	if options.Snapshotter == "" || capabilities.Snapshotter != options.Snapshotter {
 		return fmt.Errorf("configured snapshotter %q is unavailable (runtime reports %q)", options.Snapshotter, capabilities.Snapshotter)
 	}
+	ingressController := options.Ingress
+	if options.Ingress != nil {
+		if version, ingressErr := options.Ingress.Preflight(ctx); ingressErr == nil {
+			capabilities.CaddyVersion = version
+		} else {
+			ingressController = nil
+		}
+		defer options.Ingress.Close()
+	}
+	if options.Discovery != nil {
+		capabilities.DNSAvailable = true
+		defer func() {
+			closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = options.Discovery.Close(closeContext)
+		}()
+	}
 	randomSource := options.Random
 	if randomSource == nil {
 		randomSource = rand.Reader
 	}
-	supervisor := NewSupervisor(cache, options.Runtime, options.Now, randomSource)
+	supervisor := NewSupervisorWithServices(cache, options.Runtime, options.Now, SupervisorServices{
+		Discovery: options.Discovery, Ingress: ingressController,
+	}, randomSource)
 	if cached, err := cache.Assignment(ctx); err == nil {
 		if _, err := supervisor.Reconcile(ctx, cached); err != nil {
 			return fmt.Errorf("reconcile cached assignment: %w", err)

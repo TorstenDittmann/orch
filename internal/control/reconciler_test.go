@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 	"change.codes/torsten/better-swarm/internal/store"
 )
 
@@ -57,8 +59,20 @@ args = ["3600"]
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || preflight.Generation != 1 || len(preflight.Allocations) != 0 || len(published) != 1 {
+		t.Fatalf("network preflight assignment = %#v, %v; callbacks %d", preflight, err, len(published))
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionPending || application.Execution.Reason != "network_initializing" {
+		t.Fatalf("network-gated application = %#v, %v", application.Execution, err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
 	first, err := state.CurrentAssignment(ctx, "node-one")
-	if err != nil || first.Generation != 1 || len(first.Allocations) != 3 || len(published) != 1 {
+	if err != nil || first.Generation != 2 || len(first.Allocations) != 3 || len(published) != 2 {
 		t.Fatalf("first assignment = %#v, %v; callbacks %d", first, err, len(published))
 	}
 	for index, allocation := range first.Allocations {
@@ -84,7 +98,7 @@ args = ["3600"]
 	}
 	nodeAfter, _ := state.Node(ctx)
 	eventsAfter, _ := state.EventsAfter(ctx, 0, 100)
-	if nodeAfter.AssignmentGeneration != nodeBefore.AssignmentGeneration || len(eventsAfter) != len(eventsBefore) || len(published) != 1 {
+	if nodeAfter.AssignmentGeneration != nodeBefore.AssignmentGeneration || len(eventsAfter) != len(eventsBefore) || len(published) != 2 {
 		t.Fatalf("unchanged reconcile advanced state: node %#v -> %#v, events %d -> %d, callbacks %d", nodeBefore, nodeAfter, len(eventsBefore), len(eventsAfter), len(published))
 	}
 
@@ -94,7 +108,7 @@ args = ["3600"]
 		t.Fatal(err)
 	}
 	second, err := state.CurrentAssignment(ctx, "node-one")
-	if err != nil || second.Generation != 2 || len(second.Allocations) != 3 {
+	if err != nil || second.Generation != 3 || len(second.Allocations) != 3 {
 		t.Fatalf("second assignment = %#v, %v", second, err)
 	}
 	workerAfter := allocationForService(t, second, "worker", 1)
@@ -102,8 +116,164 @@ args = ["3600"]
 	if workerAfter.ID != workerBefore.ID || workerAfter.SpecDigest != workerBefore.SpecDigest {
 		t.Fatalf("unaffected worker changed: %#v -> %#v", workerBefore, workerAfter)
 	}
+	if workerAfter.Rollback == nil || workerAfter.Rollback.SpecDigest != workerAfter.SpecDigest ||
+		workerAfter.Rollback.ApplicationGeneration != 1 || workerAfter.Rollback.RevisionID != "revision-one" {
+		t.Fatalf("unaffected worker lacks application rollback authority: %#v", workerAfter)
+	}
 	if apiAfter.ID != apiBefore.ID || apiAfter.SpecDigest == apiBefore.SpecDigest {
 		t.Fatalf("affected API identity/spec = %#v -> %#v", apiBefore, apiAfter)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stable, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || stable.Generation != second.Generation ||
+		allocationForService(t, stable, "worker", 1).Rollback == nil {
+		t.Fatalf("stable rollback authorization = %#v, %v", stable, err)
+	}
+}
+
+func TestReconcilerPreservesLegacyWorkloadsDuringNetworkPreflight(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	application, err := state.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyNode := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	legacy, blocked, err := planApplication("cluster-one", legacyNode, application)
+	if err != nil || blocked != nil || len(legacy) != 1 {
+		t.Fatalf("legacy plan = %#v, %#v, %v", legacy, blocked, err)
+	}
+	legacy[0].NetworkGeneration = 0
+	legacy[0].MaxSurge = 0
+	legacy[0].MaxUnavailable = 0
+	legacy[0].Rollback = nil
+	legacy[0].SpecDigest, err = model.Plan4AllocationSpecDigest(legacy[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, digest, err := model.AssignmentPayload(model.NetworkConfig{}, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := state.PublishAssignment(ctx, model.PublishAssignment{
+		NodeID: "node-one", Digest: digest, Payload: payload, Allocations: legacy,
+		CreatedAt: reconcilerTestTime.Add(time.Minute),
+	}); err != nil || !changed {
+		t.Fatalf("publish legacy assignment = %t, %v", changed, err)
+	}
+
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || preflight.Generation != 2 || preflight.Network.Generation != 1 || len(preflight.Allocations) != 1 ||
+		preflight.Allocations[0].SpecDigest != legacy[0].SpecDigest || preflight.Allocations[0].NetworkGeneration != 0 {
+		t.Fatalf("network preflight assignment = %#v, %v", preflight, err)
+	}
+	application, err = state.Application(ctx, "hello")
+	if err != nil || application.Execution.Reason != "network_initializing" {
+		t.Fatalf("preflight execution = %#v, %v", application.Execution, err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", preflight.Generation, preflight.Digest); err != nil {
+		t.Fatal(err)
+	}
+	reportedAt := reconcilerTestTime.Add(3 * time.Minute)
+	recorded, err := state.RecordAgentReport(ctx, model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: preflight.Generation, AssignmentDigest: preflight.Digest,
+		Allocations: []model.AllocationStatus{{
+			ID: legacy[0].ID, Application: legacy[0].Application, Service: legacy[0].Service,
+			Replica: legacy[0].Replica, ApplicationGeneration: legacy[0].ApplicationGeneration,
+			SpecDigest: legacy[0].SpecDigest, Phase: model.AllocationRunning,
+			HealthStatus: model.HealthNotConfigured, ActiveSpecDigest: legacy[0].SpecDigest,
+			ActiveGeneration: legacy[0].ApplicationGeneration, ActiveRevisionID: legacy[0].RevisionID,
+			UpdatedAt: reportedAt,
+		}},
+		Network: model.NetworkStatus{
+			Generation: preflight.Network.Generation, State: model.NetworkReady,
+			ClusterCIDR: preflight.Network.ClusterCIDR, NodeSubnet: preflight.Network.NodeSubnet,
+			Gateway: preflight.Network.Gateway, DNSState: model.SubsystemReady,
+			IngressState: model.SubsystemReady,
+		},
+		ReportedAt: reportedAt,
+	})
+	if err != nil || !recorded {
+		t.Fatalf("record legacy preflight report = %t, %v", recorded, err)
+	}
+	frozen, err := state.Cluster(ctx)
+	if err != nil || frozen.NetworkFrozenAt == nil {
+		t.Fatalf("frozen cluster = %#v, %v", frozen, err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	networked, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || networked.Generation != 3 || len(networked.Allocations) != 1 {
+		t.Fatalf("networked replacement assignment = %#v, %v", networked, err)
+	}
+	replacement := networked.Allocations[0]
+	if replacement.NetworkGeneration != preflight.Network.Generation || replacement.SpecDigest == legacy[0].SpecDigest ||
+		replacement.Rollback == nil || replacement.Rollback.SpecDigest != legacy[0].SpecDigest ||
+		replacement.Rollback.NetworkGeneration != 0 || replacement.Rollback.ApplicationGeneration != legacy[0].ApplicationGeneration ||
+		replacement.Rollback.RevisionID != legacy[0].RevisionID {
+		t.Fatalf("networked replacement does not authorize the exact legacy rollback: %#v", replacement)
+	}
+}
+
+func TestReconcilerPreservesAssignedWorkloadsWhenNodeCapabilityRegresses(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, ""), "revision-one", "application-key-one", reconcilerTestTime)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	serving, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(serving.Allocations) != 1 {
+		t.Fatalf("serving assignment = %#v, %v", serving, err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-two", OperatingSystem: "linux", Architecture: "amd64",
+		RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion,
+		Nftables: true, DNSAvailable: true, SeenAt: reconcilerTestTime.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || preserved.Generation != serving.Generation || len(preserved.Allocations) != 1 ||
+		preserved.Allocations[0].SpecDigest != serving.Allocations[0].SpecDigest {
+		t.Fatalf("capability-blocked assignment = %#v, %v; want unchanged generation %d", preserved, err, serving.Generation)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionBlocked || application.Execution.Reason != "caddy_unavailable" {
+		t.Fatalf("capability-blocked execution = %#v, %v", application.Execution, err)
 	}
 }
 
@@ -118,7 +288,6 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 		{name: "private registry", manifest: runtimeManifest("localhost:5000/example/app@sha256:"+strings.Repeat("a", 64), ""), reason: "private_registry_unsupported"},
 		{name: "secret", manifest: runtimeManifest(executableImage, "\n[services.worker.secret_env]\nTOKEN = \"token\"\n"), reason: "secrets_unsupported"},
 		{name: "constraint", manifest: runtimeManifest(executableImage, "\n[services.worker.constraints]\nregion = \"local\"\n"), reason: "constraints_unsupported"},
-		{name: "HTTP", manifest: runtimeManifest(executableImage, "\n[services.worker.http]\nport = 8080\n"), reason: "http_unsupported"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -166,6 +335,11 @@ func TestNodeCapabilityBlockersAreExplicit(t *testing.T) {
 		{name: "runtime", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", Snapshotter: "overlayfs", CgroupsV2: true}, status: model.ExecutionBlocked, reason: "containerd_unavailable"},
 		{name: "runtime version", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.5", Snapshotter: "overlayfs", CgroupsV2: true}, status: model.ExecutionBlocked, reason: "unsupported_runtime_version"},
 		{name: "snapshotter", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", CgroupsV2: true}, status: model.ExecutionBlocked, reason: "snapshotter_unavailable"},
+		{name: "CNI", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true}, status: model.ExecutionBlocked, reason: "cni_unavailable"},
+		{name: "CNI plugins", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion}, status: model.ExecutionBlocked, reason: "cni_plugins_unavailable"},
+		{name: "nftables", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion}, status: model.ExecutionBlocked, reason: "nftables_required"},
+		{name: "DNS", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true}, status: model.ExecutionBlocked, reason: "dns_unavailable"},
+		{name: "Caddy", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true}, status: model.ExecutionBlocked, reason: "caddy_unavailable"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -194,6 +368,14 @@ func TestReconcilerPublishesRemovalTombstone(t *testing.T) {
 	if err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(preflight.Allocations) != 0 {
+		t.Fatalf("network preflight assignment = %#v, %v", preflight, err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := state.RemoveApplication(ctx, "hello", "application-remove-key", reconcilerTestTime.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +383,7 @@ func TestReconcilerPublishesRemovalTombstone(t *testing.T) {
 		t.Fatal(err)
 	}
 	assignment, err := state.CurrentAssignment(ctx, "node-one")
-	if err != nil || assignment.Generation != 2 || len(assignment.Allocations) != 0 {
+	if err != nil || assignment.Generation != 3 || len(assignment.Allocations) != 0 {
 		t.Fatalf("removal assignment = %#v, %v", assignment, err)
 	}
 	application, err := state.Application(ctx, "hello")
@@ -239,9 +421,37 @@ func enrollCompatibleNode(t *testing.T, state *store.Store) {
 	if err := state.UpdateAgentCapabilities(context.Background(), model.AgentCapabilities{
 		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
 		RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion,
+		Nftables: true, DNSAvailable: true, CaddyVersion: ingress.RequiredCaddyVersion,
 		SeenAt: reconcilerTestTime.Add(time.Minute),
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func freezeReconcilerNetwork(t *testing.T, state *store.Store, assignment model.Assignment) {
+	t.Helper()
+	ctx := context.Background()
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := state.RecordAgentReport(ctx, model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+		Network: model.NetworkStatus{
+			Generation: assignment.Network.Generation, State: model.NetworkReady,
+			ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+			Gateway: assignment.Network.Gateway, DNSState: model.SubsystemReady,
+			IngressState: model.SubsystemReady,
+		},
+		ReportedAt: reconcilerTestTime.Add(90 * time.Second),
+	})
+	if err != nil || !recorded {
+		t.Fatalf("record ready network = %t, %v", recorded, err)
+	}
+	cluster, err := state.Cluster(ctx)
+	if err != nil || cluster.NetworkFrozenAt == nil {
+		t.Fatalf("frozen cluster = %#v, %v", cluster, err)
 	}
 }
 

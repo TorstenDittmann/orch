@@ -49,6 +49,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runController(ctx, args[1:], stdout, stderr)
 	case "nodes":
 		return runNodes(ctx, args[1:], stdout, stderr)
+	case "network":
+		return runNetwork(ctx, args[1:], stdout, stderr)
 	case "app":
 		return runApp(ctx, args[1:], stdout, stderr)
 	case "logs":
@@ -171,18 +173,23 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
-			ClusterID  string    `json:"cluster_id"`
-			Name       string    `json:"name"`
-			Server     string    `json:"server"`
-			Generation uint64    `json:"generation"`
-			CreatedAt  time.Time `json:"created_at"`
+			ClusterID         string    `json:"cluster_id"`
+			Name              string    `json:"name"`
+			Server            string    `json:"server"`
+			Generation        uint64    `json:"generation"`
+			CreatedAt         time.Time `json:"created_at"`
+			WorkloadCIDR      string    `json:"workload_cidr"`
+			NetworkGeneration uint64    `json:"network_generation"`
+			NetworkFrozen     bool      `json:"network_frozen"`
 		}{
 			ClusterID: cluster.GetId(), Name: cluster.GetName(), Server: cluster.GetEndpoint(),
-			Generation: cluster.GetGeneration(), CreatedAt: createdAt,
+			Generation: cluster.GetGeneration(), CreatedAt: createdAt, WorkloadCIDR: cluster.GetWorkloadCidr(),
+			NetworkGeneration: cluster.GetNetworkGeneration(), NetworkFrozen: cluster.GetNetworkFrozen(),
 		})
 	}
-	fmt.Fprintf(stdout, "Cluster:    %s (%s)\nServer:     %s\nGeneration: %d\nCreated:    %s\n",
-		cluster.GetName(), cluster.GetId(), cluster.GetEndpoint(), cluster.GetGeneration(), createdAt.Format(time.RFC3339Nano))
+	fmt.Fprintf(stdout, "Cluster:    %s (%s)\nServer:     %s\nGeneration: %d\nNetwork:    %s (generation %d, frozen %t)\nCreated:    %s\n",
+		cluster.GetName(), cluster.GetId(), cluster.GetEndpoint(), cluster.GetGeneration(), cluster.GetWorkloadCidr(),
+		cluster.GetNetworkGeneration(), cluster.GetNetworkFrozen(), createdAt.Format(time.RFC3339Nano))
 	return ExitOK
 }
 
@@ -736,7 +743,8 @@ Usage:
   orch cluster backup --data-dir DIR --output FILE [--json]
   orch controller serve --data-dir DIR --listen ADDRESS
   orch agent init --name NAME --context FILE --data-dir DIR [--json]
-  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME
+  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
+  orch network configure --cidr CIDR --context FILE [--idempotency-key KEY] [--json]
   orch nodes --context FILE [--json]
   orch app status NAME --context FILE [--json]
   orch logs APP SERVICE --replica N --tail N --context FILE

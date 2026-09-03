@@ -82,3 +82,15 @@ Before the distributed runtime contract is frozen:
 Human usability sessions and timed competitor runs require real participants
 and clean hosts. They remain explicit product gates and are not claimed by the
 configuration foundation.
+
+## Current implementation boundary
+
+The current repository implements the one-node vertical slice of these
+journeys: containerd execution, a private CNI subnet, readiness-gated local
+DNS, and exact-domain Caddy ingress with automatic HTTPS. The controller stays
+out of the data path, and the agent keeps its last accepted serving state while
+the controller is unavailable. Multi-node placement, WireGuard routing,
+rescheduling, secrets, and release packaging remain later slices. See
+[networking.md](networking.md) and [runtime.md](runtime.md) for the precise
+operator contract rather than inferring future guarantees from the product
+promise.

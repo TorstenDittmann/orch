@@ -16,6 +16,9 @@ import (
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/discovery"
+	"change.codes/torsten/better-swarm/internal/ingress"
+	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 	containerdruntime "change.codes/torsten/better-swarm/internal/runtime/containerd"
 )
@@ -87,15 +90,19 @@ func runAgentInit(ctx context.Context, args []string, stdout, stderr io.Writer) 
 func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("agent serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dataDir, socket, snapshotter string
+	var dataDir, socket, snapshotter, cniBinDir, caddyBinary, ingressUser, ingressDataDir string
 	flags.StringVar(&dataDir, "data-dir", "", "agent state directory")
 	flags.StringVar(&socket, "containerd-socket", "", "containerd socket path")
 	flags.StringVar(&snapshotter, "snapshotter", "overlayfs", "containerd snapshotter")
+	flags.StringVar(&cniBinDir, "cni-bin-dir", "/opt/cni/bin", "directory containing official CNI plugins")
+	flags.StringVar(&caddyBinary, "caddy-binary", "/usr/bin/caddy", "pinned Caddy executable")
+	flags.StringVar(&ingressUser, "ingress-user", "orch-ingress", "dedicated unprivileged Caddy user")
+	flags.StringVar(&ingressDataDir, "ingress-data-dir", "/var/lib/orch-ingress", "private Caddy data directory owned by --ingress-user")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
-	if flags.NArg() != 0 || dataDir == "" || socket == "" || snapshotter == "" {
-		fmt.Fprintln(stderr, "agent serve requires --data-dir, --containerd-socket, and --snapshotter")
+	if flags.NArg() != 0 || dataDir == "" || socket == "" || snapshotter == "" || cniBinDir == "" || caddyBinary == "" || ingressUser == "" || ingressDataDir == "" {
+		fmt.Fprintln(stderr, "agent serve requires nonempty runtime, CNI, and Caddy paths and identities")
 		return ExitInvalid
 	}
 	credentials, err := agentctl.Load(dataDir, time.Now())
@@ -103,18 +110,50 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
+	networkManager, err := network.New(network.Options{
+		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
+		BinDir: cniBinDir, StateDir: filepath.Join(dataDir, "network"),
+	})
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
 	runtimeClient, err := containerdruntime.New(socket, orchruntime.Options{
 		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
 		Snapshotter: snapshotter, LogsDir: filepath.Join(dataDir, agentctl.LogsDirectory),
-		VolumesDir: filepath.Join(dataDir, agentctl.VolumesDirectory),
+		VolumesDir:   filepath.Join(dataDir, agentctl.VolumesDirectory),
+		ResolverPath: filepath.Join(dataDir, "network", "resolv.conf"), Network: networkManager,
 	})
 	if err != nil {
+		_ = networkManager.Close()
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	forwarders, err := discovery.SystemForwarders("/etc/resolv.conf")
+	if err != nil {
+		_ = runtimeClient.Close()
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	dnsServer, err := discovery.New(discovery.DefaultZone, forwarders)
+	if err != nil {
+		_ = runtimeClient.Close()
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	caddy, err := ingress.NewCaddy(ingress.CaddyOptions{
+		Binary: caddyBinary, DataDir: ingressDataDir, StateDir: filepath.Join(dataDir, "ingress"), User: ingressUser,
+		AdminSocket: filepath.Join(ingressDataDir, "admin.sock"),
+	})
+	if err != nil {
+		_ = runtimeClient.Close()
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
 	fmt.Fprintf(stdout, "Agent %s connecting to %s\n", credentials.Config.NodeName, credentials.Config.Server)
 	if err := agentctl.Serve(ctx, agentctl.ServeOptions{
 		DataDir: dataDir, Snapshotter: snapshotter, Runtime: runtimeClient,
+		Discovery: dnsServer, Ingress: caddy,
 	}); err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
@@ -162,6 +201,9 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stdout, "%s  %s  %s/%s  assignment %d (acked %d)  last seen %s\n",
 			node.GetName(), node.GetConnectionStatus().String(), node.GetOperatingSystem(), node.GetArchitecture(),
 			node.GetAssignmentGeneration(), node.GetAcknowledgedGeneration(), lastSeen)
+		fmt.Fprintf(stdout, "  network=%s reason=%s subnet=%s cni=%s plugins=%s nftables=%t dns-capable=%t dns=%s caddy=%s ingress=%s draining=%d\n",
+			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
+			node.GetDnsAvailable(), node.GetDnsState(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
 	}
 	return ExitOK
 }
@@ -203,13 +245,43 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if jsonOutput {
 		return writeJSON(stdout, stderr, application)
 	}
-	fmt.Fprintf(stdout, "Application: %s\nDesired:     %d\nObserved:    %d\nStatus:      %s\nReason:      %s\nMessage:     %s\n",
-		application.GetName(), application.GetGeneration(), application.GetObservedGeneration(),
-		application.GetExecutionStatus().String(), application.GetExecutionReason(), application.GetExecutionMessage())
+	transition := "-"
+	if application.GetExecutionUpdatedAt() != nil && application.GetExecutionUpdatedAt().CheckValid() == nil {
+		transition = application.GetExecutionUpdatedAt().AsTime().Format(time.RFC3339Nano)
+	}
+	fmt.Fprintf(stdout, "Application: %s\nDesired:     %d (%s)\nObserved:    %d\nStatus:      %s\nReason:      %s\nMessage:     %s\nTransition:  %s\n",
+		application.GetName(), application.GetGeneration(), statusValue(application.GetRevisionId()),
+		application.GetObservedGeneration(), application.GetExecutionStatus().String(),
+		statusValue(application.GetExecutionReason()), statusValue(application.GetExecutionMessage()), transition)
+	if application.GetActiveGeneration() != 0 {
+		fmt.Fprintf(stdout, "Active:      %d (%s)\n", application.GetActiveGeneration(), statusValue(application.GetActiveRevisionId()))
+	} else {
+		fmt.Fprintln(stdout, "Active:      -")
+	}
 	for _, allocation := range application.GetAllocations() {
-		fmt.Fprintf(stdout, "  %s/%d  %s  restarts=%d\n", allocation.GetService(), allocation.GetReplica(), allocation.GetPhase().String(), allocation.GetRestartCount())
+		fmt.Fprintf(stdout, "  %s/%d  %s  health=%s address=%s port=%d active=%d/%s active_spec=%s restarts=%d reason=%s\n",
+			allocation.GetService(), allocation.GetReplica(), allocation.GetPhase().String(),
+			allocation.GetHealthStatus().String(), statusValue(allocation.GetAddress()), allocation.GetDeclaredPort(),
+			allocation.GetActiveApplicationGeneration(), statusValue(allocation.GetActiveRevisionId()),
+			statusValue(allocation.GetActiveSpecDigest()), allocation.GetRestartCount(), statusValue(allocation.GetReason()))
+	}
+	for _, route := range application.GetRoutes() {
+		protocol := "http"
+		if route.GetHttps() {
+			protocol = "https"
+		}
+		fmt.Fprintf(stdout, "  route %s://%s  %s  certificate=%s upstreams=%d reason=%s\n",
+			protocol, route.GetDomain(), route.GetState().String(), statusValue(route.GetCertificateState()),
+			route.GetUpstreamCount(), statusValue(route.GetReason()))
 	}
 	return ExitOK
+}
+
+func statusValue(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -453,7 +525,9 @@ func printAgentHelp(output io.Writer) {
 
 Usage:
   orch agent init --name NAME --context FILE --data-dir DIR [--json]
-  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME`)
+	  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME \
+	    [--cni-bin-dir DIR] [--caddy-binary PATH] [--ingress-user USER] \
+	    [--ingress-data-dir DIR]`)
 }
 
 func runRuntimeLogSink(ctx context.Context, args []string, stderr io.Writer) int {

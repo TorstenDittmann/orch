@@ -166,6 +166,9 @@ func (s *Store) Nodes(ctx context.Context) ([]model.Node, error) {
 const nodeSelect = `SELECT id, cluster_id, name, public_key_hash, certificate_serial,
 	certificate_pem, certificate_not_after, created_at, last_seen_at,
 	operating_system, architecture, runtime_version, snapshotter, cgroups_v2,
+		cni_version, cni_plugins_version, nftables, dns_available, caddy_version, node_subnet, network_generation,
+	network_state, network_reason, network_message, dns_state, ingress_state,
+	draining_objects,
 	assignment_generation, acknowledged_generation, acknowledged_digest,
 	last_boot_id, last_report_sequence FROM nodes WHERE singleton = 1`
 
@@ -177,12 +180,14 @@ func scanNode(row rowScanner) (model.Node, error) {
 	var node model.Node
 	var notAfter, createdAt string
 	var lastSeen sql.NullString
-	var cgroups int
-	var assignmentGeneration, acknowledgedGeneration, lastReport int64
+	var cgroups, nftables, dnsAvailable int
+	var assignmentGeneration, acknowledgedGeneration, networkGeneration, lastReport, drainingObjects int64
 	err := row.Scan(&node.ID, &node.ClusterID, &node.Name, &node.PublicKeyHash, &node.CertificateSerial,
 		&node.CertificatePEM, &notAfter, &createdAt, &lastSeen,
 		&node.OperatingSystem, &node.Architecture, &node.RuntimeVersion,
-		&node.Snapshotter, &cgroups, &assignmentGeneration,
+		&node.Snapshotter, &cgroups, &node.CNIVersion, &node.CNIPluginsVersion, &nftables, &dnsAvailable, &node.CaddyVersion,
+		&node.NodeSubnet, &networkGeneration, &node.NetworkState, &node.NetworkReason,
+		&node.NetworkMessage, &node.DNSState, &node.IngressState, &drainingObjects, &assignmentGeneration,
 		&acknowledgedGeneration, &node.AcknowledgedDigest, &node.LastBootID, &lastReport)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Node{}, ErrNodeNotFound
@@ -190,13 +195,17 @@ func scanNode(row rowScanner) (model.Node, error) {
 	if err != nil {
 		return model.Node{}, fmt.Errorf("read node: %w", err)
 	}
-	if assignmentGeneration < 0 || acknowledgedGeneration < 0 || lastReport < 0 {
+	if assignmentGeneration < 0 || acknowledgedGeneration < 0 || networkGeneration < 0 || lastReport < 0 || drainingObjects < 0 {
 		return model.Node{}, fmt.Errorf("read node: invalid generation or sequence")
 	}
 	node.AssignmentGeneration = uint64(assignmentGeneration)
 	node.AcknowledgedGeneration = uint64(acknowledgedGeneration)
 	node.LastReportSequence = uint64(lastReport)
 	node.CgroupsV2 = cgroups == 1
+	node.Nftables = nftables == 1
+	node.DNSAvailable = dnsAvailable == 1
+	node.NetworkGeneration = uint64(networkGeneration)
+	node.DrainingObjects = uint32(drainingObjects)
 	node.CertificateNotAfter, err = time.Parse(time.RFC3339Nano, notAfter)
 	if err != nil {
 		return model.Node{}, fmt.Errorf("read node certificate expiry: %w", err)
@@ -222,11 +231,14 @@ func (s *Store) UpdateAgentCapabilities(ctx context.Context, capabilities model.
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE nodes SET
 		last_seen_at = ?, operating_system = ?, architecture = ?, runtime_version = ?,
-		snapshotter = ?, cgroups_v2 = ?, last_report_sequence = CASE
+		snapshotter = ?, cgroups_v2 = ?, cni_version = ?, cni_plugins_version = ?, nftables = ?, dns_available = ?, caddy_version = ?,
+		last_report_sequence = CASE
 			WHEN last_boot_id = ? THEN last_report_sequence ELSE 0 END,
 		last_boot_id = ? WHERE id = ?`, capabilities.SeenAt.UTC().Format(time.RFC3339Nano),
 		capabilities.OperatingSystem, capabilities.Architecture, capabilities.RuntimeVersion,
-		capabilities.Snapshotter, boolInt(capabilities.CgroupsV2), capabilities.BootID,
+		capabilities.Snapshotter, boolInt(capabilities.CgroupsV2), capabilities.CNIVersion,
+		capabilities.CNIPluginsVersion, boolInt(capabilities.Nftables), boolInt(capabilities.DNSAvailable),
+		capabilities.CaddyVersion, capabilities.BootID,
 		capabilities.BootID, capabilities.NodeID)
 	if err != nil {
 		return fmt.Errorf("update agent capabilities: %w", err)

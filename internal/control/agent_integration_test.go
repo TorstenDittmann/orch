@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/discovery"
+	"change.codes/torsten/better-swarm/internal/ingress"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 )
 
@@ -47,6 +50,14 @@ func TestLoopbackAgentRunsOperatesAdoptsAndRemovesWorkload(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer remote.CloseIdleConnections()
+	network, err := remote.ConfigureNetwork(context.Background(), "10.96.0.0/16", "integration-network-key-one")
+	if err != nil || !network.GetChanged() || network.GetCidr() != "10.96.0.0/16" || network.GetGeneration() != 2 {
+		t.Fatalf("ConfigureNetwork() = %#v, %v", network, err)
+	}
+	replay, err := remote.ConfigureNetwork(context.Background(), "10.96.0.0/16", "integration-network-key-one")
+	if err != nil || replay.GetChanged() != network.GetChanged() || replay.GetGeneration() != network.GetGeneration() {
+		t.Fatalf("ConfigureNetwork() replay = %#v, %v", replay, err)
+	}
 	agentDir := filepath.Join(root, "agent")
 	if result, err := agentctl.Enroll(context.Background(), agentctl.EnrollOptions{
 		Name: "node-1", ContextPath: contextPath, DataDir: agentDir, Now: time.Now, Random: rand.Reader,
@@ -72,7 +83,8 @@ restart = "always"
 	firstAgentDone := make(chan error, 1)
 	go func() {
 		firstAgentDone <- agentctl.Serve(firstAgentContext, agentctl.ServeOptions{
-			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: firstRuntime, Now: time.Now, Random: rand.Reader,
+			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: firstRuntime, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{},
+			Now: time.Now, Random: rand.Reader,
 		})
 	}()
 	defer func() {
@@ -84,6 +96,7 @@ restart = "always"
 	}()
 	waitForApplicationStatus(t, remote, "hello", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
 	waitForNodeConnection(t, remote, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
+	waitForNetworkFrozen(t, remote, "10.96.0.0/16", 2)
 	objects := firstRuntime.SnapshotObjects()
 	if len(objects) != 1 {
 		t.Fatalf("runtime objects = %#v", objects)
@@ -171,7 +184,8 @@ restart = "always"
 	secondAgentDone := make(chan error, 1)
 	go func() {
 		secondAgentDone <- agentctl.Serve(secondAgentContext, agentctl.ServeOptions{
-			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: secondRuntime, Now: time.Now, Random: rand.Reader,
+			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: secondRuntime, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{},
+			Now: time.Now, Random: rand.Reader,
 		})
 	}()
 	defer func() {
@@ -185,10 +199,30 @@ restart = "always"
 			t.Fatalf("agent restart duplicated an adopted task: %v", secondRuntime.SnapshotOperations())
 		}
 	}
-	if _, err := remote.RemoveApplication(context.Background(), "hello", "integration-remove-key-one"); err != nil {
-		t.Fatal(err)
+	removed, err := remote.RemoveApplication(context.Background(), "hello", "integration-remove-key-one")
+	if err != nil || removed.GetExecutionStatus() != orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_STOPPING {
+		t.Fatalf("RemoveApplication() = %#v, %v", removed, err)
 	}
-	waitForApplicationStatus(t, remote, "hello", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED)
+	waitForApplicationStatus(t, remote, "hello", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_STOPPING)
+	if objects := secondRuntime.SnapshotObjects(); len(objects) != 1 || !objects[object.ID].Running {
+		t.Fatalf("runtime object did not remain alive for DNS drain: %#v", objects)
+	}
+	waitForApplicationStatus(t, remote, "hello", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED, statusWaitOptions{
+		agentDone: secondAgentDone,
+		diagnostics: func() string {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			nodes, err := remote.ListNodes(ctx)
+			node := "missing"
+			if len(nodes) == 1 {
+				node = fmt.Sprintf("connection=%s assignment=%d acked=%d network=%s dns=%s ingress=%s drains=%d",
+					nodes[0].GetConnectionStatus(), nodes[0].GetAssignmentGeneration(), nodes[0].GetAcknowledgedGeneration(),
+					nodes[0].GetNetworkState(), nodes[0].GetDnsState(), nodes[0].GetIngressState(), nodes[0].GetDrainingObjects())
+			}
+			return fmt.Sprintf("operations=%v objects=%#v node={%s} nodes_error=%v",
+				secondRuntime.SnapshotOperations(), secondRuntime.SnapshotObjects(), node, err)
+		},
+	})
 	if objects := secondRuntime.SnapshotObjects(); len(objects) != 0 {
 		t.Fatalf("runtime objects after remove = %#v", objects)
 	}
@@ -207,12 +241,27 @@ func reserveLoopbackAddress(t *testing.T) string {
 	return address
 }
 
-func waitForApplicationStatus(t *testing.T, remote *controlclient.Client, name string, want orchv1alpha1.ExecutionStatus) {
+type statusWaitOptions struct {
+	agentDone   <-chan error
+	diagnostics func() string
+}
+
+func waitForApplicationStatus(t *testing.T, remote *controlclient.Client, name string, want orchv1alpha1.ExecutionStatus, options ...statusWaitOptions) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	// Removal includes a mandatory five-second DNS TTL drain followed by the
+	// two-second agent reconcile/report cadence. Leave enough scheduling margin
+	// for race instrumentation without weakening any state assertion.
+	deadline := time.Now().Add(20 * time.Second)
 	var last orchv1alpha1.ExecutionStatus
 	var lastErr error
 	for time.Now().Before(deadline) {
+		if len(options) != 0 && options[0].agentDone != nil {
+			select {
+			case err := <-options[0].agentDone:
+				t.Fatalf("agent exited while waiting for %s: %v", want, err)
+			default:
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		application, err := remote.GetApplication(ctx, name)
 		cancel()
@@ -226,7 +275,11 @@ func waitForApplicationStatus(t *testing.T, remote *controlclient.Client, name s
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("application status = %s, want %s (last error %v)", last, want, lastErr)
+	diagnostics := ""
+	if len(options) != 0 && options[0].diagnostics != nil {
+		diagnostics = "; " + options[0].diagnostics()
+	}
+	t.Fatalf("application status = %s, want %s (last error %v)%s", last, want, lastErr, diagnostics)
 }
 
 func waitForNodeConnection(t *testing.T, remote *controlclient.Client, want orchv1alpha1.NodeConnectionStatus) {
@@ -249,6 +302,28 @@ func waitForNodeConnection(t *testing.T, remote *controlclient.Client, want orch
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("node connection = %s, want %s (last error %v)", last, want, lastErr)
+}
+
+func waitForNetworkFrozen(t *testing.T, remote *controlclient.Client, cidr string, generation uint64) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last *orchv1alpha1.Cluster
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		cluster, err := remote.GetCluster(ctx)
+		cancel()
+		if err == nil {
+			last = cluster
+			if cluster.GetWorkloadCidr() == cidr && cluster.GetNetworkGeneration() == generation && cluster.GetNetworkFrozen() {
+				return
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("cluster network = %#v, want cidr=%q generation=%d frozen=true (last error %v)", last, cidr, generation, lastErr)
 }
 
 func waitForAgentExit(done <-chan error) error {

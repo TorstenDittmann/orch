@@ -264,7 +264,8 @@ func Bootstrap(ctx context.Context, options BootstrapOptions) (result BootstrapR
 
 	cluster := model.Cluster{
 		ID: clusterID, Name: normalized.name, Endpoint: normalized.server,
-		Generation: 1, CreatedAt: createdAt,
+		Generation: 1, CreatedAt: createdAt, WorkloadCIDR: model.DefaultWorkloadCIDR,
+		NetworkGeneration: 1,
 	}
 	if err := state.InitializeCluster(ctx, cluster); err != nil {
 		return BootstrapResult{}, fmt.Errorf("initialize cluster state: %w", err)

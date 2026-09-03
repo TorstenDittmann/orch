@@ -1,8 +1,7 @@
 # Single-node runtime contract
 
-This document is the exact support boundary for the first executable orch
-slice. It deliberately describes process execution, not a complete networked
-application platform.
+This document is the exact support boundary for the networked single-node orch
+slice.
 
 ## Host matrix
 
@@ -15,12 +14,15 @@ application platform.
 | OCI runtime | `io.containerd.runc.v2`; both `containerd-shim-runc-v2` and `runc` must be on the agent's `PATH` |
 | Reference runc bundle | runc 1.4.3 from the containerd 2.3.4 source fixture; other runc builds are not yet claimed as tested |
 | Snapshotter | Explicitly selected with `--snapshotter` and available in the daemon; `overlayfs` is the documented default |
+| Workload network | CNI spec 1.1.0 with the official loopback, bridge, and host-local plugins from release 1.9.1 |
+| Host forwarding | IPv4 forwarding enabled and nftables available to the root agent |
+| Ingress | Caddy 2.11.3 at an explicitly selected root-owned path, running as a dedicated non-root user |
 | Agent count | Exactly one enrolled node and one healthy live stream |
 | Agent authority | Permission to access the containerd socket and create tasks, namespaces, snapshots, and cgroups |
 
 The repository builds on macOS for development, but `agent serve` returns an
-unsupported-platform error there. orch does not install, configure, or upgrade
-containerd or runc in this slice.
+unsupported-platform error there. orch does not install or upgrade containerd,
+runc, CNI plugins, or Caddy.
 
 ## Executable application subset
 
@@ -34,9 +36,10 @@ Its BusyBox image is a Docker Official Image multi-platform index pinned by
 digest for amd64 and arm64. A digest is immutable; update it deliberately rather
 than changing it through a tag.
 
-Tag-only images, localhost/private registry requirements, secret references,
-node constraints, and HTTP configuration are not partially applied. The
-controller reports a stable `BLOCKED` reason for those recognized cases.
+HTTP services may declare a private port, an optional readiness path, and
+optional public domains. Tag-only images, localhost/private registry
+requirements, secret references, and node constraints are not partially
+applied. The controller reports a stable `BLOCKED` reason for those cases.
 
 ## Object ownership and content lifetime
 
@@ -49,6 +52,7 @@ object has an opaque deterministic ID and all of these labels:
 - `io.orch.node=<node-id>`
 - `io.orch.allocation=<allocation-id>`
 - `io.orch.spec-digest=<digest>`
+- `io.orch.network-generation=<generation>`
 
 The agent adopts, operates, and deletes an object only when its ID and every
 ownership label match. A mismatch is an operational failure, not an invitation
@@ -68,9 +72,22 @@ namespaces. The spec enables no-new-privileges, clears Linux capabilities,
 exposes no host devices, and applies CPU and memory limits. It never mounts the
 containerd socket, controller state, agent identity, or agent cache.
 
-There is no CNI plugin or host networking. Do not rely on inbound, outbound,
-service-to-service, DNS, or ingress connectivity. Any manifest containing an
-HTTP block is `BLOCKED` until the networking and health-gate slice lands.
+Each task is attached before process start to the deterministic first-node `/24`
+within the cluster workload CIDR (default `10.88.0.0/16`). orch invokes the
+official loopback plugin separately and uses a bridge plus host-local IPAM for
+`eth0`. A uniquely named, ownership-marked nftables table permits forwarding,
+return traffic, and outbound masquerading without modifying foreign tables.
+Host-route or interface overlap fails closed as `network_cidr_conflict`.
+
+The agent generates a world-readable resolver file inside its private state
+directory for each application and bind-mounts it read-only into that
+application's containers. Its search suffix is
+`<application>.svc.internal`, so both `service` and
+`service.application.svc.internal` resolve through the DNS listener on the
+bridge gateway. The agent serves authoritative A records below
+`svc.internal.` over UDP and TCP and forwards other questions to the host
+resolvers. Known services without ready addresses return NODATA, and unknown
+private names return NXDOMAIN.
 
 Only declared local volumes are bind-mounted, from
 `<agent-data>/volumes/<application>/<volume>`. Paths are private directories;
@@ -92,11 +109,19 @@ restart. Unchanged allocation spec digests continue running through application
 updates.
 
 Stateless replacement starts the new object before stopping the prior object
-when `max_surge` permits it. Reconciliation is serialized, so this slice starts
-at most one replacement at a time. With `auto_rollback`, a failed start retains
-the prior process-running object. A local-volume replacement is always
-stop-then-start and therefore has an explicit availability gap. The configured
-`health_deadline` is a process-start deadline, not a readiness deadline.
+when `max_surge` permits it. Reconciliation enforces the application surge
+budget and retains the serving revision until its replacement is ready. A
+local-volume replacement is stop-then-start and therefore has an availability
+gap. With `auto_rollback`, three failed readiness probes or an expired health
+deadline restores the controller-authorized previous spec; if the prior object
+was stopped, the agent recreates it from the controller-issued assignment snapshot.
+
+Readiness runs every two seconds with a one-second timeout. An HTTP path uses a
+direct HTTP GET with redirects disabled; without a path the gate is a TCP
+connect. Two consecutive successes mark an allocation ready and three
+consecutive failures mark it unhealthy. Only ready addresses enter public
+routes. Caddy configuration is deterministic native JSON, validated before an
+atomic admin-API load, locally probed, and rolled back if the route probe fails.
 
 Restart counts and next-attempt times are durable in the agent cache. Policies
 use capped exponential backoff with bounded jitter. SIGINT or SIGTERM stops new
@@ -111,13 +136,16 @@ tasks alive for adoption.
 | `BLOCKED` | Valid desired state cannot execute in this slice or a required reported capability is absent. |
 | `STARTING` | The agent is creating or replacing the exact desired allocation set. |
 | `RUNNING` | Every desired allocation process for the observed generation is alive. |
+| `HEALTHY` | Every HTTP allocation passed readiness and every requested route is active. |
+| `ROLLED_BACK` | A desired revision failed its health gate and the authorized previous revision is active. |
 | `DEGRADED` | At least one desired process is running and another is stopped, failed, or backing off. |
 | `FAILED` | No desired allocation is running under its current policy. |
 | `STOPPING` | Desired state is tombstoned and removal has not yet been observed. |
 | `REMOVED` | The agent acknowledged the tombstone and reports an empty desired allocation set. |
 
-`RUNNING` is intentionally not `HEALTHY` or `READY`. No probe, route, or traffic
-claim is made.
+`RUNNING` remains the process-only success state for applications without HTTP.
+For HTTP applications, rely on `HEALTHY` for the combined process, readiness,
+and ingress claim.
 
 ## Logs and exec
 
@@ -139,18 +167,33 @@ On a dedicated Linux amd64 or arm64 host running containerd 2.3.4 with cgroups
 v2, run the opt-in real-runtime suite as root:
 
 ~~~console
-make containerd-e2e
+mise install
+mise exec -- make containerd-e2e
+mise exec -- make network-e2e
 ~~~
 
-Set `ORCH_CONTAINERD_SOCKET` or `ORCH_CONTAINERD_SNAPSHOTTER` when the host does
-not use `/run/containerd/containerd.sock` and `overlayfs`. The runner uses the
-tools pinned by `mise.toml`, builds a deterministic registry-free OCI fixture,
-and creates a unique `orch-<cluster-id>` namespace. It verifies real task
-creation, runc ownership metadata, cgroup settings, an empty network namespace,
-separate stdout/stderr logs, bounded exec, restart, controller and agent
-adoption, an unaffected allocation during update, volume persistence, and
-resource cleanup. Its trap only cleans the UUID-shaped namespace written by the
-test.
+Set `ORCH_CONTAINERD_SOCKET`, `ORCH_CONTAINERD_SNAPSHOTTER`, or
+`ORCH_E2E_WORKLOAD_CIDR` when the host needs different values. The runner uses
+the tools pinned by `mise.toml`, builds a deterministic registry-free OCI
+fixture, and creates a unique `orch-<cluster-id>` namespace. It verifies real
+task creation, runc ownership metadata, cgroup settings, network namespace
+setup, application-scoped short-name DNS, outbound masquerading into an
+isolated namespace, separate stdout/stderr logs, bounded exec, restart,
+controller and agent adoption, preservation of an unaffected allocation, a
+healthy rolling revision under continuous service traffic, an unhealthy
+application-wide rollback, volume persistence, and resource cleanup. Its trap
+only cleans the UUID-shaped namespace written by the test and the uniquely
+named external test namespace. Foreign containerd, CNI-cache, and nftables
+sentinels must remain untouched.
+
+`containerd-e2e` requires the pinned Caddy binary and dedicated ingress user;
+the agent starts it before freezing the network and adopts the same process
+across controller and agent restarts. `network-e2e` runs that lifecycle first,
+then adds real HTTP and HTTPS Caddy routes. It starts the Pebble version pinned
+in `mise.toml` with an ephemeral loopback-only test CA, proves automatic
+certificate issuance and HTTP-to-HTTPS redirect with a trusted client,
+restarts Caddy, and verifies that the exact certificate is reused from durable
+ingress storage. It never contacts a public ACME CA.
 
 This privileged test is intentionally not presented as ordinary CI evidence.
 Native change.codes CI runs all portable checks and compiles the gated test on
@@ -158,8 +201,8 @@ Linux; real-runtime evidence must come from a compatible dedicated host.
 
 ## Deliberate omissions
 
-This slice has no networking, readiness/health checks, secrets, registry
-credentials, node labels/constraints, multi-node scheduling, drain, failover,
-agent certificate rotation/revocation, node replacement, installer ownership,
-or automated restore. Those omissions are surfaced rather than silently
-ignored.
+This slice has no secrets, registry credentials, node labels/constraints,
+multi-node routing or scheduling, drain, failover, agent certificate
+rotation/revocation, node replacement, installer ownership, or automated
+restore. WireGuard is explicitly deferred; one node owns the first workload
+subnet only. Those omissions are surfaced rather than silently ignored.

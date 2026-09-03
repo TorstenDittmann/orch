@@ -69,8 +69,8 @@ Secret file targets must be clean paths below /run/secrets.
 
 v1alpha1 supports only the local driver. A local volume may belong to one
 service, and that service must have exactly one replica. Mount targets must be
-absolute and may not replace protected paths such as /proc, /sys, /dev, or
-/run/orch.
+absolute and may not replace protected paths such as /proc, /sys, /dev,
+/run/orch, or the agent-generated `/etc/resolv.conf`.
 
 ~~~toml
 [[services.database.mounts]]
@@ -100,10 +100,13 @@ The availability values cannot both be zero. The health deadline must be from
 ## Execution support in this slice
 
 The parser accepts the complete `v1alpha1` contract so future intent remains
-forward-compatible, but the first runtime slice executes a deliberately smaller
-subset. An executable service must use a public, digest-qualified OCI image and
-may use command, args, plain environment variables, replicas, restart policy,
-CPU and memory limits, and declared local volumes.
+forward-compatible, but the runtime executes a deliberately smaller subset. An
+executable service must use a public, digest-qualified OCI image and may use
+command, args, plain environment variables, replicas, restart policy, CPU and
+memory limits, declared local volumes, and an HTTP endpoint. HTTP endpoints
+receive a private CNI address and a stable
+`<service>.<application>.svc.internal` DNS name. Domains are published through
+Caddy only after the readiness gate succeeds.
 
 The controller stores valid but currently unsupported intent and reports the
 application as `BLOCKED` with a stable reason:
@@ -114,16 +117,25 @@ application as `BLOCKED` with a stable reason:
 | Local/private registry requiring credentials | `private_registry_unsupported` |
 | `secret_env` or `secret_files` | `secrets_unsupported` |
 | Node constraints | `constraints_unsupported` |
-| HTTP configuration | `http_unsupported` |
 | Non-Linux or non-amd64/arm64 node | `unsupported_platform` |
 | Missing cgroups v2 | `cgroups_v2_required` |
 | Missing compatible containerd | `containerd_unavailable` |
 | Reported containerd version other than 2.3.4 | `unsupported_runtime_version` |
 | Missing configured snapshotter | `snapshotter_unavailable` |
+| Missing official CNI 1.1.0 support | `cni_unavailable` |
+| Missing official CNI plugins 1.9.1 bundle | `cni_plugins_unavailable` |
+| Missing nftables | `nftables_required` |
+| Missing workload DNS service | `dns_unavailable` |
+| Missing Caddy 2.11.3 ingress prerequisite | `caddy_unavailable` |
+| Workload CIDR overlapping a host route | `network_cidr_conflict` |
 
-HTTP intent is blocked because workload network namespaces have no CNI
-attachment in this release. `RUNNING` means only that every exact desired
-process is alive; it does not imply readiness, reachability, or health.
+An HTTP service without `health_path` uses a TCP readiness probe. With a path,
+the agent sends an HTTP GET directly to the workload address and port every two
+seconds with a one-second timeout. Two consecutive successes make it `READY`;
+three consecutive failures make it `UNHEALTHY`. Public routes include only
+ready upstreams. `RUNNING` remains a process-only state for applications that
+do not declare HTTP; networked HTTP applications become `HEALTHY` only when
+their probes and requested routes are active.
 
 ## Canonical form and digests
 

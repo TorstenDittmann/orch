@@ -9,15 +9,19 @@ const (
 	EventApplicationDesiredUpdated   = "application.desired.updated"
 	EventApplicationDesiredRemoved   = "application.desired.removed"
 	EventApplicationExecutionChanged = "application.execution.changed"
+	EventApplicationHealthy          = "application.healthy"
+	EventApplicationRolledBack       = "application.rolled_back"
 
-	ExecutionPending  = "PENDING"
-	ExecutionBlocked  = "BLOCKED"
-	ExecutionStarting = "STARTING"
-	ExecutionRunning  = "RUNNING"
-	ExecutionDegraded = "DEGRADED"
-	ExecutionFailed   = "FAILED"
-	ExecutionStopping = "STOPPING"
-	ExecutionRemoved  = "REMOVED"
+	ExecutionPending    = "PENDING"
+	ExecutionBlocked    = "BLOCKED"
+	ExecutionStarting   = "STARTING"
+	ExecutionRunning    = "RUNNING"
+	ExecutionDegraded   = "DEGRADED"
+	ExecutionFailed     = "FAILED"
+	ExecutionStopping   = "STOPPING"
+	ExecutionRemoved    = "REMOVED"
+	ExecutionHealthy    = "HEALTHY"
+	ExecutionRolledBack = "ROLLED_BACK"
 )
 
 // Application is the current durable desired state of one application.
@@ -42,6 +46,9 @@ type ApplicationExecution struct {
 	Message            string             `json:"message"`
 	UpdatedAt          time.Time          `json:"updated_at"`
 	Allocations        []AllocationStatus `json:"allocations,omitempty"`
+	ActiveGeneration   uint64             `json:"active_generation,omitempty"`
+	ActiveRevisionID   string             `json:"active_revision_id,omitempty"`
+	Routes             []RouteStatus      `json:"routes,omitempty"`
 }
 
 // ApplyApplication contains validated, canonical application intent.

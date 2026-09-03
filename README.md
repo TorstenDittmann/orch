@@ -6,10 +6,11 @@ self-healing, encrypted networking, service discovery, and safe deployments,
 without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
-> The repository currently contains an initial single-node execution slice.
-> One administrator-enrolled Linux agent can run digest-pinned public OCI
-> workloads through a preinstalled containerd 2.3.4/runc stack. Networking,
-> HTTP health, secrets, private registries, and multi-node scheduling are still
+> The repository currently contains a networked single-node execution slice.
+> One administrator-enrolled Linux agent runs digest-pinned public OCI
+> workloads through containerd 2.3.4/runc, attaches isolated CNI networks,
+> publishes `svc.internal` DNS, gates traffic on readiness, and manages Caddy
+> ingress. Secrets, private registries, and multi-node scheduling remain
 > deliberately unavailable and produce explicit `BLOCKED` status.
 
 ## The contract
@@ -22,8 +23,10 @@ without exposing the Kubernetes or Docker Swarm APIs.
 - Local volumes are explicit and may only be used by one-replica services.
 
 The runtime uses OCI images with containerd/runc and isolated network
-namespaces. A later slice will add direct WireGuard routing, local service DNS,
-and Caddy ingress. The controller is not in the application data path.
+namespaces. The single node owns an RFC1918 workload subnet, nftables rules,
+local service DNS, and a pinned external Caddy process. The controller is not
+in the application data path. A later multi-node slice may connect node
+subnets with WireGuard without changing the application contract.
 
 ## Try the single-node runtime
 
@@ -67,15 +70,29 @@ bin/orch agent init \
   --context "$PWD/.orch-client/context.json" \
   --data-dir /var/lib/orch-agent
 
+# Before the first workload makes the network immutable, this optional command
+# changes the default 10.88.0.0/16 workload CIDR.
+bin/orch network configure \
+  --cidr 10.96.0.0/16 \
+  --context "$PWD/.orch-client/context.json"
+
 sudo bin/orch agent serve \
   --data-dir /var/lib/orch-agent \
   --containerd-socket /run/containerd/containerd.sock \
-  --snapshotter overlayfs
+  --snapshotter overlayfs \
+  --cni-bin-dir /opt/cni/bin \
+  --caddy-binary /usr/bin/caddy \
+  --ingress-user orch-ingress \
+  --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
-2.3.4, `containerd-shim-runc-v2`, and `runc`. The agent needs permission to use
-the containerd socket and create cgroups and namespaces. See
+2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
+the official CNI plugins 1.9.1, and Caddy 2.11.3. Caddy runs as the dedicated
+non-root user and its root-owned binary must carry
+`cap_net_bind_service=+ep`. The agent needs root-equivalent permission for
+containerd, network namespaces, and its uniquely named nftables table. See
+[docs/networking.md](docs/networking.md) for network and ingress operations and
 [docs/runtime.md](docs/runtime.md) for the exact support boundary.
 
 Use the generated mTLS context from another terminal:
@@ -146,8 +163,9 @@ args = ["-c", "echo $MESSAGE; echo diagnostic >&2; exec sleep 3600"]
 MESSAGE = "hello from orch"
 ~~~
 
-The full example also demonstrates a preserved local volume. See
-[examples/runtime/orch.toml](examples/runtime/orch.toml),
+The runtime examples demonstrate a preserved local volume and a readiness-gated
+private HTTP service. See [examples/runtime/orch.toml](examples/runtime/orch.toml),
+[examples/http/orch.toml](examples/http/orch.toml),
 [docs/configuration.md](docs/configuration.md), and
 [docs/product.md](docs/product.md).
 
@@ -159,10 +177,13 @@ mise exec -- make check
 ~~~
 
 The checked-in JSON Schema and Protocol Buffer/Connect bindings are generated
-with tools pinned in `mise.toml`. Native change.codes CI rejects stale generated
+with tools pinned in `mise.toml`; the same file pins Pebble for isolated ACME
+verification. Native change.codes CI rejects stale generated
 output, formatting differences, vet issues, race failures, and test failures.
-The real containerd lifecycle is additionally available as `make
-containerd-e2e` on a dedicated compatible Linux host; see
+The real containerd/network/DNS/Caddy lifecycle is additionally available as
+`make containerd-e2e` on a dedicated compatible Linux host. `make network-e2e`
+checks the complete network slice and isolated-ACME prerequisites before
+running it; see
 [docs/runtime.md](docs/runtime.md#privileged-runtime-verification).
 
 ## Status and roadmap
@@ -173,8 +194,8 @@ reviewable vertical slices:
 
 1. Configuration and CLI contract.
 2. Secure single-node controller/agent/runtime.
-3. Multi-node scheduling and reconciliation.
-4. WireGuard networking, DNS, and HTTPS ingress.
+3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
+4. Multi-node scheduling and WireGuard routing.
 5. Secrets and operator workflows.
 6. Packaging and release hardening.
 

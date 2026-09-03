@@ -7,10 +7,15 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -21,6 +26,9 @@ import (
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/control"
+	"change.codes/torsten/better-swarm/internal/discovery"
+	"change.codes/torsten/better-swarm/internal/ingress"
+	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 	containerdruntime "change.codes/torsten/better-swarm/internal/runtime/containerd"
 	containerdclient "github.com/containerd/containerd/v2/client"
@@ -30,16 +38,18 @@ import (
 	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
+	"github.com/miekg/dns"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
-	e2eApplication  = "runtime-e2e"
-	managedLabel    = "io.orch.managed"
-	clusterLabel    = "io.orch.cluster"
-	nodeLabel       = "io.orch.node"
-	allocationLabel = "io.orch.allocation"
-	specLabel       = "io.orch.spec-digest"
+	e2eApplication   = "runtime-e2e"
+	e2eIngressDomain = "runtime-e2e.orch.invalid"
+	managedLabel     = "io.orch.managed"
+	clusterLabel     = "io.orch.cluster"
+	nodeLabel        = "io.orch.node"
+	allocationLabel  = "io.orch.allocation"
+	specLabel        = "io.orch.spec-digest"
 )
 
 func TestContainerdSingleNodeLifecycle(t *testing.T) {
@@ -51,11 +61,17 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	}
 	socket := requiredEnvironment(t, "ORCH_CONTAINERD_SOCKET")
 	snapshotter := requiredEnvironment(t, "ORCH_CONTAINERD_SNAPSHOTTER")
+	cniBinDir := requiredEnvironment(t, "ORCH_E2E_CNI_BIN_DIR")
 	archivePath := requiredRegularFile(t, "ORCH_E2E_IMAGE_ARCHIVE", false)
 	imageReference := requiredEnvironment(t, "ORCH_E2E_IMAGE_REFERENCE")
 	orchBinary := requiredRegularFile(t, "ORCH_E2E_ORCH_BINARY", true)
+	caddyBinary := requiredRegularFile(t, "ORCH_CADDY_BINARY", true)
+	caddyUser := requiredEnvironment(t, "ORCH_CADDY_USER")
+	ingressDataDir := requiredEnvironment(t, "ORCH_E2E_INGRESS_DATA_DIR")
+	workloadCIDR := requiredEnvironment(t, "ORCH_E2E_WORKLOAD_CIDR")
+	outboundURL := requiredEnvironment(t, "ORCH_E2E_OUTBOUND_URL")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	root := t.TempDir()
 	address := reserveLoopbackAddress(t)
@@ -132,7 +148,16 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configured, err := remote.ConfigureNetwork(ctx, workloadCIDR, "containerd-e2e-network-one")
+	if err != nil || !configured.GetChanged() || configured.GetCidr() != workloadCIDR || configured.GetGeneration() != 2 {
+		t.Fatalf("configure network = %#v, %v", configured, err)
+	}
 	agentDir := filepath.Join(root, "agent")
+	t.Cleanup(func() {
+		if err := copyNetworkCleanupState(agentDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("preserve network cleanup state: %v", err)
+		}
+	})
 	enrolled, err := agentctl.Enroll(ctx, agentctl.EnrollOptions{
 		Name: "node-1", ContextPath: contextPath, DataDir: agentDir,
 		Now: time.Now, Random: rand.Reader,
@@ -140,7 +165,8 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if err != nil || !enrolled.Created {
 		t.Fatalf("enroll agent = %#v, %v", enrolled, err)
 	}
-	running = startAgent(t, ctx, agentDir, socket, snapshotter, orchBinary, enrolled.Config)
+	running = startAgent(t, ctx, agentDir, socket, snapshotter, cniBinDir, orchBinary,
+		caddyBinary, caddyUser, ingressDataDir, enrolled.Config)
 	waitForNode(t, ctx, remote, running, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
 
 	created, err := remote.ApplyApplication(ctx, runtimeManifest(imageReference, "worker-v1"), "containerd-e2e-deploy-one")
@@ -150,13 +176,23 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if !created.GetChanged() || created.GetGeneration() != 1 {
 		t.Fatalf("initial apply = %#v", created)
 	}
-	application := waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
+	application := waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
+	writeNetworkCleanupState(t, agentDir)
+	foreignCNIState := createForeignCNIState(t, agentDir)
+	initialCaddyPID := readCaddyPID(t, ingressDataDir)
 	if len(application.GetAllocations()) != 3 {
 		t.Fatalf("running allocations = %d, want 3", len(application.GetAllocations()))
 	}
 	initialPIDs := applicationPIDs(t, ctx, raw, application)
 
 	worker := allocation(t, application, "worker", 1)
+	stableOne := allocation(t, application, "stable", 1)
+	stableTwo := allocation(t, application, "stable", 2)
+	if stableOne.GetHealthStatus() != orchv1alpha1.HealthStatus_HEALTH_STATUS_READY ||
+		stableTwo.GetHealthStatus() != orchv1alpha1.HealthStatus_HEALTH_STATUS_READY ||
+		stableOne.GetAddress() == "" || stableTwo.GetAddress() == "" || stableOne.GetAddress() == stableTwo.GetAddress() {
+		t.Fatalf("healthy stable allocations = %#v, %#v", stableOne, stableTwo)
+	}
 	assertContainerContract(t, ctx, raw, bootstrap.Cluster.ID, enrolled.Config.NodeID, agentDir, worker, "worker-v1", snapshotter)
 	waitForLogs(t, ctx, remote, running, "worker-v1")
 	stdout, stderr, exitCode := execute(t, ctx, remote, e2eApplication, "worker", 1, []string{"/orch-fixture", "exec"})
@@ -164,9 +200,37 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 		t.Fatalf("exec output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
 	}
 	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1, []string{"/orch-fixture", "network"})
-	if stdout != "interfaces=lo\n" || stderr != "" || exitCode != 0 {
+	if stdout != "interfaces=eth0,lo\n" || stderr != "" || exitCode != 0 {
 		t.Fatalf("network namespace output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
 	}
+	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1,
+		[]string{"/orch-fixture", "resolve", "worker." + e2eApplication + ".svc.internal"})
+	if stdout != "addresses="+worker.GetAddress()+"\n" || stderr != "" || exitCode != 0 {
+		t.Fatalf("service DNS output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
+	}
+	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1,
+		[]string{"/orch-fixture", "resolve", "stable"})
+	stableAddresses := []string{stableOne.GetAddress(), stableTwo.GetAddress()}
+	sort.Strings(stableAddresses)
+	assertIngressBackends(t, e2eIngressDomain, stableAddresses, "stable-v1")
+	if stdout != "addresses="+strings.Join(stableAddresses, ",")+"\n" || stderr != "" || exitCode != 0 {
+		t.Fatalf("short service DNS output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
+	}
+	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1,
+		[]string{"/orch-fixture", "fetch", outboundURL})
+	if stdout != "status=200 body=token=outbound\n" || stderr != "" || exitCode != 0 {
+		t.Fatalf("outbound masquerade output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
+	}
+	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1,
+		[]string{"/orch-fixture", "resolve", "stable." + e2eApplication + ".svc.internal"})
+	if stdout != "addresses="+strings.Join(stableAddresses, ",")+"\n" || stderr != "" || exitCode != 0 {
+		t.Fatalf("multi-endpoint workload DNS output = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
+	}
+	nodes, err := remote.ListNodes(ctx)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("list node for DNS assertion = %#v, %v", nodes, err)
+	}
+	assertDNSRecords(t, nodes[0].GetNodeSubnet(), "stable."+e2eApplication+".svc.internal.", stableAddresses)
 	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1, []string{"/orch-fixture", "resources"})
 	if stdout != "cpu.max=25000 100000\nmemory.max=67108864\nmemory.swap.max=0\n" || stderr != "" || exitCode != 0 {
 		t.Fatalf("live cgroup limits = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
@@ -175,7 +239,6 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if exitCode == 0 || strings.Contains(stdout, "allocated=128MiB") {
 		t.Fatalf("memory allocation escaped the 32 MiB task cgroup: stdout %q exit %d", stdout, exitCode)
 	}
-	stableTwo := allocation(t, application, "stable", 2)
 	waitForTaskRunning(t, ctx, raw, orchruntime.ObjectID(stableTwo.GetId(), stableTwo.GetSpecDigest()))
 	assertForeignResource(t, ctx, raw, foreignID)
 
@@ -188,6 +251,8 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	shutdownCancel()
 	server = nil
 	assertPIDs(t, ctx, raw, application, beforeControllerRestart)
+	assertDNSRecords(t, nodes[0].GetNodeSubnet(), "stable."+e2eApplication+".svc.internal.", stableAddresses)
+	assertIngressBackends(t, e2eIngressDomain, stableAddresses, "stable-v1")
 	server, err = control.Start(ctx, control.Options{DataDir: controllerDir, Listen: address})
 	if err != nil {
 		t.Fatal(err)
@@ -198,8 +263,11 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForNode(t, ctx, remote, running, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
-	application = waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
+	application = waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
 	assertPIDs(t, ctx, raw, application, beforeControllerRestart)
+	if pid := readCaddyPID(t, ingressDataDir); pid != initialCaddyPID {
+		t.Fatalf("controller restart changed Caddy PID: %d -> %d", initialCaddyPID, pid)
+	}
 
 	stable := allocation(t, application, "stable", 1)
 	stableID := orchruntime.ObjectID(stable.GetId(), stable.GetSpecDigest())
@@ -231,13 +299,29 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 
 	beforeAgentRestart := applicationPIDs(t, ctx, raw, application)
 	running.stop(t)
+	assertIngressBackends(t, e2eIngressDomain, stableAddresses, "stable-v1")
 	running = nil
 	waitForNode(t, ctx, remote, nil, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_DISCONNECTED)
 	assertPIDs(t, ctx, raw, application, beforeAgentRestart)
-	running = startAgent(t, ctx, agentDir, socket, snapshotter, orchBinary, enrolled.Config)
+	running = startAgent(t, ctx, agentDir, socket, snapshotter, cniBinDir, orchBinary,
+		caddyBinary, caddyUser, ingressDataDir, enrolled.Config)
 	waitForNode(t, ctx, remote, running, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
-	application = waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
+	application = waitForApplication(t, ctx, remote, running, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
 	assertPIDs(t, ctx, raw, application, beforeAgentRestart)
+	if pid := readCaddyPID(t, ingressDataDir); pid != initialCaddyPID {
+		t.Fatalf("agent restart did not adopt Caddy: %d -> %d", initialCaddyPID, pid)
+	}
+	worker = allocation(t, application, "worker", 1)
+	currentStableAddresses := []string{
+		allocation(t, application, "stable", 1).GetAddress(),
+		allocation(t, application, "stable", 2).GetAddress(),
+	}
+	sort.Strings(currentStableAddresses)
+	stdout, stderr, exitCode = execute(t, ctx, remote, e2eApplication, "worker", 1,
+		[]string{"/orch-fixture", "resolve", "stable"})
+	if stdout != "addresses="+strings.Join(currentStableAddresses, ",")+"\n" || stderr != "" || exitCode != 0 {
+		t.Fatalf("DNS after agent restart = stdout %q stderr %q exit %d", stdout, stderr, exitCode)
+	}
 
 	stablePIDs := servicePIDs(t, ctx, raw, application, "stable")
 	oldWorkerID := orchruntime.ObjectID(worker.GetId(), worker.GetSpecDigest())
@@ -248,7 +332,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if !updated.GetChanged() || updated.GetGeneration() != 2 {
 		t.Fatalf("updated apply = %#v", updated)
 	}
-	application = waitForApplication(t, ctx, remote, running, 2, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
+	application = waitForApplication(t, ctx, remote, running, 2, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
 	assertServicePIDs(t, ctx, raw, application, "stable", stablePIDs)
 	worker = allocation(t, application, "worker", 1)
 	newWorkerID := orchruntime.ObjectID(worker.GetId(), worker.GetSpecDigest())
@@ -267,6 +351,64 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	volumePath := filepath.Join(agentDir, agentctl.VolumesDirectory, e2eApplication, "state", "starts")
 	waitForFile(t, ctx, volumePath, "worker-v1\nworker-v2\n")
 
+	trafficReady, stopTraffic, trafficDone := startContinuousServiceTraffic(ctx)
+	select {
+	case <-trafficReady:
+	case <-time.After(15 * time.Second):
+		stopTraffic()
+		t.Fatal("continuous service traffic did not start")
+	}
+	healthyUpdate, err := remote.ApplyApplication(ctx,
+		runtimeManifestWithStableRevision(imageReference, "worker-v2", "stable-v2", false),
+		"containerd-e2e-deploy-three")
+	if err != nil {
+		stopTraffic()
+		t.Fatal(err)
+	}
+	if !healthyUpdate.GetChanged() || healthyUpdate.GetGeneration() != 3 {
+		stopTraffic()
+		t.Fatalf("healthy routed apply = %#v", healthyUpdate)
+	}
+	application = waitForApplication(t, ctx, remote, running, 3,
+		orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
+	stopTraffic()
+	traffic := <-trafficDone
+	if traffic.err != nil || traffic.requests < 2 {
+		t.Fatalf("continuous service traffic = %d requests, %v", traffic.requests, traffic.err)
+	}
+	healthyStablePIDs := servicePIDs(t, ctx, raw, application, "stable")
+	healthyStableAddresses := serviceAddresses(t, application, "stable")
+	assertIngressBackends(t, e2eIngressDomain, healthyStableAddresses, "stable-v2")
+	if reflect.DeepEqual(healthyStablePIDs, stablePIDs) {
+		t.Fatalf("healthy stable revision was not rolled out: %#v", healthyStablePIDs)
+	}
+
+	rolledBack, err := remote.ApplyApplication(ctx,
+		runtimeManifestWithStableRevision(imageReference, "worker-v2", "stable-bad", true),
+		"containerd-e2e-deploy-four")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rolledBack.GetChanged() || rolledBack.GetGeneration() != 4 {
+		t.Fatalf("unhealthy apply = %#v", rolledBack)
+	}
+	application = waitForApplication(t, ctx, remote, running, 4,
+		orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_ROLLED_BACK)
+	for _, item := range application.GetAllocations() {
+		if item.GetActiveApplicationGeneration() != 3 || item.GetActiveRevisionId() == "" ||
+			item.GetActiveSpecDigest() == "" {
+			t.Fatalf("rollback did not restore generation three: %#v", item)
+		}
+		if item.GetActiveSpecDigest() != item.GetSpecDigest() {
+			candidateID := orchruntime.ObjectID(item.GetId(), item.GetSpecDigest())
+			if _, err := raw.LoadContainer(ctx, candidateID); !errdefs.IsNotFound(err) {
+				t.Fatalf("failed candidate container %s remains after rollback: %v", candidateID, err)
+			}
+		}
+	}
+	assertActiveServicePIDs(t, ctx, raw, application, "stable", healthyStablePIDs)
+	assertIngressBackends(t, e2eIngressDomain, serviceAddresses(t, application, "stable"), "stable-v2")
+
 	removed, err := remote.RemoveApplication(ctx, e2eApplication, "containerd-e2e-remove-one")
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +420,7 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if !proto.Equal(removed, replayed) {
 		t.Fatalf("idempotent remove replay differs: first %#v replay %#v", removed, replayed)
 	}
-	application = waitForApplication(t, ctx, remote, running, 2, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED)
+	application = waitForApplication(t, ctx, remote, running, 4, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED)
 	if !application.GetDeleted() {
 		t.Fatal("removed application did not retain its tombstoned history")
 	}
@@ -292,25 +434,117 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	waitForFile(t, ctx, volumePath, "worker-v1\nworker-v2\n")
 	assertNoManagedResources(t, ctx, raw, bootstrap.Cluster.ID, snapshotter, filepath.Join(agentDir, agentctl.LogsDirectory))
 	assertForeignResource(t, ctx, raw, foreignID)
+	assertIngressWithdrawn(t, e2eIngressDomain)
+	assertDNSRcode(t, nodes[0].GetNodeSubnet(), "stable."+e2eApplication+".svc.internal.", dns.RcodeNameError)
+	if pid := readCaddyPID(t, ingressDataDir); pid != initialCaddyPID {
+		t.Fatalf("application removal changed Caddy PID: %d -> %d", initialCaddyPID, pid)
+	}
+	if contents, err := os.ReadFile(foreignCNIState); err != nil || string(contents) != foreignCNIContents {
+		t.Fatalf("foreign CNI state was changed or removed: %q, %v", contents, err)
+	}
 
 	if len(initialPIDs) != 3 {
 		t.Fatalf("initial task count = %d, want 3", len(initialPIDs))
 	}
 }
 
+func writeNetworkCleanupState(t *testing.T, agentDir string) {
+	t.Helper()
+	if err := copyNetworkCleanupState(agentDir); err != nil {
+		t.Fatalf("write network cleanup state: %v", err)
+	}
+}
+
+func copyNetworkCleanupState(agentDir string) error {
+	destination := os.Getenv("ORCH_E2E_NETWORK_FILE")
+	if destination == "" {
+		return nil
+	}
+	contents, err := os.ReadFile(filepath.Join(agentDir, "network", "firewall-owner.json"))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(destination, contents, 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+func createForeignCNIState(t *testing.T, agentDir string) string {
+	t.Helper()
+	resultsDir := filepath.Join(agentDir, "network", "cni-cache", "results")
+	if err := os.MkdirAll(resultsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(resultsDir, "foreign-network-foreign-container-eth9")
+	if _, err := os.Lstat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refusing to replace foreign CNI sentinel %s: %v", path, err)
+	}
+	// This is a valid libcni cache identity for a different network. It proves
+	// orch's CNI garbage collection does not sweep unrelated attachment state.
+	if err := os.WriteFile(path, []byte(foreignCNIContents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const foreignCNIContents = "{\"kind\":\"cniCacheV1\",\"containerId\":\"foreign-container\",\"ifName\":\"eth9\",\"networkName\":\"foreign-network\"}\n"
+
 type agentProcess struct {
 	cancel context.CancelFunc
 	done   chan error
 }
 
-func startAgent(t *testing.T, parent context.Context, dataDir, socket, snapshotter, orchBinary string, config agentctl.Config) *agentProcess {
+func readCaddyPID(t *testing.T, ingressDataDir string) int {
 	t.Helper()
+	contents, err := os.ReadFile(filepath.Join(ingressDataDir, "caddy.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(contents)))
+	if err != nil || pid < 2 {
+		t.Fatalf("invalid Caddy PID %q: %v", contents, err)
+	}
+	return pid
+}
+
+func startAgent(t *testing.T, parent context.Context, dataDir, socket, snapshotter, cniBinDir, orchBinary,
+	caddyBinary, caddyUser, ingressDataDir string, config agentctl.Config,
+) *agentProcess {
+	t.Helper()
+	networkManager, err := network.New(network.Options{
+		ClusterID: config.ClusterID, NodeID: config.NodeID, BinDir: cniBinDir,
+		StateDir: filepath.Join(dataDir, "network"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtimeClient, err := containerdruntime.New(socket, orchruntime.Options{
 		ClusterID: config.ClusterID, NodeID: config.NodeID, Snapshotter: snapshotter,
 		LogsDir:    filepath.Join(dataDir, agentctl.LogsDirectory),
 		VolumesDir: filepath.Join(dataDir, agentctl.VolumesDirectory), LoggerPath: orchBinary,
+		ResolverPath: filepath.Join(dataDir, "network", "resolv.conf"), Network: networkManager,
 	})
 	if err != nil {
+		_ = networkManager.Close()
+		t.Fatal(err)
+	}
+	forwarders, err := discovery.SystemForwarders("/etc/resolv.conf")
+	if err != nil {
+		_ = runtimeClient.Close()
+		t.Fatal(err)
+	}
+	dnsServer, err := discovery.New(discovery.DefaultZone, forwarders)
+	if err != nil {
+		_ = runtimeClient.Close()
+		t.Fatal(err)
+	}
+	caddy, err := ingress.NewCaddy(ingress.CaddyOptions{
+		Binary: caddyBinary, AdminSocket: filepath.Join(ingressDataDir, "admin.sock"),
+		DataDir: ingressDataDir, StateDir: filepath.Join(dataDir, "ingress"), User: caddyUser,
+	})
+	if err != nil {
+		_ = runtimeClient.Close()
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(parent)
@@ -318,7 +552,7 @@ func startAgent(t *testing.T, parent context.Context, dataDir, socket, snapshott
 	go func() {
 		process.done <- agentctl.Serve(ctx, agentctl.ServeOptions{
 			DataDir: dataDir, Snapshotter: snapshotter, Runtime: runtimeClient,
-			Now: time.Now, Random: rand.Reader,
+			Discovery: dnsServer, Ingress: caddy, Now: time.Now, Random: rand.Reader,
 		})
 	}()
 	return process
@@ -376,6 +610,14 @@ func importFixture(ctx context.Context, client *containerdclient.Client, path, r
 }
 
 func runtimeManifest(imageReference, workerToken string) []byte {
+	return runtimeManifestWithStableRevision(imageReference, workerToken, "stable-v1", false)
+}
+
+func runtimeManifestWithStableRevision(imageReference, workerToken, stableRevision string, failHealth bool) []byte {
+	healthFailure := "0"
+	if failHealth {
+		healthFailure = "1"
+	}
 	return []byte(fmt.Sprintf(`schema = "v1alpha1"
 name = "runtime-e2e"
 
@@ -392,6 +634,15 @@ memory = "32Mi"
 
 [services.stable.env]
 ORCH_E2E_TOKEN = "stable"
+ORCH_E2E_HTTP_PORT = "8080"
+ORCH_E2E_REVISION = %q
+ORCH_E2E_HEALTH_FAIL = %q
+
+[services.stable.http]
+port = 8080
+domains = [%q]
+health_path = "/healthz"
+https = false
 
 [services.worker]
 image = %q
@@ -420,7 +671,141 @@ max_surge = 1
 max_unavailable = 0
 health_deadline = "30s"
 auto_rollback = true
-`, imageReference, imageReference, workerToken, workerToken))
+`, imageReference, stableRevision, healthFailure, e2eIngressDomain, imageReference, workerToken, workerToken))
+}
+
+func assertDNSRecords(t *testing.T, nodeSubnet, name string, want []string) {
+	t.Helper()
+	prefix, err := netip.ParsePrefix(nodeSubnet)
+	if err != nil || !prefix.Addr().Is4() {
+		t.Fatalf("node subnet = %q, %v", nodeSubnet, err)
+	}
+	server := net.JoinHostPort(prefix.Addr().Next().String(), "53")
+	for _, protocol := range []string{"udp", "tcp"} {
+		request := new(dns.Msg)
+		request.SetQuestion(name, dns.TypeA)
+		response, _, err := (&dns.Client{Net: protocol, Timeout: 2 * time.Second}).Exchange(request, server)
+		if err != nil {
+			t.Fatalf("%s DNS query failed: %v", protocol, err)
+		}
+		if response.Rcode != dns.RcodeSuccess {
+			t.Fatalf("%s DNS response code = %s", protocol, dns.RcodeToString[response.Rcode])
+		}
+		got := make([]string, 0, len(response.Answer))
+		for _, answer := range response.Answer {
+			record, ok := answer.(*dns.A)
+			if !ok || record.Hdr.Ttl != discovery.RecordTTL {
+				t.Fatalf("%s DNS answer = %#v", protocol, answer)
+			}
+			got = append(got, record.A.String())
+		}
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s DNS addresses = %v, want %v", protocol, got, want)
+		}
+	}
+}
+
+func assertDNSRcode(t *testing.T, nodeSubnet, name string, want int) {
+	t.Helper()
+	prefix, err := netip.ParsePrefix(nodeSubnet)
+	if err != nil || !prefix.Addr().Is4() {
+		t.Fatalf("node subnet = %q, %v", nodeSubnet, err)
+	}
+	server := net.JoinHostPort(prefix.Addr().Next().String(), "53")
+	for _, protocol := range []string{"udp", "tcp"} {
+		request := new(dns.Msg)
+		request.SetQuestion(name, dns.TypeA)
+		response, _, err := (&dns.Client{Net: protocol, Timeout: 2 * time.Second}).Exchange(request, server)
+		if err != nil || response.Rcode != want {
+			t.Fatalf("%s DNS response = %#v, %v; want rcode %s", protocol, response, err, dns.RcodeToString[want])
+		}
+	}
+}
+
+func serviceAddresses(t *testing.T, application *orchv1alpha1.Application, service string) []string {
+	t.Helper()
+	var result []string
+	for _, allocation := range application.GetAllocations() {
+		if allocation.GetService() == service {
+			if allocation.GetAddress() == "" {
+				t.Fatalf("allocation %s/%d has no active address", service, allocation.GetReplica())
+			}
+			result = append(result, allocation.GetAddress())
+		}
+	}
+	sort.Strings(result)
+	if len(result) == 0 {
+		t.Fatalf("service %s has no allocations", service)
+	}
+	return result
+}
+
+func assertIngressBackends(t *testing.T, domain string, addresses []string, revision string) {
+	t.Helper()
+	want := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		want[address] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(addresses))
+	for attempt := 0; attempt < 64 && len(seen) != len(want); attempt++ {
+		status, body, err := requestIngress(domain, "/identity")
+		if err != nil || status != http.StatusOK {
+			t.Fatalf("ingress request = status %d body %q, %v", status, body, err)
+		}
+		fields := strings.Fields(strings.TrimSpace(body))
+		if len(fields) != 2 || !strings.HasPrefix(fields[0], "address=") || fields[1] != "revision="+revision {
+			t.Fatalf("ingress identity response = %q", body)
+		}
+		address := strings.TrimPrefix(fields[0], "address=")
+		if _, ok := want[address]; !ok {
+			t.Fatalf("ingress reached unexpected backend %q; want %v", address, addresses)
+		}
+		seen[address] = struct{}{}
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("ingress reached %v; want every backend %v", sortedStringSet(seen), addresses)
+	}
+}
+
+func assertIngressWithdrawn(t *testing.T, domain string) {
+	t.Helper()
+	status, body, err := requestIngress(domain, "/identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status == http.StatusOK && strings.Contains(body, "revision=") {
+		t.Fatalf("withdrawn ingress route still reached a workload: %q", body)
+	}
+}
+
+func requestIngress(domain, path string) (int, string, error) {
+	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp4", "127.0.0.1:80")
+	}
+	client := &http.Client{Transport: transport, Timeout: 2 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	request, _ := http.NewRequest(http.MethodGet, "http://"+domain+path, nil)
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if err != nil || len(body) > 4096 {
+		return response.StatusCode, "", fmt.Errorf("read bounded ingress response: %w", err)
+	}
+	return response.StatusCode, string(body), nil
+}
+
+func sortedStringSet(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func waitForNode(t *testing.T, ctx context.Context, remote *controlclient.Client, process *agentProcess, want orchv1alpha1.NodeConnectionStatus) {
@@ -477,7 +862,8 @@ func waitForRestart(t *testing.T, ctx context.Context, remote *controlclient.Cli
 		requestContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 		application, err := remote.GetApplication(requestContext, e2eApplication)
 		cancel()
-		if err == nil && application.GetExecutionStatus() == orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING {
+		if err == nil && (application.GetExecutionStatus() == orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING ||
+			application.GetExecutionStatus() == orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY) {
 			item := findAllocation(application, service, replica)
 			if item != nil && item.GetRestartCount() >= 1 {
 				id := orchruntime.ObjectID(item.GetId(), item.GetSpecDigest())
@@ -527,11 +913,21 @@ func waitForLogs(t *testing.T, ctx context.Context, remote *controlclient.Client
 
 func execute(t *testing.T, ctx context.Context, remote *controlclient.Client, application, service string, replica uint32, command []string) (string, string, int32) {
 	t.Helper()
+	stdout, stderr, exitCode, err := executeResult(ctx, remote, application, service, replica, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stdout, stderr, exitCode
+}
+
+func executeResult(ctx context.Context, remote *controlclient.Client, application, service string, replica uint32,
+	command []string,
+) (string, string, int32, error) {
 	requestContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	stream, err := remote.Exec(requestContext, application, service, replica, command, 8)
 	if err != nil {
-		t.Fatal(err)
+		return "", "", 0, err
 	}
 	defer stream.Close()
 	var stdout, stderr strings.Builder
@@ -550,12 +946,53 @@ func execute(t *testing.T, ctx context.Context, remote *controlclient.Client, ap
 		}
 	}
 	if err := stream.Err(); err != nil {
-		t.Fatal(err)
+		return "", "", 0, err
 	}
 	if !exited {
-		t.Fatal("exec stream ended without an exit frame")
+		return "", "", 0, errors.New("exec stream ended without an exit frame")
 	}
-	return stdout.String(), stderr.String(), exitCode
+	return stdout.String(), stderr.String(), exitCode, nil
+}
+
+type trafficResult struct {
+	requests int
+	err      error
+}
+
+func startContinuousServiceTraffic(parent context.Context) (<-chan struct{}, context.CancelFunc, <-chan trafficResult) {
+	ctx, cancel := context.WithCancel(parent)
+	ready := make(chan struct{})
+	done := make(chan trafficResult, 1)
+	go func() {
+		requests := 0
+		for {
+			status, body, err := requestIngress(e2eIngressDomain, "/")
+			if err != nil || status != http.StatusOK || body != "token=stable\n" {
+				if ctx.Err() != nil {
+					done <- trafficResult{requests: requests}
+					return
+				}
+				if err == nil {
+					err = fmt.Errorf("ingress response status=%d body=%q", status, body)
+				}
+				done <- trafficResult{requests: requests, err: err}
+				return
+			}
+			requests++
+			if requests == 1 {
+				close(ready)
+			}
+			timer := time.NewTimer(100 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				done <- trafficResult{requests: requests}
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+	return ready, cancel, done
 }
 
 func allocation(t *testing.T, application *orchv1alpha1.Application, service string, replica uint32) *orchv1alpha1.AllocationStatus {
@@ -605,6 +1042,27 @@ func servicePIDs(t *testing.T, ctx context.Context, raw *containerdclient.Client
 		result[id] = pid
 	}
 	return result
+}
+
+func assertActiveServicePIDs(t *testing.T, ctx context.Context, raw *containerdclient.Client,
+	application *orchv1alpha1.Application, service string, want map[string]uint32,
+) {
+	t.Helper()
+	got := make(map[string]uint32)
+	for _, item := range application.GetAllocations() {
+		if item.GetService() != service {
+			continue
+		}
+		id := orchruntime.ObjectID(item.GetId(), item.GetActiveSpecDigest())
+		pid, err := taskPID(ctx, raw, id)
+		if err != nil {
+			t.Fatalf("load active task %s: %v", id, err)
+		}
+		got[id] = pid
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("active %s PIDs = %#v, want %#v", service, got, want)
+	}
 }
 
 func assertPIDs(t *testing.T, ctx context.Context, raw *containerdclient.Client, application *orchv1alpha1.Application, want map[string]uint32) {
@@ -719,13 +1177,33 @@ func assertContainerContract(t *testing.T, ctx context.Context, raw *containerdc
 	}
 	wantVolume := filepath.Join(agentDir, agentctl.VolumesDirectory, e2eApplication, "state")
 	hasVolume := false
+	hasResolver := false
 	for _, mount := range spec.Mounts {
 		if mount.Destination == "/data" && mount.Type == "bind" && mount.Source == wantVolume {
 			hasVolume = true
 		}
+		if mount.Destination == "/etc/resolv.conf" && mount.Type == "bind" &&
+			mount.Source == filepath.Join(agentDir, "network", "resolv-"+e2eApplication+".conf") {
+			hasResolver = true
+		}
 	}
 	if !hasVolume {
 		t.Fatalf("OCI mounts omit agent-owned volume %s: %#v", wantVolume, spec.Mounts)
+	}
+	if !hasResolver {
+		t.Fatalf("OCI mounts omit the agent-owned resolver: %#v", spec.Mounts)
+	}
+	resolverPath := filepath.Join(agentDir, "network", "resolv-"+e2eApplication+".conf")
+	resolver, err := os.ReadFile(resolverPath)
+	if err != nil || !strings.Contains(string(resolver), "search "+e2eApplication+".svc.internal\n") {
+		t.Fatalf("application resolver = %q, %v", resolver, err)
+	}
+	resolverInfo, err := os.Lstat(resolverPath)
+	if err != nil {
+		t.Fatalf("stat application resolver: %v", err)
+	}
+	if resolverInfo.Mode().Perm() != 0o644 {
+		t.Fatalf("application resolver mode = %v", resolverInfo.Mode().Perm())
 	}
 	task, err := container.Task(ctx, nil)
 	if err != nil {

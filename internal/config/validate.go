@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"path"
 	"regexp"
 	"sort"
@@ -10,6 +11,21 @@ import (
 	"time"
 
 	"github.com/distribution/reference"
+	"golang.org/x/net/idna"
+)
+
+const (
+	maxServices              = 100
+	maxVolumes               = 100
+	maxTotalReplicas         = 1000
+	maxDomainsPerService     = 100
+	maxTotalDomains          = 1000
+	maxEnvironmentEntries    = 256
+	maxConstraintEntries     = 64
+	maxMountsPerService      = 64
+	maxSecretFilesPerService = 64
+	maxCommandEntries        = 256
+	maxManifestStringBytes   = 4 << 10
 )
 
 var (
@@ -56,12 +72,17 @@ func Validate(manifest *Manifest) error {
 	validateDNSLabel("name", manifest.Name, add)
 	if len(manifest.Services) == 0 {
 		add("services", "must define at least one service")
+	} else if len(manifest.Services) > maxServices {
+		add("services", fmt.Sprintf("must not define more than %d services", maxServices))
 	}
-	if manifest.Deploy.MaxSurge < 0 {
-		add("deploy.max_surge", "must be zero or greater")
+	if len(manifest.Volumes) > maxVolumes {
+		add("volumes", fmt.Sprintf("must not define more than %d volumes", maxVolumes))
 	}
-	if manifest.Deploy.MaxUnavailable < 0 {
-		add("deploy.max_unavailable", "must be zero or greater")
+	if manifest.Deploy.MaxSurge < 0 || manifest.Deploy.MaxSurge > 100 {
+		add("deploy.max_surge", "must be between 0 and 100")
+	}
+	if manifest.Deploy.MaxUnavailable < 0 || manifest.Deploy.MaxUnavailable > 100 {
+		add("deploy.max_unavailable", "must be between 0 and 100")
 	}
 	if manifest.Deploy.MaxSurge == 0 && manifest.Deploy.MaxUnavailable == 0 {
 		add("deploy", "max_surge and max_unavailable cannot both be zero")
@@ -72,6 +93,8 @@ func Validate(manifest *Manifest) error {
 
 	domainOwners := make(map[string]string)
 	volumeOwners := make(map[string]string)
+	totalReplicas := 0
+	totalDomains := 0
 	serviceNames := sortedKeys(manifest.Services)
 	for _, serviceName := range serviceNames {
 		service := manifest.Services[serviceName]
@@ -79,11 +102,15 @@ func Validate(manifest *Manifest) error {
 		validateDNSLabel(base, serviceName, add)
 		if strings.TrimSpace(service.Image) == "" {
 			add(base+".image", "is required")
+		} else if len(service.Image) > 1024 || strings.ContainsRune(service.Image, 0) {
+			add(base+".image", "must not exceed 1024 bytes or contain NUL bytes")
 		} else if _, err := reference.ParseNormalizedNamed(service.Image); err != nil {
 			add(base+".image", "must be a valid OCI image reference")
 		}
 		if service.Replicas < 1 || service.Replicas > 100 {
 			add(base+".replicas", "must be between 1 and 100")
+		} else {
+			totalReplicas += service.Replicas
 		}
 		switch service.Restart {
 		case "always", "on-failure", "never":
@@ -105,9 +132,13 @@ func Validate(manifest *Manifest) error {
 				add(base+".secret_env."+key, "duplicates a plain environment variable")
 			}
 		}
+		if len(service.Constraints) > maxConstraintEntries {
+			add(base+".constraints", fmt.Sprintf("must not contain more than %d entries", maxConstraintEntries))
+		}
 		for key, value := range service.Constraints {
-			if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-				add(base+".constraints", "keys and values must not be empty")
+			if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" || len(key) > 256 || len(value) > maxManifestStringBytes ||
+				strings.ContainsRune(key, 0) || strings.ContainsRune(value, 0) {
+				add(base+".constraints", "keys and values must be nonempty, bounded, and contain no NUL bytes")
 				break
 			}
 		}
@@ -117,11 +148,15 @@ func Validate(manifest *Manifest) error {
 				add(base+".http.port", "must be between 1 and 65535")
 			}
 			seenDomains := make(map[string]struct{})
+			if len(service.HTTP.Domains) > maxDomainsPerService {
+				add(base+".http.domains", fmt.Sprintf("must not contain more than %d domains", maxDomainsPerService))
+			}
+			totalDomains += len(service.HTTP.Domains)
 			for index, domain := range service.HTTP.Domains {
 				normalized := strings.TrimSuffix(strings.ToLower(domain), ".")
 				field := fmt.Sprintf("%s.http.domains[%d]", base, index)
-				if !validHostname(normalized) {
-					add(field, "must be a lowercase DNS hostname without a wildcard")
+				if domain != normalized || !validHostname(domain) {
+					add(field, "must be a normalized lowercase DNS hostname without a wildcard or trailing dot")
 				}
 				if _, exists := seenDomains[normalized]; exists {
 					add(field, "duplicates another domain on this service")
@@ -136,11 +171,15 @@ func Validate(manifest *Manifest) error {
 			if len(service.HTTP.Domains) > 0 && service.HTTP.HealthPath == "" {
 				add(base+".http.health_path", "is required when domains are configured")
 			}
-			if service.HTTP.HealthPath != "" && (!strings.HasPrefix(service.HTTP.HealthPath, "/") || strings.ContainsAny(service.HTTP.HealthPath, "\r\n")) {
-				add(base+".http.health_path", "must begin with / and contain no newlines")
+			if service.HTTP.HealthPath != "" && (!strings.HasPrefix(service.HTTP.HealthPath, "/") ||
+				len(service.HTTP.HealthPath) > 2048 || strings.ContainsAny(service.HTTP.HealthPath, "\x00\r\n")) {
+				add(base+".http.health_path", "must begin with /, fit within 2048 bytes, and contain no NUL or newline bytes")
 			}
 		}
 
+		if len(service.SecretFiles) > maxSecretFilesPerService {
+			add(base+".secret_files", fmt.Sprintf("must not contain more than %d entries", maxSecretFilesPerService))
+		}
 		secretTargets := make(map[string]struct{})
 		for index, secret := range service.SecretFiles {
 			item := fmt.Sprintf("%s.secret_files[%d]", base, index)
@@ -154,6 +193,9 @@ func Validate(manifest *Manifest) error {
 			secretTargets[secret.Target] = struct{}{}
 		}
 
+		if len(service.Mounts) > maxMountsPerService {
+			add(base+".mounts", fmt.Sprintf("must not contain more than %d entries", maxMountsPerService))
+		}
 		mountTargets := make(map[string]struct{})
 		for index, mount := range service.Mounts {
 			item := fmt.Sprintf("%s.mounts[%d]", base, index)
@@ -177,6 +219,12 @@ func Validate(manifest *Manifest) error {
 		if len(service.Mounts) > 0 && service.Replicas != 1 {
 			add(base+".replicas", "must be 1 when the service uses local volumes")
 		}
+	}
+	if totalReplicas > maxTotalReplicas {
+		add("services", fmt.Sprintf("must not request more than %d total replicas", maxTotalReplicas))
+	}
+	if totalDomains > maxTotalDomains {
+		add("services", fmt.Sprintf("must not configure more than %d total domains", maxTotalDomains))
 	}
 
 	for _, volumeName := range sortedKeys(manifest.Volumes) {
@@ -212,6 +260,16 @@ func ValidateApplicationName(name string) error {
 	return &ValidationError{Problems: problems}
 }
 
+// ValidateDomain applies the exact-host ingress rule after parser
+// normalization. Wildcards, IP literals, private service names, and
+// single-label hosts are intentionally not routable.
+func ValidateDomain(domain string) error {
+	if !validHostname(domain) {
+		return fmt.Errorf("domain must be a normalized multi-label DNS hostname without a wildcard")
+	}
+	return nil
+}
+
 func validateDNSLabel(field, value string, add func(string, string)) {
 	if !dnsLabelPattern.MatchString(value) {
 		add(field, "must be a lowercase DNS label of at most 63 characters")
@@ -219,17 +277,26 @@ func validateDNSLabel(field, value string, add func(string, string)) {
 }
 
 func validateStringList(field string, values []string, add func(string, string)) {
+	if len(values) > maxCommandEntries {
+		add(field, fmt.Sprintf("must not contain more than %d entries", maxCommandEntries))
+	}
 	for index, value := range values {
-		if strings.TrimSpace(value) == "" {
-			add(fmt.Sprintf("%s[%d]", field, index), "must not be empty")
+		if strings.TrimSpace(value) == "" || len(value) > maxManifestStringBytes || strings.ContainsRune(value, 0) {
+			add(fmt.Sprintf("%s[%d]", field, index), "must be nonempty, bounded, and contain no NUL bytes")
 		}
 	}
 }
 
 func validateEnvironment(field string, values map[string]string, secrets bool, add func(string, string)) {
+	if len(values) > maxEnvironmentEntries {
+		add(field, fmt.Sprintf("must not contain more than %d entries", maxEnvironmentEntries))
+	}
 	for key, value := range values {
-		if !envNamePattern.MatchString(key) {
+		if !envNamePattern.MatchString(key) || len(key) > 256 {
 			add(field+"."+key, "has an invalid environment variable name")
+		}
+		if len(value) > maxManifestStringBytes || strings.ContainsRune(value, 0) {
+			add(field+"."+key, "must be bounded and contain no NUL bytes")
 		}
 		if secrets {
 			if !dnsLabelPattern.MatchString(value) {
@@ -278,6 +345,14 @@ func validHostname(value string) bool {
 	if value == "" || len(value) > 253 || strings.Contains(value, "*") || value != strings.ToLower(value) {
 		return false
 	}
+	if !strings.Contains(value, ".") || net.ParseIP(value) != nil || value == "localhost" ||
+		value == "svc.internal" || strings.HasSuffix(value, ".svc.internal") {
+		return false
+	}
+	ascii, err := idna.Lookup.ToASCII(value)
+	if err != nil || ascii != value {
+		return false
+	}
 	for _, label := range strings.Split(value, ".") {
 		if !hostLabelPattern.MatchString(label) {
 			return false
@@ -296,7 +371,7 @@ func safeMountTarget(target string) bool {
 	if target != clean || !strings.HasPrefix(clean, "/") || clean == "/" {
 		return false
 	}
-	for _, protected := range []string{"/proc", "/sys", "/dev", "/run/orch"} {
+	for _, protected := range []string{"/proc", "/sys", "/dev", "/run/orch", "/etc/resolv.conf"} {
 		if clean == protected || strings.HasPrefix(clean, protected+"/") {
 			return false
 		}

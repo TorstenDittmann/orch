@@ -67,7 +67,51 @@ func (s *service) GetCluster(ctx context.Context, request *connect.Request[orchv
 	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(s.cluster)}), nil
+	cluster, err := s.state.Cluster(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read cluster state"))
+	}
+	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(cluster)}), nil
+}
+
+func (s *service) ConfigureNetwork(ctx context.Context, request *connect.Request[orchv1alpha1.ConfigureNetworkRequest]) (*connect.Response[orchv1alpha1.ConfigureNetworkResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency key must be 16-128 URL-safe characters"))
+	}
+	prefix, err := model.ParseWorkloadCIDR(request.Msg.GetCidr())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	digest := sha256.Sum256([]byte("network.configure\x00" + prefix.String()))
+	result, err := s.state.ConfigureNetwork(ctx, model.ConfigureNetwork{
+		CIDR: prefix.String(), IdempotencyKey: request.Msg.GetIdempotencyKey(),
+		RequestHash: hex.EncodeToString(digest[:]), UpdatedAt: s.now().UTC(),
+	})
+	if errors.Is(err, store.ErrNetworkFrozen) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("configure workload network"))
+	}
+	if result.Changed && s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("publish configured workload network"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.ConfigureNetworkResponse{
+		Cidr: result.CIDR, Generation: result.Generation, Frozen: result.Frozen,
+		Changed: result.Changed, EventSequence: result.EventSequence,
+		UpdatedAt: timestamppb.New(result.UpdatedAt),
+	}), nil
 }
 
 func (s *service) GetApplication(ctx context.Context, request *connect.Request[orchv1alpha1.GetApplicationRequest]) (*connect.Response[orchv1alpha1.GetApplicationResponse], error) {
@@ -494,6 +538,8 @@ func clusterMessage(cluster model.Cluster) *orchv1alpha1.Cluster {
 	return &orchv1alpha1.Cluster{
 		Id: cluster.ID, Name: cluster.Name, Endpoint: cluster.Endpoint,
 		Generation: cluster.Generation, CreatedAt: timestamppb.New(cluster.CreatedAt),
+		WorkloadCidr: cluster.WorkloadCIDR, NetworkGeneration: cluster.NetworkGeneration,
+		NetworkFrozen: cluster.NetworkFrozenAt != nil,
 	}
 }
 
@@ -509,9 +555,14 @@ func applicationMessage(application model.Application) *orchv1alpha1.Application
 		ExecutionMessage:   application.Execution.Message,
 		ExecutionUpdatedAt: timestamppb.New(application.Execution.UpdatedAt),
 		Deleted:            application.DeletedAt != nil,
+		ActiveGeneration:   application.Execution.ActiveGeneration,
+		ActiveRevisionId:   application.Execution.ActiveRevisionID,
 	}
 	for _, allocation := range application.Execution.Allocations {
 		message.Allocations = append(message.Allocations, allocationStatusMessage(allocation))
+	}
+	for _, route := range application.Execution.Routes {
+		message.Routes = append(message.Routes, routeStatusMessage(route))
 	}
 	return message
 }
@@ -553,6 +604,10 @@ func executionStatusMessage(status string) orchv1alpha1.ExecutionStatus {
 		return orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_STOPPING
 	case model.ExecutionRemoved:
 		return orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED
+	case model.ExecutionHealthy:
+		return orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY
+	case model.ExecutionRolledBack:
+		return orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_ROLLED_BACK
 	default:
 		return orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_UNSPECIFIED
 	}
@@ -564,6 +619,11 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		OperatingSystem: node.OperatingSystem, Architecture: node.Architecture,
 		RuntimeVersion: node.RuntimeVersion, Snapshotter: node.Snapshotter, CgroupsV2: node.CgroupsV2,
 		AssignmentGeneration: node.AssignmentGeneration, AcknowledgedGeneration: node.AcknowledgedGeneration,
+		NodeSubnet: node.NodeSubnet, NetworkState: node.NetworkState, NetworkReason: node.NetworkReason,
+		CniVersion: node.CNIVersion, Nftables: node.Nftables, DnsState: node.DNSState,
+		CaddyVersion: node.CaddyVersion, IngressState: node.IngressState,
+		DrainingObjects:   node.DrainingObjects,
+		CniPluginsVersion: node.CNIPluginsVersion, DnsAvailable: node.DNSAvailable,
 	}
 	if node.LastSeenAt != nil {
 		message.LastSeenAt = timestamppb.New(*node.LastSeenAt)
@@ -585,12 +645,56 @@ func allocationStatusMessage(status model.AllocationStatus) *orchv1alpha1.Alloca
 		ApplicationGeneration: status.ApplicationGeneration, SpecDigest: status.SpecDigest,
 		Phase: allocationPhaseMessage(status.Phase), Reason: status.Reason, Message: status.Message,
 		RestartCount: status.RestartCount, UpdatedAt: timestamppb.New(status.UpdatedAt),
+		HealthStatus: healthStatusMessage(status.HealthStatus), Address: status.Address,
+		DeclaredPort:                status.DeclaredPort,
+		ActiveSpecDigest:            status.ActiveSpecDigest,
+		ActiveApplicationGeneration: status.ActiveGeneration, ActiveRevisionId: status.ActiveRevisionID,
 	}
 	if status.ExitCode != nil {
 		message.HasExitCode = true
 		message.ExitCode = *status.ExitCode
 	}
+	if status.ReadyAt != nil {
+		message.ReadyAt = timestamppb.New(*status.ReadyAt)
+	}
 	return message
+}
+
+func routeStatusMessage(status model.RouteStatus) *orchv1alpha1.RouteStatus {
+	return &orchv1alpha1.RouteStatus{
+		Application: status.Application, Service: status.Service, Domain: status.Domain,
+		Https: status.HTTPS, State: routeStateMessage(status.State), CertificateState: status.CertificateState,
+		UpstreamCount: status.UpstreamCount, Reason: status.Reason, Message: status.Message,
+		UpdatedAt: timestamppb.New(status.UpdatedAt),
+	}
+}
+
+func healthStatusMessage(status string) orchv1alpha1.HealthStatus {
+	switch status {
+	case model.HealthNotConfigured:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_NOT_CONFIGURED
+	case model.HealthChecking:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_CHECKING
+	case model.HealthReady:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_READY
+	case model.HealthUnhealthy:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_UNHEALTHY
+	default:
+		return orchv1alpha1.HealthStatus_HEALTH_STATUS_UNSPECIFIED
+	}
+}
+
+func routeStateMessage(status string) orchv1alpha1.RouteState {
+	switch status {
+	case model.RoutePending:
+		return orchv1alpha1.RouteState_ROUTE_STATE_PENDING
+	case model.RouteActive:
+		return orchv1alpha1.RouteState_ROUTE_STATE_ACTIVE
+	case model.RouteFailed:
+		return orchv1alpha1.RouteState_ROUTE_STATE_FAILED
+	default:
+		return orchv1alpha1.RouteState_ROUTE_STATE_UNSPECIFIED
+	}
 }
 
 func allocationPhaseMessage(phase string) orchv1alpha1.AllocationPhase {

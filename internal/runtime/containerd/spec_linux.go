@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
@@ -97,6 +98,31 @@ func (c *runtimeClient) volumeMounts(allocation model.AllocationDesired) ([]spec
 			options[1] = "ro"
 		}
 		result = append(result, specs.Mount{Destination: mount.Target, Type: "bind", Source: hostPath, Options: options})
+	}
+	if allocation.NetworkGeneration != 0 {
+		if c.options.ResolverPath == "" {
+			return nil, fmt.Errorf("workload resolver path is unavailable")
+		}
+		c.mu.RLock()
+		networkConfig := c.networkConfig
+		c.mu.RUnlock()
+		if networkConfig.Generation != allocation.NetworkGeneration || networkConfig.Gateway == "" || networkConfig.DNSZone == "" {
+			return nil, fmt.Errorf("workload network generation is not prepared")
+		}
+		resolverPath := applicationResolverPath(c.options.ResolverPath, allocation.Application)
+		contents := []byte("nameserver " + networkConfig.Gateway + "\nsearch " + allocation.Application + "." +
+			strings.TrimSuffix(networkConfig.DNSZone, ".") + "\noptions ndots:1 timeout:1 attempts:2\n")
+		if err := writeResolverFile(resolverPath, contents); err != nil {
+			return nil, fmt.Errorf("write application resolver: %w", err)
+		}
+		info, err := os.Lstat(resolverPath)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+			return nil, fmt.Errorf("workload resolver must be a read-only-to-workloads regular file")
+		}
+		result = append(result, specs.Mount{
+			Destination: "/etc/resolv.conf", Type: "bind", Source: resolverPath,
+			Options: []string{"rbind", "ro"},
+		})
 	}
 	return result, nil
 }

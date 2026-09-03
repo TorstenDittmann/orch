@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 const (
 	firstAgentMessageTimeout = 10 * time.Second
 	maxReportedAllocations   = 1000
+	maxReportedRoutes        = 1000
 )
 
 type agentService struct {
@@ -78,7 +80,10 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	if err := s.state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
 		NodeID: nodeID, BootID: hello.GetBootId(), OperatingSystem: hello.GetOperatingSystem(),
 		Architecture: hello.GetArchitecture(), RuntimeVersion: hello.GetRuntimeVersion(),
-		Snapshotter: hello.GetSnapshotter(), CgroupsV2: hello.GetCgroupsV2(), SeenAt: s.now().UTC(),
+		Snapshotter: hello.GetSnapshotter(), CgroupsV2: hello.GetCgroupsV2(),
+		CNIVersion: hello.GetCniVersion(), Nftables: hello.GetNftables(),
+		CNIPluginsVersion: hello.GetCniPluginsVersion(), DNSAvailable: hello.GetDnsAvailable(),
+		CaddyVersion: hello.GetCaddyVersion(), SeenAt: s.now().UTC(),
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("record agent capabilities"))
 	}
@@ -166,18 +171,25 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 		if message.AllocationReport == nil || len(message.AllocationReport.ProtoReflect().GetUnknown()) != 0 || message.AllocationReport.GetBootId() != session.bootID {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("allocation report has the wrong boot id"))
 		}
-		if len(message.AllocationReport.GetAllocations()) > maxReportedAllocations {
+		if len(message.AllocationReport.GetAllocations()) > maxReportedAllocations ||
+			len(message.AllocationReport.GetRoutes()) > maxReportedRoutes {
 			return connect.NewError(connect.CodeResourceExhausted, errors.New("allocation report is too large"))
 		}
 		report, err := allocationReportModel(session.nodeID, message.AllocationReport, s.now().UTC())
 		if err != nil {
 			return connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		if _, err := s.state.RecordAgentReport(ctx, report); err != nil {
+		recorded, err := s.state.RecordAgentReport(ctx, report)
+		if err != nil {
 			if errors.Is(err, store.ErrStaleAgentReport) {
 				return connect.NewError(connect.CodeFailedPrecondition, err)
 			}
 			return connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if recorded && s.reconciler != nil {
+			if err := s.reconciler.Reconcile(ctx); err != nil {
+				return connect.NewError(connect.CodeInternal, errors.New("reconcile reported agent state"))
+			}
 		}
 	case *orchv1alpha1.ConnectRequest_Heartbeat:
 		if message.Heartbeat == nil || len(message.Heartbeat.ProtoReflect().GetUnknown()) != 0 || message.Heartbeat.GetBootId() != session.bootID {
@@ -225,20 +237,52 @@ func validateHello(hello *orchv1alpha1.AgentHello, nodeID string) error {
 			return fmt.Errorf("%s is required and must not exceed 128 bytes", name)
 		}
 	}
+	for name, value := range map[string]string{
+		"CNI version": hello.GetCniVersion(), "CNI plugins version": hello.GetCniPluginsVersion(),
+		"Caddy version": hello.GetCaddyVersion(),
+	} {
+		if len(value) > 128 {
+			return fmt.Errorf("%s must not exceed 128 bytes", name)
+		}
+	}
 	if (hello.GetCachedAssignmentGeneration() == 0) != (hello.GetCachedAssignmentDigest() == "") {
 		return errors.New("cached assignment generation and digest must be supplied together")
+	}
+	if hello.GetCachedAssignmentDigest() != "" && !validSHA256Digest(hello.GetCachedAssignmentDigest()) {
+		return errors.New("cached assignment digest is invalid")
 	}
 	return nil
 }
 
+func validSHA256Digest(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return err == nil && len(decoded) == 32
+}
+
 func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport, now time.Time) (model.AgentReport, error) {
-	if report.GetSequence() == 0 || report.GetAssignmentGeneration() == 0 || report.GetAssignmentDigest() == "" {
+	if report.GetSequence() == 0 || report.GetAssignmentGeneration() == 0 ||
+		!validSHA256Digest(report.GetAssignmentDigest()) {
 		return model.AgentReport{}, errors.New("allocation report sequence, assignment generation, and digest are required")
 	}
 	result := model.AgentReport{
 		NodeID: nodeID, BootID: report.GetBootId(), Sequence: report.GetSequence(),
 		AssignmentGeneration: report.GetAssignmentGeneration(), AssignmentDigest: report.GetAssignmentDigest(),
 		ReportedAt: now, Allocations: make([]model.AllocationStatus, 0, len(report.GetAllocations())),
+		Routes: make([]model.RouteStatus, 0, len(report.GetRoutes())),
+	}
+	if network := report.GetNetwork(); network != nil {
+		if err := rejectUnknownMessage(network); err != nil {
+			return model.AgentReport{}, err
+		}
+		result.Network = model.NetworkStatus{
+			Generation: network.GetGeneration(), State: networkStateModel(network.GetState()),
+			ClusterCIDR: network.GetClusterCidr(), NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(),
+			Reason: network.GetReason(), Message: network.GetMessage(), DNSState: network.GetDnsState(),
+			IngressState: network.GetIngressState(), DrainingObjects: network.GetDrainingObjects(),
+		}
 	}
 	var previousApplication, previousService, previousID string
 	var previousReplica uint32
@@ -261,6 +305,17 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 			ApplicationGeneration: status.GetApplicationGeneration(), SpecDigest: status.GetSpecDigest(),
 			Phase: allocationPhaseModel(status.GetPhase()), Reason: status.GetReason(), Message: status.GetMessage(),
 			RestartCount: status.GetRestartCount(), UpdatedAt: status.GetUpdatedAt().AsTime(),
+			HealthStatus: healthStatusModel(status.GetHealthStatus()), Address: status.GetAddress(),
+			ActiveSpecDigest: status.GetActiveSpecDigest(),
+			ActiveGeneration: status.GetActiveApplicationGeneration(), ActiveRevisionID: status.GetActiveRevisionId(),
+			DeclaredPort: status.GetDeclaredPort(),
+		}
+		if status.GetReadyAt() != nil {
+			if status.GetReadyAt().CheckValid() != nil {
+				return model.AgentReport{}, fmt.Errorf("allocation %q has an invalid ready time", status.GetId())
+			}
+			readyAt := status.GetReadyAt().AsTime()
+			item.ReadyAt = &readyAt
 		}
 		if status.GetHasExitCode() {
 			exit := status.GetExitCode()
@@ -269,6 +324,25 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 		result.Allocations = append(result.Allocations, item)
 		previousApplication, previousService, previousReplica, previousID =
 			item.Application, item.Service, item.Replica, item.ID
+	}
+	previousDomain := ""
+	for _, route := range report.GetRoutes() {
+		if err := rejectUnknownMessage(route); err != nil {
+			return model.AgentReport{}, err
+		}
+		if route.GetUpdatedAt() == nil || route.GetUpdatedAt().CheckValid() != nil ||
+			len(route.GetReason()) > 128 || len(route.GetMessage()) > 1024 ||
+			(previousDomain != "" && route.GetDomain() <= previousDomain) {
+			return model.AgentReport{}, fmt.Errorf("route observations are not in strict canonical order or contain invalid data")
+		}
+		item := model.RouteStatus{
+			Application: route.GetApplication(), Service: route.GetService(), Domain: route.GetDomain(),
+			HTTPS: route.GetHttps(), State: routeStateModel(route.GetState()),
+			CertificateState: route.GetCertificateState(), UpstreamCount: route.GetUpstreamCount(),
+			Reason: route.GetReason(), Message: route.GetMessage(), UpdatedAt: route.GetUpdatedAt().AsTime(),
+		}
+		result.Routes = append(result.Routes, item)
+		previousDomain = item.Domain
 	}
 	return result, nil
 }
@@ -304,6 +378,47 @@ func allocationPhaseModel(phase orchv1alpha1.AllocationPhase) string {
 		return model.AllocationBackoff
 	case orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_FAILED:
 		return model.AllocationFailed
+	default:
+		return ""
+	}
+}
+
+func healthStatusModel(status orchv1alpha1.HealthStatus) string {
+	switch status {
+	case orchv1alpha1.HealthStatus_HEALTH_STATUS_NOT_CONFIGURED:
+		return model.HealthNotConfigured
+	case orchv1alpha1.HealthStatus_HEALTH_STATUS_CHECKING:
+		return model.HealthChecking
+	case orchv1alpha1.HealthStatus_HEALTH_STATUS_READY:
+		return model.HealthReady
+	case orchv1alpha1.HealthStatus_HEALTH_STATUS_UNHEALTHY:
+		return model.HealthUnhealthy
+	default:
+		return ""
+	}
+}
+
+func networkStateModel(status orchv1alpha1.NetworkState) string {
+	switch status {
+	case orchv1alpha1.NetworkState_NETWORK_STATE_PENDING:
+		return model.NetworkPending
+	case orchv1alpha1.NetworkState_NETWORK_STATE_READY:
+		return model.NetworkReady
+	case orchv1alpha1.NetworkState_NETWORK_STATE_FAILED:
+		return model.NetworkFailed
+	default:
+		return ""
+	}
+}
+
+func routeStateModel(status orchv1alpha1.RouteState) string {
+	switch status {
+	case orchv1alpha1.RouteState_ROUTE_STATE_PENDING:
+		return model.RoutePending
+	case orchv1alpha1.RouteState_ROUTE_STATE_ACTIVE:
+		return model.RouteActive
+	case orchv1alpha1.RouteState_ROUTE_STATE_FAILED:
+		return model.RouteFailed
 	default:
 		return ""
 	}

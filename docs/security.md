@@ -102,8 +102,18 @@ Workloads receive fresh PID, mount, IPC, UTS, cgroup, and network namespaces,
 no Linux capabilities, no-new-privileges, no host devices, and explicit cgroups
 v2 CPU/memory limits. Only declared agent-managed local volumes are bind
 mounted. The containerd socket, controller state, agent identity, and agent
-state are never mounted. There is no CNI attachment in this slice, so workload
-networking is intentionally absent rather than shared with the host.
+state are never mounted. The agent attaches each task to its own network
+namespace with the pinned CNI plugins. It owns only a deterministic bridge,
+host-local allocation directory, application resolver files, and uniquely named nftables
+table; a missing ownership marker or an overlapping host route fails closed.
+
+Caddy is a separate process under a dedicated non-root account. Its pinned,
+root-owned binary receives only `cap_net_bind_service`; the agent fixes its
+primary and supplementary groups and supplies only a minimal HOME/XDG/PATH
+environment. The agent validates the binary, process UID, PID/executable
+identity, private data directory, and Unix admin socket before adoption. Caddy
+receives ready private upstream addresses, not controller or containerd
+credentials.
 
 ## Operator responsibilities
 
@@ -122,6 +132,9 @@ networking is intentionally absent rather than shared with the host.
   the exact manifest when retrying an uncertain deployment request.
 - Restrict access to the containerd socket. The agent requires substantial host
   authority even though workload OCI specs are constrained.
+- Install only the documented CNI and Caddy versions, keep their binaries
+  root-owned and non-writable, and do not reuse the orch nftables ownership
+  marker or Caddy account for unrelated services.
 - Back up local volume directories separately. They are preserved on remove
   but are neither replicated nor present in controller backups.
 

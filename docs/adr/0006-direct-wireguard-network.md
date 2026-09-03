@@ -1,6 +1,11 @@
 # ADR 0006: direct WireGuard routes and DNS endpoints
 
-Status: Accepted by Plan #1.
+Status: Accepted by Plan #1. Partially implemented by Plan #5.
+
+Implementation note: the first node now owns a deterministic `/24`, CNI bridge,
+host-local addresses, nftables forwarding, and health-filtered local DNS.
+WireGuard peers and cross-node routes remain deferred until multi-node
+scheduling exists.
 
 Each node receives a workload subnet. A managed WireGuard full mesh routes
 directly between those subnets, while local DNS returns healthy allocation

@@ -50,6 +50,18 @@ func TestAssignmentModelRejectsNonCanonicalAllocationOrder(t *testing.T) {
 	}
 }
 
+func TestAssignmentModelRejectsTooManyAllocationsBeforeDecoding(t *testing.T) {
+	t.Parallel()
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt:   timestamppb.New(time.Now()),
+		Allocations: make([]*orchv1alpha1.AllocationDesired, maxAssignedAllocations+1),
+	}
+	if _, err := assignmentModel(snapshot, "node-one"); err == nil || !strings.Contains(err.Error(), "allocation limit") {
+		t.Fatalf("assignmentModel() = %v", err)
+	}
+}
+
 func TestAssignmentModelRejectsInvalidAllocationBeforeCaching(t *testing.T) {
 	t.Parallel()
 	item := validWireAllocation(t, "../escape", 1)
@@ -59,6 +71,63 @@ func TestAssignmentModelRejectsInvalidAllocationBeforeCaching(t *testing.T) {
 	}
 	if _, err := assignmentModel(snapshot, "node-one"); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("assignmentModel() = %v", err)
+	}
+}
+
+func TestAssignmentModelRejectsAllocationForAnotherNetworkGeneration(t *testing.T) {
+	t.Parallel()
+	network, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt: timestamppb.New(time.Now()), Allocations: []*orchv1alpha1.AllocationDesired{validWireAllocation(t, "alloc-one", 1)},
+		Network: &orchv1alpha1.NetworkConfig{Generation: network.Generation, ClusterCidr: network.ClusterCIDR,
+			NodeSubnet: network.NodeSubnet, Gateway: network.Gateway, DnsZone: network.DNSZone},
+	}
+	if _, err := assignmentModel(snapshot, "node-one"); err == nil || !strings.Contains(err.Error(), "network generation") {
+		t.Fatalf("assignmentModel() = %v", err)
+	}
+}
+
+func TestAssignmentModelAcceptsExactPlan4AllocationDuringNetworkPreflight(t *testing.T) {
+	t.Parallel()
+	network, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := validWireAllocation(t, "alloc-one", 1)
+	legacy := model.AllocationDesired{
+		ID: item.GetId(), Application: item.GetApplication(), Service: item.GetService(), Replica: item.GetReplica(),
+		ApplicationGeneration: item.GetApplicationGeneration(), RevisionID: item.GetRevisionId(),
+		Image: item.GetImage(), Command: item.GetCommand(), Args: item.GetArgs(), RestartPolicy: item.GetRestartPolicy(),
+		CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(), StartDeadlineSeconds: item.GetStartDeadlineSeconds(),
+		AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
+	}
+	item.SpecDigest, err = model.Plan4AllocationSpecDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 2, CreatedAt: timestamppb.New(time.Now()),
+		Allocations: []*orchv1alpha1.AllocationDesired{item},
+		Network: &orchv1alpha1.NetworkConfig{Generation: network.Generation, ClusterCidr: network.ClusterCIDR,
+			NodeSubnet: network.NodeSubnet, Gateway: network.Gateway, DnsZone: network.DNSZone},
+	}
+	assignmentForDigest := model.Assignment{Network: network, Allocations: []model.AllocationDesired{legacy}}
+	assignmentForDigest.Allocations[0].SpecDigest = item.SpecDigest
+	_, snapshot.Digest, err = model.AssignmentPayload(assignmentForDigest.Network, assignmentForDigest.Allocations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := assignmentModel(snapshot, "node-one")
+	if err != nil || len(got.Allocations) != 1 || got.Allocations[0].SpecDigest != item.SpecDigest {
+		t.Fatalf("assignmentModel(legacy preflight) = %#v, %v", got, err)
+	}
+	item.MaxSurge = 1
+	if _, err := assignmentModel(snapshot, "node-one"); err == nil || !strings.Contains(err.Error(), "spec digest") {
+		t.Fatalf("assignmentModel(extended legacy allocation) = %v", err)
 	}
 }
 

@@ -30,6 +30,7 @@ func (s *Store) Application(ctx context.Context, name string) (model.Application
 		a.name, a.generation, r.id, r.digest, r.canonical_manifest,
 		a.created_at, a.updated_at, a.deleted_at,
 		COALESCE(x.status, 'PENDING'), COALESCE(x.observed_generation, 0),
+		COALESCE(x.active_generation, 0), COALESCE(x.active_revision_id, ''),
 		COALESCE(x.reason, 'agent_unavailable'),
 		COALESCE(x.message, 'no agent is enrolled or connected'),
 		COALESCE(x.updated_at, a.updated_at)
@@ -45,6 +46,10 @@ func (s *Store) Application(ctx context.Context, name string) (model.Application
 	if err != nil {
 		return model.Application{}, err
 	}
+	application.Execution.Routes, err = s.applicationRoutes(ctx, name)
+	if err != nil {
+		return model.Application{}, err
+	}
 	return application, nil
 }
 
@@ -53,6 +58,7 @@ func (s *Store) Applications(ctx context.Context, includeDeleted bool) ([]model.
 	query := `SELECT a.name, a.generation, r.id, r.digest, r.canonical_manifest,
 		a.created_at, a.updated_at, a.deleted_at,
 		COALESCE(x.status, 'PENDING'), COALESCE(x.observed_generation, 0),
+		COALESCE(x.active_generation, 0), COALESCE(x.active_revision_id, ''),
 		COALESCE(x.reason, 'agent_unavailable'),
 		COALESCE(x.message, 'no agent is enrolled or connected'),
 		COALESCE(x.updated_at, a.updated_at)
@@ -237,6 +243,7 @@ func applicationInTransaction(ctx context.Context, tx *sql.Tx, name string) (mod
 		a.name, a.generation, r.id, r.digest, r.canonical_manifest,
 		a.created_at, a.updated_at, a.deleted_at,
 		COALESCE(x.status, 'PENDING'), COALESCE(x.observed_generation, 0),
+		COALESCE(x.active_generation, 0), COALESCE(x.active_revision_id, ''),
 		COALESCE(x.reason, 'agent_unavailable'),
 		COALESCE(x.message, 'no agent is enrolled or connected'),
 		COALESCE(x.updated_at, a.updated_at)
@@ -254,12 +261,13 @@ type applicationScanner interface {
 func scanApplication(row applicationScanner) (model.Application, error) {
 	var application model.Application
 	var generation int64
-	var observedGeneration int64
+	var observedGeneration, activeGeneration int64
 	var manifest, createdAt, updatedAt, executionUpdatedAt string
 	var deletedAt sql.NullString
 	err := row.Scan(&application.Name, &generation, &application.RevisionID,
 		&application.Digest, &manifest, &createdAt, &updatedAt, &deletedAt,
-		&application.Execution.Status, &observedGeneration,
+		&application.Execution.Status, &observedGeneration, &activeGeneration,
+		&application.Execution.ActiveRevisionID,
 		&application.Execution.Reason, &application.Execution.Message,
 		&executionUpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -272,10 +280,11 @@ func scanApplication(row applicationScanner) (model.Application, error) {
 		return model.Application{}, fmt.Errorf("read application: invalid generation %d", generation)
 	}
 	application.Generation = uint64(generation)
-	if observedGeneration < 0 {
+	if observedGeneration < 0 || activeGeneration < 0 {
 		return model.Application{}, fmt.Errorf("read application: invalid observed generation %d", observedGeneration)
 	}
 	application.Execution.ObservedGeneration = uint64(observedGeneration)
+	application.Execution.ActiveGeneration = uint64(activeGeneration)
 	application.CanonicalManifest = json.RawMessage(manifest)
 	application.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
@@ -302,7 +311,8 @@ func scanApplication(row applicationScanner) (model.Application, error) {
 func (s *Store) applicationObservations(ctx context.Context, name string) ([]model.AllocationStatus, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, application_name, service_name, replica,
 		application_generation, spec_digest, phase, reason, message, exit_code,
-		restart_count, updated_at
+		restart_count, updated_at, health_status, address, active_spec_digest,
+		active_generation, active_revision_id, ready_at, declared_port
 		FROM allocation_observations WHERE application_name = ?
 		ORDER BY service_name, replica, id`, name)
 	if err != nil {
@@ -312,12 +322,14 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 	var result []model.AllocationStatus
 	for rows.Next() {
 		var item model.AllocationStatus
-		var replica, generation, restartCount int64
+		var replica, generation, restartCount, activeGeneration int64
 		var exitCode sql.NullInt64
+		var readyAt sql.NullString
 		var updatedAt string
 		if err := rows.Scan(&item.ID, &item.Application, &item.Service, &replica,
 			&generation, &item.SpecDigest, &item.Phase, &item.Reason, &item.Message,
-			&exitCode, &restartCount, &updatedAt); err != nil {
+			&exitCode, &restartCount, &updatedAt, &item.HealthStatus, &item.Address,
+			&item.ActiveSpecDigest, &activeGeneration, &item.ActiveRevisionID, &readyAt, &item.DeclaredPort); err != nil {
 			return nil, fmt.Errorf("scan application allocation: %w", err)
 		}
 		if replica < 1 || generation < 1 || restartCount < 0 {
@@ -326,6 +338,7 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 		item.Replica = uint32(replica)
 		item.ApplicationGeneration = uint64(generation)
 		item.RestartCount = uint32(restartCount)
+		item.ActiveGeneration = uint64(activeGeneration)
 		if exitCode.Valid {
 			value := int32(exitCode.Int64)
 			item.ExitCode = &value
@@ -334,12 +347,51 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 		if err != nil {
 			return nil, fmt.Errorf("read application allocation time: %w", err)
 		}
+		if readyAt.Valid {
+			stamp, parseErr := time.Parse(time.RFC3339Nano, readyAt.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("read allocation ready time: %w", parseErr)
+			}
+			item.ReadyAt = &stamp
+		}
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate application allocations: %w", err)
 	}
 	return result, nil
+}
+
+func (s *Store) applicationRoutes(ctx context.Context, name string) ([]model.RouteStatus, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT application_name, service_name, domain, https,
+		state, certificate_state, upstream_count, reason, message, updated_at
+		FROM route_observations WHERE application_name = ? ORDER BY domain`, name)
+	if err != nil {
+		return nil, fmt.Errorf("read application routes: %w", err)
+	}
+	defer rows.Close()
+	var result []model.RouteStatus
+	for rows.Next() {
+		var item model.RouteStatus
+		var https, upstreams int64
+		var updatedAt string
+		if err := rows.Scan(&item.Application, &item.Service, &item.Domain, &https,
+			&item.State, &item.CertificateState, &upstreams, &item.Reason, &item.Message,
+			&updatedAt); err != nil {
+			return nil, fmt.Errorf("scan application route: %w", err)
+		}
+		if upstreams < 0 {
+			return nil, fmt.Errorf("read application route: invalid upstream count")
+		}
+		item.HTTPS = https == 1
+		item.UpstreamCount = uint32(upstreams)
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("read application route time: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }
 
 func insertApplicationEvent(ctx context.Context, tx *sql.Tx, result model.ApplyApplicationResult, stamp string) (uint64, error) {

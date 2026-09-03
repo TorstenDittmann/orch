@@ -126,6 +126,12 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 		"wrong boot":                func(value *model.AgentReport) { value.BootID = "boot-old" },
 		"wrong assignment":          func(value *model.AgentReport) { value.AssignmentDigest = "sha256:" + strings.Repeat("0", 64) },
 		"wrong allocation identity": func(value *model.AgentReport) { value.Allocations[0].Service = "other" },
+		"unauthorized active revision": func(value *model.AgentReport) {
+			value.Allocations[0].ActiveSpecDigest = "sha256:" + strings.Repeat("f", 64)
+			value.Allocations[0].ActiveGeneration = 1
+			value.Allocations[0].ActiveRevisionID = "revision-one"
+		},
+		"public allocation address": func(value *model.AgentReport) { value.Allocations[0].Address = "203.0.113.9" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := report
@@ -137,6 +143,405 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAgentReportEventsDescribeTransitionsWithoutRepeatingSteadyState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := executionStore(t)
+	allocation := storeTestAllocation(t)
+	allocation.Service = "web"
+	allocation.HTTP = &model.HTTPDesired{
+		Port: 8080, Domains: []string{"hello.example.com"}, HealthPath: "/ready",
+	}
+	var err error
+	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, _, err := state.PublishAssignment(ctx, storeTestPublish(t, allocation))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
+		SeenAt: testCreatedAt.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	readyAt := testCreatedAt.Add(4 * time.Minute)
+	report := model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+		ReportedAt: readyAt,
+		Allocations: []model.AllocationStatus{{
+			ID: allocation.ID, Application: allocation.Application, Service: allocation.Service, Replica: allocation.Replica,
+			ApplicationGeneration: allocation.ApplicationGeneration, SpecDigest: allocation.SpecDigest,
+			Phase: model.AllocationRunning, HealthStatus: model.HealthReady, Address: "10.88.0.2",
+			ActiveSpecDigest: allocation.SpecDigest, ActiveGeneration: allocation.ApplicationGeneration,
+			ActiveRevisionID: allocation.RevisionID, ReadyAt: &readyAt, DeclaredPort: 8080, UpdatedAt: readyAt,
+		}},
+		Routes: []model.RouteStatus{{
+			Application: allocation.Application, Service: allocation.Service, Domain: "hello.example.com",
+			State: model.RouteActive, CertificateState: "disabled", UpstreamCount: 1, UpdatedAt: readyAt,
+		}},
+	}
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("ready report = %v, %v", accepted, err)
+	}
+	for _, kind := range []string{model.EventAllocationReady, model.EventRouteActive, model.EventApplicationHealthy} {
+		if got := eventCount(t, state, kind); got != 1 {
+			t.Fatalf("%s event count = %d, want 1", kind, got)
+		}
+	}
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	report.Allocations[0].UpdatedAt = report.ReportedAt
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("steady ready report = %v, %v", accepted, err)
+	}
+	for _, kind := range []string{model.EventAllocationReady, model.EventRouteActive, model.EventApplicationHealthy} {
+		if got := eventCount(t, state, kind); got != 1 {
+			t.Fatalf("steady-state %s event count = %d, want 1", kind, got)
+		}
+	}
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	report.Allocations[0].HealthStatus = model.HealthUnhealthy
+	report.Allocations[0].ReadyAt = nil
+	report.Allocations[0].UpdatedAt = report.ReportedAt
+	report.Routes[0].State = model.RouteFailed
+	report.Routes[0].CertificateState = ""
+	report.Routes[0].UpstreamCount = 0
+	report.Routes[0].Reason = "upstream_unhealthy"
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("failed report = %v, %v", accepted, err)
+	}
+	for _, kind := range []string{model.EventAllocationUnhealthy, model.EventRouteFailed} {
+		if got := eventCount(t, state, kind); got != 1 {
+			t.Fatalf("%s event count = %d, want 1", kind, got)
+		}
+	}
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	report.Allocations[0].UpdatedAt = report.ReportedAt
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("steady failed report = %v, %v", accepted, err)
+	}
+	for _, kind := range []string{model.EventAllocationUnhealthy, model.EventRouteFailed} {
+		if got := eventCount(t, state, kind); got != 1 {
+			t.Fatalf("steady-state %s event count = %d, want 1", kind, got)
+		}
+	}
+}
+
+func TestAgentReportRecordsApplicationRolledBackOnlyAfterEveryReplicaConverges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := executionStore(t)
+	if _, err := state.ApplyApplication(ctx, applicationInput(`{"name":"hello","release":2}`,
+		"revision-two", "idempotency-key-two", testCreatedAt.Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	old := storeTestAllocation(t)
+	old.Service = "web"
+	old.HTTP = &model.HTTPDesired{Port: 8080, Domains: []string{"hello.example.com"}, HealthPath: "/ready"}
+	old.NetworkGeneration = 1
+	old.SpecDigest, _ = model.AllocationSpecDigest(old)
+	first := old
+	first.ApplicationGeneration = 2
+	first.RevisionID = "revision-two"
+	first.Rollback = &model.RollbackSpec{
+		ApplicationGeneration: 1, RevisionID: "revision-one", SpecDigest: old.SpecDigest,
+		Image: old.Image, Command: old.Command, Args: old.Args, Environment: old.Environment,
+		RestartPolicy: old.RestartPolicy, CPUMillis: old.CPUMillis, MemoryBytes: old.MemoryBytes,
+		StartDeadlineSeconds: old.StartDeadlineSeconds, HTTP: old.HTTP, AutoRollback: true,
+		StartBeforeStop: true, NetworkGeneration: 1,
+	}
+	first.HTTP = &model.HTTPDesired{
+		Port: 8080, Domains: []string{"next.example.com"}, HealthPath: "/ready", HTTPS: true,
+	}
+	first.Image = "docker.io/library/busybox@sha256:" + strings.Repeat("b", 64)
+	first.SpecDigest, _ = model.AllocationSpecDigest(first)
+	second := first
+	second.ID = "alloc-two"
+	second.Replica = 2
+	second.Image = old.Image
+	second.SpecDigest, _ = model.AllocationSpecDigest(second)
+	rollbackDigest := first.Rollback.SpecDigest
+	second.Rollback = cloneRollbackForTest(first.Rollback)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, digest, err := model.AssignmentPayload(networkConfig, []model.AllocationDesired{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, _, err := state.PublishAssignment(ctx, model.PublishAssignment{
+		NodeID: "node-one", Digest: digest, Payload: payload, Network: networkConfig,
+		Allocations: []model.AllocationDesired{first, second}, CreatedAt: testCreatedAt.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
+		SeenAt: testCreatedAt.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	readyAt := testCreatedAt.Add(4 * time.Minute)
+	status := func(allocation model.AllocationDesired, activeDigest string, activeGeneration uint64, activeRevision, reason string) model.AllocationStatus {
+		address := "10.88.0.2"
+		if allocation.Replica == 2 {
+			address = "10.88.0.3"
+		}
+		return model.AllocationStatus{
+			ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+			Replica: allocation.Replica, ApplicationGeneration: allocation.ApplicationGeneration,
+			SpecDigest: allocation.SpecDigest, Phase: model.AllocationRunning, HealthStatus: model.HealthReady,
+			Address: address, ActiveSpecDigest: activeDigest,
+			ActiveGeneration: activeGeneration, ActiveRevisionID: activeRevision, ReadyAt: &readyAt,
+			DeclaredPort: 8080, Reason: reason, UpdatedAt: readyAt,
+		}
+	}
+	report := model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+		Allocations: []model.AllocationStatus{
+			status(first, rollbackDigest, 1, "revision-one", "readiness_checking"),
+			status(second, rollbackDigest, 1, "revision-one", "readiness_checking"),
+		},
+		Routes: []model.RouteStatus{{
+			Application: "hello", Service: "web", Domain: "hello.example.com", State: model.RouteActive,
+			CertificateState: "disabled", UpstreamCount: 2, UpdatedAt: readyAt,
+		}},
+		Network: model.NetworkStatus{
+			Generation: 1, State: model.NetworkReady, ClusterCIDR: model.DefaultWorkloadCIDR,
+			NodeSubnet: "10.88.0.0/24", Gateway: "10.88.0.1", DNSState: model.SubsystemReady,
+			IngressState: model.SubsystemReady,
+		},
+		ReportedAt: readyAt,
+	}
+	for index := range report.Allocations {
+		report.Allocations[index].HealthStatus = model.HealthChecking
+		report.Allocations[index].ReadyAt = nil
+	}
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("in-progress rollout report = %t, %v", accepted, err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionStarting ||
+		application.Execution.Reason != "allocations_starting" || application.Execution.ActiveGeneration != 1 {
+		t.Fatalf("in-progress rollout execution = %#v, %v", application.Execution, err)
+	}
+	if got := eventCount(t, state, model.EventApplicationRolledBack); got != 0 {
+		t.Fatalf("rollout emitted rollback event count = %d", got)
+	}
+
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	for index := range report.Allocations {
+		report.Allocations[index] = status([]model.AllocationDesired{first, second}[index],
+			rollbackDigest, 1, "revision-one", "readiness_checking")
+		report.Allocations[index].UpdatedAt = report.ReportedAt
+	}
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("ready fallbacks during rollout = %t, %v", accepted, err)
+	}
+	application, err = state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionStarting ||
+		application.Execution.ActiveGeneration != 1 {
+		t.Fatalf("ready fallbacks were conflated with desired health = %#v, %v", application.Execution, err)
+	}
+
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	for index := range report.Allocations {
+		report.Allocations[index] = status([]model.AllocationDesired{first, second}[index],
+			[]string{first.SpecDigest, second.SpecDigest}[index], 2, "revision-two", "desired_ready")
+		report.Allocations[index].UpdatedAt = report.ReportedAt
+	}
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err == nil || accepted {
+		t.Fatalf("active rollback route with desired runtimes = %t, %v; want rejection", accepted, err)
+	}
+
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	report.Allocations[0] = status(first, rollbackDigest, 1, "revision-one", "health_gate_rollback")
+	report.Allocations[1] = status(second, second.SpecDigest, 2, "revision-two", "rollback_budget_wait")
+	for index := range report.Allocations {
+		report.Allocations[index].UpdatedAt = report.ReportedAt
+	}
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("mixed rollback report = %t, %v", accepted, err)
+	}
+	application, err = state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionDegraded ||
+		application.Execution.Reason != "rollback_converging" || application.Execution.ActiveGeneration != 0 {
+		t.Fatalf("mixed rollback execution = %#v, %v", application.Execution, err)
+	}
+	if got := eventCount(t, state, model.EventApplicationRolledBack); got != 0 {
+		t.Fatalf("premature rollback event count = %d", got)
+	}
+
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	report.Allocations[1] = status(second, rollbackDigest, 1, "revision-one", "health_gate_rollback")
+	report.Allocations[1].UpdatedAt = report.ReportedAt
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("converged rollback report = %t, %v", accepted, err)
+	}
+	application, err = state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionRolledBack ||
+		application.Execution.ActiveGeneration != 1 || application.Execution.ActiveRevisionID != "revision-one" {
+		t.Fatalf("rolled-back execution = %#v, %v", application.Execution, err)
+	}
+	if got := eventCount(t, state, model.EventApplicationRolledBack); got != 1 {
+		t.Fatalf("rollback event count = %d, want 1", got)
+	}
+	report.Sequence++
+	report.ReportedAt = report.ReportedAt.Add(time.Second)
+	for index := range report.Allocations {
+		report.Allocations[index].UpdatedAt = report.ReportedAt
+	}
+	report.Routes[0].UpdatedAt = report.ReportedAt
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("steady rollback report = %t, %v", accepted, err)
+	}
+	if got := eventCount(t, state, model.EventApplicationRolledBack); got != 1 {
+		t.Fatalf("steady rollback event count = %d, want 1", got)
+	}
+}
+
+func cloneRollbackForTest(input *model.RollbackSpec) *model.RollbackSpec {
+	result := *input
+	result.Command = append([]string(nil), input.Command...)
+	result.Args = append([]string(nil), input.Args...)
+	result.Environment = make(map[string]string, len(input.Environment))
+	for key, value := range input.Environment {
+		result.Environment[key] = value
+	}
+	if input.HTTP != nil {
+		http := *input.HTTP
+		http.Domains = append([]string(nil), input.HTTP.Domains...)
+		result.HTTP = &http
+	}
+	return &result
+}
+
+func TestSupersededAgentReportIsIgnoredBeforeNewAssignmentAck(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := executionStore(t)
+	allocation := storeTestAllocation(t)
+	first, _, err := state.PublishAssignment(ctx, storeTestPublish(t, allocation))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
+		SeenAt: testCreatedAt.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", first.Generation, first.Digest); err != nil {
+		t.Fatal(err)
+	}
+
+	next := storeTestPublish(t, allocation)
+	next.Allocations = nil
+	next.Payload, next.Digest, err = model.AssignmentPayload(next.Network, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, changed, err := state.PublishAssignment(ctx, next)
+	if err != nil || !changed || second.Generation != first.Generation+1 {
+		t.Fatalf("second assignment = %#v, %t, %v", second, changed, err)
+	}
+	report := model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: first.Generation, AssignmentDigest: first.Digest,
+		ReportedAt: testCreatedAt.Add(4 * time.Minute),
+	}
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || accepted {
+		t.Fatalf("superseded report = %t, %v", accepted, err)
+	}
+	node, err := state.Node(ctx)
+	if err != nil || node.AssignmentGeneration != second.Generation ||
+		node.AcknowledgedGeneration != first.Generation || node.LastReportSequence != 0 {
+		t.Fatalf("node cursor after ignored report = %#v, %v", node, err)
+	}
+}
+
+func TestPreservedAssignmentReportCannotObserveANewerApplicationGeneration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := executionStore(t)
+	allocation := storeTestAllocation(t)
+	assignment, _, err := state.PublishAssignment(ctx, storeTestPublish(t, allocation))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
+		SeenAt: testCreatedAt.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ApplyApplication(ctx, applicationInput(`{"name":"hello","release":2}`,
+		"revision-two", "idempotency-key-two", testCreatedAt.Add(4*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+
+	reportedAt := testCreatedAt.Add(5 * time.Minute)
+	report := model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+		ReportedAt: reportedAt,
+		Allocations: []model.AllocationStatus{{
+			ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+			Replica: allocation.Replica, ApplicationGeneration: allocation.ApplicationGeneration,
+			SpecDigest: allocation.SpecDigest, Phase: model.AllocationRunning,
+			HealthStatus: model.HealthNotConfigured, ActiveSpecDigest: allocation.SpecDigest,
+			ActiveGeneration: allocation.ApplicationGeneration, ActiveRevisionID: allocation.RevisionID,
+			Reason: "process_running", UpdatedAt: reportedAt,
+		}},
+	}
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("preserved assignment report = %t, %v", accepted, err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Generation != 2 || application.Execution.Status != model.ExecutionPending ||
+		application.Execution.ObservedGeneration != 0 {
+		t.Fatalf("new desired generation was overwritten by a preserved report: %#v, %v", application, err)
+	}
+}
+
+func eventCount(t *testing.T, state *Store, kind string) int {
+	t.Helper()
+	var count int
+	if err := state.db.QueryRow(`SELECT count(*) FROM events WHERE kind = ?`, kind).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }
 
 func TestAssignmentPayloadMustExactlyMatchDesiredRows(t *testing.T) {

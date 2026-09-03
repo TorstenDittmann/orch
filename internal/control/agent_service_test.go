@@ -80,6 +80,19 @@ func TestValidateHelloRejectsProtocolAndShapeErrors(t *testing.T) {
 		{name: "cached digest only", edit: func(value *orchv1alpha1.AgentHello) {
 			value.CachedAssignmentDigest = "sha256:" + strings.Repeat("a", 64)
 		}},
+		{name: "invalid cached digest", edit: func(value *orchv1alpha1.AgentHello) {
+			value.CachedAssignmentGeneration = 1
+			value.CachedAssignmentDigest = "sha256:" + strings.Repeat("z", 64)
+		}},
+		{name: "oversized CNI version", edit: func(value *orchv1alpha1.AgentHello) {
+			value.CniVersion = strings.Repeat("x", 129)
+		}},
+		{name: "oversized CNI plugins version", edit: func(value *orchv1alpha1.AgentHello) {
+			value.CniPluginsVersion = strings.Repeat("x", 129)
+		}},
+		{name: "oversized Caddy version", edit: func(value *orchv1alpha1.AgentHello) {
+			value.CaddyVersion = strings.Repeat("x", 129)
+		}},
 		{name: "unknown field", edit: func(value *orchv1alpha1.AgentHello) { value.ProtoReflect().SetUnknown([]byte{0x50, 0x01}) }},
 	}
 	for _, test := range tests {

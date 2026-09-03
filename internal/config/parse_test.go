@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -115,7 +116,7 @@ func TestNumericDomainLabelIsAccepted(t *testing.T) {
 }
 
 func TestExamplesValidate(t *testing.T) {
-	for _, path := range []string{"../../examples/hello/orch.toml", "../../examples/runtime/orch.toml", "../../examples/stateful/orch.toml"} {
+	for _, path := range []string{"../../examples/hello/orch.toml", "../../examples/runtime/orch.toml", "../../examples/stateful/orch.toml", "../../examples/http/orch.toml"} {
 		t.Run(path, func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -125,6 +126,45 @@ func TestExamplesValidate(t *testing.T) {
 				t.Fatalf("Parse() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestUnnormalizedPublicDomainsAreRejected(t *testing.T) {
+	for _, domain := range []string{"API.example.com", "api.example.com."} {
+		t.Run(domain, func(t *testing.T) {
+			input := strings.Replace(validManifest, "api.example.com", domain, 1)
+			_, err := Parse([]byte(input))
+			var validation *ValidationError
+			if !errors.As(err, &validation) || !hasProblem(validation, "services.web.http.domains[0]") {
+				t.Fatalf("Parse() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestInvalidDomainALabelIsRejected(t *testing.T) {
+	input := strings.Replace(validManifest, "api.example.com", "xn--a.example.com", 1)
+	_, err := Parse([]byte(input))
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.http.domains[0]") {
+		t.Fatalf("Parse() error = %v", err)
+	}
+}
+
+func TestManifestCollectionsHaveExplicitBounds(t *testing.T) {
+	manifest, err := Parse([]byte(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := manifest.Services["web"]
+	service.HTTP.Domains = make([]string, maxDomainsPerService+1)
+	for index := range service.HTTP.Domains {
+		service.HTTP.Domains[index] = "api" + strconv.Itoa(index) + ".example.com"
+	}
+	manifest.Services["web"] = service
+	var validation *ValidationError
+	if !errors.As(Validate(manifest), &validation) || !hasProblem(validation, "services.web.http.domains") {
+		t.Fatalf("Validate() = %v", validation)
 	}
 }
 
@@ -202,6 +242,10 @@ image = "example/web:1"
 source = "data"
 target = "/proc"
 
+[[services.web.mounts]]
+source = "data"
+target = "/etc/resolv.conf"
+
 [[services.web.secret_files]]
 source = "api-key"
 target = "/tmp/key"
@@ -213,7 +257,7 @@ target = "/tmp/key"
 	if !errors.As(err, &validation) {
 		t.Fatalf("Parse() error = %v, want *ValidationError", err)
 	}
-	for _, want := range []string{"services.web.mounts[0].target", "services.web.secret_files[0].target"} {
+	for _, want := range []string{"services.web.mounts[0].target", "services.web.mounts[1].target", "services.web.secret_files[0].target"} {
 		if !hasProblem(validation, want) {
 			t.Errorf("problems = %#v, want path %q", validation.Problems, want)
 		}

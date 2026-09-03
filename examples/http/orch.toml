@@ -1,0 +1,22 @@
+schema = "v1alpha1"
+name = "web-demo"
+
+[services.web]
+image = "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+command = ["/bin/sh"]
+args = ["-c", "mkdir -p /www; printf 'ok\\n' >/www/healthz; printf 'hello from orch\\n' >/www/index.html; exec httpd -f -p 8080 -h /www"]
+replicas = 2
+
+[services.web.resources]
+cpu = "100m"
+memory = "64Mi"
+
+[services.web.http]
+port = 8080
+health_path = "/healthz"
+
+[deploy]
+max_surge = 1
+max_unavailable = 0
+health_deadline = "30s"
+auto_rollback = true

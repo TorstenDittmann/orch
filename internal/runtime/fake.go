@@ -4,34 +4,71 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"runtime"
 	"sort"
 	"sync"
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 )
 
 type Fake struct {
-	mu           sync.Mutex
-	Capabilities Capabilities
-	Objects      map[string]Object
-	Allocations  map[string]model.AllocationDesired
-	Logs         map[string][]LogFrame
-	ExecFrames   map[string][]ExecFrame
-	EnsureErrors map[string]error
-	Operations   []string
-	waiters      map[string][]chan Object
-	closed       bool
+	mu              sync.Mutex
+	Capabilities    Capabilities
+	Objects         map[string]Object
+	Allocations     map[string]model.AllocationDesired
+	Logs            map[string][]LogFrame
+	ExecFrames      map[string][]ExecFrame
+	EnsureErrors    map[string]error
+	NetworkError    error
+	Operations      []string
+	PreparedNetwork model.NetworkConfig
+	nextAddress     netip.Addr
+	waiters         map[string][]chan Object
+	closed          bool
 }
 
 func NewFake() *Fake {
 	return &Fake{
-		Capabilities: Capabilities{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true},
-		Objects:      make(map[string]Object), Allocations: make(map[string]model.AllocationDesired),
+		Capabilities: Capabilities{
+			OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+			Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+			CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true,
+		},
+		Objects: make(map[string]Object), Allocations: make(map[string]model.AllocationDesired),
 		Logs: make(map[string][]LogFrame), ExecFrames: make(map[string][]ExecFrame),
 		EnsureErrors: make(map[string]error), waiters: make(map[string][]chan Object),
 	}
+}
+
+func (f *Fake) PrepareNetwork(_ context.Context, config model.NetworkConfig) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.NetworkError != nil {
+		return f.NetworkError
+	}
+	if config.Generation != 0 {
+		if f.PreparedNetwork != config {
+			f.Operations = append(f.Operations, "network:"+config.NodeSubnet)
+			f.PreparedNetwork = config
+			if prefix, err := netip.ParsePrefix(config.NodeSubnet); err == nil {
+				f.nextAddress = prefix.Addr().Next().Next()
+				used := make(map[string]struct{}, len(f.Objects))
+				for _, object := range f.Objects {
+					used[object.Address] = struct{}{}
+				}
+				for {
+					if _, exists := used[f.nextAddress.String()]; !exists {
+						break
+					}
+					f.nextAddress = f.nextAddress.Next()
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (f *Fake) Preflight(context.Context) (Capabilities, error) {
@@ -79,7 +116,15 @@ func (f *Fake) Ensure(_ context.Context, allocation model.AllocationDesired) (Ob
 		f.Operations = append(f.Operations, "adopt:"+id)
 		return current, nil
 	}
-	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: time.Now().UTC()}
+	address := ""
+	if allocation.NetworkGeneration != 0 {
+		if !f.nextAddress.IsValid() {
+			return Object{}, fmt.Errorf("network generation %d is not prepared", allocation.NetworkGeneration)
+		}
+		address = f.nextAddress.String()
+		f.nextAddress = f.nextAddress.Next()
+	}
+	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: time.Now().UTC(), Address: address, NetworkGeneration: allocation.NetworkGeneration}
 	f.Objects[id] = object
 	f.Allocations[id] = allocation
 	f.Operations = append(f.Operations, "ensure:"+id)

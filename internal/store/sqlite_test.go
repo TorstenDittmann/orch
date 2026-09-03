@@ -33,8 +33,8 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 3 {
-		t.Fatalf("migration count = %d, want 3", migrations)
+	if migrations != 4 {
+		t.Fatalf("migration count = %d, want 4", migrations)
 	}
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := reopened.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 3 {
-		t.Fatalf("migration count after reopen = %d, want 3", migrations)
+	if migrations != 4 {
+		t.Fatalf("migration count after reopen = %d, want 4", migrations)
 	}
 }
 
@@ -270,7 +270,8 @@ func openTestStore(t *testing.T) *Store {
 func testCluster(id string) model.Cluster {
 	return model.Cluster{
 		ID: id, Name: "test", Endpoint: "https://controller.example:9443",
-		Generation: 1, CreatedAt: testCreatedAt,
+		Generation: 1, CreatedAt: testCreatedAt, WorkloadCIDR: model.DefaultWorkloadCIDR,
+		NetworkGeneration: 1,
 	}
 }
 

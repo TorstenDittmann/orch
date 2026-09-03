@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	agentProtocolVersion  = "v1alpha1"
+	agentProtocolVersion  = "v1alpha1-network-1"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
 )
@@ -270,6 +270,13 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		CreatedAt:   timestamppb.New(assignment.CreatedAt),
 		Allocations: make([]*orchv1alpha1.AllocationDesired, 0, len(assignment.Allocations)),
 	}
+	if assignment.Network.Generation != 0 {
+		message.Network = &orchv1alpha1.NetworkConfig{
+			Generation: assignment.Network.Generation, ClusterCidr: assignment.Network.ClusterCIDR,
+			NodeSubnet: assignment.Network.NodeSubnet, Gateway: assignment.Network.Gateway,
+			DnsZone: assignment.Network.DNSZone,
+		}
+	}
 	for _, allocation := range assignment.Allocations {
 		item := &orchv1alpha1.AllocationDesired{
 			Id: allocation.ID, Application: allocation.Application, Service: allocation.Service,
@@ -279,12 +286,41 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			Environment: cloneEnvironment(allocation.Environment), RestartPolicy: allocation.RestartPolicy,
 			CpuMillis: allocation.CPUMillis, MemoryBytes: allocation.MemoryBytes,
 			StartDeadlineSeconds: allocation.StartDeadlineSeconds, AutoRollback: allocation.AutoRollback,
-			StartBeforeStop: allocation.StartBeforeStop,
+			StartBeforeStop: allocation.StartBeforeStop, NetworkGeneration: allocation.NetworkGeneration,
+			MaxSurge: allocation.MaxSurge, MaxUnavailable: allocation.MaxUnavailable,
 		}
+		item.Http = httpDesiredMessage(allocation.HTTP)
+		item.Rollback = rollbackSpecMessage(allocation.Rollback)
 		for _, mount := range allocation.Mounts {
 			item.Mounts = append(item.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
 		}
 		message.Allocations = append(message.Allocations, item)
+	}
+	return message
+}
+
+func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
+	if http == nil {
+		return nil
+	}
+	return &orchv1alpha1.HTTPDesired{Port: http.Port, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS}
+}
+
+func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpec {
+	if rollback == nil {
+		return nil
+	}
+	message := &orchv1alpha1.RollbackSpec{
+		ApplicationGeneration: rollback.ApplicationGeneration, RevisionId: rollback.RevisionID,
+		SpecDigest: rollback.SpecDigest, Image: rollback.Image, Command: append([]string(nil), rollback.Command...),
+		Args: append([]string(nil), rollback.Args...), Environment: cloneEnvironment(rollback.Environment),
+		RestartPolicy: rollback.RestartPolicy, CpuMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes,
+		StartDeadlineSeconds: rollback.StartDeadlineSeconds, Http: httpDesiredMessage(rollback.HTTP),
+		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
+		StartBeforeStop: rollback.StartBeforeStop,
+	}
+	for _, mount := range rollback.Mounts {
+		message.Mounts = append(message.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
 	}
 	return message
 }

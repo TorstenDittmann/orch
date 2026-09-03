@@ -21,6 +21,28 @@ enum AllocationPhase {
   ALLOCATION_PHASE_FAILED = 7;
 }
 
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_NOT_CONFIGURED = 1;
+  HEALTH_STATUS_CHECKING = 2;
+  HEALTH_STATUS_READY = 3;
+  HEALTH_STATUS_UNHEALTHY = 4;
+}
+
+enum NetworkState {
+  NETWORK_STATE_UNSPECIFIED = 0;
+  NETWORK_STATE_PENDING = 1;
+  NETWORK_STATE_READY = 2;
+  NETWORK_STATE_FAILED = 3;
+}
+
+enum RouteState {
+  ROUTE_STATE_UNSPECIFIED = 0;
+  ROUTE_STATE_PENDING = 1;
+  ROUTE_STATE_ACTIVE = 2;
+  ROUTE_STATE_FAILED = 3;
+}
+
 enum LogStream {
   LOG_STREAM_UNSPECIFIED = 0;
   LOG_STREAM_STDOUT = 1;
@@ -31,6 +53,40 @@ message VolumeMount {
   string name = 1;
   string target = 2;
   bool read_only = 3;
+}
+
+message HTTPDesired {
+  uint32 port = 1;
+  repeated string domains = 2;
+  string health_path = 3;
+  bool https = 4;
+}
+
+message RollbackSpec {
+  uint64 application_generation = 1;
+  string revision_id = 2;
+  string spec_digest = 3;
+  string image = 4;
+  repeated string command = 5;
+  repeated string args = 6;
+  map<string, string> environment = 7;
+  string restart_policy = 8;
+  uint64 cpu_millis = 9;
+  uint64 memory_bytes = 10;
+  repeated VolumeMount mounts = 11;
+  uint32 start_deadline_seconds = 12;
+  HTTPDesired http = 13;
+  uint64 network_generation = 14;
+  bool auto_rollback = 15;
+  bool start_before_stop = 16;
+}
+
+message NetworkConfig {
+  uint64 generation = 1;
+  string cluster_cidr = 2;
+  string node_subnet = 3;
+  string gateway = 4;
+  string dns_zone = 5;
 }
 
 message AllocationDesired {
@@ -52,6 +108,11 @@ message AllocationDesired {
   uint32 start_deadline_seconds = 16;
   bool auto_rollback = 17;
   bool start_before_stop = 18;
+  HTTPDesired http = 19;
+  uint64 network_generation = 20;
+  uint32 max_surge = 21;
+  uint32 max_unavailable = 22;
+  RollbackSpec rollback = 23;
 }
 
 message AssignmentSnapshot {
@@ -60,6 +121,7 @@ message AssignmentSnapshot {
   string digest = 3;
   google.protobuf.Timestamp created_at = 4;
   repeated AllocationDesired allocations = 5;
+  NetworkConfig network = 6;
 }
 
 message AllocationStatus {
@@ -76,6 +138,39 @@ message AllocationStatus {
   bool has_exit_code = 11;
   uint32 restart_count = 12;
   google.protobuf.Timestamp updated_at = 13;
+  HealthStatus health_status = 14;
+  string address = 15;
+  string active_spec_digest = 16;
+  uint64 active_application_generation = 17;
+  string active_revision_id = 18;
+  google.protobuf.Timestamp ready_at = 19;
+  uint32 declared_port = 20;
+}
+
+message RouteStatus {
+  string application = 1;
+  string service = 2;
+  string domain = 3;
+  bool https = 4;
+  RouteState state = 5;
+  string certificate_state = 6;
+  uint32 upstream_count = 7;
+  string reason = 8;
+  string message = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message NetworkStatus {
+  uint64 generation = 1;
+  NetworkState state = 2;
+  string cluster_cidr = 3;
+  string node_subnet = 4;
+  string gateway = 5;
+  string reason = 6;
+  string message = 7;
+  string dns_state = 8;
+  string ingress_state = 9;
+  uint32 draining_objects = 10;
 }
 
 message AgentHello {
@@ -89,6 +184,11 @@ message AgentHello {
   bool cgroups_v2 = 8;
   uint64 cached_assignment_generation = 9;
   string cached_assignment_digest = 10;
+  string cni_version = 11;
+  bool nftables = 12;
+  string caddy_version = 13;
+  string cni_plugins_version = 14;
+  bool dns_available = 15;
 }
 
 message AssignmentAck {
@@ -103,6 +203,8 @@ message AllocationReport {
   uint64 assignment_generation = 3;
   string assignment_digest = 4;
   repeated AllocationStatus allocations = 5;
+  repeated RouteStatus routes = 6;
+  NetworkStatus network = 7;
 }
 
 message AgentHeartbeat {

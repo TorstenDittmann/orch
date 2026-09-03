@@ -6,6 +6,10 @@ const (
 	EventNodeEnrolled             = "node.enrolled"
 	EventAssignmentUpdated        = "node.assignment.updated"
 	EventApplicationStatusChanged = "application.execution.changed"
+	EventAllocationReady          = "allocation.ready"
+	EventAllocationUnhealthy      = "allocation.unhealthy"
+	EventRouteActive              = "route.active"
+	EventRouteFailed              = "route.failed"
 
 	NodeEnrolled     = "ENROLLED"
 	NodeConnected    = "CONNECTED"
@@ -28,6 +32,19 @@ type Node struct {
 	RuntimeVersion         string     `json:"runtime_version,omitempty"`
 	Snapshotter            string     `json:"snapshotter,omitempty"`
 	CgroupsV2              bool       `json:"cgroups_v2"`
+	CNIVersion             string     `json:"cni_version,omitempty"`
+	CNIPluginsVersion      string     `json:"cni_plugins_version,omitempty"`
+	Nftables               bool       `json:"nftables"`
+	DNSAvailable           bool       `json:"dns_available"`
+	CaddyVersion           string     `json:"caddy_version,omitempty"`
+	NodeSubnet             string     `json:"node_subnet,omitempty"`
+	NetworkGeneration      uint64     `json:"network_generation"`
+	NetworkState           string     `json:"network_state,omitempty"`
+	NetworkReason          string     `json:"network_reason,omitempty"`
+	NetworkMessage         string     `json:"network_message,omitempty"`
+	DNSState               string     `json:"dns_state,omitempty"`
+	IngressState           string     `json:"ingress_state,omitempty"`
+	DrainingObjects        uint32     `json:"draining_objects"`
 	AssignmentGeneration   uint64     `json:"assignment_generation"`
 	AcknowledgedGeneration uint64     `json:"acknowledged_generation"`
 	AcknowledgedDigest     string     `json:"acknowledged_digest,omitempty"`

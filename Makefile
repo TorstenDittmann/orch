@@ -3,7 +3,7 @@ GO := GOTOOLCHAIN=local $(MISE) exec -- go
 GOFMT := $(MISE) exec -- gofmt
 BUF := $(MISE) exec -- buf
 
-.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check test test-race vet
+.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e test test-race vet
 
 all: check
 
@@ -49,6 +49,9 @@ check: generate-check fmt-check vet test test-race build
 
 containerd-e2e:
 	./scripts/containerd-e2e.sh
+
+network-e2e:
+	./scripts/network-e2e.sh
 
 clean:
 	rm -f bin/orch coverage.out

@@ -17,6 +17,7 @@ service ControlService {
   rpc RemoveApplication(RemoveApplicationRequest) returns (RemoveApplicationResponse);
   rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
   rpc Exec(ExecRequest) returns (stream ExecResponse);
+  rpc ConfigureNetwork(ConfigureNetworkRequest) returns (ConfigureNetworkResponse);
 }
 
 enum ExecutionStatus {
@@ -29,6 +30,8 @@ enum ExecutionStatus {
   EXECUTION_STATUS_FAILED = 6;
   EXECUTION_STATUS_STOPPING = 7;
   EXECUTION_STATUS_REMOVED = 8;
+  EXECUTION_STATUS_HEALTHY = 9;
+  EXECUTION_STATUS_ROLLED_BACK = 10;
 }
 
 enum NodeConnectionStatus {
@@ -44,6 +47,9 @@ message Cluster {
   string endpoint = 3;
   uint64 generation = 4;
   google.protobuf.Timestamp created_at = 5;
+  string workload_cidr = 6;
+  uint64 network_generation = 7;
+  bool network_frozen = 8;
 }
 
 message Application {
@@ -61,6 +67,9 @@ message Application {
   google.protobuf.Timestamp execution_updated_at = 12;
   repeated AllocationStatus allocations = 13;
   bool deleted = 14;
+  uint64 active_generation = 15;
+  string active_revision_id = 16;
+  repeated RouteStatus routes = 17;
 }
 
 message Node {
@@ -76,6 +85,17 @@ message Node {
   bool cgroups_v2 = 10;
   uint64 assignment_generation = 11;
   uint64 acknowledged_generation = 12;
+  string node_subnet = 13;
+  string network_state = 14;
+  string network_reason = 15;
+  string cni_version = 16;
+  bool nftables = 17;
+  string dns_state = 18;
+  string caddy_version = 19;
+  string ingress_state = 20;
+  uint32 draining_objects = 21;
+  string cni_plugins_version = 22;
+  bool dns_available = 23;
 }
 
 message Event {
@@ -177,4 +197,18 @@ message ExecRequest {
   uint32 replica = 3;
   repeated string command = 4;
   uint32 timeout_seconds = 5;
+}
+
+message ConfigureNetworkRequest {
+  string cidr = 1;
+  string idempotency_key = 2;
+}
+
+message ConfigureNetworkResponse {
+  string cidr = 1;
+  uint64 generation = 2;
+  bool frozen = 3;
+  bool changed = 4;
+  uint64 event_sequence = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }

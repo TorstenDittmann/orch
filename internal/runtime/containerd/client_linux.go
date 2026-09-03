@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,20 +28,27 @@ import (
 	"github.com/containerd/platforms"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 )
 
 const (
-	labelManaged    = "io.orch.managed"
-	labelCluster    = "io.orch.cluster"
-	labelNode       = "io.orch.node"
-	labelAllocation = "io.orch.allocation"
-	labelSpec       = "io.orch.spec-digest"
+	labelManaged           = "io.orch.managed"
+	labelCluster           = "io.orch.cluster"
+	labelNode              = "io.orch.node"
+	labelAllocation        = "io.orch.allocation"
+	labelSpec              = "io.orch.spec-digest"
+	labelNetworkGeneration = "io.orch.network-generation"
 )
 
 type runtimeClient struct {
-	client  *containerdclient.Client
-	options orchruntime.Options
+	client              *containerdclient.Client
+	options             orchruntime.Options
+	mu                  sync.RWMutex
+	networkConfig       model.NetworkConfig
+	networkCapabilities network.Capabilities
+	networkPreflightErr error
+	attachmentStore     network.AttachmentStore
 }
 
 func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error) {
@@ -95,10 +104,73 @@ func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities
 	if err := c.client.SnapshotService(c.options.Snapshotter).Walk(ctx, func(context.Context, snapshots.Info) error { return nil }, "name==__orch_preflight_missing__"); err != nil {
 		return orchruntime.Capabilities{}, fmt.Errorf("snapshotter %q is unavailable: %w", c.options.Snapshotter, err)
 	}
-	return orchruntime.Capabilities{
+	capabilities := orchruntime.Capabilities{
 		OperatingSystem: "linux", Architecture: runtime.GOARCH,
 		RuntimeVersion: "containerd " + version.Version, Snapshotter: c.options.Snapshotter, CgroupsV2: true,
-	}, nil
+	}
+	if c.options.Network != nil {
+		networkCapabilities, networkErr := c.options.Network.Preflight(ctx)
+		c.mu.Lock()
+		c.networkPreflightErr = networkErr
+		if networkErr == nil {
+			c.networkCapabilities = networkCapabilities
+			capabilities.CNIVersion = networkCapabilities.CNIVersion
+			capabilities.CNIPluginsVersion = networkCapabilities.CNIPluginsVersion
+			capabilities.Nftables = networkCapabilities.Nftables
+		}
+		c.mu.Unlock()
+	}
+	return capabilities, nil
+}
+
+func (c *runtimeClient) PrepareNetwork(ctx context.Context, config model.NetworkConfig) error {
+	if config.Generation == 0 {
+		return nil
+	}
+	if c.options.Network == nil {
+		return fmt.Errorf("CNI manager is unavailable: %w", orchruntime.ErrUnsupported)
+	}
+	c.mu.RLock()
+	preflightReady := c.networkCapabilities.CNIVersion != "" && c.networkPreflightErr == nil
+	c.mu.RUnlock()
+	if !preflightReady {
+		capabilities, err := c.options.Network.Preflight(ctx)
+		c.mu.Lock()
+		c.networkPreflightErr = err
+		if err == nil {
+			c.networkCapabilities = capabilities
+		}
+		c.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("network preflight: %w", err)
+		}
+	}
+	if err := c.options.Network.Prepare(ctx, config); err != nil {
+		return err
+	}
+	if c.options.ResolverPath == "" {
+		return fmt.Errorf("workload resolver path is unavailable")
+	}
+	contents := []byte("nameserver " + config.Gateway + "\nsearch " + strings.TrimSuffix(config.DNSZone, ".") + "\noptions ndots:1 timeout:1 attempts:2\n")
+	if err := writeResolverFile(c.options.ResolverPath, contents); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.networkConfig = config
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *runtimeClient) SetAttachmentStore(store network.AttachmentStore) {
+	c.mu.Lock()
+	c.attachmentStore = store
+	c.mu.Unlock()
+}
+
+func (c *runtimeClient) networkAttachmentStore() network.AttachmentStore {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.attachmentStore
 }
 
 func (c *runtimeClient) ListOwned(ctx context.Context) ([]orchruntime.Object, error) {
@@ -145,6 +217,10 @@ func (c *runtimeClient) ListOwned(ctx context.Context) ([]orchruntime.Object, er
 		result = append(result, orchruntime.Object{
 			ID: objectID, AllocationID: labels[labelAllocation], SpecDigest: labels[labelSpec],
 		})
+		seen[objectID] = struct{}{}
+	}
+	if err := c.reconcileNetworkState(ctx, result, seen); err != nil {
+		return nil, err
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
@@ -170,10 +246,19 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 		if object.Running {
 			return object, nil
 		}
-		if task, err := existing.Task(ctx, nil); err == nil {
-			_, _ = task.Delete(ctx)
-		} else if !errdefs.IsNotFound(err) {
+		task, taskErr := existing.Task(ctx, nil)
+		if taskErr != nil && !errdefs.IsNotFound(taskErr) {
+			return orchruntime.Object{}, taskErr
+		}
+		netNS := ""
+		if taskErr == nil {
+			netNS = existingTaskNetNS(task.Pid())
+		}
+		if err := c.detachNetwork(ctx, id, labels, netNS); err != nil {
 			return orchruntime.Object{}, err
+		}
+		if taskErr == nil {
+			_, _ = task.Delete(ctx)
 		}
 		return c.startTask(ctx, existing, allocation)
 	} else if !errdefs.IsNotFound(err) {
@@ -181,6 +266,9 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 	}
 
 	labels := c.labels(allocation.ID, allocation.SpecDigest)
+	if allocation.NetworkGeneration != 0 {
+		labels[labelNetworkGeneration] = strconv.FormatUint(allocation.NetworkGeneration, 10)
+	}
 	lease, err := c.ensureLease(ctx, id, labels)
 	if err != nil {
 		return orchruntime.Object{}, err
@@ -265,13 +353,57 @@ func (c *runtimeClient) startTask(ctx context.Context, container containerdclien
 	if err != nil {
 		return orchruntime.Object{}, fmt.Errorf("create task %q: %w", container.ID(), err)
 	}
+	var attachment network.Attachment
+	if allocation.NetworkGeneration != 0 {
+		if c.options.Network == nil {
+			_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
+			return orchruntime.Object{}, fmt.Errorf("CNI manager is unavailable: %w", orchruntime.ErrUnsupported)
+		}
+		attachment, err = c.options.Network.Attach(ctx, network.AttachmentRequest{
+			AllocationID: allocation.ID, ObjectID: container.ID(), SpecDigest: allocation.SpecDigest,
+			NetworkGeneration: allocation.NetworkGeneration, NetNS: fmt.Sprintf("/proc/%d/ns/net", task.Pid()), IfName: "eth0",
+		})
+		if err != nil {
+			_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
+			return orchruntime.Object{}, fmt.Errorf("attach task %q to workload network: %w", container.ID(), err)
+		}
+		attachment.CreatedAt = time.Now().UTC()
+		attachmentStore := c.networkAttachmentStore()
+		if attachmentStore == nil {
+			cleanupErr := c.detachAttachment(context.Background(), network.AttachmentRequest{
+				AllocationID: allocation.ID, ObjectID: container.ID(), SpecDigest: allocation.SpecDigest,
+				NetworkGeneration: allocation.NetworkGeneration, NetNS: attachment.NetNS, IfName: "eth0",
+			})
+			_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
+			return orchruntime.Object{}, errors.Join(fmt.Errorf("durable network attachment store is unavailable"), cleanupErr)
+		}
+		if err := attachmentStore.SaveAttachment(ctx, attachment); err != nil {
+			cleanupErr := c.detachAttachment(context.Background(), network.AttachmentRequest{
+				AllocationID: allocation.ID, ObjectID: container.ID(), SpecDigest: allocation.SpecDigest,
+				NetworkGeneration: allocation.NetworkGeneration, NetNS: attachment.NetNS, IfName: "eth0",
+			})
+			_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
+			return orchruntime.Object{}, errors.Join(fmt.Errorf("persist task %q network attachment: %w", container.ID(), err), cleanupErr)
+		}
+	}
 	if err := task.Start(ctx); err != nil {
+		var cleanupErr error
+		if allocation.NetworkGeneration != 0 {
+			cleanupErr = c.detachAttachment(context.Background(), network.AttachmentRequest{
+				AllocationID: allocation.ID, ObjectID: container.ID(), SpecDigest: allocation.SpecDigest,
+				NetworkGeneration: allocation.NetworkGeneration, NetNS: attachment.NetNS, IfName: "eth0",
+			})
+		}
 		_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
-		return orchruntime.Object{}, fmt.Errorf("start task %q: %w", container.ID(), err)
+		return orchruntime.Object{}, errors.Join(fmt.Errorf("start task %q: %w", container.ID(), err), cleanupErr)
+	}
+	address := ""
+	if attachment.Address.IsValid() {
+		address = attachment.Address.String()
 	}
 	return orchruntime.Object{
 		ID: container.ID(), AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest,
-		Running: true, StartedAt: time.Now().UTC(),
+		Running: true, StartedAt: time.Now().UTC(), Address: address, NetworkGeneration: allocation.NetworkGeneration,
 	}, nil
 }
 
@@ -377,6 +509,9 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 	container, err := c.ownedContainer(ctx, id)
 	if err != nil {
 		if errors.Is(err, orchruntime.ErrNotFound) {
+			if err := c.detachStoredAttachment(ctx, id); err != nil {
+				return err
+			}
 			if err := c.deleteOwnedLease(ctx, id); err != nil {
 				return err
 			}
@@ -384,7 +519,13 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	if task, err := container.Task(ctx, nil); err == nil {
+	labels, err := container.Labels(ctx)
+	if err != nil {
+		return err
+	}
+	task, taskErr := container.Task(ctx, nil)
+	netNS := ""
+	if taskErr == nil {
 		status, statusErr := task.Status(ctx)
 		if statusErr != nil {
 			return statusErr
@@ -392,11 +533,17 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 		if status.Status != containerdclient.Stopped {
 			return fmt.Errorf("task %q is still running", id)
 		}
+		netNS = existingTaskNetNS(task.Pid())
+	} else if !errdefs.IsNotFound(taskErr) {
+		return taskErr
+	}
+	if err := c.detachNetwork(ctx, id, labels, netNS); err != nil {
+		return err
+	}
+	if taskErr == nil {
 		if _, err := task.Delete(ctx); err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
-	} else if !errdefs.IsNotFound(err) {
-		return err
 	}
 	if err := container.Delete(ctx, containerdclient.WithSnapshotCleanup); err != nil && !errdefs.IsNotFound(err) {
 		return err
@@ -509,7 +656,13 @@ func (w *execStreamWriter) Write(contents []byte) (int, error) {
 	return written, nil
 }
 
-func (c *runtimeClient) Close() error { return c.client.Close() }
+func (c *runtimeClient) Close() error {
+	var networkErr error
+	if c.options.Network != nil {
+		networkErr = c.options.Network.Close()
+	}
+	return errors.Join(c.client.Close(), networkErr)
+}
 
 func (c *runtimeClient) object(ctx context.Context, container containerdclient.Container, labels map[string]string) (orchruntime.Object, error) {
 	if err := c.verifyObjectLabels(container.ID(), labels); err != nil {
@@ -522,23 +675,127 @@ func (c *runtimeClient) object(ctx context.Context, container containerdclient.C
 	object := orchruntime.Object{
 		ID: container.ID(), AllocationID: labels[labelAllocation], SpecDigest: labels[labelSpec], StartedAt: info.CreatedAt,
 	}
-	task, err := container.Task(ctx, nil)
-	if err != nil {
-		if errdefs.IsNotFound(err) {
-			return object, nil
+	task, taskErr := container.Task(ctx, nil)
+	if taskErr != nil && !errdefs.IsNotFound(taskErr) {
+		return orchruntime.Object{}, taskErr
+	}
+	netNS := ""
+	if taskErr == nil {
+		status, err := task.Status(ctx)
+		if err != nil {
+			return orchruntime.Object{}, err
 		}
-		return orchruntime.Object{}, err
+		object.Running = status.Status == containerdclient.Running
+		if status.Status == containerdclient.Stopped {
+			code := int32(status.ExitStatus)
+			object.ExitCode = &code
+		}
+		if task.Pid() > 0 {
+			netNS = fmt.Sprintf("/proc/%d/ns/net", task.Pid())
+		}
 	}
-	status, err := task.Status(ctx)
-	if err != nil {
-		return orchruntime.Object{}, err
-	}
-	object.Running = status.Status == containerdclient.Running
-	if status.Status == containerdclient.Stopped {
-		code := int32(status.ExitStatus)
-		object.ExitCode = &code
+	if value := labels[labelNetworkGeneration]; value != "" {
+		if c.options.Network == nil {
+			return orchruntime.Object{}, fmt.Errorf("owned networked task has no CNI manager: %w", orchruntime.ErrOwnershipMismatch)
+		}
+		generation, parseErr := strconv.ParseUint(value, 10, 64)
+		if parseErr != nil {
+			return orchruntime.Object{}, orchruntime.ErrOwnershipMismatch
+		}
+		object.NetworkGeneration = generation
+		store := c.networkAttachmentStore()
+		if store == nil {
+			return orchruntime.Object{}, fmt.Errorf("durable network attachment store is unavailable")
+		}
+		attachment, inspectErr := c.options.Network.Inspect(ctx, network.AttachmentRequest{
+			AllocationID: labels[labelAllocation], ObjectID: container.ID(), SpecDigest: labels[labelSpec],
+			NetworkGeneration: generation, NetNS: netNS, IfName: "eth0",
+		})
+		if inspectErr != nil && !errors.Is(inspectErr, network.ErrNotFound) {
+			return orchruntime.Object{}, inspectErr
+		}
+		stored, storedErr := store.Attachment(ctx, container.ID())
+		if storedErr != nil && !errors.Is(storedErr, network.ErrNotFound) {
+			return orchruntime.Object{}, storedErr
+		}
+		if inspectErr == nil && storedErr == nil {
+			if stored.AllocationID != attachment.AllocationID || stored.ObjectID != attachment.ObjectID ||
+				stored.SpecDigest != attachment.SpecDigest || stored.NetworkGeneration != attachment.NetworkGeneration ||
+				stored.Address != attachment.Address {
+				return orchruntime.Object{}, orchruntime.ErrOwnershipMismatch
+			}
+			object.Address = attachment.Address.String()
+		} else if inspectErr == nil {
+			attachment.CreatedAt = info.CreatedAt.UTC()
+			if err := store.SaveAttachment(ctx, attachment); err != nil {
+				return orchruntime.Object{}, fmt.Errorf("recover durable network attachment %q: %w", container.ID(), err)
+			}
+			object.Address = attachment.Address.String()
+		} else if storedErr == nil {
+			if object.Running {
+				return orchruntime.Object{}, fmt.Errorf("running task %q lost its CNI cache: %w", container.ID(), orchruntime.ErrOwnershipMismatch)
+			}
+			object.Address = stored.Address.String()
+		}
+		if object.Running {
+			if netNS == "" {
+				return orchruntime.Object{}, fmt.Errorf("running task %q has no inspectable network namespace: %w", container.ID(), orchruntime.ErrOwnershipMismatch)
+			}
+			if err := c.options.Network.Check(ctx, network.AttachmentRequest{
+				AllocationID: labels[labelAllocation], ObjectID: container.ID(), SpecDigest: labels[labelSpec],
+				NetworkGeneration: generation, NetNS: netNS, IfName: "eth0",
+			}); err != nil {
+				return orchruntime.Object{}, fmt.Errorf("check running task %q network attachment: %w", container.ID(), err)
+			}
+		}
 	}
 	return object, nil
+}
+
+func (c *runtimeClient) reconcileNetworkState(ctx context.Context, objects []orchruntime.Object, seen map[string]struct{}) error {
+	store := c.networkAttachmentStore()
+	if store == nil {
+		return nil
+	}
+	attachments, err := store.Attachments(ctx)
+	if err != nil {
+		return fmt.Errorf("list durable network attachments: %w", err)
+	}
+	for _, attachment := range attachments {
+		if _, exists := seen[attachment.ObjectID]; exists {
+			continue
+		}
+		if orchruntime.ObjectID(attachment.AllocationID, attachment.SpecDigest) != attachment.ObjectID {
+			return orchruntime.ErrOwnershipMismatch
+		}
+		if err := c.detachAttachment(ctx, network.AttachmentRequest{
+			AllocationID: attachment.AllocationID, ObjectID: attachment.ObjectID,
+			SpecDigest: attachment.SpecDigest, NetworkGeneration: attachment.NetworkGeneration,
+			IfName: "eth0",
+		}); err != nil {
+			return fmt.Errorf("clean orphan network attachment %q: %w", attachment.ObjectID, err)
+		}
+	}
+	c.mu.RLock()
+	config := c.networkConfig
+	c.mu.RUnlock()
+	if config.Generation == 0 || c.options.Network == nil {
+		return nil
+	}
+	valid := make([]network.AttachmentRequest, 0, len(objects))
+	for _, object := range objects {
+		if object.NetworkGeneration != config.Generation {
+			continue
+		}
+		valid = append(valid, network.AttachmentRequest{
+			AllocationID: object.AllocationID, ObjectID: object.ID, SpecDigest: object.SpecDigest,
+			NetworkGeneration: object.NetworkGeneration, IfName: "eth0",
+		})
+	}
+	if err := c.options.Network.GC(ctx, valid); err != nil {
+		return fmt.Errorf("garbage-collect owned CNI state: %w", err)
+	}
+	return nil
 }
 
 func (c *runtimeClient) ownedContainer(ctx context.Context, id string) (containerdclient.Container, error) {
@@ -576,6 +833,71 @@ func (c *runtimeClient) verifyObjectLabels(id string, labels map[string]string) 
 	specDigest := labels[labelSpec]
 	if err := c.verifyLabels(labels, allocationID, specDigest); err != nil || orchruntime.ObjectID(allocationID, specDigest) != id {
 		return orchruntime.ErrOwnershipMismatch
+	}
+	return nil
+}
+
+func (c *runtimeClient) detachNetwork(ctx context.Context, id string, labels map[string]string, netNS string) error {
+	if labels[labelNetworkGeneration] == "" {
+		return nil
+	}
+	if c.options.Network == nil {
+		return fmt.Errorf("CNI manager is unavailable: %w", orchruntime.ErrUnsupported)
+	}
+	generation, err := strconv.ParseUint(labels[labelNetworkGeneration], 10, 64)
+	if err != nil {
+		return orchruntime.ErrOwnershipMismatch
+	}
+	return c.detachAttachment(ctx, network.AttachmentRequest{
+		AllocationID: labels[labelAllocation], ObjectID: id, SpecDigest: labels[labelSpec],
+		NetworkGeneration: generation, NetNS: netNS, IfName: "eth0",
+	})
+}
+
+func existingTaskNetNS(pid uint32) string {
+	if pid == 0 {
+		return ""
+	}
+	path := fmt.Sprintf("/proc/%d/ns/net", pid)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+func (c *runtimeClient) detachStoredAttachment(ctx context.Context, objectID string) error {
+	store := c.networkAttachmentStore()
+	if store == nil {
+		return nil
+	}
+	attachment, err := store.Attachment(ctx, objectID)
+	if errors.Is(err, network.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if orchruntime.ObjectID(attachment.AllocationID, attachment.SpecDigest) != attachment.ObjectID {
+		return orchruntime.ErrOwnershipMismatch
+	}
+	return c.detachAttachment(ctx, network.AttachmentRequest{
+		AllocationID: attachment.AllocationID, ObjectID: attachment.ObjectID,
+		SpecDigest: attachment.SpecDigest, NetworkGeneration: attachment.NetworkGeneration,
+		IfName: "eth0",
+	})
+}
+
+func (c *runtimeClient) detachAttachment(ctx context.Context, request network.AttachmentRequest) error {
+	if c.options.Network == nil {
+		return fmt.Errorf("CNI manager is unavailable: %w", orchruntime.ErrUnsupported)
+	}
+	if err := c.options.Network.Detach(ctx, request); err != nil && !errors.Is(err, network.ErrNotFound) {
+		return err
+	}
+	if store := c.networkAttachmentStore(); store != nil {
+		if err := store.DeleteAttachment(ctx, request.ObjectID); err != nil {
+			return fmt.Errorf("delete durable network attachment %q: %w", request.ObjectID, err)
+		}
 	}
 	return nil
 }
