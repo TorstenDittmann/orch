@@ -1,19 +1,24 @@
-# Control-plane security model
+# Controller and agent security model
 
-The current control plane establishes local identity, secure file boundaries,
-and an authenticated HTTPS API for one controller. It does not yet provide
-certificate rotation, revocation, worker enrollment, additional administrator
-issuance, or multi-user RBAC.
+The current slice establishes local identity, secure file boundaries, an
+authenticated HTTPS API for one controller, and administrator-authorized
+enrollment for exactly one agent. It does not yet provide certificate rotation,
+revocation, node replacement, additional administrator issuance, or multi-user
+RBAC.
 
 ## Identity hierarchy
 
-Initialization creates a P-256 private cluster CA and two leaf identities:
+Initialization creates a P-256 private cluster CA and two leaf identities.
+Agent enrollment later signs a third leaf identity:
 
 - The controller certificate has server-auth and client-auth extended key
   usages. Its DNS name or IP SAN is taken from `--server`.
 - The administrator certificate has client-auth usage only.
+- The agent generates its own P-256 private key and signed CSR. Its certificate
+  has client-auth usage only and the exact URI
+  `spiffe://orch/cluster/<cluster-id>/agent/<node-id>`.
 - Each leaf has a cluster- and role-specific SPIFFE URI of the form
-  `spiffe://orch/cluster/<cluster-id>/<role>`.
+  `spiffe://orch/cluster/<cluster-id>/<role>`; the agent URI adds its node ID.
 
 The CA is valid for ten years and the leaf identities for one year, with a
 small clock-skew allowance. These lifetimes are an initial bootstrap contract,
@@ -40,6 +45,18 @@ usage, or an expired certificate is rejected. The CLI performs the symmetric
 controller role/cluster check in addition to normal TLS hostname and chain
 verification.
 
+The agent stream is a separate ConnectRPC route. It requires the exact enrolled
+agent certificate, public-key fingerprint, certificate serial, cluster ID, and
+node ID. An administrator or controller certificate cannot open it. A healthy
+stream prevents another process holding copied agent credentials from taking
+over; a stale session is replaceable only after the heartbeat timeout.
+
+Enrollment itself is an administrator-only API. The agent private key never
+crosses the network: `agent init` durably stages the private key, CSR, and
+idempotency key before sending the CSR. The controller ignores requested CSR
+SANs and signs only the computed node identity. Lost or expired agent identity
+cannot be silently replaced in this release.
+
 The metadata-free `/healthz` endpoint is the only route that permits a TLS
 connection without a client certificate. It reports no version, cluster,
 application, or event information.
@@ -48,23 +65,45 @@ application, or event information.
 
 The CA private key and controller private key stay under the controller data
 directory. The administrator private key stays beside its local context under
-the cluster-specific identity directory. Only the CA certificate is copied to
-both locations.
+the cluster-specific identity directory. The agent private key stays under its
+own `pki` directory. Only the CA certificate and signed public certificates are
+copied between roles.
 
 Private directories use mode `0700`. The database, context, certificates, and
 private keys use mode `0600`; existing identity material that grants group or
 world access is rejected. Symlinks are not accepted where a private file or
 identity directory is expected.
 
-Private keys and PEM certificates are not written to API responses, CLI output,
-events, or the SQLite database. Initialization JSON contains identifiers and
-filesystem paths only; routine remote JSON does not disclose credential paths.
-The context stores relative paths rather than embedding key material.
+Private keys are not written to API responses, CLI output, events, or either
+SQLite database. Enrollment returns only the CA and signed agent certificate.
+Initialization JSON contains identifiers and filesystem paths only; routine
+remote JSON does not disclose credential paths. The context stores relative
+paths rather than embedding key material.
 
-Application events contain only the application name, generation, revision ID,
-digest, and `PENDING` status. Canonical desired state is returned only by the
-authenticated application read API. Manifest secret fields hold references,
-not values; secret-value storage is not implemented.
+Application events contain desired-state identifiers or status reason codes,
+not workload logs or exec payloads. Canonical desired state is returned only by
+the authenticated application read API. Manifest secret fields hold references,
+not values; any such application is `BLOCKED` because secret-value storage is
+not implemented.
+
+The controller never persists workload log bytes, exec arguments, or exec
+output. The agent keeps stdout and stderr in separate protected, bounded files.
+Exec is non-interactive, deadline-bound, and routed only to an exact running
+allocation.
+
+## Workload isolation boundary
+
+containerd namespaces organize orch resources but are not a security boundary.
+The agent additionally requires deterministic IDs and exact cluster, node,
+allocation, and spec-digest labels before it adopts, stops, or removes an
+object. Label mismatch fails closed.
+
+Workloads receive fresh PID, mount, IPC, UTS, cgroup, and network namespaces,
+no Linux capabilities, no-new-privileges, no host devices, and explicit cgroups
+v2 CPU/memory limits. Only declared agent-managed local volumes are bind
+mounted. The containerd socket, controller state, agent identity, and agent
+state are never mounted. There is no CNI attachment in this slice, so workload
+networking is intentionally absent rather than shared with the host.
 
 ## Operator responsibilities
 
@@ -74,13 +113,18 @@ not values; secret-value storage is not implemented.
   verified database backup, using encryption and access controls appropriate
   for private keys.
 - Treat possession of `ca-key.pem` as full cluster identity authority and
-  possession of `admin-key.pem` as administrator access.
+  possession of `admin-key.pem` as administrator access. Treat possession of
+  `agent-key.pem` as control of the enrolled node identity.
 - Do not expose the data or context directories through application mounts.
 - Use a stable HTTPS name or IP for `--server`; initialization intentionally
   will not rotate the controller certificate when that endpoint changes.
 - Treat idempotency keys as non-secret request identifiers. Preserve a key with
   the exact manifest when retrying an uncertain deployment request.
+- Restrict access to the containerd socket. The agent requires substantial host
+  authority even though workload OCI specs are constrained.
+- Back up local volume directories separately. They are preserved on remove
+  but are neither replicated nor present in controller backups.
 
-The current single-node design stores the CA key online because later worker
-enrollment will need signing. Moving signing offline or introducing an
-intermediate CA requires a separate design and migration plan.
+The current single-node design stores the CA key online for agent enrollment.
+Moving signing offline or introducing an intermediate CA requires a separate
+design and migration plan.

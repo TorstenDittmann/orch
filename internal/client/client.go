@@ -56,13 +56,20 @@ func New(contextPath string) (*Client, error) {
 		ExpectContinueTimeout: time.Second,
 		TLSClientConfig:       tlsConfig,
 	}
-	httpClient := &http.Client{Transport: transport, Timeout: 15 * time.Second}
+	httpClient := &http.Client{Transport: transport}
 	service := orchv1alpha1connect.NewControlServiceClient(
 		httpClient, credentials.Context.Server,
 		connect.WithSendMaxBytes(maxMessageBytes),
 		connect.WithReadMaxBytes(maxMessageBytes),
 	)
 	return &Client{context: credentials.Context, service: service, http: httpClient}, nil
+}
+
+func (client *Client) Context() clusterctl.LocalContext {
+	if client == nil {
+		return clusterctl.LocalContext{}
+	}
+	return client.context
 }
 
 func (client *Client) CloseIdleConnections() {
@@ -112,4 +119,45 @@ func (client *Client) ApplyApplication(ctx context.Context, manifest []byte, ide
 		return nil, err
 	}
 	return response.Msg, nil
+}
+
+func (client *Client) EnrollAgent(ctx context.Context, name string, csrDER []byte, idempotencyKey string) (*orchv1alpha1.EnrollAgentResponse, error) {
+	response, err := client.service.EnrollAgent(ctx, connect.NewRequest(&orchv1alpha1.EnrollAgentRequest{
+		Name: name, CertificateRequestDer: append([]byte(nil), csrDER...), IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListNodes(ctx context.Context) ([]*orchv1alpha1.Node, error) {
+	response, err := client.service.ListNodes(ctx, connect.NewRequest(&orchv1alpha1.ListNodesRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetNodes(), nil
+}
+
+func (client *Client) RemoveApplication(ctx context.Context, name, idempotencyKey string) (*orchv1alpha1.RemoveApplicationResponse, error) {
+	response, err := client.service.RemoveApplication(ctx, connect.NewRequest(&orchv1alpha1.RemoveApplicationRequest{
+		Name: name, IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) TailLogs(ctx context.Context, application, service string, replica, tailLines uint32) (*connect.ServerStreamForClient[orchv1alpha1.TailLogsResponse], error) {
+	return client.service.TailLogs(ctx, connect.NewRequest(&orchv1alpha1.TailLogsRequest{
+		Application: application, Service: service, Replica: replica, TailLines: tailLines,
+	}))
+}
+
+func (client *Client) Exec(ctx context.Context, application, service string, replica uint32, command []string, timeoutSeconds uint32) (*connect.ServerStreamForClient[orchv1alpha1.ExecResponse], error) {
+	return client.service.Exec(ctx, connect.NewRequest(&orchv1alpha1.ExecRequest{
+		Application: application, Service: service, Replica: replica,
+		Command: append([]string(nil), command...), TimeoutSeconds: timeoutSeconds,
+	}))
 }

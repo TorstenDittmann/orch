@@ -20,7 +20,10 @@ import (
 const (
 	RoleController    = "controller"
 	RoleAdministrator = "administrator"
+	RoleAgent         = "agent"
 )
+
+const agentCertificateLifetime = 365 * 24 * time.Hour
 
 // KeyPair contains one PEM-encoded certificate and its PKCS#8 private key.
 type KeyPair struct {
@@ -42,6 +45,14 @@ type GenerateOptions struct {
 	Server      string
 	Now         time.Time
 	Random      io.Reader
+}
+
+// SignedAgentCertificate is public enrollment material derived from a CSR.
+type SignedAgentCertificate struct {
+	CertificatePEM []byte
+	PublicKeyHash  string
+	Serial         string
+	NotAfter       time.Time
 }
 
 // Generate creates a private cluster CA plus purpose-limited controller and
@@ -221,6 +232,201 @@ func IdentityURI(clusterID, role string) *url.URL {
 	return &url.URL{Scheme: "spiffe", Host: "orch", Path: "/cluster/" + clusterID + "/" + role}
 }
 
+// AgentIdentityURI binds an agent certificate to exactly one cluster node.
+func AgentIdentityURI(clusterID, nodeID string) *url.URL {
+	return &url.URL{Scheme: "spiffe", Host: "orch", Path: "/cluster/" + clusterID + "/agent/" + nodeID}
+}
+
+// GenerateAgentCertificateRequest creates a P-256 key and signed CSR. The key
+// is returned only to the local agent enrollment workflow.
+func GenerateAgentCertificateRequest(nodeName string, random io.Reader) (csrDER, privateKeyPEM []byte, publicKeyHash string, err error) {
+	if nodeName == "" || random == nil {
+		return nil, nil, "", fmt.Errorf("node name and random source are required")
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), random)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("generate agent key: %w", err)
+	}
+	csrDER, err = x509.CreateCertificateRequest(random, &x509.CertificateRequest{
+		Subject:            pkix.Name{CommonName: "orch-agent-" + nodeName, Organization: []string{"orch"}},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}, key)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("create agent certificate request: %w", err)
+	}
+	privateKeyPEM, err = encodePrivateKey(key)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("encode agent key: %w", err)
+	}
+	publicKeyHash, err = hashPublicKey(&key.PublicKey)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("hash agent public key: %w", err)
+	}
+	return csrDER, privateKeyPEM, publicKeyHash, nil
+}
+
+// AgentCSRPublicKeyHash validates a signed P-256 CSR and returns the canonical
+// SHA-256 fingerprint of its public key.
+func AgentCSRPublicKeyHash(csrDER []byte) (string, error) {
+	if len(csrDER) == 0 {
+		return "", fmt.Errorf("agent certificate request is required")
+	}
+	request, err := x509.ParseCertificateRequest(csrDER)
+	if err != nil {
+		return "", fmt.Errorf("parse agent certificate request: %w", err)
+	}
+	if err := request.CheckSignature(); err != nil {
+		return "", fmt.Errorf("verify agent certificate request signature: %w", err)
+	}
+	publicKey, ok := request.PublicKey.(*ecdsa.PublicKey)
+	if !ok || publicKey.Curve != elliptic.P256() {
+		return "", fmt.Errorf("agent certificate request must use an ECDSA P-256 key")
+	}
+	return hashPublicKey(publicKey)
+}
+
+// VerifyAgentCertificateRequestKey ensures a staged private key belongs to a
+// validated enrollment CSR.
+func VerifyAgentCertificateRequestKey(csrDER, privateKeyPEM []byte) error {
+	request, err := x509.ParseCertificateRequest(csrDER)
+	if err != nil {
+		return fmt.Errorf("parse agent certificate request: %w", err)
+	}
+	if _, err := AgentCSRPublicKeyHash(csrDER); err != nil {
+		return err
+	}
+	key, err := parseECDSAPrivateKey(privateKeyPEM)
+	if err != nil {
+		return fmt.Errorf("parse agent private key: %w", err)
+	}
+	requestPublic, err := x509.MarshalPKIXPublicKey(request.PublicKey)
+	if err != nil {
+		return err
+	}
+	keyPublic, err := x509.MarshalPKIXPublicKey(key.Public())
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(requestPublic, keyPublic) {
+		return fmt.Errorf("agent private key does not match certificate request")
+	}
+	return nil
+}
+
+// SignAgentCertificate signs only the validated CSR public key. Requested SANs
+// and extensions are deliberately ignored.
+func SignAgentCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, nodeID string, csrDER []byte, now time.Time, random io.Reader) (SignedAgentCertificate, error) {
+	if clusterID == "" || nodeID == "" || now.IsZero() || random == nil {
+		return SignedAgentCertificate{}, fmt.Errorf("cluster, node, current time, and random source are required")
+	}
+	publicKeyHash, err := AgentCSRPublicKeyHash(csrDER)
+	if err != nil {
+		return SignedAgentCertificate{}, err
+	}
+	request, _ := x509.ParseCertificateRequest(csrDER)
+	ca, err := parseCertificate(caCertificatePEM)
+	if err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("parse CA certificate: %w", err)
+	}
+	caKey, err := parseECDSAPrivateKey(caPrivateKeyPEM)
+	if err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("parse CA private key: %w", err)
+	}
+	if err := verifyPrivateKey(ca, caPrivateKeyPEM); err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("verify CA private key: %w", err)
+	}
+	serial, err := serialNumber(random)
+	if err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("generate agent serial: %w", err)
+	}
+	keyID, err := subjectKeyID(request.PublicKey)
+	if err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("derive agent key id: %w", err)
+	}
+	notAfter := now.UTC().Add(agentCertificateLifetime)
+	if notAfter.After(ca.NotAfter) {
+		notAfter = ca.NotAfter
+	}
+	if !notAfter.After(now.UTC()) {
+		return SignedAgentCertificate{}, fmt.Errorf("CA certificate expires too soon to sign an agent identity")
+	}
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "orch-agent-" + nodeID, Organization: []string{"orch"}},
+		NotBefore:             now.UTC().Add(-5 * time.Minute),
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		URIs:                  []*url.URL{AgentIdentityURI(clusterID, nodeID)},
+		SubjectKeyId:          keyID,
+		AuthorityKeyId:        append([]byte(nil), ca.SubjectKeyId...),
+		BasicConstraintsValid: true,
+	}
+	certificateDER, err := x509.CreateCertificate(random, template, ca, request.PublicKey, caKey)
+	if err != nil {
+		return SignedAgentCertificate{}, fmt.Errorf("sign agent certificate: %w", err)
+	}
+	return SignedAgentCertificate{
+		CertificatePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}),
+		PublicKeyHash:  publicKeyHash,
+		Serial:         serial.String(),
+		NotAfter:       notAfter,
+	}, nil
+}
+
+// VerifyAgentIdentity validates an agent certificate, private key, exact node
+// URI, and chain for local startup.
+func VerifyAgentIdentity(caPEM []byte, pair KeyPair, clusterID, nodeID string, now time.Time) error {
+	ca, err := parseCertificate(caPEM)
+	if err != nil {
+		return fmt.Errorf("parse CA certificate: %w", err)
+	}
+	certificate, err := parseCertificate(pair.CertificatePEM)
+	if err != nil {
+		return fmt.Errorf("parse agent certificate: %w", err)
+	}
+	if err := VerifyAgentPeerIdentity(certificate, clusterID, nodeID); err != nil {
+		return err
+	}
+	if err := verifyPrivateKey(certificate, pair.PrivateKeyPEM); err != nil {
+		return fmt.Errorf("verify agent private key: %w", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	if _, err := certificate.Verify(x509.VerifyOptions{
+		Roots: roots, CurrentTime: now.UTC(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}); err != nil {
+		return fmt.Errorf("verify agent certificate: %w", err)
+	}
+	return nil
+}
+
+// VerifyAgentPeerIdentity validates an already chain-verified TLS peer.
+func VerifyAgentPeerIdentity(certificate *x509.Certificate, clusterID, nodeID string) error {
+	if certificate == nil {
+		return fmt.Errorf("agent certificate is missing")
+	}
+	publicKey, ok := certificate.PublicKey.(*ecdsa.PublicKey)
+	if certificate.IsCA || !ok || publicKey.Curve != elliptic.P256() ||
+		certificate.KeyUsage != x509.KeyUsageDigitalSignature ||
+		!sameUsages(certificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}) {
+		return fmt.Errorf("agent certificate has unexpected constraints or extended key usages")
+	}
+	expectedURI := AgentIdentityURI(clusterID, nodeID).String()
+	if len(certificate.URIs) != 1 || certificate.URIs[0].String() != expectedURI {
+		return fmt.Errorf("agent certificate does not contain identity %s", expectedURI)
+	}
+	return nil
+}
+
+// CertificatePublicKeyHash returns the same fingerprint used by enrollment.
+func CertificatePublicKeyHash(certificate *x509.Certificate) (string, error) {
+	if certificate == nil {
+		return "", fmt.Errorf("certificate is missing")
+	}
+	return hashPublicKey(certificate.PublicKey)
+}
+
 // VerifyCertificateAuthority checks the CA certificate, its private key, and
 // its binding to the named cluster.
 func VerifyCertificateAuthority(certificatePEM, privateKeyPEM []byte, clusterName string, now time.Time) error {
@@ -363,4 +569,29 @@ func verifyPrivateKey(certificate *x509.Certificate, contents []byte) error {
 		return fmt.Errorf("private key does not match certificate")
 	}
 	return nil
+}
+
+func parseECDSAPrivateKey(contents []byte) (*ecdsa.PrivateKey, error) {
+	block, rest := pem.Decode(contents)
+	if block == nil || block.Type != "PRIVATE KEY" || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("expected exactly one PKCS#8 PEM private key")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	key, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok || key.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("private key must be ECDSA P-256")
+	}
+	return key, nil
+}
+
+func hashPublicKey(publicKey crypto.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(der)
+	return fmt.Sprintf("%x", digest[:]), nil
 }

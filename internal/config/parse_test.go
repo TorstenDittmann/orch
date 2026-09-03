@@ -75,6 +75,11 @@ func TestValidationReportsActionablePaths(t *testing.T) {
 			path: "services.web.resources.cpu",
 		},
 		{
+			name: "overflowing memory",
+			body: strings.Replace(validManifest, "memory = \"256Mi\"\n", "memory = \"9223372036854775808Ki\"\n", 1),
+			path: "services.web.resources.memory",
+		},
+		{
 			name: "invalid image reference",
 			body: strings.Replace(validManifest, "ghcr.io/acme/hello:1.2.3", "bad image reference", 1),
 			path: "services.web.image",
@@ -110,7 +115,7 @@ func TestNumericDomainLabelIsAccepted(t *testing.T) {
 }
 
 func TestExamplesValidate(t *testing.T) {
-	for _, path := range []string{"../../examples/hello/orch.toml", "../../examples/stateful/orch.toml"} {
+	for _, path := range []string{"../../examples/hello/orch.toml", "../../examples/runtime/orch.toml", "../../examples/stateful/orch.toml"} {
 		t.Run(path, func(t *testing.T) {
 			data, err := os.ReadFile(path)
 			if err != nil {

@@ -33,6 +33,7 @@ type Server struct {
 	listener     net.Listener
 	http         *http.Server
 	state        *store.Store
+	sessions     *sessionManager
 	lock         *dataLock
 	serveDone    chan struct{}
 	serveErr     error
@@ -85,7 +86,11 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return fail(fmt.Errorf("listen on %s: %w", options.Listen, err), state, nil)
 	}
-	implementation := newService(state, cluster, now)
+	sessions := newSessionManager(now)
+	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, sessions, now)
+	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
+	implementation.reconciler = reconciler
+	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now}
 	path, handler := orchv1alpha1connect.NewControlServiceHandler(
 		implementation,
 		connect.WithReadMaxBytes(maxHTTPBodyBytes),
@@ -93,7 +98,16 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, authenticateAdministrator(cluster.ID, http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	agentPath, agentHandler := orchv1alpha1connect.NewAgentServiceHandler(
+		agentImplementation,
+		connect.WithReadMaxBytes(maxHTTPBodyBytes),
+		connect.WithSendMaxBytes(maxHTTPBodyBytes),
+	)
+	mux.Handle(agentPath, authenticateAgent(cluster.ID, state, agentHandler))
 	mux.HandleFunc("/healthz", healthHandler)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		return fail(fmt.Errorf("reconcile initial assignment: %w", err), state, listener)
+	}
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{credentials.Certificate},
@@ -104,14 +118,14 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	httpServer := &http.Server{
 		Handler: mux, TLSConfig: tlsConfig,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		ReadTimeout:       0,
+		WriteTimeout:      0,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          log.New(io.Discard, "", 0),
 	}
 	server := &Server{
-		listener: listener, http: httpServer, state: state, lock: lock,
+		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 	}
 	go func() {
@@ -159,6 +173,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	}
 	server.shutdownOnce.Do(func() {
 		defer close(server.shutdownDone)
+		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {
 			_ = server.http.Close()

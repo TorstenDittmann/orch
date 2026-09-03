@@ -1,9 +1,9 @@
-# Controller operations
+# Single-node operations
 
-The current implementation initializes and runs one durable controller. It
-accepts authenticated application desired state, but it does not accept worker
-joins, restore a full controller backup, or run containers. Application status
-therefore remains `PENDING`.
+The current implementation runs one durable controller and exactly one
+administrator-enrolled execution agent. The agent uses an externally installed
+containerd/runc runtime. Multi-node scheduling, node replacement, certificate
+rotation, and automated restore are not included.
 
 ## Initialize a cluster
 
@@ -73,9 +73,64 @@ SIGINT and SIGTERM trigger a bounded graceful HTTP shutdown, SQLite WAL
 checkpoint, and lock release. A subsequent process can reopen the same desired
 state and idempotency history.
 
+Stopping or losing the controller does not stop an already assigned workload.
+The agent follows only its last durably cached full assignment, continues local
+restart supervision, and converges with the controller after reconnecting.
+
 `GET /healthz` is available over HTTPS without a client certificate for local
 probes. It returns only `ok`, never cluster metadata. All ConnectRPC operator
 methods require a verified administrator certificate.
+
+## Enroll and run the agent
+
+`agent init` creates a P-256 private key locally, stages its CSR and retry key,
+and asks the running controller to enroll the one supported node:
+
+~~~console
+orch agent init \
+  --name node-1 \
+  --context "$HOME/.config/orch/context.json" \
+  --data-dir /var/lib/orch-agent
+~~~
+
+The controller receives only the signed CSR and returns public certificates.
+If the request outcome is uncertain, rerun the exact command with the same data
+directory; orch resumes the staged CSR and idempotency key. A second node or a
+replacement key for the enrolled node is rejected.
+
+Start the agent on a supported Linux host:
+
+~~~console
+orch agent serve \
+  --data-dir /var/lib/orch-agent \
+  --containerd-socket /run/containerd/containerd.sock \
+  --snapshotter overlayfs
+~~~
+
+The process validates the protected identity and SQLite cache before contacting
+containerd. It then requires Linux `amd64` or `arm64`, cgroups v2, containerd
+2.3.4, the configured snapshotter, `containerd-shim-runc-v2`, and `runc`.
+Startup fails closed if any prerequisite or identity check fails. Run only one
+agent process for the data directory; `agent.lock` enforces local ownership.
+
+The resulting layout is:
+
+~~~text
+/var/lib/orch-agent/
+├── agent.json
+├── agent.db
+├── agent.lock
+├── pki/
+│   ├── ca.pem
+│   ├── agent.pem
+│   └── agent-key.pem
+├── logs/
+└── volumes/
+~~~
+
+Stop the agent with SIGINT or SIGTERM. It closes its control stream and cache
+but intentionally leaves desired tasks running. On restart, matching
+orch-labeled tasks are adopted; mismatched objects are refused.
 
 ## Inspect and submit desired state
 
@@ -110,14 +165,56 @@ For this single-administrator MVP, idempotency records are retained for the
 life of the cluster. A future expiration or compaction policy must preserve a
 clearly versioned replay window.
 
-The current success response is intentionally explicit:
+The deploy success response is intentionally an acceptance receipt rather than
+a race-dependent observation:
 
 ~~~text
-Status: PENDING — no agent is connected; no workload has been started.
+Status: PENDING — accepted for asynchronous execution; use orch app status to observe it.
 ~~~
 
 Use `--json` for stable machine-readable status, event, and deployment output.
 Event pagination uses an exclusive sequence cursor and returns the next cursor.
+
+## Inspect and operate workloads
+
+~~~console
+orch nodes --context "$HOME/.config/orch/context.json"
+orch app status runtime-demo --context "$HOME/.config/orch/context.json"
+
+orch logs runtime-demo worker --replica 1 --tail 100 \
+  --context "$HOME/.config/orch/context.json"
+
+orch exec runtime-demo worker --replica 1 \
+  --context "$HOME/.config/orch/context.json" -- /bin/echo ok
+~~~
+
+Node connection state is the current controller process's observation. An
+application reports desired and observed generations plus ordered allocation
+states. `RUNNING` means the exact desired processes are alive—not healthy,
+ready, or reachable. See [runtime.md](runtime.md) for every status and runtime
+limit.
+
+Logs are a finite tail, not follow mode. Stdout and stderr remain separate and
+are streamed through the controller without being persisted there. Exec has no
+stdin or TTY, is never retried, accepts at most 64 arguments/8 KiB, and has a
+maximum five-minute timeout. Both operations require the exact allocation to be
+running on a currently connected agent.
+
+## Remove an application
+
+~~~console
+orch remove runtime-demo \
+  --context "$HOME/.config/orch/context.json"
+~~~
+
+Removal first tombstones desired state and returns `STOPPING`. The agent stops
+and removes owned tasks, containers, writable snapshots, and allocation leases;
+after its empty report the application becomes `REMOVED`. Immutable revisions,
+events, and directories under `/var/lib/orch-agent/volumes` are retained.
+
+The command prints its idempotency key. Retry an uncertain removal with that
+exact key. Repeating removal with a new key is also safe, but the printed key is
+the exact replay handle for the original response.
 
 ## Create a database backup
 
@@ -134,9 +231,11 @@ The output must be outside the live data directory and must not already exist.
 Before publication, orch runs SQLite integrity and foreign-key checks, syncs
 the staged file, and publishes it without clobbering another backup.
 
-The database backup contains cluster state and events, but not the CA,
-controller key, administrator key, or context. Preserve those files separately
-with an access-controlled system backup. Automated restore over live controller
+The database backup contains cluster state, enrolled-node public metadata,
+assignment history, observed execution state, and events. It does not contain
+the CA, controller key, administrator key, agent private identity, agent cache,
+workload logs, or local volume contents. Preserve those files separately with
+an access-controlled system backup. Automated restore over live controller
 state is deliberately not implemented yet; stop and wait for a documented
 restore workflow rather than copying a database over a live controller.
 
@@ -158,3 +257,8 @@ restore workflow rather than copying a database over a live controller.
 - Controller state changes and idempotency responses commit in one transaction.
   A transport failure may leave the caller uncertain, so retry with the exact
   idempotency key printed or supplied for that request.
+- Assignment ACK means the complete snapshot is in the agent's SQLite cache;
+  it does not mean a process has started. Execution state changes only from a
+  report matching the current acknowledged generation and digest.
+- Local volumes are neither replicated nor included in controller backup. A
+  lost agent host can therefore lose the only copy of application data.

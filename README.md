@@ -6,10 +6,11 @@ self-healing, encrypted networking, service discovery, and safe deployments,
 without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
-> The repository currently contains the v0.1 configuration contract and an
-> authenticated single-controller control plane. It accepts durable application
-> intent, but it does not run containers yet. Accepted applications remain
-> explicitly `PENDING` until the agent/runtime slice lands.
+> The repository currently contains an initial single-node execution slice.
+> One administrator-enrolled Linux agent can run digest-pinned public OCI
+> workloads through a preinstalled containerd 2.3.4/runc stack. Networking,
+> HTTP health, secrets, private registries, and multi-node scheduling are still
+> deliberately unavailable and produce explicit `BLOCKED` status.
 
 ## The contract
 
@@ -20,11 +21,11 @@ without exposing the Kubernetes or Docker Swarm APIs.
 - Secret values never belong in the manifest.
 - Local volumes are explicit and may only be used by one-replica services.
 
-The distributed runtime will use OCI images with containerd/runc, direct
-WireGuard routing, local service DNS, and Caddy ingress. The controller will not
-be in the application data path.
+The runtime uses OCI images with containerd/runc and isolated network
+namespaces. A later slice will add direct WireGuard routing, local service DNS,
+and Caddy ingress. The controller is not in the application data path.
 
-## Try the control plane
+## Try the single-node runtime
 
 Install the pinned Go toolchain and build the CLI:
 
@@ -57,13 +58,47 @@ bin/orch controller serve \
   --listen 127.0.0.1:9443
 ~~~
 
+On the Linux execution host, enroll the one supported agent while the
+controller is running:
+
+~~~console
+bin/orch agent init \
+  --name node-1 \
+  --context "$PWD/.orch-client/context.json" \
+  --data-dir /var/lib/orch-agent
+
+sudo bin/orch agent serve \
+  --data-dir /var/lib/orch-agent \
+  --containerd-socket /run/containerd/containerd.sock \
+  --snapshotter overlayfs
+~~~
+
+The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
+2.3.4, `containerd-shim-runc-v2`, and `runc`. The agent needs permission to use
+the containerd socket and create cgroups and namespaces. See
+[docs/runtime.md](docs/runtime.md) for the exact support boundary.
+
 Use the generated mTLS context from another terminal:
 
 ~~~console
 bin/orch status --context "$PWD/.orch-client/context.json"
 
+bin/orch nodes --context "$PWD/.orch-client/context.json"
+
 bin/orch deploy \
-  --file examples/hello/orch.toml \
+  --file examples/runtime/orch.toml \
+  --context "$PWD/.orch-client/context.json"
+
+bin/orch app status runtime-demo \
+  --context "$PWD/.orch-client/context.json"
+
+bin/orch logs runtime-demo worker --replica 1 --tail 100 \
+  --context "$PWD/.orch-client/context.json"
+
+bin/orch exec runtime-demo worker --replica 1 \
+  --context "$PWD/.orch-client/context.json" -- /bin/echo ok
+
+bin/orch remove runtime-demo \
   --context "$PWD/.orch-client/context.json"
 
 bin/orch events \
@@ -80,10 +115,11 @@ credentials. Backup publication refuses to overwrite a file. See
 [docs/security.md](docs/security.md) before using either command outside a
 disposable environment.
 
-`orch deploy` currently means “validate and durably accept desired state.” Its
-output says `PENDING` and confirms that no workload has started. Pass the
-reported idempotency key back with `--idempotency-key` when retrying an
-uncertain request.
+`orch deploy` remains a durable acceptance operation. Its exact replayable
+response is `PENDING`; use `orch app status` to observe asynchronous execution.
+Pass the reported idempotency key back with `--idempotency-key` when retrying
+an uncertain request. Removal follows the same retry rule and preserves local
+volume contents.
 
 Compare two valid application files:
 
@@ -95,31 +131,25 @@ Add `--json` to supported commands for stable machine-readable output. Exit
 status 2 means invalid usage or configuration; status 1 is reserved for
 operational failures.
 
-## Example
+## Executable example
 
 ~~~toml
 schema = "v1alpha1"
-name = "hello"
+name = "runtime-demo"
 
-[services.web]
-image = "ghcr.io/acme/hello:1.2.3"
-replicas = 2
+[services.worker]
+image = "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+command = ["/bin/sh"]
+args = ["-c", "echo $MESSAGE; echo diagnostic >&2; exec sleep 3600"]
 
-[services.web.resources]
-cpu = "500m"
-memory = "256Mi"
-
-[services.web.http]
-port = 8080
-domains = ["hello.example.com"]
-health_path = "/healthz"
-
-[services.web.secret_env]
-DATABASE_URL = "database-url"
+[services.worker.env]
+MESSAGE = "hello from orch"
 ~~~
 
-See [docs/configuration.md](docs/configuration.md) for the complete contract and
-[docs/product.md](docs/product.md) for the deliberately narrow product scope.
+The full example also demonstrates a preserved local volume. See
+[examples/runtime/orch.toml](examples/runtime/orch.toml),
+[docs/configuration.md](docs/configuration.md), and
+[docs/product.md](docs/product.md).
 
 ## Development
 
@@ -131,6 +161,9 @@ mise exec -- make check
 The checked-in JSON Schema and Protocol Buffer/Connect bindings are generated
 with tools pinned in `mise.toml`. Native change.codes CI rejects stale generated
 output, formatting differences, vet issues, race failures, and test failures.
+The real containerd lifecycle is additionally available as `make
+containerd-e2e` on a dedicated compatible Linux host; see
+[docs/runtime.md](docs/runtime.md#privileged-runtime-verification).
 
 ## Status and roadmap
 

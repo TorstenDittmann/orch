@@ -45,6 +45,19 @@ const (
 	// ControlServiceApplyApplicationProcedure is the fully-qualified name of the ControlService's
 	// ApplyApplication RPC.
 	ControlServiceApplyApplicationProcedure = "/orch.v1alpha1.ControlService/ApplyApplication"
+	// ControlServiceEnrollAgentProcedure is the fully-qualified name of the ControlService's
+	// EnrollAgent RPC.
+	ControlServiceEnrollAgentProcedure = "/orch.v1alpha1.ControlService/EnrollAgent"
+	// ControlServiceListNodesProcedure is the fully-qualified name of the ControlService's ListNodes
+	// RPC.
+	ControlServiceListNodesProcedure = "/orch.v1alpha1.ControlService/ListNodes"
+	// ControlServiceRemoveApplicationProcedure is the fully-qualified name of the ControlService's
+	// RemoveApplication RPC.
+	ControlServiceRemoveApplicationProcedure = "/orch.v1alpha1.ControlService/RemoveApplication"
+	// ControlServiceTailLogsProcedure is the fully-qualified name of the ControlService's TailLogs RPC.
+	ControlServiceTailLogsProcedure = "/orch.v1alpha1.ControlService/TailLogs"
+	// ControlServiceExecProcedure is the fully-qualified name of the ControlService's Exec RPC.
+	ControlServiceExecProcedure = "/orch.v1alpha1.ControlService/Exec"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -53,6 +66,11 @@ type ControlServiceClient interface {
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
+	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
+	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
+	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
+	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error)
+	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -90,15 +108,50 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("ApplyApplication")),
 			connect.WithClientOptions(opts...),
 		),
+		enrollAgent: connect.NewClient[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse](
+			httpClient,
+			baseURL+ControlServiceEnrollAgentProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("EnrollAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		listNodes: connect.NewClient[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse](
+			httpClient,
+			baseURL+ControlServiceListNodesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListNodes")),
+			connect.WithClientOptions(opts...),
+		),
+		removeApplication: connect.NewClient[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse](
+			httpClient,
+			baseURL+ControlServiceRemoveApplicationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RemoveApplication")),
+			connect.WithClientOptions(opts...),
+		),
+		tailLogs: connect.NewClient[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse](
+			httpClient,
+			baseURL+ControlServiceTailLogsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("TailLogs")),
+			connect.WithClientOptions(opts...),
+		),
+		exec: connect.NewClient[v1alpha1.ExecRequest, v1alpha1.ExecResponse](
+			httpClient,
+			baseURL+ControlServiceExecProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("Exec")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	getCluster       *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
-	getApplication   *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
-	listEvents       *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
-	applyApplication *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	getCluster        *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
+	getApplication    *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listEvents        *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	applyApplication  *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	enrollAgent       *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
+	listNodes         *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	removeApplication *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
+	tailLogs          *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
+	exec              *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -121,12 +174,42 @@ func (c *controlServiceClient) ApplyApplication(ctx context.Context, req *connec
 	return c.applyApplication.CallUnary(ctx, req)
 }
 
+// EnrollAgent calls orch.v1alpha1.ControlService.EnrollAgent.
+func (c *controlServiceClient) EnrollAgent(ctx context.Context, req *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error) {
+	return c.enrollAgent.CallUnary(ctx, req)
+}
+
+// ListNodes calls orch.v1alpha1.ControlService.ListNodes.
+func (c *controlServiceClient) ListNodes(ctx context.Context, req *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error) {
+	return c.listNodes.CallUnary(ctx, req)
+}
+
+// RemoveApplication calls orch.v1alpha1.ControlService.RemoveApplication.
+func (c *controlServiceClient) RemoveApplication(ctx context.Context, req *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error) {
+	return c.removeApplication.CallUnary(ctx, req)
+}
+
+// TailLogs calls orch.v1alpha1.ControlService.TailLogs.
+func (c *controlServiceClient) TailLogs(ctx context.Context, req *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error) {
+	return c.tailLogs.CallServerStream(ctx, req)
+}
+
+// Exec calls orch.v1alpha1.ControlService.Exec.
+func (c *controlServiceClient) Exec(ctx context.Context, req *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error) {
+	return c.exec.CallServerStream(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
+	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
+	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
+	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
+	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error
+	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -160,6 +243,36 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("ApplyApplication")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceEnrollAgentHandler := connect.NewUnaryHandler(
+		ControlServiceEnrollAgentProcedure,
+		svc.EnrollAgent,
+		connect.WithSchema(controlServiceMethods.ByName("EnrollAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListNodesHandler := connect.NewUnaryHandler(
+		ControlServiceListNodesProcedure,
+		svc.ListNodes,
+		connect.WithSchema(controlServiceMethods.ByName("ListNodes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRemoveApplicationHandler := connect.NewUnaryHandler(
+		ControlServiceRemoveApplicationProcedure,
+		svc.RemoveApplication,
+		connect.WithSchema(controlServiceMethods.ByName("RemoveApplication")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceTailLogsHandler := connect.NewServerStreamHandler(
+		ControlServiceTailLogsProcedure,
+		svc.TailLogs,
+		connect.WithSchema(controlServiceMethods.ByName("TailLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceExecHandler := connect.NewServerStreamHandler(
+		ControlServiceExecProcedure,
+		svc.Exec,
+		connect.WithSchema(controlServiceMethods.ByName("Exec")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -170,6 +283,16 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListEventsHandler.ServeHTTP(w, r)
 		case ControlServiceApplyApplicationProcedure:
 			controlServiceApplyApplicationHandler.ServeHTTP(w, r)
+		case ControlServiceEnrollAgentProcedure:
+			controlServiceEnrollAgentHandler.ServeHTTP(w, r)
+		case ControlServiceListNodesProcedure:
+			controlServiceListNodesHandler.ServeHTTP(w, r)
+		case ControlServiceRemoveApplicationProcedure:
+			controlServiceRemoveApplicationHandler.ServeHTTP(w, r)
+		case ControlServiceTailLogsProcedure:
+			controlServiceTailLogsHandler.ServeHTTP(w, r)
+		case ControlServiceExecProcedure:
+			controlServiceExecHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -193,4 +316,24 @@ func (UnimplementedControlServiceHandler) ListEvents(context.Context, *connect.R
 
 func (UnimplementedControlServiceHandler) ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ApplyApplication is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.EnrollAgent is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListNodes is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveApplication is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.TailLogs is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.Exec is not implemented"))
 }

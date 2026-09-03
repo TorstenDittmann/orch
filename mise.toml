@@ -1,5 +1,5 @@
 [tools]
-go = "1.24.0"
+go = "1.26.3"
 buf = "1.72.0"
 protoc-gen-go = "1.36.12"
 protoc-gen-connect-go = "1.19.2"

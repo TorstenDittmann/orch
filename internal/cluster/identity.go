@@ -13,8 +13,10 @@ import (
 
 // ControllerCredentials is the verified TLS identity used by the server.
 type ControllerCredentials struct {
-	Certificate tls.Certificate
-	ClientCAs   *x509.CertPool
+	Certificate      tls.Certificate
+	ClientCAs        *x509.CertPool
+	CACertificatePEM []byte
+	CAPrivateKeyPEM  []byte
 }
 
 // LoadControllerCredentials validates the protected on-disk identity against
@@ -83,5 +85,9 @@ func LoadControllerCredentials(dataDir string, stored model.Cluster, now time.Ti
 	if !clientCAs.AppendCertsFromPEM(caPEM) {
 		return ControllerCredentials{}, fmt.Errorf("load controller CA certificate")
 	}
-	return ControllerCredentials{Certificate: pair, ClientCAs: clientCAs}, nil
+	return ControllerCredentials{
+		Certificate: pair, ClientCAs: clientCAs,
+		CACertificatePEM: append([]byte(nil), caPEM...),
+		CAPrivateKeyPEM:  append([]byte(nil), caKeyPEM...),
+	}, nil
 }

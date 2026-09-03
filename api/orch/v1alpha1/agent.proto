@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package orch.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1";
+
+service AgentService {
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+}
+
+enum AllocationPhase {
+  ALLOCATION_PHASE_UNSPECIFIED = 0;
+  ALLOCATION_PHASE_PENDING = 1;
+  ALLOCATION_PHASE_PULLING = 2;
+  ALLOCATION_PHASE_STARTING = 3;
+  ALLOCATION_PHASE_RUNNING = 4;
+  ALLOCATION_PHASE_STOPPED = 5;
+  ALLOCATION_PHASE_BACKOFF = 6;
+  ALLOCATION_PHASE_FAILED = 7;
+}
+
+enum LogStream {
+  LOG_STREAM_UNSPECIFIED = 0;
+  LOG_STREAM_STDOUT = 1;
+  LOG_STREAM_STDERR = 2;
+}
+
+message VolumeMount {
+  string name = 1;
+  string target = 2;
+  bool read_only = 3;
+}
+
+message AllocationDesired {
+  string id = 1;
+  string application = 2;
+  string service = 3;
+  uint32 replica = 4;
+  uint64 application_generation = 5;
+  string revision_id = 6;
+  string spec_digest = 7;
+  string image = 8;
+  repeated string command = 9;
+  repeated string args = 10;
+  map<string, string> environment = 11;
+  string restart_policy = 12;
+  uint64 cpu_millis = 13;
+  uint64 memory_bytes = 14;
+  repeated VolumeMount mounts = 15;
+  uint32 start_deadline_seconds = 16;
+  bool auto_rollback = 17;
+  bool start_before_stop = 18;
+}
+
+message AssignmentSnapshot {
+  string node_id = 1;
+  uint64 generation = 2;
+  string digest = 3;
+  google.protobuf.Timestamp created_at = 4;
+  repeated AllocationDesired allocations = 5;
+}
+
+message AllocationStatus {
+  string id = 1;
+  string application = 2;
+  string service = 3;
+  uint32 replica = 4;
+  uint64 application_generation = 5;
+  string spec_digest = 6;
+  AllocationPhase phase = 7;
+  string reason = 8;
+  string message = 9;
+  int32 exit_code = 10;
+  bool has_exit_code = 11;
+  uint32 restart_count = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message AgentHello {
+  string protocol_version = 1;
+  string node_id = 2;
+  string boot_id = 3;
+  string operating_system = 4;
+  string architecture = 5;
+  string runtime_version = 6;
+  string snapshotter = 7;
+  bool cgroups_v2 = 8;
+  uint64 cached_assignment_generation = 9;
+  string cached_assignment_digest = 10;
+}
+
+message AssignmentAck {
+  string boot_id = 1;
+  uint64 generation = 2;
+  string digest = 3;
+}
+
+message AllocationReport {
+  string boot_id = 1;
+  uint64 sequence = 2;
+  uint64 assignment_generation = 3;
+  string assignment_digest = 4;
+  repeated AllocationStatus allocations = 5;
+}
+
+message AgentHeartbeat {
+  string boot_id = 1;
+  uint64 acknowledged_assignment_generation = 2;
+}
+
+message TailLogsCommand {
+  string request_id = 1;
+  string allocation_id = 2;
+  uint32 tail_lines = 3;
+}
+
+message ExecCommand {
+  string request_id = 1;
+  string allocation_id = 2;
+  repeated string command = 3;
+  uint32 timeout_seconds = 4;
+}
+
+message CancelOperation {
+  string request_id = 1;
+}
+
+message TailLogsResponse {
+  string request_id = 1;
+  LogStream stream = 2;
+  bytes data = 3;
+  uint64 offset = 4;
+  bool truncated = 5;
+  bool complete = 6;
+}
+
+message ExecResponse {
+  string request_id = 1;
+  LogStream stream = 2;
+  bytes data = 3;
+  bool exited = 4;
+  int32 exit_code = 5;
+}
+
+message OperationError {
+  string request_id = 1;
+  string code = 2;
+  string message = 3;
+}
+
+message AgentOperationResult {
+  oneof result {
+    TailLogsResponse log = 1;
+    ExecResponse exec = 2;
+    OperationError error = 3;
+  }
+}
+
+message ConnectRequest {
+  oneof message {
+    AgentHello hello = 1;
+    AssignmentAck assignment_ack = 2;
+    AllocationReport allocation_report = 3;
+    AgentHeartbeat heartbeat = 4;
+    AgentOperationResult operation_result = 5;
+  }
+}
+
+message ConnectResponse {
+  oneof message {
+    AssignmentSnapshot assignment = 1;
+    TailLogsCommand tail_logs = 2;
+    ExecCommand exec = 3;
+    CancelOperation cancel_operation = 4;
+  }
+}

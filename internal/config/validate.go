@@ -93,7 +93,7 @@ func Validate(manifest *Manifest) error {
 		if !validCPU(service.Resources.CPU) {
 			add(base+".resources.cpu", "must be a positive whole CPU count or millicpu value such as 500m")
 		}
-		if !memoryPattern.MatchString(service.Resources.Memory) {
+		if !validMemory(service.Resources.Memory) {
 			add(base+".resources.memory", "must be a positive binary unit such as 128Mi or 2Gi")
 		}
 		validateStringList(base+".command", service.Command, add)
@@ -246,6 +246,20 @@ func validCPU(value string) bool {
 	}
 	amount, err := strconv.ParseUint(match[1], 10, 32)
 	return err == nil && amount > 0
+}
+
+func validMemory(value string) bool {
+	if !memoryPattern.MatchString(value) {
+		return false
+	}
+	units := map[string]uint64{"Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30, "Ti": 1 << 40}
+	for suffix, multiplier := range units {
+		if strings.HasSuffix(value, suffix) {
+			amount, err := strconv.ParseUint(strings.TrimSuffix(value, suffix), 10, 64)
+			return err == nil && amount > 0 && amount <= uint64(1<<63-1)/multiplier
+		}
+	}
+	return false
 }
 
 func normalizeCPU(value string) string {

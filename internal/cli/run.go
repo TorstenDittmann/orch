@@ -43,8 +43,22 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	switch args[0] {
 	case "cluster":
 		return runCluster(args[1:], stdout, stderr)
+	case "agent":
+		return runAgent(ctx, args[1:], stdout, stderr)
 	case "controller":
 		return runController(ctx, args[1:], stdout, stderr)
+	case "nodes":
+		return runNodes(ctx, args[1:], stdout, stderr)
+	case "app":
+		return runApp(ctx, args[1:], stdout, stderr)
+	case "logs":
+		return runLogs(ctx, args[1:], stdout, stderr)
+	case "exec":
+		return runExec(ctx, args[1:], stdout, stderr)
+	case "remove":
+		return runRemove(ctx, args[1:], stdout, stderr)
+	case "runtime-log-sink":
+		return runRuntimeLogSink(ctx, args[1:], stderr)
 	case "status":
 		return runStatus(ctx, args[1:], stdout, stderr)
 	case "events":
@@ -306,7 +320,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, errors.New("controller returned an invalid application update time"), jsonOutput)
 		return ExitRuntime
 	}
-	const message = "desired state accepted; no agent is connected and no workload has been started"
+	const message = "desired state accepted; execution is asynchronous; use orch app status to observe it"
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
 			Application    string    `json:"application"`
@@ -332,7 +346,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	} else {
 		fmt.Fprintf(stdout, "Desired state for %s is already current (generation %d, %s).\n", response.GetName(), response.GetGeneration(), response.GetDigest())
 	}
-	fmt.Fprintln(stdout, "Status: PENDING — no agent is connected; no workload has been started.")
+	fmt.Fprintln(stdout, "Status: PENDING — accepted for asynchronous execution; use orch app status to observe it.")
 	fmt.Fprintf(stdout, "Idempotency key: %s\n", idempotencyKey)
 	return ExitOK
 }
@@ -721,6 +735,13 @@ Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
   orch cluster backup --data-dir DIR --output FILE [--json]
   orch controller serve --data-dir DIR --listen ADDRESS
+  orch agent init --name NAME --context FILE --data-dir DIR [--json]
+  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME
+  orch nodes --context FILE [--json]
+  orch app status NAME --context FILE [--json]
+  orch logs APP SERVICE --replica N --tail N --context FILE
+  orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]
+  orch remove APP --context FILE [--idempotency-key KEY] [--json]
   orch status --context FILE [--json]
   orch events --context FILE [--after SEQUENCE] [--limit N] [--json]
   orch deploy [-f orch.toml] --context FILE [--idempotency-key KEY] [--json]

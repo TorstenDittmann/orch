@@ -5,9 +5,9 @@ export default job({
 	steps: [
 		run('Verify change.codes checkout', 'test -n "$CHANGE_CODES_SHA"'),
 		run('Install pinned toolchain', 'mise install'),
-		run('Download dependencies', 'go mod download'),
-		run('Run project checks', 'make check'),
-		run('Build Linux amd64', 'GOOS=linux GOARCH=amd64 go build -trimpath ./cmd/orch'),
-		run('Build Linux arm64', 'GOOS=linux GOARCH=arm64 go build -trimpath ./cmd/orch')
+		run('Download dependencies', 'GOTOOLCHAIN=local mise exec -- go mod download'),
+		run('Run project checks', 'GOTOOLCHAIN=local mise exec -- make check'),
+		run('Build Linux amd64', 'GOTOOLCHAIN=local GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go build -trimpath ./cmd/orch'),
+		run('Build Linux arm64', 'GOTOOLCHAIN=local GOOS=linux GOARCH=arm64 CGO_ENABLED=0 mise exec -- go build -trimpath ./cmd/orch')
 	]
 });

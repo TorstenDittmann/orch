@@ -358,7 +358,7 @@ func TestRemoteStatusDeployAndEvents(t *testing.T) {
 	if err := json.Unmarshal(firstOutput, &deployment); err != nil {
 		t.Fatal(err)
 	}
-	if deployment.Application != "hello" || deployment.Generation != 1 || deployment.RevisionID == "" || !deployment.Changed || deployment.EventSequence != 2 || deployment.Status != "PENDING" || deployment.IdempotencyKey != "idempotency-key-one" || !strings.Contains(deployment.Message, "no workload") {
+	if deployment.Application != "hello" || deployment.Generation != 1 || deployment.RevisionID == "" || !deployment.Changed || deployment.EventSequence != 2 || deployment.Status != "PENDING" || deployment.IdempotencyKey != "idempotency-key-one" || !strings.Contains(deployment.Message, "app status") {
 		t.Fatalf("deployment = %#v", deployment)
 	}
 	if bytes.Contains(firstOutput, []byte("BEGIN ")) {
@@ -417,6 +417,48 @@ func TestRemoteCommandsClassifyLocalAndTransportFailures(t *testing.T) {
 	stderr.Reset()
 	if code := Run([]string{"deploy", "--file", largeManifest, "--context", "missing", "--json"}, &stdout, &stderr); code != ExitInvalid || !strings.Contains(stderr.String(), "exceeds") {
 		t.Fatalf("large manifest code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestRuntimeCommandsClassifyInvalidInputAndStayInPublicHelp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "agent init", args: []string{"agent", "init", "--name", "node-1"}},
+		{name: "agent init name", args: []string{"agent", "init", "--name", "Node_1", "--context", "missing", "--data-dir", "/tmp/orch-agent-invalid"}},
+		{name: "agent serve", args: []string{"agent", "serve", "--data-dir", "/tmp/agent"}},
+		{name: "nodes", args: []string{"nodes"}},
+		{name: "app status", args: []string{"app", "status", "hello"}},
+		{name: "app status name", args: []string{"app", "status", "Not_Valid", "--context", "missing"}},
+		{name: "zero log tail", args: []string{"logs", "hello", "worker", "--context", "missing", "--tail", "0"}},
+		{name: "log service name", args: []string{"logs", "hello", "Bad_Service", "--context", "missing"}},
+		{name: "exec separator", args: []string{"exec", "hello", "worker", "--context", "missing"}},
+		{name: "exec timeout", args: []string{"exec", "hello", "worker", "--context", "missing", "--timeout", "301", "--", "/bin/true"}},
+		{name: "exec empty argument", args: []string{"exec", "hello", "worker", "--context", "missing", "--", ""}},
+		{name: "remove key", args: []string{"remove", "hello", "--context", "missing", "--idempotency-key", "short"}},
+		{name: "remove name", args: []string{"remove", "Not_Valid", "--context", "missing"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := Run(test.args, &stdout, &stderr); code != ExitInvalid {
+				t.Fatalf("Run(%v) = %d, want %d; stderr = %s", test.args, code, ExitInvalid, stderr.String())
+			}
+		})
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"help"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("help = %d, %s", code, stderr.String())
+	}
+	for _, command := range []string{"agent init", "nodes --context", "app status", "logs APP", "exec APP", "remove APP"} {
+		if !strings.Contains(stdout.String(), command) {
+			t.Errorf("help does not contain %q", command)
+		}
+	}
+	if strings.Contains(stdout.String(), "runtime-log-sink") {
+		t.Fatal("private log-sink command was exposed in public help")
 	}
 }
 

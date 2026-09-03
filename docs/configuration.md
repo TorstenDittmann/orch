@@ -97,6 +97,34 @@ auto_rollback = true
 The availability values cannot both be zero. The health deadline must be from
 10 seconds through one hour.
 
+## Execution support in this slice
+
+The parser accepts the complete `v1alpha1` contract so future intent remains
+forward-compatible, but the first runtime slice executes a deliberately smaller
+subset. An executable service must use a public, digest-qualified OCI image and
+may use command, args, plain environment variables, replicas, restart policy,
+CPU and memory limits, and declared local volumes.
+
+The controller stores valid but currently unsupported intent and reports the
+application as `BLOCKED` with a stable reason:
+
+| Intent or requirement | Reason |
+| --- | --- |
+| Image tag without a digest | `unsupported_image_tag` |
+| Local/private registry requiring credentials | `private_registry_unsupported` |
+| `secret_env` or `secret_files` | `secrets_unsupported` |
+| Node constraints | `constraints_unsupported` |
+| HTTP configuration | `http_unsupported` |
+| Non-Linux or non-amd64/arm64 node | `unsupported_platform` |
+| Missing cgroups v2 | `cgroups_v2_required` |
+| Missing compatible containerd | `containerd_unavailable` |
+| Reported containerd version other than 2.3.4 | `unsupported_runtime_version` |
+| Missing configured snapshotter | `snapshotter_unavailable` |
+
+HTTP intent is blocked because workload network namespaces have no CNI
+attachment in this release. `RUNNING` means only that every exact desired
+process is alive; it does not imply readiness, reachability, or health.
+
 ## Canonical form and digests
 
 Parsing applies defaults, normalizes whole CPU values to millicpu, sorts domain
@@ -107,6 +135,6 @@ Equivalent field ordering therefore produces the same digest.
 `orch plan` compares a target file with an optional `--against` file and remains
 local/read-only. `orch deploy` sends the TOML to the authenticated controller,
 which stores the canonical form as an immutable desired-state revision. A
-formatting-only resubmission has the same digest. Until the agent/runtime slice
-lands, every accepted revision has execution status `PENDING` and starts no
-container.
+formatting-only resubmission has the same digest. The deploy response remains a
+durable `PENDING` acceptance receipt; `orch app status` reports the later
+asynchronous execution result.

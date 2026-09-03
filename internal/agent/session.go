@@ -1,0 +1,627 @@
+package agent
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
+	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
+	"change.codes/torsten/better-swarm/internal/agent/state"
+	"change.codes/torsten/better-swarm/internal/model"
+	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/security"
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+const (
+	reconcileInterval = 5 * time.Second
+	heartbeatInterval = 10 * time.Second
+	maxOperationChunk = 64 << 10
+)
+
+type sessionRunner struct {
+	credentials  Credentials
+	cache        *state.Store
+	supervisor   *Supervisor
+	capabilities orchruntime.Capabilities
+	bootID       string
+	now          func() time.Time
+	random       io.Reader
+	reportSeq    uint64
+}
+
+type controllerMessage struct {
+	message *orchv1alpha1.ConnectResponse
+	err     error
+}
+
+type activeOperation struct {
+	cancel context.CancelFunc
+}
+
+type agentOperations struct {
+	mu     sync.Mutex
+	active map[string]*activeOperation
+}
+
+func newAgentOperations() *agentOperations {
+	return &agentOperations{active: make(map[string]*activeOperation)}
+}
+
+func (o *agentOperations) add(id string, cancel context.CancelFunc) (*activeOperation, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, exists := o.active[id]; exists {
+		return nil, false
+	}
+	operation := &activeOperation{cancel: cancel}
+	o.active[id] = operation
+	return operation, true
+}
+
+func (o *agentOperations) finish(id string, operation *activeOperation) {
+	o.mu.Lock()
+	if o.active[id] == operation {
+		delete(o.active, id)
+	}
+	o.mu.Unlock()
+	operation.cancel()
+}
+
+func (o *agentOperations) cancel(id string) {
+	o.mu.Lock()
+	operation := o.active[id]
+	if operation != nil {
+		delete(o.active, id)
+	}
+	o.mu.Unlock()
+	if operation != nil {
+		operation.cancel()
+	}
+}
+
+func (o *agentOperations) cancelAll() {
+	o.mu.Lock()
+	active := o.active
+	o.active = make(map[string]*activeOperation)
+	o.mu.Unlock()
+	for _, operation := range active {
+		operation.cancel()
+	}
+}
+
+func (r *sessionRunner) run(ctx context.Context) error {
+	backoff := time.Second
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := r.reconcileCached(ctx); err != nil {
+			return err
+		}
+		err := r.connect(ctx)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err == nil {
+			backoff = time.Second
+		} else if connect.CodeOf(err) == connect.CodePermissionDenied || connect.CodeOf(err) == connect.CodeUnauthenticated {
+			return err
+		}
+		jitter, err := reconnectJitter(r.random, backoff/2)
+		if err != nil {
+			return fmt.Errorf("generate reconnect jitter: %w", err)
+		}
+		if err := r.waitToReconnect(ctx, backoff+jitter); err != nil {
+			return err
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
+}
+
+func (r *sessionRunner) waitToReconnect(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	ticker := time.NewTicker(reconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			return nil
+		case <-ticker.C:
+			if err := r.reconcileCached(ctx); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (r *sessionRunner) reconcileCached(ctx context.Context) error {
+	assignment, err := r.cache.Assignment(ctx)
+	if errors.Is(err, state.ErrNoAssignment) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read cached assignment while disconnected: %w", err)
+	}
+	if _, err := r.supervisor.Reconcile(ctx, assignment); err != nil {
+		return fmt.Errorf("reconcile cached assignment while disconnected: %w", err)
+	}
+	return nil
+}
+
+func reconnectJitter(source io.Reader, maximum time.Duration) (time.Duration, error) {
+	if maximum <= 0 {
+		return 0, nil
+	}
+	if source == nil {
+		source = rand.Reader
+	}
+	value, err := rand.Int(source, big.NewInt(int64(maximum)+1))
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(value.Int64()), nil
+}
+
+func (r *sessionRunner) connect(ctx context.Context) error {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13, RootCAs: r.credentials.RootCAs,
+		Certificates: []tls.Certificate{r.credentials.Certificate}, ServerName: r.credentials.ServerName,
+		VerifyConnection: func(connection tls.ConnectionState) error {
+			if len(connection.PeerCertificates) == 0 || len(connection.VerifiedChains) == 0 {
+				return errors.New("controller certificate was not verified")
+			}
+			return security.VerifyPeerIdentity(connection.PeerCertificates[0], r.credentials.Config.ClusterID, security.RoleController)
+		},
+	}
+	transport := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2: true, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second,
+		IdleConnTimeout: 60 * time.Second,
+	}
+	httpClient := &http.Client{Transport: transport}
+	defer transport.CloseIdleConnections()
+	client := orchv1alpha1connect.NewAgentServiceClient(httpClient, r.credentials.Config.Server,
+		connect.WithSendMaxBytes(2<<20), connect.WithReadMaxBytes(2<<20))
+	stream := client.Connect(ctx)
+	cached, cachedErr := r.cache.Assignment(ctx)
+	if cachedErr != nil && !errors.Is(cachedErr, state.ErrNoAssignment) {
+		return fmt.Errorf("read cached assignment: %w", cachedErr)
+	}
+	hello := &orchv1alpha1.AgentHello{
+		ProtocolVersion: "v1alpha1", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
+		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
+		CgroupsV2: r.capabilities.CgroupsV2,
+	}
+	if cachedErr == nil {
+		hello.CachedAssignmentGeneration = cached.Generation
+		hello.CachedAssignmentDigest = cached.Digest
+	}
+	if err := stream.Send(&orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Hello{Hello: hello}}); err != nil {
+		return err
+	}
+	received := make(chan controllerMessage, 1)
+	receiveContext, cancelReceive := context.WithCancel(ctx)
+	defer cancelReceive()
+	go receiveControllerMessages(receiveContext, stream, received)
+	outbound := make(chan *orchv1alpha1.ConnectRequest, 64)
+	operations := newAgentOperations()
+	defer func() {
+		operations.cancelAll()
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
+	}()
+	if cachedErr == nil {
+		statuses, err := r.supervisor.Reconcile(ctx, cached)
+		if err != nil {
+			return fmt.Errorf("reconcile cached assignment: %w", err)
+		}
+		if err := r.enqueueReport(outbound, cached, statuses); err != nil {
+			return err
+		}
+	}
+	heartbeat := time.NewTicker(heartbeatInterval)
+	reconcile := time.NewTicker(reconcileInterval)
+	defer heartbeat.Stop()
+	defer reconcile.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case request := <-outbound:
+			if err := stream.Send(request); err != nil {
+				return err
+			}
+		case item := <-received:
+			if item.err != nil {
+				return item.err
+			}
+			if err := r.handleControllerMessage(ctx, item.message, outbound, operations); err != nil {
+				return err
+			}
+		case <-heartbeat.C:
+			assignmentGeneration := uint64(0)
+			if assignment, err := r.cache.Assignment(ctx); err == nil {
+				assignmentGeneration = assignment.Generation
+			}
+			if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
+				BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration,
+			}}}); err != nil {
+				return err
+			}
+		case <-reconcile.C:
+			assignment, err := r.cache.Assignment(ctx)
+			if errors.Is(err, state.ErrNoAssignment) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("read cached assignment: %w", err)
+			}
+			statuses, err := r.supervisor.Reconcile(ctx, assignment)
+			if err != nil {
+				return fmt.Errorf("reconcile cached assignment: %w", err)
+			}
+			if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *orchv1alpha1.ConnectResponse, outbound chan<- *orchv1alpha1.ConnectRequest, operations *agentOperations) error {
+	if response == nil || len(response.ProtoReflect().GetUnknown()) != 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("controller message is invalid or contains unknown fields"))
+	}
+	switch message := response.GetMessage().(type) {
+	case *orchv1alpha1.ConnectResponse_Assignment:
+		if err := rejectAssignmentUnknownFields(message.Assignment); err != nil {
+			return err
+		}
+		assignment, err := assignmentModel(message.Assignment, r.credentials.Config.NodeID)
+		if err != nil {
+			return connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if _, err := r.cache.CommitAssignment(ctx, assignment); err != nil {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("durably cache assignment: %w", err))
+		}
+		if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
+			BootId: r.bootID, Generation: assignment.Generation, Digest: assignment.Digest,
+		}}}); err != nil {
+			return err
+		}
+		statuses, err := r.supervisor.Reconcile(ctx, assignment)
+		if err != nil {
+			return fmt.Errorf("reconcile assignment: %w", err)
+		}
+		return r.enqueueReport(outbound, assignment, statuses)
+	case *orchv1alpha1.ConnectResponse_TailLogs:
+		command := message.TailLogs
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			len(command.GetRequestId()) > 128 || command.GetAllocationId() == "" || command.GetTailLines() == 0 || command.GetTailLines() > 10_000 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid log command"))
+		}
+		operationContext, cancel := context.WithCancel(ctx)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runTailLogs(operationContext, command, outbound)
+		}()
+	case *orchv1alpha1.ConnectResponse_Exec:
+		command := message.Exec
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			len(command.GetRequestId()) > 128 || command.GetAllocationId() == "" || len(command.GetCommand()) == 0 || len(command.GetCommand()) > 64 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid exec command"))
+		}
+		commandBytes := 0
+		for _, argument := range command.GetCommand() {
+			if argument == "" || strings.ContainsRune(argument, 0) {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid exec command argument"))
+			}
+			commandBytes += len(argument)
+		}
+		if commandBytes > 8<<10 {
+			return connect.NewError(connect.CodeResourceExhausted, errors.New("exec command exceeds 8 KiB"))
+		}
+		timeout := time.Duration(command.GetTimeoutSeconds()) * time.Second
+		if timeout <= 0 || timeout > 5*time.Minute {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid exec timeout"))
+		}
+		operationContext, cancel := context.WithTimeout(ctx, timeout)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runExec(operationContext, ctx, command, outbound)
+		}()
+	case *orchv1alpha1.ConnectResponse_CancelOperation:
+		if message.CancelOperation == nil || len(message.CancelOperation.ProtoReflect().GetUnknown()) != 0 || message.CancelOperation.GetRequestId() == "" {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid operation cancellation"))
+		}
+		operations.cancel(message.CancelOperation.GetRequestId())
+	default:
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("controller message type is required"))
+	}
+	return nil
+}
+
+func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectRequest, assignment model.Assignment, statuses []model.AllocationStatus) error {
+	r.reportSeq++
+	report := &orchv1alpha1.AllocationReport{
+		BootId: r.bootID, Sequence: r.reportSeq, AssignmentGeneration: assignment.Generation,
+		AssignmentDigest: assignment.Digest, Allocations: make([]*orchv1alpha1.AllocationStatus, 0, len(statuses)),
+	}
+	for _, status := range statuses {
+		item := &orchv1alpha1.AllocationStatus{
+			Id: status.ID, Application: status.Application, Service: status.Service, Replica: status.Replica,
+			ApplicationGeneration: status.ApplicationGeneration, SpecDigest: status.SpecDigest,
+			Phase: allocationPhaseProto(status.Phase), Reason: status.Reason, Message: status.Message,
+			RestartCount: status.RestartCount, UpdatedAt: timestamppb.New(status.UpdatedAt),
+		}
+		if status.ExitCode != nil {
+			item.HasExitCode = true
+			item.ExitCode = *status.ExitCode
+		}
+		report.Allocations = append(report.Allocations, item)
+	}
+	return enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AllocationReport{AllocationReport: report}})
+}
+
+func (r *sessionRunner) runTailLogs(ctx context.Context, command *orchv1alpha1.TailLogsCommand, outbound chan<- *orchv1alpha1.ConnectRequest) {
+	allocation, err := r.cachedAllocation(ctx, command.GetAllocationId())
+	if err != nil {
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "allocation is not in the cached assignment")
+		return
+	}
+	frames, err := r.supervisor.TailLogs(ctx, allocation, command.GetTailLines())
+	if err != nil {
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "running allocation logs are unavailable")
+		return
+	}
+	var finalOffset uint64
+	for _, frame := range frames {
+		if frame.Offset > finalOffset {
+			finalOffset = frame.Offset
+		}
+		for len(frame.Data) > 0 {
+			size := min(len(frame.Data), maxOperationChunk)
+			chunk := append([]byte(nil), frame.Data[:size]...)
+			frame.Data = frame.Data[size:]
+			response := &orchv1alpha1.TailLogsResponse{
+				RequestId: command.GetRequestId(), Stream: logStreamProto(frame.Stream), Data: chunk,
+				Offset: frame.Offset, Truncated: frame.Truncated,
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: response}):
+			}
+		}
+	}
+	select {
+	case <-ctx.Done():
+	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true}}):
+	}
+}
+
+func (r *sessionRunner) runExec(ctx, sessionContext context.Context, command *orchv1alpha1.ExecCommand, outbound chan<- *orchv1alpha1.ConnectRequest) {
+	allocation, err := r.cachedAllocation(ctx, command.GetAllocationId())
+	if err != nil {
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "allocation is not in the cached assignment")
+		return
+	}
+	frames, err := r.supervisor.Exec(ctx, allocation, command.GetCommand())
+	if err != nil {
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "running allocation is unavailable")
+		return
+	}
+	terminal := false
+	for frame := range frames {
+		data := frame.Data
+		if len(data) == 0 {
+			data = nil
+		}
+		for len(data) > 0 || (frame.Exited && !terminal) {
+			size := min(len(data), maxOperationChunk)
+			chunk := append([]byte(nil), data[:size]...)
+			data = data[size:]
+			exited := frame.Exited && len(data) == 0
+			response := &orchv1alpha1.ExecResponse{
+				RequestId: command.GetRequestId(), Stream: logStreamProto(frame.Stream), Data: chunk,
+				Exited: exited, ExitCode: frame.ExitCode,
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Exec{Exec: response}):
+			}
+			if exited {
+				terminal = true
+			}
+			if len(data) == 0 {
+				break
+			}
+		}
+	}
+	if !terminal && ctx.Err() != nil {
+		enqueueOperationError(sessionContext, outbound, command.GetRequestId(), "timeout", "exec command timed out")
+	}
+}
+
+func receiveControllerMessages(ctx context.Context, stream *connect.BidiStreamForClient[orchv1alpha1.ConnectRequest, orchv1alpha1.ConnectResponse], output chan<- controllerMessage) {
+	for {
+		message, err := stream.Receive()
+		select {
+		case <-ctx.Done():
+			return
+		case output <- controllerMessage{message: message, err: err}:
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func enqueueAgentRequest(outbound chan<- *orchv1alpha1.ConnectRequest, request *orchv1alpha1.ConnectRequest) error {
+	select {
+	case outbound <- request:
+		return nil
+	default:
+		return connect.NewError(connect.CodeResourceExhausted, errors.New("agent outbound queue is full"))
+	}
+}
+
+func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) error {
+	if snapshot == nil || len(snapshot.ProtoReflect().GetUnknown()) != 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment contains unknown fields"))
+	}
+	for _, allocation := range snapshot.GetAllocations() {
+		if allocation == nil || len(allocation.ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment allocation contains unknown fields"))
+		}
+		for _, mount := range allocation.GetMounts() {
+			if mount == nil || len(mount.ProtoReflect().GetUnknown()) != 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment volume mount contains unknown fields"))
+			}
+		}
+	}
+	return nil
+}
+
+func (r *sessionRunner) cachedAllocation(ctx context.Context, id string) (model.AllocationDesired, error) {
+	assignment, err := r.cache.Assignment(ctx)
+	if err != nil {
+		return model.AllocationDesired{}, err
+	}
+	for _, allocation := range assignment.Allocations {
+		if allocation.ID == id {
+			return allocation, nil
+		}
+	}
+	return model.AllocationDesired{}, orchruntime.ErrNotFound
+}
+
+func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (model.Assignment, error) {
+	if snapshot == nil || snapshot.GetNodeId() != nodeID || snapshot.GetGeneration() == 0 || snapshot.GetDigest() == "" ||
+		snapshot.GetCreatedAt() == nil || snapshot.GetCreatedAt().CheckValid() != nil {
+		return model.Assignment{}, errors.New("assignment snapshot is incomplete or for another node")
+	}
+	assignment := model.Assignment{
+		NodeID: nodeID, Generation: snapshot.GetGeneration(), Digest: snapshot.GetDigest(),
+		CreatedAt: snapshot.GetCreatedAt().AsTime(), Allocations: make([]model.AllocationDesired, 0, len(snapshot.GetAllocations())),
+	}
+	previousID := ""
+	for _, item := range snapshot.GetAllocations() {
+		if item == nil || item.GetId() == "" || item.GetApplication() == "" || item.GetService() == "" || item.GetReplica() == 0 || item.GetSpecDigest() == "" {
+			return model.Assignment{}, errors.New("assignment contains an incomplete allocation")
+		}
+		if previousID != "" && item.GetId() <= previousID {
+			return model.Assignment{}, errors.New("assignment allocations are not in strict canonical order")
+		}
+		previousID = item.GetId()
+		allocation := model.AllocationDesired{
+			ID: item.GetId(), Application: item.GetApplication(), Service: item.GetService(), Replica: item.GetReplica(),
+			ApplicationGeneration: item.GetApplicationGeneration(), RevisionID: item.GetRevisionId(),
+			SpecDigest: item.GetSpecDigest(), Image: item.GetImage(), Command: append([]string(nil), item.GetCommand()...),
+			Args: append([]string(nil), item.GetArgs()...), Environment: cloneStringMap(item.GetEnvironment()),
+			RestartPolicy: item.GetRestartPolicy(), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
+			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
+		}
+		for _, mount := range item.GetMounts() {
+			allocation.Mounts = append(allocation.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
+		}
+		if err := orchruntime.ValidateAllocation(allocation); err != nil {
+			return model.Assignment{}, fmt.Errorf("assignment allocation %q is invalid: %w", allocation.ID, err)
+		}
+		assignment.Allocations = append(assignment.Allocations, allocation)
+	}
+	return assignment, nil
+}
+
+func operationResult(result any) *orchv1alpha1.ConnectRequest {
+	operation := &orchv1alpha1.AgentOperationResult{}
+	switch value := result.(type) {
+	case *orchv1alpha1.AgentOperationResult_Log:
+		operation.Result = value
+	case *orchv1alpha1.AgentOperationResult_Exec:
+		operation.Result = value
+	case *orchv1alpha1.AgentOperationResult_Error:
+		operation.Result = value
+	default:
+		panic("unsupported agent operation result")
+	}
+	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_OperationResult{OperationResult: operation}}
+}
+
+func enqueueOperationError(ctx context.Context, outbound chan<- *orchv1alpha1.ConnectRequest, requestID, code, message string) {
+	select {
+	case <-ctx.Done():
+	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Error{Error: &orchv1alpha1.OperationError{RequestId: requestID, Code: code, Message: message}}):
+	}
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
+}
+
+func allocationPhaseProto(phase string) orchv1alpha1.AllocationPhase {
+	switch phase {
+	case model.AllocationPending:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_PENDING
+	case model.AllocationPulling:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_PULLING
+	case model.AllocationStarting:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_STARTING
+	case model.AllocationRunning:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_RUNNING
+	case model.AllocationStopped:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_STOPPED
+	case model.AllocationBackoff:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_BACKOFF
+	case model.AllocationFailed:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_FAILED
+	default:
+		return orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_UNSPECIFIED
+	}
+}
+
+func logStreamProto(stream string) orchv1alpha1.LogStream {
+	if stream == "stderr" {
+		return orchv1alpha1.LogStream_LOG_STREAM_STDERR
+	}
+	return orchv1alpha1.LogStream_LOG_STREAM_STDOUT
+}

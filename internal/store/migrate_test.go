@@ -173,7 +173,7 @@ func TestOpenExistingMigratesVersionOneStateWithoutLoss(t *testing.T) {
 		FROM idempotency_keys WHERE key = 'legacy-key'`).Scan(&operation, &requestHash, &response); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 2 || eventCount != 1 || operation != "reserved" || requestHash != strings.Repeat("0", 64) || response != "{}" {
+	if migrationCount != 3 || eventCount != 1 || operation != "reserved" || requestHash != strings.Repeat("0", 64) || response != "{}" {
 		t.Fatalf("migrated state: migrations=%d events=%d operation=%q hash=%q response=%q", migrationCount, eventCount, operation, requestHash, response)
 	}
 }

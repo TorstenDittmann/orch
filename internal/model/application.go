@@ -6,19 +6,42 @@ import (
 )
 
 const (
-	EventApplicationDesiredUpdated = "application.desired.updated"
-	ExecutionPending               = "PENDING"
+	EventApplicationDesiredUpdated   = "application.desired.updated"
+	EventApplicationDesiredRemoved   = "application.desired.removed"
+	EventApplicationExecutionChanged = "application.execution.changed"
+
+	ExecutionPending  = "PENDING"
+	ExecutionBlocked  = "BLOCKED"
+	ExecutionStarting = "STARTING"
+	ExecutionRunning  = "RUNNING"
+	ExecutionDegraded = "DEGRADED"
+	ExecutionFailed   = "FAILED"
+	ExecutionStopping = "STOPPING"
+	ExecutionRemoved  = "REMOVED"
 )
 
 // Application is the current durable desired state of one application.
 type Application struct {
-	Name              string          `json:"name"`
-	Generation        uint64          `json:"generation"`
-	RevisionID        string          `json:"revision_id"`
-	Digest            string          `json:"digest"`
-	CanonicalManifest json.RawMessage `json:"canonical_manifest"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	Name              string               `json:"name"`
+	Generation        uint64               `json:"generation"`
+	RevisionID        string               `json:"revision_id"`
+	Digest            string               `json:"digest"`
+	CanonicalManifest json.RawMessage      `json:"canonical_manifest"`
+	CreatedAt         time.Time            `json:"created_at"`
+	UpdatedAt         time.Time            `json:"updated_at"`
+	DeletedAt         *time.Time           `json:"deleted_at,omitempty"`
+	Execution         ApplicationExecution `json:"execution"`
+}
+
+// ApplicationExecution is the controller's current observation of one
+// application's desired generation. RUNNING is process state, not readiness.
+type ApplicationExecution struct {
+	Status             string             `json:"status"`
+	ObservedGeneration uint64             `json:"observed_generation"`
+	Reason             string             `json:"reason"`
+	Message            string             `json:"message"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	Allocations        []AllocationStatus `json:"allocations,omitempty"`
 }
 
 // ApplyApplication contains validated, canonical application intent.
@@ -41,5 +64,15 @@ type ApplyApplicationResult struct {
 	EventSequence   uint64    `json:"event_sequence"`
 	ExecutionStatus string    `json:"execution_status"`
 	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// RemoveApplicationResult is persisted as an exact idempotency response.
+type RemoveApplicationResult struct {
+	Name            string    `json:"name"`
+	Generation      uint64    `json:"generation"`
+	Changed         bool      `json:"changed"`
+	EventSequence   uint64    `json:"event_sequence"`
+	ExecutionStatus string    `json:"execution_status"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

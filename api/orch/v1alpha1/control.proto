@@ -3,6 +3,7 @@ syntax = "proto3";
 package orch.v1alpha1;
 
 import "google/protobuf/timestamp.proto";
+import "orch/v1alpha1/agent.proto";
 
 option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1";
 
@@ -11,11 +12,30 @@ service ControlService {
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
   rpc ApplyApplication(ApplyApplicationRequest) returns (ApplyApplicationResponse);
+  rpc EnrollAgent(EnrollAgentRequest) returns (EnrollAgentResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc RemoveApplication(RemoveApplicationRequest) returns (RemoveApplicationResponse);
+  rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
+  rpc Exec(ExecRequest) returns (stream ExecResponse);
 }
 
 enum ExecutionStatus {
   EXECUTION_STATUS_UNSPECIFIED = 0;
   EXECUTION_STATUS_PENDING = 1;
+  EXECUTION_STATUS_BLOCKED = 2;
+  EXECUTION_STATUS_STARTING = 3;
+  EXECUTION_STATUS_RUNNING = 4;
+  EXECUTION_STATUS_DEGRADED = 5;
+  EXECUTION_STATUS_FAILED = 6;
+  EXECUTION_STATUS_STOPPING = 7;
+  EXECUTION_STATUS_REMOVED = 8;
+}
+
+enum NodeConnectionStatus {
+  NODE_CONNECTION_STATUS_UNSPECIFIED = 0;
+  NODE_CONNECTION_STATUS_ENROLLED = 1;
+  NODE_CONNECTION_STATUS_CONNECTED = 2;
+  NODE_CONNECTION_STATUS_DISCONNECTED = 3;
 }
 
 message Cluster {
@@ -35,6 +55,27 @@ message Application {
   ExecutionStatus execution_status = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  uint64 observed_generation = 9;
+  string execution_reason = 10;
+  string execution_message = 11;
+  google.protobuf.Timestamp execution_updated_at = 12;
+  repeated AllocationStatus allocations = 13;
+  bool deleted = 14;
+}
+
+message Node {
+  string id = 1;
+  string name = 2;
+  NodeConnectionStatus connection_status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_seen_at = 5;
+  string operating_system = 6;
+  string architecture = 7;
+  string runtime_version = 8;
+  string snapshotter = 9;
+  bool cgroups_v2 = 10;
+  uint64 assignment_generation = 11;
+  uint64 acknowledged_generation = 12;
 }
 
 message Event {
@@ -83,4 +124,57 @@ message ApplyApplicationResponse {
   ExecutionStatus execution_status = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+}
+
+message EnrollAgentRequest {
+  string name = 1;
+  bytes certificate_request_der = 2;
+  string idempotency_key = 3;
+}
+
+message EnrollAgentResponse {
+  string node_id = 1;
+  string node_name = 2;
+  string cluster_id = 3;
+  string controller_endpoint = 4;
+  bytes ca_certificate_pem = 5;
+  bytes agent_certificate_pem = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  bool changed = 8;
+  uint64 event_sequence = 9;
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+}
+
+message RemoveApplicationRequest {
+  string name = 1;
+  string idempotency_key = 2;
+}
+
+message RemoveApplicationResponse {
+  string name = 1;
+  uint64 generation = 2;
+  bool changed = 3;
+  uint64 event_sequence = 4;
+  ExecutionStatus execution_status = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message TailLogsRequest {
+  string application = 1;
+  string service = 2;
+  uint32 replica = 3;
+  uint32 tail_lines = 4;
+}
+
+message ExecRequest {
+  string application = 1;
+  string service = 2;
+  uint32 replica = 3;
+  repeated string command = 4;
+  uint32 timeout_seconds = 5;
 }
