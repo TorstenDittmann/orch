@@ -407,6 +407,120 @@ func (s *service) TailLogs(ctx context.Context, request *connect.Request[orchv1a
 	}
 }
 
+func (s *service) ListCronRuns(ctx context.Context, request *connect.Request[orchv1alpha1.ListCronRunsRequest]) (*connect.Response[orchv1alpha1.ListCronRunsResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if err := config.ValidateApplicationName(request.Msg.GetApplication()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if request.Msg.GetJob() != "" {
+		if err := config.ValidateApplicationName(request.Msg.GetJob()); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+	}
+	limit := request.Msg.GetLimit()
+	if limit == 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("limit must not exceed 100"))
+	}
+	runs, err := s.state.CronRuns(ctx, request.Msg.GetApplication(), request.Msg.GetJob(), limit)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read cron runs"))
+	}
+	response := &orchv1alpha1.ListCronRunsResponse{Runs: make([]*orchv1alpha1.JobRunStatus, 0, len(runs))}
+	for _, run := range runs {
+		response.Runs = append(response.Runs, jobRunStatusMessage(run))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orchv1alpha1.TailCronLogsRequest], stream *connect.ServerStream[orchv1alpha1.TailCronLogsResponse]) error {
+	if err := requireAdministrator(ctx); err != nil {
+		return err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return err
+	}
+	if err := config.ValidateApplicationName(request.Msg.GetApplication()); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := config.ValidateApplicationName(request.Msg.GetJob()); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if request.Msg.GetRunId() == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("run_id is required"))
+	}
+	runs, err := s.state.CronRuns(ctx, request.Msg.GetApplication(), request.Msg.GetJob(), 100)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, errors.New("read cron runs"))
+	}
+	found := false
+	for _, run := range runs {
+		if run.ID == request.Msg.GetRunId() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return connect.NewError(connect.CodeNotFound, errors.New("cron run was not found"))
+	}
+	nodes, err := s.state.Nodes(ctx)
+	if err != nil || len(nodes) == 0 {
+		return connect.NewError(connect.CodeUnavailable, errors.New("agent is unavailable"))
+	}
+	tailLines := request.Msg.GetTailLines()
+	if tailLines == 0 {
+		tailLines = defaultTailLines
+	}
+	if tailLines > maxTailLines {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("tail_lines must not exceed %d", maxTailLines))
+	}
+	operationContext, cancelContext := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelContext()
+	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, nodes[0].ID, func(requestID string) *orchv1alpha1.ConnectResponse {
+		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailCronLogs{TailCronLogs: &orchv1alpha1.TailCronLogsCommand{RequestId: requestID, RunId: request.Msg.GetRunId(), TailLines: tailLines}}}
+	})
+	if err != nil {
+		return operationConnectError(err)
+	}
+	defer cancelOperation()
+	terminal := false
+	for {
+		select {
+		case <-operationContext.Done():
+			return connect.NewError(connect.CodeDeadlineExceeded, errors.New("cron log request timed out"))
+		case result, ok := <-frames:
+			if !ok {
+				if terminal {
+					return nil
+				}
+				return connect.NewError(connect.CodeUnavailable, errAgentDisconnected)
+			}
+			switch value := result.GetResult().(type) {
+			case *orchv1alpha1.AgentOperationResult_Log:
+				if value.Log == nil {
+					return connect.NewError(connect.CodeInternal, errors.New("agent returned an empty log frame"))
+				}
+				terminal = value.Log.GetComplete()
+				if err := stream.Send(&orchv1alpha1.TailCronLogsResponse{Stream: value.Log.GetStream(), Data: value.Log.GetData(),
+					Offset: value.Log.GetOffset(), Truncated: value.Log.GetTruncated(), Complete: value.Log.GetComplete()}); err != nil {
+					return err
+				}
+			case *orchv1alpha1.AgentOperationResult_Error:
+				return agentOperationError(value.Error)
+			default:
+				return connect.NewError(connect.CodeInternal, errors.New("agent returned the wrong operation frame"))
+			}
+		}
+	}
+}
+
 func (s *service) Exec(ctx context.Context, request *connect.Request[orchv1alpha1.ExecRequest], stream *connect.ServerStream[orchv1alpha1.ExecResponse]) error {
 	if err := requireAdministrator(ctx); err != nil {
 		return err
@@ -561,6 +675,12 @@ func applicationMessage(application model.Application) *orchv1alpha1.Application
 	for _, route := range application.Execution.Routes {
 		message.Routes = append(message.Routes, routeStatusMessage(route))
 	}
+	for _, route := range application.Execution.TCPRoutes {
+		message.TcpRoutes = append(message.TcpRoutes, tcpRouteStatusMessage(route))
+	}
+	for _, job := range application.Execution.CronJobs {
+		message.CronJobs = append(message.CronJobs, cronJobStatusMessage(job))
+	}
 	return message
 }
 
@@ -663,6 +783,60 @@ func routeStatusMessage(status model.RouteStatus) *orchv1alpha1.RouteStatus {
 		Https: status.HTTPS, State: routeStateMessage(status.State), CertificateState: status.CertificateState,
 		UpstreamCount: status.UpstreamCount, Reason: status.Reason, Message: status.Message,
 		UpdatedAt: timestamppb.New(status.UpdatedAt),
+	}
+}
+
+func tcpRouteStatusMessage(status model.TCPRouteStatus) *orchv1alpha1.TCPRouteStatus {
+	return &orchv1alpha1.TCPRouteStatus{Application: status.Application, Service: status.Service,
+		PublicPort: status.PublicPort, TargetPort: status.TargetPort, State: routeStateMessage(status.State),
+		UpstreamCount: status.UpstreamCount, Reason: status.Reason, Message: status.Message,
+		UpdatedAt: timestamppb.New(status.UpdatedAt)}
+}
+
+func cronJobStatusMessage(status model.CronJobStatus) *orchv1alpha1.CronJobStatus {
+	message := &orchv1alpha1.CronJobStatus{Application: status.Application, Job: status.Job,
+		SpecDigest: status.SpecDigest, ActiveRunId: status.ActiveRunID, LastRunId: status.LastRunID,
+		LastState: jobRunStateMessage(status.LastState), Reason: status.Reason, Message: status.Message,
+		UpdatedAt: timestamppb.New(status.UpdatedAt)}
+	if status.NextRunAt != nil {
+		message.NextRunAt = timestamppb.New(*status.NextRunAt)
+	}
+	return message
+}
+
+func jobRunStatusMessage(status model.JobRunStatus) *orchv1alpha1.JobRunStatus {
+	message := &orchv1alpha1.JobRunStatus{Id: status.ID, Application: status.Application, Job: status.Job,
+		SpecDigest: status.SpecDigest, ScheduledAt: timestamppb.New(status.ScheduledAt), State: jobRunStateMessage(status.State),
+		Reason: status.Reason, Message: status.Message, UpdatedAt: timestamppb.New(status.UpdatedAt)}
+	if status.ExitCode != nil {
+		message.HasExitCode = true
+		message.ExitCode = *status.ExitCode
+	}
+	if status.StartedAt != nil {
+		message.StartedAt = timestamppb.New(*status.StartedAt)
+	}
+	if status.FinishedAt != nil {
+		message.FinishedAt = timestamppb.New(*status.FinishedAt)
+	}
+	return message
+}
+
+func jobRunStateMessage(value string) orchv1alpha1.JobRunState {
+	switch value {
+	case model.JobRunWaiting:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_WAITING
+	case model.JobRunRunning:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_RUNNING
+	case model.JobRunSucceeded:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_SUCCEEDED
+	case model.JobRunFailed:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_FAILED
+	case model.JobRunTimedOut:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_TIMED_OUT
+	case model.JobRunSkipped:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_SKIPPED
+	default:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_UNSPECIFIED
 	}
 }
 

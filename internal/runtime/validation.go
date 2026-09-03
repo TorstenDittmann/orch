@@ -9,6 +9,7 @@ import (
 
 	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/schedule"
 	"github.com/distribution/reference"
 )
 
@@ -110,6 +111,24 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 		}
 		totalBytes += len(allocation.HTTP.HealthPath)
 	}
+	if allocation.TCP != nil {
+		if allocation.HTTP != nil || allocation.TCP.Port == 0 || allocation.TCP.Port > 65535 ||
+			allocation.TCP.PublicPort > 65535 || allocation.TCP.PublicPort == 53 || allocation.TCP.PublicPort == 80 ||
+			allocation.TCP.PublicPort == 443 || allocation.NetworkGeneration == 0 {
+			return fmt.Errorf("runtime TCP intent is invalid")
+		}
+	}
+	if len(allocation.DependsOn) > 64 || !sort.StringsAreSorted(allocation.DependsOn) {
+		return fmt.Errorf("runtime dependencies are not in canonical order")
+	}
+	previousDependency := ""
+	for _, dependency := range allocation.DependsOn {
+		if !validDNSLabel(dependency) || dependency == allocation.Service || dependency == previousDependency {
+			return fmt.Errorf("runtime dependency is invalid or duplicated")
+		}
+		previousDependency = dependency
+		totalBytes += len(dependency)
+	}
 	if totalBytes > maxRuntimeAggregateBytes {
 		return fmt.Errorf("runtime allocation text exceeds the aggregate size limit")
 	}
@@ -130,6 +149,65 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 	return nil
 }
 
+func ValidateCronJob(job model.CronJobDesired) error {
+	if !validDNSLabel(job.Application) || !validDNSLabel(job.Job) || job.ApplicationGeneration == 0 ||
+		job.RevisionID == "" || len(job.RevisionID) > 128 || !validSHA256Digest(job.SpecDigest) ||
+		job.CPUMillis == 0 || job.CPUMillis > uint64(1<<63-1)/100 || job.MemoryBytes == 0 ||
+		job.MemoryBytes > uint64(1<<63-1) || job.StartDeadlineSeconds == 0 || job.StartDeadlineSeconds > 3600 ||
+		job.TimeoutSeconds < 10 || job.TimeoutSeconds > 24*60*60 || job.NetworkGeneration == 0 {
+		return fmt.Errorf("runtime cron job identity, resources, or deadlines are invalid")
+	}
+	if _, err := schedule.Parse(job.Schedule); err != nil {
+		return err
+	}
+	named, err := reference.ParseNormalizedNamed(job.Image)
+	if err != nil {
+		return err
+	}
+	if _, ok := named.(reference.Digested); !ok {
+		return fmt.Errorf("cron image must be digest-qualified")
+	}
+	domain := reference.Domain(named)
+	if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
+		return fmt.Errorf("private cron image registries are unsupported")
+	}
+	if len(job.Command) > maxRuntimeCommandEntries || len(job.Args) > maxRuntimeCommandEntries || len(job.Environment) > maxRuntimeEnvironmentEntries || len(job.DependsOn) > 64 {
+		return fmt.Errorf("runtime cron job collections are too large")
+	}
+	totalBytes := len(job.Image) + len(job.RevisionID) + len(job.Schedule)
+	for _, value := range append(append([]string(nil), job.Command...), job.Args...) {
+		if value == "" || len(value) > maxRuntimeStringBytes || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("runtime cron command is invalid")
+		}
+		totalBytes += len(value)
+	}
+	for key, value := range job.Environment {
+		if !validEnvironmentName(key) || len(value) > maxRuntimeStringBytes || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("runtime cron environment is invalid")
+		}
+		totalBytes += len(key) + len(value)
+	}
+	if !sort.StringsAreSorted(job.DependsOn) {
+		return fmt.Errorf("runtime cron dependencies are not canonical")
+	}
+	previous := ""
+	for _, dependency := range job.DependsOn {
+		if !validDNSLabel(dependency) || dependency == previous {
+			return fmt.Errorf("runtime cron dependency is invalid or duplicated")
+		}
+		previous = dependency
+		totalBytes += len(dependency)
+	}
+	if totalBytes > maxRuntimeAggregateBytes {
+		return fmt.Errorf("runtime cron text exceeds the aggregate size limit")
+	}
+	digest, err := model.CronJobSpecDigest(job)
+	if err != nil || digest != job.SpecDigest {
+		return fmt.Errorf("runtime cron job spec digest does not match")
+	}
+	return nil
+}
+
 func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesired {
 	rollback := allocation.Rollback
 	return model.AllocationDesired{
@@ -139,7 +217,8 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		Environment: rollback.Environment, RestartPolicy: rollback.RestartPolicy,
 		CPUMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes, Mounts: rollback.Mounts,
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, AutoRollback: rollback.AutoRollback,
-		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, NetworkGeneration: rollback.NetworkGeneration,
+		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
+		DependsOn: rollback.DependsOn, NetworkGeneration: rollback.NetworkGeneration,
 	}
 }
 

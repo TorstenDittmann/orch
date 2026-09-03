@@ -2,13 +2,14 @@
 
 This is the operator contract for orch's first networked application slice.
 It covers one Linux node only. There is no overlay, WireGuard peer, virtual
-service IP, routing mesh, arbitrary host-port publishing, IPv6, or public
-non-HTTP ingress in this release.
+service IP, routing mesh, arbitrary host-port publishing, or IPv6 in this
+release. Explicit raw TCP service listeners are supported.
 
 The request path stays on the node:
 
 ~~~text
 internet -> Caddy :80/:443 -> ready allocation IP:port
+internet -> declared TCP publicPort -> ready allocation IP:port
 workload -> service.application.svc.internal -> ready allocation IP:port
 workload -> external IPv4 destination -> orch bridge -> masquerade
 ~~~
@@ -166,6 +167,18 @@ For public HTTPS, the operator must:
 orch does not edit public DNS or cloud firewalls. Caddy operational logs are
 protected and bounded; request/access bodies are disabled by default. The
 admin API is a protected Unix socket, never a TCP listener.
+
+## Raw TCP routes
+
+`tcp = new Tcp { port = 9418; publicPort = 9418 }` binds the declared IPv4 host
+port and forwards unmodified streams to READY private replicas in round-robin
+order. Port 53 is reserved for workload DNS and 80/443 for Caddy. Conflicts are
+resolved globally by earliest application creation time; a later application
+reports `tcp_port_conflict`. Removing or replacing a route stops new accepts
+and gives existing connections 30 seconds to drain.
+
+Raw TCP ingress does not open operating-system or cloud-provider firewalls.
+There is no virtual IP or cross-node routing mesh in the single-node release.
 
 Start the agent with explicit paths and identity:
 

@@ -50,18 +50,23 @@ func FirstNodeNetwork(clusterCIDR string, generation uint64) (NetworkConfig, err
 type assignmentDocument struct {
 	Network     NetworkConfig       `json:"network"`
 	Allocations []AllocationDesired `json:"allocations"`
+	CronJobs    []CronJobDesired    `json:"cron_jobs,omitempty"`
 }
 
 func AssignmentPayload(network NetworkConfig, allocations []AllocationDesired) ([]byte, string, error) {
+	return AssignmentPayloadWithJobs(network, allocations, nil)
+}
+
+func AssignmentPayloadWithJobs(network NetworkConfig, allocations []AllocationDesired, jobs []CronJobDesired) ([]byte, string, error) {
 	var encoded []byte
 	var err error
-	if network.Generation == 0 {
+	if network.Generation == 0 && len(jobs) == 0 {
 		// Preserve the Plan #4 payload shape long enough to read and test
 		// pre-network assignments. Every new reconciler snapshot supplies a
 		// positive network generation and uses the document form below.
 		encoded, err = json.Marshal(allocations)
 	} else {
-		encoded, err = json.Marshal(assignmentDocument{Network: network, Allocations: allocations})
+		encoded, err = json.Marshal(assignmentDocument{Network: network, Allocations: allocations, CronJobs: jobs})
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("encode assignment: %w", err)
@@ -71,15 +76,20 @@ func AssignmentPayload(network NetworkConfig, allocations []AllocationDesired) (
 }
 
 func DecodeAssignmentPayload(payload []byte) (NetworkConfig, []AllocationDesired, error) {
+	network, allocations, _, err := DecodeAssignmentDocument(payload)
+	return network, allocations, err
+}
+
+func DecodeAssignmentDocument(payload []byte) (NetworkConfig, []AllocationDesired, []CronJobDesired, error) {
 	var document assignmentDocument
 	if err := json.Unmarshal(payload, &document); err == nil && document.Network.Generation != 0 {
-		return document.Network, document.Allocations, nil
+		return document.Network, document.Allocations, document.CronJobs, nil
 	}
 	// Plan #4 cached/controller assignments were a bare allocation array. Keep
 	// them readable so the matching new controller can replace them safely.
 	var allocations []AllocationDesired
 	if err := json.Unmarshal(payload, &allocations); err != nil {
-		return NetworkConfig{}, nil, fmt.Errorf("decode assignment: %w", err)
+		return NetworkConfig{}, nil, nil, fmt.Errorf("decode assignment: %w", err)
 	}
-	return NetworkConfig{}, allocations, nil
+	return NetworkConfig{}, allocations, nil, nil
 }

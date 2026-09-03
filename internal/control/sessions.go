@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	agentProtocolVersion  = "v1alpha1-network-1"
+	agentProtocolVersion  = "v1alpha1-workloads-2"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
 )
@@ -269,6 +269,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		NodeId: assignment.NodeID, Generation: assignment.Generation, Digest: assignment.Digest,
 		CreatedAt:   timestamppb.New(assignment.CreatedAt),
 		Allocations: make([]*orchv1alpha1.AllocationDesired, 0, len(assignment.Allocations)),
+		CronJobs:    make([]*orchv1alpha1.CronJobDesired, 0, len(assignment.CronJobs)),
 	}
 	if assignment.Network.Generation != 0 {
 		message.Network = &orchv1alpha1.NetworkConfig{
@@ -290,11 +291,23 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			MaxSurge: allocation.MaxSurge, MaxUnavailable: allocation.MaxUnavailable,
 		}
 		item.Http = httpDesiredMessage(allocation.HTTP)
+		item.Tcp = tcpDesiredMessage(allocation.TCP)
+		item.DependsOn = append([]string(nil), allocation.DependsOn...)
 		item.Rollback = rollbackSpecMessage(allocation.Rollback)
 		for _, mount := range allocation.Mounts {
 			item.Mounts = append(item.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
 		}
 		message.Allocations = append(message.Allocations, item)
+	}
+	for _, job := range assignment.CronJobs {
+		message.CronJobs = append(message.CronJobs, &orchv1alpha1.CronJobDesired{
+			Application: job.Application, Job: job.Job, ApplicationGeneration: job.ApplicationGeneration,
+			RevisionId: job.RevisionID, SpecDigest: job.SpecDigest, Image: job.Image, Schedule: job.Schedule,
+			Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
+			Environment: cloneEnvironment(job.Environment), CpuMillis: job.CPUMillis, MemoryBytes: job.MemoryBytes,
+			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: job.StartDeadlineSeconds,
+			TimeoutSeconds: job.TimeoutSeconds, NetworkGeneration: job.NetworkGeneration,
+		})
 	}
 	return message
 }
@@ -304,6 +317,13 @@ func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
 		return nil
 	}
 	return &orchv1alpha1.HTTPDesired{Port: http.Port, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS}
+}
+
+func tcpDesiredMessage(tcp *model.TCPDesired) *orchv1alpha1.TCPDesired {
+	if tcp == nil {
+		return nil
+	}
+	return &orchv1alpha1.TCPDesired{Port: tcp.Port, PublicPort: tcp.PublicPort}
 }
 
 func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpec {
@@ -316,6 +336,7 @@ func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpe
 		Args: append([]string(nil), rollback.Args...), Environment: cloneEnvironment(rollback.Environment),
 		RestartPolicy: rollback.RestartPolicy, CpuMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes,
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, Http: httpDesiredMessage(rollback.HTTP),
+		Tcp: tcpDesiredMessage(rollback.TCP), DependsOn: append([]string(nil), rollback.DependsOn...),
 		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop,
 	}

@@ -61,6 +61,12 @@ const (
 	// ControlServiceConfigureNetworkProcedure is the fully-qualified name of the ControlService's
 	// ConfigureNetwork RPC.
 	ControlServiceConfigureNetworkProcedure = "/orch.v1alpha1.ControlService/ConfigureNetwork"
+	// ControlServiceListCronRunsProcedure is the fully-qualified name of the ControlService's
+	// ListCronRuns RPC.
+	ControlServiceListCronRunsProcedure = "/orch.v1alpha1.ControlService/ListCronRuns"
+	// ControlServiceTailCronLogsProcedure is the fully-qualified name of the ControlService's
+	// TailCronLogs RPC.
+	ControlServiceTailCronLogsProcedure = "/orch.v1alpha1.ControlService/TailCronLogs"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -75,6 +81,8 @@ type ControlServiceClient interface {
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error)
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error)
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
+	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
+	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailCronLogsResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -148,6 +156,18 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("ConfigureNetwork")),
 			connect.WithClientOptions(opts...),
 		),
+		listCronRuns: connect.NewClient[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse](
+			httpClient,
+			baseURL+ControlServiceListCronRunsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListCronRuns")),
+			connect.WithClientOptions(opts...),
+		),
+		tailCronLogs: connect.NewClient[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse](
+			httpClient,
+			baseURL+ControlServiceTailCronLogsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("TailCronLogs")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -163,6 +183,8 @@ type controlServiceClient struct {
 	tailLogs          *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
 	exec              *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
 	configureNetwork  *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
+	listCronRuns      *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
+	tailCronLogs      *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -215,6 +237,16 @@ func (c *controlServiceClient) ConfigureNetwork(ctx context.Context, req *connec
 	return c.configureNetwork.CallUnary(ctx, req)
 }
 
+// ListCronRuns calls orch.v1alpha1.ControlService.ListCronRuns.
+func (c *controlServiceClient) ListCronRuns(ctx context.Context, req *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error) {
+	return c.listCronRuns.CallUnary(ctx, req)
+}
+
+// TailCronLogs calls orch.v1alpha1.ControlService.TailCronLogs.
+func (c *controlServiceClient) TailCronLogs(ctx context.Context, req *connect.Request[v1alpha1.TailCronLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailCronLogsResponse], error) {
+	return c.tailCronLogs.CallServerStream(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
@@ -227,6 +259,8 @@ type ControlServiceHandler interface {
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
+	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
+	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -296,6 +330,18 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("ConfigureNetwork")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceListCronRunsHandler := connect.NewUnaryHandler(
+		ControlServiceListCronRunsProcedure,
+		svc.ListCronRuns,
+		connect.WithSchema(controlServiceMethods.ByName("ListCronRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceTailCronLogsHandler := connect.NewServerStreamHandler(
+		ControlServiceTailCronLogsProcedure,
+		svc.TailCronLogs,
+		connect.WithSchema(controlServiceMethods.ByName("TailCronLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -318,6 +364,10 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceExecHandler.ServeHTTP(w, r)
 		case ControlServiceConfigureNetworkProcedure:
 			controlServiceConfigureNetworkHandler.ServeHTTP(w, r)
+		case ControlServiceListCronRunsProcedure:
+			controlServiceListCronRunsHandler.ServeHTTP(w, r)
+		case ControlServiceTailCronLogsProcedure:
+			controlServiceTailCronLogsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -365,4 +415,12 @@ func (UnimplementedControlServiceHandler) Exec(context.Context, *connect.Request
 
 func (UnimplementedControlServiceHandler) ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ConfigureNetwork is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListCronRuns is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.TailCronLogs is not implemented"))
 }

@@ -171,3 +171,17 @@ func (client *Client) Exec(ctx context.Context, application, service string, rep
 		Command: append([]string(nil), command...), TimeoutSeconds: timeoutSeconds,
 	}))
 }
+
+func (client *Client) ListCronRuns(ctx context.Context, application, job string, limit uint32) ([]*orchv1alpha1.JobRunStatus, error) {
+	response, err := client.service.ListCronRuns(ctx, connect.NewRequest(&orchv1alpha1.ListCronRunsRequest{Application: application, Job: job, Limit: limit}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetRuns(), nil
+}
+
+func (client *Client) TailCronLogs(ctx context.Context, application, job, runID string, tailLines uint32) (*connect.ServerStreamForClient[orchv1alpha1.TailCronLogsResponse], error) {
+	return client.service.TailCronLogs(ctx, connect.NewRequest(&orchv1alpha1.TailCronLogsRequest{
+		Application: application, Job: job, RunId: runID, TailLines: tailLines,
+	}))
+}

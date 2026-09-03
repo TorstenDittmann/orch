@@ -35,6 +35,17 @@ const (
 	RoutePending = "PENDING"
 	RouteActive  = "ACTIVE"
 	RouteFailed  = "FAILED"
+
+	TCPRoutePending = "PENDING"
+	TCPRouteActive  = "ACTIVE"
+	TCPRouteFailed  = "FAILED"
+
+	JobRunWaiting   = "WAITING"
+	JobRunRunning   = "RUNNING"
+	JobRunSucceeded = "SUCCEEDED"
+	JobRunFailed    = "FAILED"
+	JobRunTimedOut  = "TIMED_OUT"
+	JobRunSkipped   = "SKIPPED"
 )
 
 type VolumeMount struct {
@@ -48,6 +59,11 @@ type HTTPDesired struct {
 	Domains    []string `json:"domains,omitempty"`
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
+}
+
+type TCPDesired struct {
+	Port       uint32 `json:"port"`
+	PublicPort uint32 `json:"public_port,omitempty"`
 }
 
 type RollbackSpec struct {
@@ -64,6 +80,8 @@ type RollbackSpec struct {
 	Mounts                []VolumeMount     `json:"mounts,omitempty"`
 	StartDeadlineSeconds  uint32            `json:"start_deadline_seconds"`
 	HTTP                  *HTTPDesired      `json:"http,omitempty"`
+	TCP                   *TCPDesired       `json:"tcp,omitempty"`
+	DependsOn             []string          `json:"depends_on,omitempty"`
 	NetworkGeneration     uint64            `json:"network_generation"`
 	AutoRollback          bool              `json:"auto_rollback"`
 	StartBeforeStop       bool              `json:"start_before_stop"`
@@ -98,10 +116,33 @@ type AllocationDesired struct {
 	AutoRollback          bool              `json:"auto_rollback"`
 	StartBeforeStop       bool              `json:"start_before_stop"`
 	HTTP                  *HTTPDesired      `json:"http,omitempty"`
+	TCP                   *TCPDesired       `json:"tcp,omitempty"`
+	DependsOn             []string          `json:"depends_on,omitempty"`
 	NetworkGeneration     uint64            `json:"network_generation"`
 	MaxSurge              uint32            `json:"max_surge"`
 	MaxUnavailable        uint32            `json:"max_unavailable"`
 	Rollback              *RollbackSpec     `json:"rollback,omitempty"`
+}
+
+// CronJobDesired is an immutable one-shot workload template distributed to
+// the agent. Occurrence IDs are derived and claimed by the agent scheduler.
+type CronJobDesired struct {
+	Application           string            `json:"application"`
+	Job                   string            `json:"job"`
+	ApplicationGeneration uint64            `json:"application_generation"`
+	RevisionID            string            `json:"revision_id"`
+	SpecDigest            string            `json:"spec_digest"`
+	Image                 string            `json:"image"`
+	Schedule              string            `json:"schedule"`
+	Command               []string          `json:"command,omitempty"`
+	Args                  []string          `json:"args,omitempty"`
+	Environment           map[string]string `json:"environment,omitempty"`
+	CPUMillis             uint64            `json:"cpu_millis"`
+	MemoryBytes           uint64            `json:"memory_bytes"`
+	DependsOn             []string          `json:"depends_on,omitempty"`
+	StartDeadlineSeconds  uint32            `json:"start_deadline_seconds"`
+	TimeoutSeconds        uint32            `json:"timeout_seconds"`
+	NetworkGeneration     uint64            `json:"network_generation"`
 }
 
 type Assignment struct {
@@ -110,8 +151,49 @@ type Assignment struct {
 	Digest      string              `json:"digest"`
 	Payload     json.RawMessage     `json:"payload"`
 	Allocations []AllocationDesired `json:"allocations"`
+	CronJobs    []CronJobDesired    `json:"cron_jobs,omitempty"`
 	Network     NetworkConfig       `json:"network"`
 	CreatedAt   time.Time           `json:"created_at"`
+}
+
+type TCPRouteStatus struct {
+	Application   string    `json:"application"`
+	Service       string    `json:"service"`
+	PublicPort    uint32    `json:"public_port"`
+	TargetPort    uint32    `json:"target_port"`
+	State         string    `json:"state"`
+	UpstreamCount uint32    `json:"upstream_count"`
+	Reason        string    `json:"reason,omitempty"`
+	Message       string    `json:"message,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type CronJobStatus struct {
+	Application string     `json:"application"`
+	Job         string     `json:"job"`
+	SpecDigest  string     `json:"spec_digest"`
+	NextRunAt   *time.Time `json:"next_run_at,omitempty"`
+	ActiveRunID string     `json:"active_run_id,omitempty"`
+	LastRunID   string     `json:"last_run_id,omitempty"`
+	LastState   string     `json:"last_state,omitempty"`
+	Reason      string     `json:"reason,omitempty"`
+	Message     string     `json:"message,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type JobRunStatus struct {
+	ID          string     `json:"id"`
+	Application string     `json:"application"`
+	Job         string     `json:"job"`
+	SpecDigest  string     `json:"spec_digest"`
+	ScheduledAt time.Time  `json:"scheduled_at"`
+	State       string     `json:"state"`
+	ExitCode    *int32     `json:"exit_code,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Reason      string     `json:"reason,omitempty"`
+	Message     string     `json:"message,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 type AllocationStatus struct {
@@ -171,6 +253,7 @@ type PublishAssignment struct {
 	Allocations       []AllocationDesired
 	Network           NetworkConfig
 	ApplicationStates map[string]ApplicationExecution
+	CronJobs          []CronJobDesired
 	CreatedAt         time.Time
 }
 
@@ -198,6 +281,9 @@ type AgentReport struct {
 	AssignmentDigest     string
 	Allocations          []AllocationStatus
 	Routes               []RouteStatus
+	TCPRoutes            []TCPRouteStatus
+	CronJobs             []CronJobStatus
+	JobRuns              []JobRunStatus
 	Network              NetworkStatus
 	ReportedAt           time.Time
 }
@@ -219,14 +305,39 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		AutoRollback         bool              `json:"auto_rollback"`
 		StartBeforeStop      bool              `json:"start_before_stop"`
 		HTTP                 *HTTPDesired      `json:"http,omitempty"`
+		TCP                  *TCPDesired       `json:"tcp,omitempty"`
+		DependsOn            []string          `json:"depends_on,omitempty"`
 		NetworkGeneration    uint64            `json:"network_generation"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
-		allocation.HTTP, allocation.NetworkGeneration}
+		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.NetworkGeneration}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func CronJobSpecDigest(job CronJobDesired) (string, error) {
+	spec := struct {
+		Image                string            `json:"image"`
+		Schedule             string            `json:"schedule"`
+		Command              []string          `json:"command,omitempty"`
+		Args                 []string          `json:"args,omitempty"`
+		Environment          map[string]string `json:"environment,omitempty"`
+		CPUMillis            uint64            `json:"cpu_millis"`
+		MemoryBytes          uint64            `json:"memory_bytes"`
+		DependsOn            []string          `json:"depends_on,omitempty"`
+		StartDeadlineSeconds uint32            `json:"start_deadline_seconds"`
+		TimeoutSeconds       uint32            `json:"timeout_seconds"`
+		NetworkGeneration    uint64            `json:"network_generation"`
+	}{job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
+		job.MemoryBytes, job.DependsOn, job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("encode cron job runtime spec: %w", err)
 	}
 	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
@@ -275,7 +386,7 @@ func AllocationSpecDigestMatches(allocation AllocationDesired) (bool, error) {
 // IsPlan4Allocation reports whether the supplied digest is the exact legacy
 // digest and all fields added by the network slice remain unset.
 func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
-	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.Rollback != nil ||
+	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
 		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 {
 		return false, nil
 	}

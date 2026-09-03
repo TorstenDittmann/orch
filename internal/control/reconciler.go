@@ -74,15 +74,24 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	portOwners, err := desiredTCPPortOwners(applications)
+	if err != nil {
+		return err
+	}
 	previousByID := make(map[string]model.AllocationDesired)
+	previousCronByApplication := make(map[string][]model.CronJobDesired)
 	if previous, previousErr := r.state.CurrentAssignment(ctx, node.ID); previousErr == nil {
 		for _, allocation := range previous.Allocations {
 			previousByID[allocation.ID] = allocation
+		}
+		for _, job := range previous.CronJobs {
+			previousCronByApplication[job.Application] = append(previousCronByApplication[job.Application], job)
 		}
 	} else if !errors.Is(previousErr, store.ErrAssignmentNotFound) {
 		return fmt.Errorf("read previous assignment: %w", previousErr)
 	}
 	allocations := make([]model.AllocationDesired, 0)
+	cronJobs := make([]model.CronJobDesired, 0)
 	states := make(map[string]model.ApplicationExecution, len(applications))
 	for _, application := range applications {
 		if application.DeletedAt != nil {
@@ -92,14 +101,15 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 			}
 			continue
 		}
-		planned, blocked, err := planApplicationForNetwork(cluster.ID, node, application,
-			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, previousByID)
+		planned, blocked, err := planApplicationBundleForNetwork(cluster.ID, node, application,
+			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByID)
 		if err != nil {
 			return fmt.Errorf("plan application %q: %w", application.Name, err)
 		}
 		if blocked != nil {
 			if blocked.preservePrevious {
 				allocations = append(allocations, previousApplicationAllocations(previousByID, application.Name)...)
+				cronJobs = append(cronJobs, previousCronByApplication[application.Name]...)
 			}
 			status := blocked.status
 			if status == "" {
@@ -109,7 +119,8 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 				blocked.reason, blocked.message, now)
 			continue
 		}
-		allocations = append(allocations, planned...)
+		allocations = append(allocations, planned.allocations...)
+		cronJobs = append(cronJobs, planned.cronJobs...)
 		if application.Execution.ObservedGeneration != application.Generation ||
 			application.Execution.Status == model.ExecutionBlocked || application.Execution.Status == model.ExecutionRemoved {
 			states[application.Name] = executionState(model.ExecutionPending, 0,
@@ -117,13 +128,19 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		}
 	}
 	sort.Slice(allocations, func(i, j int) bool { return allocations[i].ID < allocations[j].ID })
-	payload, digest, err := model.AssignmentPayload(networkConfig, allocations)
+	sort.Slice(cronJobs, func(i, j int) bool {
+		if cronJobs[i].Application == cronJobs[j].Application {
+			return cronJobs[i].Job < cronJobs[j].Job
+		}
+		return cronJobs[i].Application < cronJobs[j].Application
+	})
+	payload, digest, err := model.AssignmentPayloadWithJobs(networkConfig, allocations, cronJobs)
 	if err != nil {
 		return err
 	}
 	assignment, changed, err := r.state.PublishAssignment(ctx, model.PublishAssignment{
 		NodeID: node.ID, Digest: digest, Payload: payload, Network: networkConfig,
-		Allocations: allocations, ApplicationStates: states, CreatedAt: now,
+		Allocations: allocations, CronJobs: cronJobs, ApplicationStates: states, CreatedAt: now,
 	})
 	if err != nil {
 		return err
@@ -141,6 +158,11 @@ type blockReason struct {
 	preservePrevious bool
 }
 
+type plannedApplication struct {
+	allocations []model.AllocationDesired
+	cronJobs    []model.CronJobDesired
+}
+
 func planApplication(clusterID string, node model.Node, application model.Application) ([]model.AllocationDesired, *blockReason, error) {
 	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
 	if err != nil {
@@ -153,15 +175,24 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 	networkConfig model.NetworkConfig, networkFrozen bool, domainOwners map[string]string,
 	previousByID map[string]model.AllocationDesired,
 ) ([]model.AllocationDesired, *blockReason, error) {
+	planned, blocked, err := planApplicationBundleForNetwork(clusterID, node, application, networkConfig,
+		networkFrozen, domainOwners, nil, previousByID)
+	return planned.allocations, blocked, err
+}
+
+func planApplicationBundleForNetwork(clusterID string, node model.Node, application model.Application,
+	networkConfig model.NetworkConfig, networkFrozen bool, domainOwners map[string]string,
+	portOwners map[uint32]string, previousByID map[string]model.AllocationDesired,
+) (plannedApplication, *blockReason, error) {
 	var manifest config.Manifest
 	if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-		return nil, nil, fmt.Errorf("decode stored manifest: %w", err)
+		return plannedApplication{}, nil, fmt.Errorf("decode stored manifest: %w", err)
 	}
 	if err := config.Validate(&manifest); err != nil {
-		return nil, nil, fmt.Errorf("validate stored manifest: %w", err)
+		return plannedApplication{}, nil, fmt.Errorf("validate stored manifest: %w", err)
 	}
 	if blocked := nodeBlocker(node); blocked != nil {
-		return nil, blocked, nil
+		return plannedApplication{}, blocked, nil
 	}
 
 	serviceNames := make([]string, 0, len(manifest.Services))
@@ -174,29 +205,29 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 		base := "services." + name
 		parsed, err := reference.ParseNormalizedNamed(service.Image)
 		if err != nil {
-			return nil, nil, fmt.Errorf("parse stored image reference: %w", err)
+			return plannedApplication{}, nil, fmt.Errorf("parse stored image reference: %w", err)
 		}
 		if _, ok := parsed.(reference.Digested); !ok {
-			return nil, &blockReason{
+			return plannedApplication{}, &blockReason{
 				reason:  "unsupported_image_tag",
 				message: base + ".image must use a public digest-qualified OCI reference",
 			}, nil
 		}
 		domain := reference.Domain(parsed)
 		if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
-			return nil, &blockReason{
+			return plannedApplication{}, &blockReason{
 				reason:  "private_registry_unsupported",
 				message: base + ".image requires a private/local registry; registry credentials are not available in this release",
 			}, nil
 		}
 		if len(service.SecretEnv) != 0 || len(service.SecretFiles) != 0 {
-			return nil, &blockReason{
+			return plannedApplication{}, &blockReason{
 				reason:  "secrets_unsupported",
 				message: base + " contains secret references; secrets are not executable in this release",
 			}, nil
 		}
 		if len(service.Constraints) != 0 {
-			return nil, &blockReason{
+			return plannedApplication{}, &blockReason{
 				reason:  "constraints_unsupported",
 				message: base + ".constraints requires a later scheduling release",
 			}, nil
@@ -205,15 +236,35 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 			for _, domain := range service.HTTP.Domains {
 				owner := application.Name + "/" + name
 				if domainOwners != nil && domainOwners[domain] != owner {
-					return nil, &blockReason{reason: "domain_conflict", message: base + ".http domain " + domain + " is already owned by an earlier application"}, nil
+					return plannedApplication{}, &blockReason{reason: "domain_conflict", message: base + ".http domain " + domain + " is already owned by an earlier application"}, nil
 				}
 			}
+		}
+		if service.TCP != nil && service.TCP.PublicPort != nil {
+			port := uint32(*service.TCP.PublicPort)
+			owner := application.Name + "/" + name
+			if portOwners != nil && portOwners[port] != owner {
+				return plannedApplication{}, &blockReason{reason: "tcp_port_conflict", message: fmt.Sprintf("%s.tcp public port %d is already owned by an earlier application", base, port)}, nil
+			}
+		}
+	}
+	for name, job := range manifest.CronJobs {
+		parsed, err := reference.ParseNormalizedNamed(job.Image)
+		if err != nil {
+			return plannedApplication{}, nil, fmt.Errorf("parse stored cron image reference: %w", err)
+		}
+		if _, ok := parsed.(reference.Digested); !ok {
+			return plannedApplication{}, &blockReason{reason: "unsupported_image_tag", message: "cronJobs." + name + ".image must use a public digest-qualified OCI reference"}, nil
+		}
+		domain := reference.Domain(parsed)
+		if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
+			return plannedApplication{}, &blockReason{reason: "private_registry_unsupported", message: "cronJobs." + name + ".image requires a private/local registry"}, nil
 		}
 	}
 	if !networkFrozen || node.NetworkGeneration != networkConfig.Generation ||
 		node.NodeSubnet != networkConfig.NodeSubnet || node.NetworkState != model.NetworkReady ||
 		node.DNSState != model.SubsystemReady {
-		return nil, &blockReason{
+		return plannedApplication{}, &blockReason{
 			status:           model.ExecutionPending,
 			reason:           "network_initializing",
 			message:          "waiting for the agent to validate and freeze the workload network",
@@ -226,15 +277,15 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 		service := manifest.Services[serviceName]
 		cpuMillis, err := parseCPUMillis(service.Resources.CPU)
 		if err != nil {
-			return nil, nil, err
+			return plannedApplication{}, nil, err
 		}
 		memoryBytes, err := parseMemoryBytes(service.Resources.Memory)
 		if err != nil {
-			return nil, nil, err
+			return plannedApplication{}, nil, err
 		}
 		startDeadline, err := time.ParseDuration(manifest.Deploy.HealthDeadline)
 		if err != nil {
-			return nil, nil, fmt.Errorf("parse stored process-start deadline: %w", err)
+			return plannedApplication{}, nil, fmt.Errorf("parse stored process-start deadline: %w", err)
 		}
 		mounts := make([]model.VolumeMount, 0, len(service.Mounts))
 		for _, mount := range service.Mounts {
@@ -268,9 +319,16 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS,
 				}
 			}
+			if service.TCP != nil {
+				allocation.TCP = &model.TCPDesired{Port: uint32(service.TCP.Port)}
+				if service.TCP.PublicPort != nil {
+					allocation.TCP.PublicPort = uint32(*service.TCP.PublicPort)
+				}
+			}
+			allocation.DependsOn = append([]string(nil), service.DependsOn...)
 			allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
 			if err != nil {
-				return nil, nil, err
+				return plannedApplication{}, nil, err
 			}
 			if previous := previousByID[allocation.ID]; previous.SpecDigest != "" {
 				sameDesiredRevision := previous.ApplicationGeneration == allocation.ApplicationGeneration &&
@@ -292,7 +350,45 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 			allocations = append(allocations, allocation)
 		}
 	}
-	return allocations, nil, nil
+	jobNames := make([]string, 0, len(manifest.CronJobs))
+	for name := range manifest.CronJobs {
+		jobNames = append(jobNames, name)
+	}
+	sort.Strings(jobNames)
+	cronJobs := make([]model.CronJobDesired, 0, len(jobNames))
+	for _, name := range jobNames {
+		job := manifest.CronJobs[name]
+		cpuMillis, err := parseCPUMillis(job.Resources.CPU)
+		if err != nil {
+			return plannedApplication{}, nil, err
+		}
+		memoryBytes, err := parseMemoryBytes(job.Resources.Memory)
+		if err != nil {
+			return plannedApplication{}, nil, err
+		}
+		startDeadline, err := time.ParseDuration(job.StartDeadline)
+		if err != nil {
+			return plannedApplication{}, nil, fmt.Errorf("parse stored cron start deadline: %w", err)
+		}
+		timeout, err := time.ParseDuration(job.Timeout)
+		if err != nil {
+			return plannedApplication{}, nil, fmt.Errorf("parse stored cron timeout: %w", err)
+		}
+		desired := model.CronJobDesired{
+			Application: application.Name, Job: name, ApplicationGeneration: application.Generation,
+			RevisionID: application.RevisionID, Image: job.Image, Schedule: job.Schedule,
+			Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
+			Environment: cloneEnvironment(job.Env), CPUMillis: cpuMillis, MemoryBytes: memoryBytes,
+			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: uint32(startDeadline / time.Second),
+			TimeoutSeconds: uint32(timeout / time.Second), NetworkGeneration: networkConfig.Generation,
+		}
+		desired.SpecDigest, err = model.CronJobSpecDigest(desired)
+		if err != nil {
+			return plannedApplication{}, nil, err
+		}
+		cronJobs = append(cronJobs, desired)
+	}
+	return plannedApplication{allocations: allocations, cronJobs: cronJobs}, nil, nil
 }
 
 func previousApplicationAllocations(previous map[string]model.AllocationDesired, application string) []model.AllocationDesired {
@@ -367,7 +463,8 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		CPUMillis: allocation.CPUMillis, MemoryBytes: allocation.MemoryBytes,
 		Mounts:               append([]model.VolumeMount(nil), allocation.Mounts...),
 		StartDeadlineSeconds: allocation.StartDeadlineSeconds,
-		HTTP:                 allocation.HTTP, NetworkGeneration: allocation.NetworkGeneration,
+		HTTP:                 allocation.HTTP, TCP: allocation.TCP,
+		DependsOn: append([]string(nil), allocation.DependsOn...), NetworkGeneration: allocation.NetworkGeneration,
 		AutoRollback: allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
 	}
 }
@@ -386,6 +483,11 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 		http.Domains = append([]string(nil), input.HTTP.Domains...)
 		result.HTTP = &http
 	}
+	if input.TCP != nil {
+		tcp := *input.TCP
+		result.TCP = &tcp
+	}
+	result.DependsOn = append([]string(nil), input.DependsOn...)
 	return &result
 }
 
@@ -427,6 +529,46 @@ func desiredDomainOwners(applications []model.Application) (map[string]string, e
 	for _, candidate := range candidates {
 		if _, exists := owners[candidate.domain]; !exists {
 			owners[candidate.domain] = candidate.app + "/" + candidate.service
+		}
+	}
+	return owners, nil
+}
+
+func desiredTCPPortOwners(applications []model.Application) (map[uint32]string, error) {
+	type candidate struct {
+		created time.Time
+		app     string
+		service string
+		port    uint32
+	}
+	var candidates []candidate
+	for _, application := range applications {
+		if application.DeletedAt != nil {
+			continue
+		}
+		var manifest config.Manifest
+		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
+			return nil, fmt.Errorf("decode stored manifest for TCP port ownership: %w", err)
+		}
+		for serviceName, service := range manifest.Services {
+			if service.TCP != nil && service.TCP.PublicPort != nil {
+				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, uint32(*service.TCP.PublicPort)})
+			}
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if !candidates[i].created.Equal(candidates[j].created) {
+			return candidates[i].created.Before(candidates[j].created)
+		}
+		if candidates[i].app != candidates[j].app {
+			return candidates[i].app < candidates[j].app
+		}
+		return candidates[i].service < candidates[j].service
+	})
+	owners := make(map[uint32]string)
+	for _, candidate := range candidates {
+		if _, exists := owners[candidate.port]; !exists {
+			owners[candidate.port] = candidate.app + "/" + candidate.service
 		}
 	}
 	return owners, nil

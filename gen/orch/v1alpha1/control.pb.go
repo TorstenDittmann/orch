@@ -266,6 +266,8 @@ type Application struct {
 	ActiveGeneration      uint64                 `protobuf:"varint,15,opt,name=active_generation,json=activeGeneration,proto3" json:"active_generation,omitempty"`
 	ActiveRevisionId      string                 `protobuf:"bytes,16,opt,name=active_revision_id,json=activeRevisionId,proto3" json:"active_revision_id,omitempty"`
 	Routes                []*RouteStatus         `protobuf:"bytes,17,rep,name=routes,proto3" json:"routes,omitempty"`
+	TcpRoutes             []*TCPRouteStatus      `protobuf:"bytes,18,rep,name=tcp_routes,json=tcpRoutes,proto3" json:"tcp_routes,omitempty"`
+	CronJobs              []*CronJobStatus       `protobuf:"bytes,19,rep,name=cron_jobs,json=cronJobs,proto3" json:"cron_jobs,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -415,6 +417,20 @@ func (x *Application) GetActiveRevisionId() string {
 func (x *Application) GetRoutes() []*RouteStatus {
 	if x != nil {
 		return x.Routes
+	}
+	return nil
+}
+
+func (x *Application) GetTcpRoutes() []*TCPRouteStatus {
+	if x != nil {
+		return x.TcpRoutes
+	}
+	return nil
+}
+
+func (x *Application) GetCronJobs() []*CronJobStatus {
+	if x != nil {
+		return x.CronJobs
 	}
 	return nil
 }
@@ -1677,6 +1693,254 @@ func (x *ExecRequest) GetTimeoutSeconds() uint32 {
 	return 0
 }
 
+type ListCronRunsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Job           string                 `protobuf:"bytes,2,opt,name=job,proto3" json:"job,omitempty"`
+	Limit         uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCronRunsRequest) Reset() {
+	*x = ListCronRunsRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCronRunsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCronRunsRequest) ProtoMessage() {}
+
+func (x *ListCronRunsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCronRunsRequest.ProtoReflect.Descriptor instead.
+func (*ListCronRunsRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListCronRunsRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *ListCronRunsRequest) GetJob() string {
+	if x != nil {
+		return x.Job
+	}
+	return ""
+}
+
+func (x *ListCronRunsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListCronRunsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runs          []*JobRunStatus        `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCronRunsResponse) Reset() {
+	*x = ListCronRunsResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCronRunsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCronRunsResponse) ProtoMessage() {}
+
+func (x *ListCronRunsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCronRunsResponse.ProtoReflect.Descriptor instead.
+func (*ListCronRunsResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListCronRunsResponse) GetRuns() []*JobRunStatus {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
+}
+
+type TailCronLogsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Job           string                 `protobuf:"bytes,2,opt,name=job,proto3" json:"job,omitempty"`
+	RunId         string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	TailLines     uint32                 `protobuf:"varint,4,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TailCronLogsRequest) Reset() {
+	*x = TailCronLogsRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TailCronLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TailCronLogsRequest) ProtoMessage() {}
+
+func (x *TailCronLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TailCronLogsRequest.ProtoReflect.Descriptor instead.
+func (*TailCronLogsRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *TailCronLogsRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *TailCronLogsRequest) GetJob() string {
+	if x != nil {
+		return x.Job
+	}
+	return ""
+}
+
+func (x *TailCronLogsRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *TailCronLogsRequest) GetTailLines() uint32 {
+	if x != nil {
+		return x.TailLines
+	}
+	return 0
+}
+
+type TailCronLogsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stream        LogStream              `protobuf:"varint,1,opt,name=stream,proto3,enum=orch.v1alpha1.LogStream" json:"stream,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Offset        uint64                 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	Truncated     bool                   `protobuf:"varint,4,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	Complete      bool                   `protobuf:"varint,5,opt,name=complete,proto3" json:"complete,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TailCronLogsResponse) Reset() {
+	*x = TailCronLogsResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TailCronLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TailCronLogsResponse) ProtoMessage() {}
+
+func (x *TailCronLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TailCronLogsResponse.ProtoReflect.Descriptor instead.
+func (*TailCronLogsResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *TailCronLogsResponse) GetStream() LogStream {
+	if x != nil {
+		return x.Stream
+	}
+	return LogStream_LOG_STREAM_UNSPECIFIED
+}
+
+func (x *TailCronLogsResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *TailCronLogsResponse) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *TailCronLogsResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+func (x *TailCronLogsResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
 type ConfigureNetworkRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Cidr           string                 `protobuf:"bytes,1,opt,name=cidr,proto3" json:"cidr,omitempty"`
@@ -1687,7 +1951,7 @@ type ConfigureNetworkRequest struct {
 
 func (x *ConfigureNetworkRequest) Reset() {
 	*x = ConfigureNetworkRequest{}
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[20]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1699,7 +1963,7 @@ func (x *ConfigureNetworkRequest) String() string {
 func (*ConfigureNetworkRequest) ProtoMessage() {}
 
 func (x *ConfigureNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[20]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1712,7 +1976,7 @@ func (x *ConfigureNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureNetworkRequest.ProtoReflect.Descriptor instead.
 func (*ConfigureNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{20}
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ConfigureNetworkRequest) GetCidr() string {
@@ -1743,7 +2007,7 @@ type ConfigureNetworkResponse struct {
 
 func (x *ConfigureNetworkResponse) Reset() {
 	*x = ConfigureNetworkResponse{}
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[21]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1755,7 +2019,7 @@ func (x *ConfigureNetworkResponse) String() string {
 func (*ConfigureNetworkResponse) ProtoMessage() {}
 
 func (x *ConfigureNetworkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[21]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1768,7 +2032,7 @@ func (x *ConfigureNetworkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureNetworkResponse.ProtoReflect.Descriptor instead.
 func (*ConfigureNetworkResponse) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{21}
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ConfigureNetworkResponse) GetCidr() string {
@@ -1829,7 +2093,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12#\n" +
 	"\rworkload_cidr\x18\x06 \x01(\tR\fworkloadCidr\x12-\n" +
 	"\x12network_generation\x18\a \x01(\x04R\x11networkGeneration\x12%\n" +
-	"\x0enetwork_frozen\x18\b \x01(\bR\rnetworkFrozen\"\xb6\x06\n" +
+	"\x0enetwork_frozen\x18\b \x01(\bR\rnetworkFrozen\"\xaf\a\n" +
 	"\vApplication\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -1853,7 +2117,10 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\adeleted\x18\x0e \x01(\bR\adeleted\x12+\n" +
 	"\x11active_generation\x18\x0f \x01(\x04R\x10activeGeneration\x12,\n" +
 	"\x12active_revision_id\x18\x10 \x01(\tR\x10activeRevisionId\x122\n" +
-	"\x06routes\x18\x11 \x03(\v2\x1a.orch.v1alpha1.RouteStatusR\x06routes\"\xad\a\n" +
+	"\x06routes\x18\x11 \x03(\v2\x1a.orch.v1alpha1.RouteStatusR\x06routes\x12<\n" +
+	"\n" +
+	"tcp_routes\x18\x12 \x03(\v2\x1d.orch.v1alpha1.TCPRouteStatusR\ttcpRoutes\x129\n" +
+	"\tcron_jobs\x18\x13 \x03(\v2\x1c.orch.v1alpha1.CronJobStatusR\bcronJobs\"\xad\a\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12P\n" +
@@ -1965,7 +2232,25 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\aservice\x18\x02 \x01(\tR\aservice\x12\x18\n" +
 	"\areplica\x18\x03 \x01(\rR\areplica\x12\x18\n" +
 	"\acommand\x18\x04 \x03(\tR\acommand\x12'\n" +
-	"\x0ftimeout_seconds\x18\x05 \x01(\rR\x0etimeoutSeconds\"V\n" +
+	"\x0ftimeout_seconds\x18\x05 \x01(\rR\x0etimeoutSeconds\"_\n" +
+	"\x13ListCronRunsRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x10\n" +
+	"\x03job\x18\x02 \x01(\tR\x03job\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\"G\n" +
+	"\x14ListCronRunsResponse\x12/\n" +
+	"\x04runs\x18\x01 \x03(\v2\x1b.orch.v1alpha1.JobRunStatusR\x04runs\"\x7f\n" +
+	"\x13TailCronLogsRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x10\n" +
+	"\x03job\x18\x02 \x01(\tR\x03job\x12\x15\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x1d\n" +
+	"\n" +
+	"tail_lines\x18\x04 \x01(\rR\ttailLines\"\xae\x01\n" +
+	"\x14TailCronLogsResponse\x120\n" +
+	"\x06stream\x18\x01 \x01(\x0e2\x18.orch.v1alpha1.LogStreamR\x06stream\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x1c\n" +
+	"\ttruncated\x18\x04 \x01(\bR\ttruncated\x12\x1a\n" +
+	"\bcomplete\x18\x05 \x01(\bR\bcomplete\"V\n" +
 	"\x17ConfigureNetworkRequest\x12\x12\n" +
 	"\x04cidr\x18\x01 \x01(\tR\x04cidr\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\xe2\x01\n" +
@@ -1996,7 +2281,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\"NODE_CONNECTION_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fNODE_CONNECTION_STATUS_ENROLLED\x10\x01\x12$\n" +
 	" NODE_CONNECTION_STATUS_CONNECTED\x10\x02\x12'\n" +
-	"#NODE_CONNECTION_STATUS_DISCONNECTED\x10\x032\xff\x06\n" +
+	"#NODE_CONNECTION_STATUS_DISCONNECTED\x10\x032\xb3\b\n" +
 	"\x0eControlService\x12Q\n" +
 	"\n" +
 	"GetCluster\x12 .orch.v1alpha1.GetClusterRequest\x1a!.orch.v1alpha1.GetClusterResponse\x12]\n" +
@@ -2009,7 +2294,9 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x11RemoveApplication\x12'.orch.v1alpha1.RemoveApplicationRequest\x1a(.orch.v1alpha1.RemoveApplicationResponse\x12M\n" +
 	"\bTailLogs\x12\x1e.orch.v1alpha1.TailLogsRequest\x1a\x1f.orch.v1alpha1.TailLogsResponse0\x01\x12A\n" +
 	"\x04Exec\x12\x1a.orch.v1alpha1.ExecRequest\x1a\x1b.orch.v1alpha1.ExecResponse0\x01\x12c\n" +
-	"\x10ConfigureNetwork\x12&.orch.v1alpha1.ConfigureNetworkRequest\x1a'.orch.v1alpha1.ConfigureNetworkResponseBBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\x10ConfigureNetwork\x12&.orch.v1alpha1.ConfigureNetworkRequest\x1a'.orch.v1alpha1.ConfigureNetworkResponse\x12W\n" +
+	"\fListCronRuns\x12\".orch.v1alpha1.ListCronRunsRequest\x1a#.orch.v1alpha1.ListCronRunsResponse\x12Y\n" +
+	"\fTailCronLogs\x12\".orch.v1alpha1.TailCronLogsRequest\x1a#.orch.v1alpha1.TailCronLogsResponse0\x01BBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_control_proto_rawDescOnce sync.Once
@@ -2024,7 +2311,7 @@ func file_orch_v1alpha1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(ExecutionStatus)(0),              // 0: orch.v1alpha1.ExecutionStatus
 	(NodeConnectionStatus)(0),         // 1: orch.v1alpha1.NodeConnectionStatus
@@ -2048,62 +2335,78 @@ var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(*RemoveApplicationResponse)(nil), // 19: orch.v1alpha1.RemoveApplicationResponse
 	(*TailLogsRequest)(nil),           // 20: orch.v1alpha1.TailLogsRequest
 	(*ExecRequest)(nil),               // 21: orch.v1alpha1.ExecRequest
-	(*ConfigureNetworkRequest)(nil),   // 22: orch.v1alpha1.ConfigureNetworkRequest
-	(*ConfigureNetworkResponse)(nil),  // 23: orch.v1alpha1.ConfigureNetworkResponse
-	(*timestamppb.Timestamp)(nil),     // 24: google.protobuf.Timestamp
-	(*AllocationStatus)(nil),          // 25: orch.v1alpha1.AllocationStatus
-	(*RouteStatus)(nil),               // 26: orch.v1alpha1.RouteStatus
-	(*TailLogsResponse)(nil),          // 27: orch.v1alpha1.TailLogsResponse
-	(*ExecResponse)(nil),              // 28: orch.v1alpha1.ExecResponse
+	(*ListCronRunsRequest)(nil),       // 22: orch.v1alpha1.ListCronRunsRequest
+	(*ListCronRunsResponse)(nil),      // 23: orch.v1alpha1.ListCronRunsResponse
+	(*TailCronLogsRequest)(nil),       // 24: orch.v1alpha1.TailCronLogsRequest
+	(*TailCronLogsResponse)(nil),      // 25: orch.v1alpha1.TailCronLogsResponse
+	(*ConfigureNetworkRequest)(nil),   // 26: orch.v1alpha1.ConfigureNetworkRequest
+	(*ConfigureNetworkResponse)(nil),  // 27: orch.v1alpha1.ConfigureNetworkResponse
+	(*timestamppb.Timestamp)(nil),     // 28: google.protobuf.Timestamp
+	(*AllocationStatus)(nil),          // 29: orch.v1alpha1.AllocationStatus
+	(*RouteStatus)(nil),               // 30: orch.v1alpha1.RouteStatus
+	(*TCPRouteStatus)(nil),            // 31: orch.v1alpha1.TCPRouteStatus
+	(*CronJobStatus)(nil),             // 32: orch.v1alpha1.CronJobStatus
+	(*JobRunStatus)(nil),              // 33: orch.v1alpha1.JobRunStatus
+	(LogStream)(0),                    // 34: orch.v1alpha1.LogStream
+	(*TailLogsResponse)(nil),          // 35: orch.v1alpha1.TailLogsResponse
+	(*ExecResponse)(nil),              // 36: orch.v1alpha1.ExecResponse
 }
 var file_orch_v1alpha1_control_proto_depIdxs = []int32{
-	24, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	28, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: orch.v1alpha1.Application.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	24, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
-	24, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
-	25, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	26, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
-	1,  // 7: orch.v1alpha1.Node.connection_status:type_name -> orch.v1alpha1.NodeConnectionStatus
-	24, // 8: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
-	24, // 9: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
-	24, // 10: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 11: orch.v1alpha1.GetClusterResponse.cluster:type_name -> orch.v1alpha1.Cluster
-	3,  // 12: orch.v1alpha1.GetApplicationResponse.application:type_name -> orch.v1alpha1.Application
-	5,  // 13: orch.v1alpha1.ListEventsResponse.events:type_name -> orch.v1alpha1.Event
-	0,  // 14: orch.v1alpha1.ApplyApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	24, // 15: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
-	24, // 16: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 17: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
-	4,  // 18: orch.v1alpha1.ListNodesResponse.nodes:type_name -> orch.v1alpha1.Node
-	0,  // 19: orch.v1alpha1.RemoveApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	24, // 20: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	24, // 21: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
-	6,  // 22: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
-	8,  // 23: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
-	10, // 24: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
-	12, // 25: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
-	14, // 26: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
-	16, // 27: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
-	18, // 28: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
-	20, // 29: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
-	21, // 30: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
-	22, // 31: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
-	7,  // 32: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
-	9,  // 33: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
-	11, // 34: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
-	13, // 35: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
-	15, // 36: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
-	17, // 37: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
-	19, // 38: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
-	27, // 39: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
-	28, // 40: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
-	23, // 41: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
-	32, // [32:42] is the sub-list for method output_type
-	22, // [22:32] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	28, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
+	28, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
+	28, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
+	29, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	30, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
+	31, // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	32, // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	1,  // 9: orch.v1alpha1.Node.connection_status:type_name -> orch.v1alpha1.NodeConnectionStatus
+	28, // 10: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
+	28, // 11: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
+	28, // 12: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 13: orch.v1alpha1.GetClusterResponse.cluster:type_name -> orch.v1alpha1.Cluster
+	3,  // 14: orch.v1alpha1.GetApplicationResponse.application:type_name -> orch.v1alpha1.Application
+	5,  // 15: orch.v1alpha1.ListEventsResponse.events:type_name -> orch.v1alpha1.Event
+	0,  // 16: orch.v1alpha1.ApplyApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
+	28, // 17: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
+	28, // 18: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	28, // 19: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	4,  // 20: orch.v1alpha1.ListNodesResponse.nodes:type_name -> orch.v1alpha1.Node
+	0,  // 21: orch.v1alpha1.RemoveApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
+	28, // 22: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	33, // 23: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
+	34, // 24: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	28, // 25: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
+	6,  // 26: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
+	8,  // 27: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
+	10, // 28: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
+	12, // 29: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
+	14, // 30: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
+	16, // 31: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
+	18, // 32: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
+	20, // 33: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
+	21, // 34: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
+	26, // 35: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
+	22, // 36: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
+	24, // 37: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
+	7,  // 38: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
+	9,  // 39: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
+	11, // 40: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
+	13, // 41: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
+	15, // 42: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
+	17, // 43: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
+	19, // 44: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
+	35, // 45: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
+	36, // 46: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
+	27, // 47: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
+	23, // 48: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
+	25, // 49: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
+	38, // [38:50] is the sub-list for method output_type
+	26, // [26:38] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_control_proto_init() }
@@ -2118,7 +2421,7 @@ func file_orch_v1alpha1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_control_proto_rawDesc), len(file_orch_v1alpha1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   22,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

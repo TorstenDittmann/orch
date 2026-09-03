@@ -10,12 +10,15 @@ import (
 	"strings"
 	"time"
 
+	orchschedule "change.codes/torsten/better-swarm/internal/schedule"
 	"github.com/distribution/reference"
 	"golang.org/x/net/idna"
 )
 
 const (
 	maxServices              = 100
+	maxCronJobs              = 100
+	maxDependencies          = 64
 	maxVolumes               = 100
 	maxTotalReplicas         = 1000
 	maxDomainsPerService     = 100
@@ -78,6 +81,9 @@ func Validate(manifest *Manifest) error {
 	if len(manifest.Volumes) > maxVolumes {
 		add("volumes", fmt.Sprintf("must not define more than %d volumes", maxVolumes))
 	}
+	if len(manifest.CronJobs) > maxCronJobs {
+		add("cron_jobs", fmt.Sprintf("must not define more than %d jobs", maxCronJobs))
+	}
 	if manifest.Deploy.MaxSurge < 0 || manifest.Deploy.MaxSurge > 100 {
 		add("deploy.max_surge", "must be between 0 and 100")
 	}
@@ -92,6 +98,7 @@ func Validate(manifest *Manifest) error {
 	}
 
 	domainOwners := make(map[string]string)
+	publicPortOwners := make(map[int]string)
 	volumeOwners := make(map[string]string)
 	totalReplicas := 0
 	totalDomains := 0
@@ -176,6 +183,26 @@ func Validate(manifest *Manifest) error {
 				add(base+".http.health_path", "must begin with /, fit within 2048 bytes, and contain no NUL or newline bytes")
 			}
 		}
+		if service.HTTP != nil && service.TCP != nil {
+			add(base, "http and tcp endpoints cannot both be configured")
+		}
+		if service.TCP != nil {
+			if service.TCP.Port < 1 || service.TCP.Port > 65535 {
+				add(base+".tcp.port", "must be between 1 and 65535")
+			}
+			if service.TCP.PublicPort != nil {
+				port := *service.TCP.PublicPort
+				if port < 1 || port > 65535 {
+					add(base+".tcp.public_port", "must be between 1 and 65535")
+				} else if port == 53 || port == 80 || port == 443 {
+					add(base+".tcp.public_port", "port is reserved by orch DNS or HTTP ingress")
+				} else if owner, exists := publicPortOwners[port]; exists {
+					add(base+".tcp.public_port", fmt.Sprintf("is already exposed by service %q", owner))
+				} else {
+					publicPortOwners[port] = serviceName
+				}
+			}
+		}
 
 		if len(service.SecretFiles) > maxSecretFilesPerService {
 			add(base+".secret_files", fmt.Sprintf("must not contain more than %d entries", maxSecretFilesPerService))
@@ -220,8 +247,40 @@ func Validate(manifest *Manifest) error {
 			add(base+".replicas", "must be 1 when the service uses local volumes")
 		}
 	}
+	validateDependencies(manifest, add)
 	if totalReplicas > maxTotalReplicas {
 		add("services", fmt.Sprintf("must not request more than %d total replicas", maxTotalReplicas))
+	}
+
+	for _, jobName := range sortedKeys(manifest.CronJobs) {
+		job := manifest.CronJobs[jobName]
+		base := "cron_jobs." + jobName
+		validateDNSLabel(base, jobName, add)
+		if strings.TrimSpace(job.Image) == "" {
+			add(base+".image", "is required")
+		} else if len(job.Image) > 1024 || strings.ContainsRune(job.Image, 0) {
+			add(base+".image", "must not exceed 1024 bytes or contain NUL bytes")
+		} else if _, err := reference.ParseNormalizedNamed(job.Image); err != nil {
+			add(base+".image", "must be a valid OCI image reference")
+		}
+		if _, err := orchschedule.Parse(job.Schedule); err != nil {
+			add(base+".schedule", err.Error())
+		}
+		validateStringList(base+".command", job.Command, add)
+		validateStringList(base+".args", job.Args, add)
+		validateEnvironment(base+".env", job.Env, false, add)
+		if !validCPU(job.Resources.CPU) {
+			add(base+".resources.cpu", "must be a positive whole CPU count or millicpu value such as 500m")
+		}
+		if !validMemory(job.Resources.Memory) {
+			add(base+".resources.memory", "must be a positive binary unit such as 128Mi or 2Gi")
+		}
+		if duration, err := time.ParseDuration(job.StartDeadline); err != nil || duration < time.Second || duration > time.Hour {
+			add(base+".start_deadline", "must be a duration between 1s and 1h")
+		}
+		if duration, err := time.ParseDuration(job.Timeout); err != nil || duration < 10*time.Second || duration > 24*time.Hour {
+			add(base+".timeout", "must be a duration between 10s and 24h")
+		}
 	}
 	if totalDomains > maxTotalDomains {
 		add("services", fmt.Sprintf("must not configure more than %d total domains", maxTotalDomains))
@@ -246,6 +305,62 @@ func Validate(manifest *Manifest) error {
 		return problems[i].Path < problems[j].Path
 	})
 	return &ValidationError{Problems: problems}
+}
+
+func validateDependencies(manifest *Manifest, add func(string, string)) {
+	for _, serviceName := range sortedKeys(manifest.Services) {
+		validateDependencyList("services."+serviceName+".depends_on", serviceName,
+			manifest.Services[serviceName].DependsOn, manifest.Services, add)
+	}
+	for _, jobName := range sortedKeys(manifest.CronJobs) {
+		validateDependencyList("cron_jobs."+jobName+".depends_on", "",
+			manifest.CronJobs[jobName].DependsOn, manifest.Services, add)
+	}
+
+	visiting := make(map[string]bool)
+	visited := make(map[string]bool)
+	var visit func(string)
+	visit = func(serviceName string) {
+		if visited[serviceName] {
+			return
+		}
+		visiting[serviceName] = true
+		for index, dependency := range manifest.Services[serviceName].DependsOn {
+			if _, exists := manifest.Services[dependency]; !exists || dependency == serviceName {
+				continue
+			}
+			if visiting[dependency] {
+				add(fmt.Sprintf("services.%s.depends_on[%d]", serviceName, index), "creates a dependency cycle")
+				continue
+			}
+			visit(dependency)
+		}
+		visiting[serviceName] = false
+		visited[serviceName] = true
+	}
+	for _, serviceName := range sortedKeys(manifest.Services) {
+		visit(serviceName)
+	}
+}
+
+func validateDependencyList(field, owner string, dependencies []string, services map[string]Service, add func(string, string)) {
+	if len(dependencies) > maxDependencies {
+		add(field, fmt.Sprintf("must not contain more than %d services", maxDependencies))
+	}
+	seen := make(map[string]struct{}, len(dependencies))
+	for index, dependency := range dependencies {
+		item := fmt.Sprintf("%s[%d]", field, index)
+		validateDNSLabel(item, dependency, add)
+		if _, duplicate := seen[dependency]; duplicate {
+			add(item, "duplicates another dependency")
+		}
+		seen[dependency] = struct{}{}
+		if dependency == owner && owner != "" {
+			add(item, "cannot depend on itself")
+		} else if _, exists := services[dependency]; !exists {
+			add(item, "does not name a service in this application")
+		}
+	}
 }
 
 // ValidateApplicationName applies the public DNS-label rule used by manifests.

@@ -274,6 +274,129 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			protocol, route.GetDomain(), route.GetState().String(), statusValue(route.GetCertificateState()),
 			route.GetUpstreamCount(), statusValue(route.GetReason()))
 	}
+	for _, route := range application.GetTcpRoutes() {
+		fmt.Fprintf(stdout, "  route tcp://0.0.0.0:%d -> %s:%d  %s upstreams=%d reason=%s\n",
+			route.GetPublicPort(), route.GetService(), route.GetTargetPort(), route.GetState().String(),
+			route.GetUpstreamCount(), statusValue(route.GetReason()))
+	}
+	for _, job := range application.GetCronJobs() {
+		next := "-"
+		if job.GetNextRunAt() != nil && job.GetNextRunAt().CheckValid() == nil {
+			next = job.GetNextRunAt().AsTime().Format(time.RFC3339)
+		}
+		fmt.Fprintf(stdout, "  cron %s  next=%s active=%s last=%s/%s reason=%s\n", job.GetJob(), next,
+			statusValue(job.GetActiveRunId()), statusValue(job.GetLastRunId()), job.GetLastState().String(), statusValue(job.GetReason()))
+	}
+	return ExitOK
+}
+
+func runCron(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		return ExitInvalid
+	}
+	switch args[0] {
+	case "runs":
+		return runCronRuns(ctx, args[1:], stdout, stderr)
+	case "logs":
+		return runCronLogs(ctx, args[1:], stdout, stderr)
+	default:
+		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		return ExitInvalid
+	}
+}
+
+func runCronRuns(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cron runs", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var limit uint
+	var jsonOutput bool
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.UintVar(&limit, "limit", 20, "maximum runs (1-100)")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-limit": true, "--limit": true})
+	if err := flags.Parse(reordered); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 2 || contextPath == "" || limit == 0 || limit > 100 {
+		fmt.Fprintln(stderr, "cron runs requires APP JOB, --context, and --limit from 1 to 100")
+		return ExitInvalid
+	}
+	if err := validateApplicationService(flags.Arg(0), flags.Arg(1)); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	runs, err := remote.ListCronRuns(ctx, flags.Arg(0), flags.Arg(1), uint32(limit))
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	if jsonOutput {
+		return writeJSON(stdout, stderr, runs)
+	}
+	for _, run := range runs {
+		scheduled := "-"
+		if run.GetScheduledAt() != nil {
+			scheduled = run.GetScheduledAt().AsTime().Format(time.RFC3339Nano)
+		}
+		fmt.Fprintf(stdout, "%s  %s  %s  reason=%s\n", run.GetId(), scheduled, run.GetState().String(), statusValue(run.GetReason()))
+	}
+	return ExitOK
+}
+
+func runCronLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cron logs", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var tail uint
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.UintVar(&tail, "tail", 100, "maximum lines per stream")
+	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-tail": true, "--tail": true})
+	if err := flags.Parse(reordered); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 3 || contextPath == "" || tail == 0 || tail > 10_000 {
+		fmt.Fprintln(stderr, "cron logs requires APP JOB RUN_ID, --context, and bounded --tail")
+		return ExitInvalid
+	}
+	if err := validateApplicationService(flags.Arg(0), flags.Arg(1)); err != nil {
+		writeError(stderr, err, false)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	stream, err := remote.TailCronLogs(ctx, flags.Arg(0), flags.Arg(1), flags.Arg(2), uint32(tail))
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	defer stream.Close()
+	for stream.Receive() {
+		frame := stream.Msg()
+		output := stdout
+		if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
+			output = stderr
+		}
+		if _, err := output.Write(frame.GetData()); err != nil {
+			writeError(stderr, err, false)
+			return ExitRuntime
+		}
+	}
+	if err := stream.Err(); err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
 	return ExitOK
 }
 

@@ -8,6 +8,15 @@ local service = new app.Service {
 
 local deployment = new app.Deployment {}
 
+local tcp = new app.Tcp {
+  port = 9418
+}
+
+local cronJob = new app.CronJob {
+  image = "example/backup:1"
+  schedule = "*/2 * * * *"
+}
+
 facts {
   ["service defaults"] {
     service.replicas == 1
@@ -15,7 +24,20 @@ facts {
     service.resources.cpu == "100m"
     service.resources.memory == "128Mi"
     service.http == null
+    service.tcp == null
+    service.dependsOn.isEmpty
     service.env.isEmpty
+  }
+  ["TCP defaults"] {
+    tcp.port == 9418
+    tcp.publicPort == null
+  }
+  ["cron defaults"] {
+    cronJob.resources.cpu == "100m"
+    cronJob.resources.memory == "128Mi"
+    cronJob.startDeadline == "1m"
+    cronJob.timeout == "15m"
+    cronJob.dependsOn.isEmpty
   }
   ["deployment defaults"] {
     deployment.maxSurge == 1

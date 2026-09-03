@@ -39,10 +39,32 @@ func normalize(manifest *Manifest) {
 		if len(service.Mounts) == 0 {
 			service.Mounts = nil
 		}
+		sort.Strings(service.DependsOn)
+		if len(service.DependsOn) == 0 {
+			service.DependsOn = nil
+		}
 		manifest.Services[name] = service
+	}
+	for name, job := range manifest.CronJobs {
+		job.Resources.CPU = normalizeCPU(job.Resources.CPU)
+		job.Env = nilIfEmpty(job.Env)
+		sort.Strings(job.DependsOn)
+		if len(job.Command) == 0 {
+			job.Command = nil
+		}
+		if len(job.Args) == 0 {
+			job.Args = nil
+		}
+		if len(job.DependsOn) == 0 {
+			job.DependsOn = nil
+		}
+		manifest.CronJobs[name] = job
 	}
 	if len(manifest.Volumes) == 0 {
 		manifest.Volumes = nil
+	}
+	if len(manifest.CronJobs) == 0 {
+		manifest.CronJobs = nil
 	}
 }
 

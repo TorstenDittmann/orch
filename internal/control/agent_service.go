@@ -21,6 +21,8 @@ const (
 	firstAgentMessageTimeout = 10 * time.Second
 	maxReportedAllocations   = 1000
 	maxReportedRoutes        = 1000
+	maxReportedCronJobs      = 100
+	maxReportedJobRuns       = 2000
 )
 
 type agentService struct {
@@ -172,7 +174,10 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("allocation report has the wrong boot id"))
 		}
 		if len(message.AllocationReport.GetAllocations()) > maxReportedAllocations ||
-			len(message.AllocationReport.GetRoutes()) > maxReportedRoutes {
+			len(message.AllocationReport.GetRoutes()) > maxReportedRoutes ||
+			len(message.AllocationReport.GetTcpRoutes()) > maxReportedRoutes ||
+			len(message.AllocationReport.GetCronJobs()) > maxReportedCronJobs ||
+			len(message.AllocationReport.GetJobRuns()) > maxReportedJobRuns {
 			return connect.NewError(connect.CodeResourceExhausted, errors.New("allocation report is too large"))
 		}
 		report, err := allocationReportModel(session.nodeID, message.AllocationReport, s.now().UTC())
@@ -271,7 +276,10 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 		NodeID: nodeID, BootID: report.GetBootId(), Sequence: report.GetSequence(),
 		AssignmentGeneration: report.GetAssignmentGeneration(), AssignmentDigest: report.GetAssignmentDigest(),
 		ReportedAt: now, Allocations: make([]model.AllocationStatus, 0, len(report.GetAllocations())),
-		Routes: make([]model.RouteStatus, 0, len(report.GetRoutes())),
+		Routes:    make([]model.RouteStatus, 0, len(report.GetRoutes())),
+		TCPRoutes: make([]model.TCPRouteStatus, 0, len(report.GetTcpRoutes())),
+		CronJobs:  make([]model.CronJobStatus, 0, len(report.GetCronJobs())),
+		JobRuns:   make([]model.JobRunStatus, 0, len(report.GetJobRuns())),
 	}
 	if network := report.GetNetwork(); network != nil {
 		if err := rejectUnknownMessage(network); err != nil {
@@ -344,7 +352,92 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 		result.Routes = append(result.Routes, item)
 		previousDomain = item.Domain
 	}
+	var previousPort uint32
+	for _, route := range report.GetTcpRoutes() {
+		if err := rejectUnknownMessage(route); err != nil {
+			return model.AgentReport{}, err
+		}
+		if route.GetUpdatedAt() == nil || route.GetUpdatedAt().CheckValid() != nil || route.GetPublicPort() == 0 ||
+			(previousPort != 0 && route.GetPublicPort() <= previousPort) || len(route.GetReason()) > 128 || len(route.GetMessage()) > 1024 {
+			return model.AgentReport{}, errors.New("TCP route observations are not in strict canonical order or contain invalid data")
+		}
+		result.TCPRoutes = append(result.TCPRoutes, model.TCPRouteStatus{Application: route.GetApplication(), Service: route.GetService(),
+			PublicPort: route.GetPublicPort(), TargetPort: route.GetTargetPort(), State: routeStateModel(route.GetState()),
+			UpstreamCount: route.GetUpstreamCount(), Reason: route.GetReason(), Message: route.GetMessage(), UpdatedAt: route.GetUpdatedAt().AsTime()})
+		previousPort = route.GetPublicPort()
+	}
+	previousJob := ""
+	for _, status := range report.GetCronJobs() {
+		if err := rejectUnknownMessage(status); err != nil {
+			return model.AgentReport{}, err
+		}
+		key := status.GetApplication() + "\x00" + status.GetJob()
+		if status.GetUpdatedAt() == nil || status.GetUpdatedAt().CheckValid() != nil || (previousJob != "" && key <= previousJob) {
+			return model.AgentReport{}, errors.New("cron job observations are not in strict canonical order or contain invalid data")
+		}
+		item := model.CronJobStatus{Application: status.GetApplication(), Job: status.GetJob(), SpecDigest: status.GetSpecDigest(),
+			ActiveRunID: status.GetActiveRunId(), LastRunID: status.GetLastRunId(), LastState: jobRunStateModel(status.GetLastState()),
+			Reason: status.GetReason(), Message: status.GetMessage(), UpdatedAt: status.GetUpdatedAt().AsTime()}
+		if status.GetNextRunAt() != nil {
+			if status.GetNextRunAt().CheckValid() != nil {
+				return model.AgentReport{}, errors.New("cron job next run time is invalid")
+			}
+			next := status.GetNextRunAt().AsTime()
+			item.NextRunAt = &next
+		}
+		result.CronJobs = append(result.CronJobs, item)
+		previousJob = key
+	}
+	for _, status := range report.GetJobRuns() {
+		if err := rejectUnknownMessage(status); err != nil {
+			return model.AgentReport{}, err
+		}
+		if status.GetScheduledAt() == nil || status.GetScheduledAt().CheckValid() != nil || status.GetUpdatedAt() == nil || status.GetUpdatedAt().CheckValid() != nil {
+			return model.AgentReport{}, errors.New("cron run observations are not in canonical recent-first order or contain invalid data")
+		}
+		item := model.JobRunStatus{ID: status.GetId(), Application: status.GetApplication(), Job: status.GetJob(),
+			SpecDigest: status.GetSpecDigest(), ScheduledAt: status.GetScheduledAt().AsTime(), State: jobRunStateModel(status.GetState()),
+			Reason: status.GetReason(), Message: status.GetMessage(), UpdatedAt: status.GetUpdatedAt().AsTime()}
+		if status.GetHasExitCode() {
+			value := status.GetExitCode()
+			item.ExitCode = &value
+		}
+		if status.GetStartedAt() != nil {
+			if status.GetStartedAt().CheckValid() != nil {
+				return model.AgentReport{}, errors.New("cron run start time is invalid")
+			}
+			value := status.GetStartedAt().AsTime()
+			item.StartedAt = &value
+		}
+		if status.GetFinishedAt() != nil {
+			if status.GetFinishedAt().CheckValid() != nil {
+				return model.AgentReport{}, errors.New("cron run finish time is invalid")
+			}
+			value := status.GetFinishedAt().AsTime()
+			item.FinishedAt = &value
+		}
+		result.JobRuns = append(result.JobRuns, item)
+	}
 	return result, nil
+}
+
+func jobRunStateModel(value orchv1alpha1.JobRunState) string {
+	switch value {
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_WAITING:
+		return model.JobRunWaiting
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_RUNNING:
+		return model.JobRunRunning
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_SUCCEEDED:
+		return model.JobRunSucceeded
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_FAILED:
+		return model.JobRunFailed
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_TIMED_OUT:
+		return model.JobRunTimedOut
+	case orchv1alpha1.JobRunState_JOB_RUN_STATE_SKIPPED:
+		return model.JobRunSkipped
+	default:
+		return ""
+	}
 }
 
 func allocationObservationAfter(previousApplication, previousService string, previousReplica uint32, previousID,

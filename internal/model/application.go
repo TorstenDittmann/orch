@@ -49,6 +49,9 @@ type ApplicationExecution struct {
 	ActiveGeneration   uint64             `json:"active_generation,omitempty"`
 	ActiveRevisionID   string             `json:"active_revision_id,omitempty"`
 	Routes             []RouteStatus      `json:"routes,omitempty"`
+	TCPRoutes          []TCPRouteStatus   `json:"tcp_routes,omitempty"`
+	CronJobs           []CronJobStatus    `json:"cron_jobs,omitempty"`
+	JobRuns            []JobRunStatus     `json:"job_runs,omitempty"`
 }
 
 // ApplyApplication contains validated, canonical application intent.

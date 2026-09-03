@@ -62,6 +62,11 @@ message HTTPDesired {
   bool https = 4;
 }
 
+message TCPDesired {
+  uint32 port = 1;
+  uint32 public_port = 2;
+}
+
 message RollbackSpec {
   uint64 application_generation = 1;
   string revision_id = 2;
@@ -79,6 +84,8 @@ message RollbackSpec {
   uint64 network_generation = 14;
   bool auto_rollback = 15;
   bool start_before_stop = 16;
+  TCPDesired tcp = 17;
+  repeated string depends_on = 18;
 }
 
 message NetworkConfig {
@@ -113,6 +120,27 @@ message AllocationDesired {
   uint32 max_surge = 21;
   uint32 max_unavailable = 22;
   RollbackSpec rollback = 23;
+  TCPDesired tcp = 24;
+  repeated string depends_on = 25;
+}
+
+message CronJobDesired {
+  string application = 1;
+  string job = 2;
+  uint64 application_generation = 3;
+  string revision_id = 4;
+  string spec_digest = 5;
+  string image = 6;
+  string schedule = 7;
+  repeated string command = 8;
+  repeated string args = 9;
+  map<string, string> environment = 10;
+  uint64 cpu_millis = 11;
+  uint64 memory_bytes = 12;
+  repeated string depends_on = 13;
+  uint32 start_deadline_seconds = 14;
+  uint32 timeout_seconds = 15;
+  uint64 network_generation = 16;
 }
 
 message AssignmentSnapshot {
@@ -122,6 +150,7 @@ message AssignmentSnapshot {
   google.protobuf.Timestamp created_at = 4;
   repeated AllocationDesired allocations = 5;
   NetworkConfig network = 6;
+  repeated CronJobDesired cron_jobs = 7;
 }
 
 message AllocationStatus {
@@ -158,6 +187,57 @@ message RouteStatus {
   string reason = 8;
   string message = 9;
   google.protobuf.Timestamp updated_at = 10;
+}
+
+message TCPRouteStatus {
+  string application = 1;
+  string service = 2;
+  uint32 public_port = 3;
+  uint32 target_port = 4;
+  RouteState state = 5;
+  uint32 upstream_count = 6;
+  string reason = 7;
+  string message = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+enum JobRunState {
+  JOB_RUN_STATE_UNSPECIFIED = 0;
+  JOB_RUN_STATE_WAITING = 1;
+  JOB_RUN_STATE_RUNNING = 2;
+  JOB_RUN_STATE_SUCCEEDED = 3;
+  JOB_RUN_STATE_FAILED = 4;
+  JOB_RUN_STATE_TIMED_OUT = 5;
+  JOB_RUN_STATE_SKIPPED = 6;
+}
+
+message CronJobStatus {
+  string application = 1;
+  string job = 2;
+  string spec_digest = 3;
+  google.protobuf.Timestamp next_run_at = 4;
+  string active_run_id = 5;
+  string last_run_id = 6;
+  JobRunState last_state = 7;
+  string reason = 8;
+  string message = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message JobRunStatus {
+  string id = 1;
+  string application = 2;
+  string job = 3;
+  string spec_digest = 4;
+  google.protobuf.Timestamp scheduled_at = 5;
+  JobRunState state = 6;
+  int32 exit_code = 7;
+  bool has_exit_code = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp finished_at = 10;
+  string reason = 11;
+  string message = 12;
+  google.protobuf.Timestamp updated_at = 13;
 }
 
 message NetworkStatus {
@@ -205,6 +285,9 @@ message AllocationReport {
   repeated AllocationStatus allocations = 5;
   repeated RouteStatus routes = 6;
   NetworkStatus network = 7;
+  repeated TCPRouteStatus tcp_routes = 8;
+  repeated CronJobStatus cron_jobs = 9;
+  repeated JobRunStatus job_runs = 10;
 }
 
 message AgentHeartbeat {
@@ -215,6 +298,12 @@ message AgentHeartbeat {
 message TailLogsCommand {
   string request_id = 1;
   string allocation_id = 2;
+  uint32 tail_lines = 3;
+}
+
+message TailCronLogsCommand {
+  string request_id = 1;
+  string run_id = 2;
   uint32 tail_lines = 3;
 }
 
@@ -276,5 +365,6 @@ message ConnectResponse {
     TailLogsCommand tail_logs = 2;
     ExecCommand exec = 3;
     CancelOperation cancel_operation = 4;
+    TailCronLogsCommand tail_cron_logs = 5;
   }
 }

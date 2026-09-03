@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,8 @@ import (
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/schedule"
+	"change.codes/torsten/better-swarm/internal/tcpingress"
 )
 
 const taskStopGrace = 10 * time.Second
@@ -31,6 +35,7 @@ type Supervisor struct {
 	prober       health.Prober
 	discovery    discovery.Controller
 	ingress      ingress.Controller
+	tcpIngress   TCPIngressController
 	dnsStarted   bool
 	dnsAddress   string
 	deferCleanup bool
@@ -39,15 +44,24 @@ type Supervisor struct {
 	accepted     map[string]state.ServingEndpoint
 	lastProbes   map[string]time.Time
 	routes       []model.RouteStatus
+	tcpRoutes    []model.TCPRouteStatus
+	cronJobs     []model.CronJobStatus
+	jobRuns      []model.JobRunStatus
 	network      model.NetworkStatus
 	now          func() time.Time
 	random       io.Reader
 }
 
 type SupervisorServices struct {
-	Prober    health.Prober
-	Discovery discovery.Controller
-	Ingress   ingress.Controller
+	Prober     health.Prober
+	Discovery  discovery.Controller
+	Ingress    ingress.Controller
+	TCPIngress TCPIngressController
+}
+
+type TCPIngressController interface {
+	Apply(context.Context, []tcpingress.Route) []model.TCPRouteStatus
+	Close() error
 }
 
 func NewSupervisor(cache *state.Store, runtime orchruntime.Runtime, now func() time.Time, sources ...io.Reader) *Supervisor {
@@ -66,7 +80,7 @@ func NewSupervisorWithServices(cache *state.Store, runtime orchruntime.Runtime, 
 		services.Prober = health.NewNetworkProber()
 	}
 	return &Supervisor{state: cache, runtime: runtime, prober: services.Prober,
-		discovery: services.Discovery, ingress: services.Ingress, serving: make(map[string]string),
+		discovery: services.Discovery, ingress: services.Ingress, tcpIngress: services.TCPIngress, serving: make(map[string]string),
 		servingSpecs: make(map[string]string), accepted: make(map[string]state.ServingEndpoint),
 		lastProbes: make(map[string]time.Time),
 		now:        now, random: randomSource}
@@ -154,6 +168,9 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		if _, ok := desired[allocationID]; ok {
 			continue
 		}
+		if strings.HasPrefix(allocationID, "job_") {
+			continue
+		}
 		if s.deferCleanup {
 			continue
 		}
@@ -189,15 +206,36 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		}
 		if !exactRunning && !obsoleteRunning {
 			unavailable[allocation.Application]++
-		} else if exactRunning && !obsoleteRunning && allocation.HTTP != nil {
+		} else if exactRunning && !obsoleteRunning && hasEndpoint(allocation) {
 			previous := stateByID[allocation.ID]
 			if previous.SpecDigest != allocation.SpecDigest || previous.HealthStatus != model.HealthReady {
 				unavailable[allocation.Application]++
 			}
 		}
 	}
-	for _, allocation := range assignment.Allocations {
+	for _, allocation := range orderedAllocations(assignment.Allocations) {
 		owned := objectsByAllocation[allocation.ID]
+		if unavailableDependencies(allocation, statuses) && (rollbackApplications[allocation.Application] || !hasExactRunning(allocation, owned)) {
+			status := dependencyWaitingStatus(allocation, stateByID[allocation.ID], s.now().UTC())
+			for _, object := range owned {
+				if !object.Running {
+					continue
+				}
+				if status.ActiveSpecDigest == "" && object.SpecDigest == allocation.SpecDigest {
+					status.Phase, status.Address = model.AllocationRunning, object.Address
+					status.ActiveSpecDigest, status.ActiveGeneration, status.ActiveRevisionID = allocation.SpecDigest, allocation.ApplicationGeneration, allocation.RevisionID
+				}
+				if status.ActiveSpecDigest == object.SpecDigest {
+					s.setServing(allocation.ID, object)
+					break
+				}
+			}
+			if err := s.persistStatus(ctx, status, nil); err != nil {
+				return nil, err
+			}
+			statuses = append(statuses, status)
+			continue
+		}
 		if rollbackApplications[allocation.Application] {
 			status, forced, err := s.reconcileApplicationRollback(ctx, allocation, owned,
 				stateByID[allocation.ID], surges)
@@ -266,8 +304,8 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		forcedRollback[allocation.ID] = forced
 	}
 	for index := range statuses {
-		if allocation, ok := desired[statuses[index].ID]; ok && allocation.HTTP != nil {
-			statuses[index].DeclaredPort = allocation.HTTP.Port
+		if allocation, ok := desired[statuses[index].ID]; ok {
+			statuses[index].DeclaredPort = endpointPort(allocation)
 		}
 	}
 	sort.Slice(statuses, func(i, j int) bool {
@@ -304,7 +342,11 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		}
 	} else {
 		s.routes = nil
+		s.tcpRoutes = nil
 		s.network = model.NetworkStatus{}
+	}
+	if err := s.reconcileCronJobs(ctx, assignment.CronJobs, statuses); err != nil {
+		return nil, err
 	}
 	return statuses, nil
 }
@@ -325,6 +367,130 @@ func needsSurge(allocation model.AllocationDesired, owned []orchruntime.Object) 
 		}
 	}
 	return !exact && obsolete
+}
+
+func hasExactRunning(allocation model.AllocationDesired, owned []orchruntime.Object) bool {
+	for _, object := range owned {
+		if object.Running && object.SpecDigest == allocation.SpecDigest {
+			return true
+		}
+	}
+	return false
+}
+
+func orderedAllocations(allocations []model.AllocationDesired) []model.AllocationDesired {
+	result := make([]model.AllocationDesired, 0, len(allocations))
+	remaining := append([]model.AllocationDesired(nil), allocations...)
+	served := make(map[string]bool)
+	for len(remaining) > 0 {
+		progress := false
+		for index := 0; index < len(remaining); {
+			allocation := remaining[index]
+			ready := true
+			for _, dependency := range allocation.DependsOn {
+				if !served[allocation.Application+"\x00"+dependency] {
+					ready = false
+					break
+				}
+			}
+			if !ready {
+				index++
+				continue
+			}
+			result = append(result, allocation)
+			served[allocation.Application+"\x00"+allocation.Service] = true
+			remaining = append(remaining[:index], remaining[index+1:]...)
+			progress = true
+		}
+		if !progress {
+			// Stored manifests are validated as acyclic. Keep reconciliation
+			// deterministic if an older/corrupt snapshot violates that invariant.
+			sort.Slice(remaining, func(i, j int) bool { return remaining[i].ID < remaining[j].ID })
+			result = append(result, remaining...)
+			break
+		}
+	}
+	return result
+}
+
+func unavailableDependencies(allocation model.AllocationDesired, statuses []model.AllocationStatus) bool {
+	for _, dependency := range allocation.DependsOn {
+		available := false
+		for _, status := range statuses {
+			if status.Application != allocation.Application || status.Service != dependency || status.Phase != model.AllocationRunning {
+				continue
+			}
+			if status.HealthStatus == model.HealthNotConfigured || status.HealthStatus == model.HealthReady {
+				available = true
+				break
+			}
+		}
+		if !available {
+			return true
+		}
+	}
+	return false
+}
+
+func dependencyWaitingStatus(allocation model.AllocationDesired, previous state.AllocationState, now time.Time) model.AllocationStatus {
+	status := model.AllocationStatus{
+		ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+		Replica: allocation.Replica, ApplicationGeneration: allocation.ApplicationGeneration,
+		SpecDigest: allocation.SpecDigest, Phase: model.AllocationPending, HealthStatus: model.HealthNotConfigured,
+		Reason: "dependency_wait", Message: "waiting for declared service dependencies", UpdatedAt: now,
+	}
+	if hasEndpoint(allocation) {
+		status.HealthStatus = model.HealthChecking
+	}
+	if previous.ActiveSpecDigest != "" {
+		status.Phase = previous.Phase
+		status.HealthStatus = previous.HealthStatus
+		status.Address = previous.Address
+		status.ActiveSpecDigest = previous.ActiveSpecDigest
+		status.ActiveGeneration = previous.ActiveGeneration
+		status.ActiveRevisionID = previous.ActiveRevisionID
+		status.ReadyAt = previous.ReadyAt
+		status.RestartCount = previous.RestartCount
+	}
+	return status
+}
+
+func allocationEndpoint(allocation model.AllocationDesired) (uint32, string, bool) {
+	if allocation.HTTP != nil {
+		return allocation.HTTP.Port, allocation.HTTP.HealthPath, true
+	}
+	if allocation.TCP != nil {
+		return allocation.TCP.Port, "", true
+	}
+	return 0, "", false
+}
+
+func rollbackEndpoint(rollback *model.RollbackSpec) (uint32, string, bool) {
+	if rollback == nil {
+		return 0, "", false
+	}
+	if rollback.HTTP != nil {
+		return rollback.HTTP.Port, rollback.HTTP.HealthPath, true
+	}
+	if rollback.TCP != nil {
+		return rollback.TCP.Port, "", true
+	}
+	return 0, "", false
+}
+
+func endpointPort(allocation model.AllocationDesired) uint32 {
+	port, _, _ := allocationEndpoint(allocation)
+	return port
+}
+
+func hasEndpoint(allocation model.AllocationDesired) bool {
+	_, _, ok := allocationEndpoint(allocation)
+	return ok
+}
+
+func rollbackHasEndpoint(rollback *model.RollbackSpec) bool {
+	_, _, ok := rollbackEndpoint(rollback)
+	return ok
 }
 
 func needsUnavailableSlot(allocation model.AllocationDesired, owned []orchruntime.Object) bool {
@@ -385,7 +551,7 @@ func (s *Supervisor) endpointDrainStatus(ctx context.Context, allocation model.A
 		Message:   "the previous endpoint was withdrawn and is draining before stop-first replacement",
 		UpdatedAt: s.now().UTC(),
 	}
-	if allocation.HTTP != nil {
+	if hasEndpoint(allocation) {
 		status.HealthStatus = model.HealthChecking
 	}
 	return status, s.persistStatus(ctx, status, nil)
@@ -403,7 +569,7 @@ func (s *Supervisor) rolloutQueuedStatus(ctx context.Context, allocation model.A
 		HealthStatus: model.HealthNotConfigured, Reason: "rollout_budget_wait",
 		Message: "waiting for the application " + budget + " budget", UpdatedAt: s.now().UTC(),
 	}
-	if allocation.HTTP != nil {
+	if hasEndpoint(allocation) {
 		status.HealthStatus = model.HealthChecking
 	}
 	if old := rollbackObject(allocation, owned); old != nil && s.canRetainRollback(allocation, *old) {
@@ -514,7 +680,7 @@ func (s *Supervisor) reconcileApplicationRollback(ctx context.Context, allocatio
 		status.ActiveRevisionID = allocation.Rollback.RevisionID
 		status.Reason = "health_gate_rollback"
 		status.Message = "the controller-authorized previous revision remains active"
-		if allocation.Rollback.HTTP != nil {
+		if rollbackHasEndpoint(allocation.Rollback) {
 			status.HealthStatus = model.HealthReady
 			if status.ReadyAt == nil {
 				readyAt := now
@@ -729,7 +895,8 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 ) (model.AllocationStatus, error) {
 	status.Phase = model.AllocationRunning
 	status.Address = object.Address
-	if allocation.HTTP == nil {
+	port, path, endpoint := allocationEndpoint(allocation)
+	if !endpoint {
 		status.HealthStatus = model.HealthNotConfigured
 		status.ActiveSpecDigest = allocation.SpecDigest
 		status.ActiveGeneration = allocation.ApplicationGeneration
@@ -774,7 +941,7 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 		}
 		return status, nil
 	}
-	target := health.Target{Address: address, Port: uint16(allocation.HTTP.Port), Path: allocation.HTTP.HealthPath}
+	target := health.Target{Address: address, Port: uint16(port), Path: path}
 	target.Host = strings.TrimSuffix(discovery.ServiceName(allocation.Application, allocation.Service), ".")
 	probeErr := addressErr
 	if probeErr == nil {
@@ -897,7 +1064,8 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		CPUMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes,
 		Mounts:               append([]model.VolumeMount(nil), rollback.Mounts...),
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, AutoRollback: rollback.AutoRollback,
-		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP,
+		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
+		DependsOn:         append([]string(nil), rollback.DependsOn...),
 		NetworkGeneration: rollback.NetworkGeneration,
 	}
 }
@@ -912,7 +1080,8 @@ func (s *Supervisor) rollbackStatus(ctx context.Context, allocation model.Alloca
 	status.ActiveRevisionID = allocation.Rollback.RevisionID
 	status.Reason = "health_gate_rollback"
 	status.Message = "the controller-authorized previous revision remains active"
-	if allocation.Rollback.HTTP == nil {
+	port, path, endpoint := rollbackEndpoint(allocation.Rollback)
+	if !endpoint {
 		status.HealthStatus = model.HealthNotConfigured
 		s.setServing(allocation.ID, object)
 		return status, s.persistStatus(ctx, status, nil)
@@ -924,7 +1093,7 @@ func (s *Supervisor) rollbackStatus(ctx context.Context, allocation model.Alloca
 		return status, nil
 	}
 	address, addressErr := netip.ParseAddr(object.Address)
-	target := health.Target{Address: address, Port: uint16(allocation.Rollback.HTTP.Port), Path: allocation.Rollback.HTTP.HealthPath}
+	target := health.Target{Address: address, Port: uint16(port), Path: path}
 	target.Host = strings.TrimSuffix(discovery.ServiceName(allocation.Application, allocation.Service), ".")
 	probeErr := addressErr
 	if probeErr == nil {
@@ -976,7 +1145,7 @@ func (s *Supervisor) canRetainRollback(allocation model.AllocationDesired, objec
 	// A process-only Plan #4 fallback has no network address or serving-state
 	// entry. It is still the controller-authorized active process while the
 	// first networked replacement is starting.
-	if allocation.Rollback.HTTP == nil {
+	if !rollbackHasEndpoint(allocation.Rollback) {
 		return true
 	}
 	return s.canRetainServing(object)
@@ -1059,6 +1228,21 @@ func (s *Supervisor) TailLogs(ctx context.Context, allocation model.AllocationDe
 	return s.runtime.TailLogs(ctx, object.ID, lines)
 }
 
+func (s *Supervisor) TailCronLogs(ctx context.Context, runID string, lines uint32) ([]orchruntime.LogFrame, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	runs, err := s.state.CronRunStates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range runs {
+		if run.ID == runID && run.ObjectID != "" {
+			return s.runtime.TailLogs(ctx, run.ObjectID, lines)
+		}
+	}
+	return nil, orchruntime.ErrNotFound
+}
+
 func (s *Supervisor) Exec(ctx context.Context, allocation model.AllocationDesired, command []string) (<-chan orchruntime.ExecFrame, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1098,6 +1282,18 @@ func (s *Supervisor) Observations() ([]model.RouteStatus, model.NetworkStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]model.RouteStatus(nil), s.routes...), s.network
+}
+
+func (s *Supervisor) TCPObservations() []model.TCPRouteStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]model.TCPRouteStatus(nil), s.tcpRoutes...)
+}
+
+func (s *Supervisor) CronObservations() ([]model.CronJobStatus, []model.JobRunStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]model.CronJobStatus(nil), s.cronJobs...), append([]model.JobRunStatus(nil), s.jobRuns...)
 }
 
 func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Assignment,
@@ -1222,6 +1418,38 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 			}
 		}
 	}
+	tcpRoutes := desiredTCPRoutes(assignment.Allocations, s.serving, s.servingSpecs)
+	if len(tcpRoutes) == 0 {
+		s.tcpRoutes = nil
+		if s.tcpIngress != nil {
+			s.tcpIngress.Apply(ctx, nil)
+		}
+	} else if s.tcpIngress == nil {
+		activated = false
+		s.tcpRoutes = make([]model.TCPRouteStatus, 0, len(tcpRoutes))
+		for _, route := range tcpRoutes {
+			s.tcpRoutes = append(s.tcpRoutes, model.TCPRouteStatus{
+				Application: route.Application, Service: route.Service, PublicPort: route.PublicPort,
+				TargetPort: route.TargetPort, State: model.TCPRouteFailed, UpstreamCount: uint32(len(route.Upstreams)),
+				Reason: "tcp_ingress_unavailable", Message: "the agent has no raw TCP ingress controller", UpdatedAt: now,
+			})
+		}
+		networkStatus.IngressState = model.SubsystemFailed
+		networkStatus.State = model.NetworkFailed
+		networkStatus.Reason = "tcp_ingress_unavailable"
+		networkStatus.Message = "raw TCP ingress is unavailable"
+	} else {
+		s.tcpRoutes = s.tcpIngress.Apply(ctx, tcpRoutes)
+		for _, route := range s.tcpRoutes {
+			if route.State == model.TCPRouteFailed {
+				activated = false
+				networkStatus.IngressState = model.SubsystemFailed
+				networkStatus.State = model.NetworkFailed
+				networkStatus.Reason = route.Reason
+				networkStatus.Message = route.Message
+			}
+		}
+	}
 	if activated {
 		if err := s.state.CommitServingEndpoints(ctx); err != nil {
 			return false, fmt.Errorf("accept service discovery snapshot: %w", err)
@@ -1249,6 +1477,263 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		}
 	}
 	return activated, nil
+}
+
+func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.CronJobDesired, allocations []model.AllocationStatus) error {
+	now := s.now().UTC()
+	jobStates, err := s.state.CronJobStates(ctx)
+	if err != nil {
+		return fmt.Errorf("read cron scheduler state: %w", err)
+	}
+	runs, err := s.state.CronRunStates(ctx)
+	if err != nil {
+		return fmt.Errorf("read cron run state: %w", err)
+	}
+	stateByKey := make(map[string]state.CronJobState, len(jobStates))
+	for _, item := range jobStates {
+		stateByKey[item.Application+"\x00"+item.Job] = item
+	}
+	runByID := make(map[string]state.CronRunState, len(runs))
+	for _, run := range runs {
+		runByID[run.ID] = run
+	}
+	keys := make(map[string]struct{}, len(desired))
+	statuses := make([]model.CronJobStatus, 0, len(desired))
+	for _, job := range desired {
+		key := job.Application + "\x00" + job.Job
+		keys[key] = struct{}{}
+		jobState := stateByKey[key]
+		if jobState.SpecDigest != job.SpecDigest || jobState.NextRunAt == nil {
+			if jobState.ActiveRunID != "" {
+				if err := s.cancelCronRun(ctx, runByID[jobState.ActiveRunID], "job_replaced", now); err != nil {
+					return err
+				}
+			}
+			next, err := schedule.Next(job.Schedule, now)
+			if err != nil {
+				return fmt.Errorf("evaluate cron job %s/%s: %w", job.Application, job.Job, err)
+			}
+			jobState = state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, NextRunAt: &next, UpdatedAt: now}
+		}
+
+		// Collapse any delayed wake-up to one occurrence. Older ticks are not
+		// replayed, which makes restart and controller-outage behavior bounded.
+		if jobState.NextRunAt != nil && !now.Before(*jobState.NextRunAt) {
+			scheduledAt := *jobState.NextRunAt
+			for advances := 0; ; advances++ {
+				if advances >= 10_000 {
+					next, err := schedule.Next(job.Schedule, now)
+					if err != nil {
+						return err
+					}
+					jobState.NextRunAt = &next
+					break
+				}
+				next, err := schedule.Next(job.Schedule, scheduledAt)
+				if err != nil {
+					return err
+				}
+				if now.Before(next) {
+					jobState.NextRunAt = &next
+					break
+				}
+				scheduledAt = next
+			}
+			jobState.LastScheduledAt = &scheduledAt
+			runID := cronRunID(job.Application, job.Job, scheduledAt)
+			if jobState.ActiveRunID != "" {
+				run := state.CronRunState{JobRunStatus: model.JobRunStatus{
+					ID: runID, Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+					ScheduledAt: scheduledAt, State: model.JobRunSkipped, Reason: "overlap_forbidden",
+					Message: "the previous occurrence is still active", UpdatedAt: now,
+				}}
+				finished := now
+				run.FinishedAt = &finished
+				if err := s.state.SaveCronRunState(ctx, run); err != nil {
+					return err
+				}
+				runByID[run.ID] = run
+			} else {
+				run := state.CronRunState{JobRunStatus: model.JobRunStatus{
+					ID: runID, Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+					ScheduledAt: scheduledAt, State: model.JobRunWaiting, Reason: "dependency_wait",
+					Message: "waiting for declared service dependencies", UpdatedAt: now,
+				}}
+				if now.After(scheduledAt.Add(time.Duration(job.StartDeadlineSeconds) * time.Second)) {
+					run.State, run.Reason, run.Message = model.JobRunSkipped, "start_deadline_exceeded", "the occurrence missed its start deadline"
+					finished := now
+					run.FinishedAt = &finished
+				} else {
+					jobState.ActiveRunID = runID
+				}
+				if err := s.state.SaveCronRunState(ctx, run); err != nil {
+					return err
+				}
+				runByID[run.ID] = run
+			}
+		}
+
+		if jobState.ActiveRunID != "" {
+			run := runByID[jobState.ActiveRunID]
+			if run.ID == "" {
+				jobState.ActiveRunID = ""
+			} else if run.State == model.JobRunWaiting {
+				if now.After(run.ScheduledAt.Add(time.Duration(job.StartDeadlineSeconds) * time.Second)) {
+					finishCronRun(&run, model.JobRunSkipped, "start_deadline_exceeded", "the occurrence missed its start deadline", now)
+					jobState.ActiveRunID = ""
+				} else if jobDependenciesAvailable(job, allocations) {
+					allocation, err := cronRunAllocation(job, run.ID)
+					if err != nil {
+						return err
+					}
+					startContext, cancel := context.WithDeadline(ctx, run.ScheduledAt.Add(time.Duration(job.StartDeadlineSeconds)*time.Second))
+					object, startErr := s.runtime.Ensure(startContext, allocation)
+					cancel()
+					if startErr != nil {
+						finishCronRun(&run, model.JobRunFailed, "process_start_failed", boundedMessage(startErr.Error()), now)
+						jobState.ActiveRunID = ""
+					} else {
+						run.State, run.Reason, run.Message, run.ObjectID = model.JobRunRunning, "process_running", "the cron job process is running", object.ID
+						started := now
+						run.StartedAt = &started
+						run.UpdatedAt = now
+					}
+					if err := s.state.SaveCronRunState(ctx, run); err != nil {
+						return err
+					}
+					runByID[run.ID] = run
+				}
+			} else if run.State == model.JobRunRunning {
+				object, inspectErr := s.runtime.Inspect(ctx, run.ObjectID)
+				timedOut := run.StartedAt != nil && !now.Before(run.StartedAt.Add(time.Duration(job.TimeoutSeconds)*time.Second))
+				switch {
+				case timedOut:
+					if err := s.runtime.Stop(ctx, run.ObjectID, taskStopGrace); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
+						return err
+					}
+					finishCronRun(&run, model.JobRunTimedOut, "timeout_exceeded", "the cron job exceeded its timeout", now)
+					jobState.ActiveRunID = ""
+				case inspectErr != nil:
+					finishCronRun(&run, model.JobRunFailed, "runtime_object_missing", "the cron job runtime object is unavailable", now)
+					jobState.ActiveRunID = ""
+				case !object.Running:
+					stateName := model.JobRunSucceeded
+					reason, message := "exit_zero", "the cron job completed successfully"
+					if object.ExitCode == nil || *object.ExitCode != 0 {
+						stateName, reason, message = model.JobRunFailed, "exit_nonzero", "the cron job exited unsuccessfully"
+					}
+					run.ExitCode = object.ExitCode
+					finishCronRun(&run, stateName, reason, message, now)
+					jobState.ActiveRunID = ""
+				}
+				if err := s.state.SaveCronRunState(ctx, run); err != nil {
+					return err
+				}
+				runByID[run.ID] = run
+			}
+		}
+		jobState.UpdatedAt = now
+		if err := s.state.SaveCronJobState(ctx, jobState); err != nil {
+			return err
+		}
+		expired, err := s.state.CronRunsBeyond(ctx, job.Application, job.Job, 20)
+		if err != nil {
+			return err
+		}
+		for _, run := range expired {
+			if run.ObjectID != "" {
+				if err := s.runtime.Remove(ctx, run.ObjectID); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
+					return err
+				}
+			}
+			if err := s.state.DeleteCronRunState(ctx, run.ID); err != nil {
+				return err
+			}
+			delete(runByID, run.ID)
+		}
+		status := model.CronJobStatus{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+			NextRunAt: jobState.NextRunAt, ActiveRunID: jobState.ActiveRunID, UpdatedAt: now}
+		for _, run := range runByID {
+			if run.Application == job.Application && run.Job == job.Job && run.SpecDigest == job.SpecDigest &&
+				(status.LastRunID == "" || run.ScheduledAt.After(runByID[status.LastRunID].ScheduledAt)) {
+				status.LastRunID, status.LastState, status.Reason, status.Message = run.ID, run.State, run.Reason, run.Message
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	for _, jobState := range jobStates {
+		if _, ok := keys[jobState.Application+"\x00"+jobState.Job]; ok || jobState.ActiveRunID == "" {
+			continue
+		}
+		if err := s.cancelCronRun(ctx, runByID[jobState.ActiveRunID], "job_removed", now); err != nil {
+			return err
+		}
+	}
+	if err := s.state.DeleteCronJobStatesExcept(ctx, keys); err != nil {
+		return err
+	}
+	allRuns, err := s.state.CronRunStates(ctx)
+	if err != nil {
+		return err
+	}
+	s.cronJobs = statuses
+	s.jobRuns = make([]model.JobRunStatus, 0, len(allRuns))
+	desiredByKey := make(map[string]string, len(desired))
+	for _, job := range desired {
+		desiredByKey[job.Application+"\x00"+job.Job] = job.SpecDigest
+	}
+	for _, run := range allRuns {
+		if desiredByKey[run.Application+"\x00"+run.Job] == run.SpecDigest {
+			s.jobRuns = append(s.jobRuns, run.JobRunStatus)
+		}
+	}
+	return nil
+}
+
+func (s *Supervisor) cancelCronRun(ctx context.Context, run state.CronRunState, reason string, now time.Time) error {
+	if run.ID == "" {
+		return nil
+	}
+	if run.ObjectID != "" {
+		if err := s.runtime.Stop(ctx, run.ObjectID, taskStopGrace); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
+			return err
+		}
+		if err := s.runtime.Remove(ctx, run.ObjectID); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
+			return err
+		}
+	}
+	finishCronRun(&run, model.JobRunFailed, reason, "the cron job definition is no longer active", now)
+	return s.state.SaveCronRunState(ctx, run)
+}
+
+func jobDependenciesAvailable(job model.CronJobDesired, allocations []model.AllocationStatus) bool {
+	allocation := model.AllocationDesired{Application: job.Application, DependsOn: job.DependsOn}
+	return !unavailableDependencies(allocation, allocations)
+}
+
+func cronRunAllocation(job model.CronJobDesired, runID string) (model.AllocationDesired, error) {
+	allocation := model.AllocationDesired{
+		ID: runID, Application: job.Application, Service: job.Job, Replica: 1,
+		ApplicationGeneration: job.ApplicationGeneration, RevisionID: job.RevisionID,
+		Image: job.Image, Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
+		Environment: cloneStringMap(job.Environment), RestartPolicy: "never", CPUMillis: job.CPUMillis,
+		MemoryBytes: job.MemoryBytes, StartDeadlineSeconds: job.StartDeadlineSeconds,
+		NetworkGeneration: job.NetworkGeneration,
+	}
+	var err error
+	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
+	return allocation, err
+}
+
+func cronRunID(application, job string, scheduledAt time.Time) string {
+	digest := sha256.Sum256([]byte(application + "\x00" + job + "\x00" + scheduledAt.UTC().Format(time.RFC3339Nano)))
+	return "job_" + hex.EncodeToString(digest[:16])
+}
+
+func finishCronRun(run *state.CronRunState, runState, reason, message string, now time.Time) {
+	run.State, run.Reason, run.Message, run.UpdatedAt = runState, reason, message, now
+	finished := now
+	run.FinishedAt = &finished
 }
 
 func proposedServingEndpoints(allocations []model.AllocationDesired, serving, specs map[string]string, now time.Time) []state.ServingEndpoint {
@@ -1343,6 +1828,9 @@ func (s *Supervisor) cleanupWithdrawnObjects(ctx context.Context, assignment mod
 	remaining := make(map[string]int)
 	seenObjects := make(map[string]struct{}, len(objects))
 	for _, object := range objects {
+		if strings.HasPrefix(object.AllocationID, "job_") {
+			continue
+		}
 		remaining[object.AllocationID]++
 		seenObjects[object.ID] = struct{}{}
 		if _, active := activeObjects[object.ID]; active {
@@ -1544,6 +2032,56 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 		})
 	}
 	return active, pending
+}
+
+func desiredTCPRoutes(allocations []model.AllocationDesired, serving, servingSpecs map[string]string) []tcpingress.Route {
+	type key struct{ application, service string }
+	type serviceRoute struct {
+		publicPort uint32
+		targetPort uint32
+		upstreams  []string
+	}
+	services := make(map[key]*serviceRoute)
+	for _, allocation := range allocations {
+		contract := allocation.TCP
+		address, specDigest := serving[allocation.ID], servingSpecs[allocation.ID]
+		if specDigest != allocation.SpecDigest && allocation.Rollback != nil && specDigest == allocation.Rollback.SpecDigest {
+			contract = allocation.Rollback.TCP
+		}
+		if contract == nil || contract.PublicPort == 0 {
+			continue
+		}
+		serviceKey := key{allocation.Application, allocation.Service}
+		current := services[serviceKey]
+		if current == nil {
+			current = &serviceRoute{publicPort: contract.PublicPort, targetPort: contract.Port}
+			services[serviceKey] = current
+		}
+		if address != "" && specDigest != "" && current.publicPort == contract.PublicPort && current.targetPort == contract.Port {
+			current.upstreams = append(current.upstreams, address)
+		}
+	}
+	keys := make([]key, 0, len(services))
+	for serviceKey := range services {
+		keys = append(keys, serviceKey)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if services[keys[i]].publicPort != services[keys[j]].publicPort {
+			return services[keys[i]].publicPort < services[keys[j]].publicPort
+		}
+		if keys[i].application != keys[j].application {
+			return keys[i].application < keys[j].application
+		}
+		return keys[i].service < keys[j].service
+	})
+	result := make([]tcpingress.Route, 0, len(keys))
+	for _, serviceKey := range keys {
+		service := services[serviceKey]
+		sort.Strings(service.upstreams)
+		result = append(result, tcpingress.Route{Application: serviceKey.application, Service: serviceKey.service,
+			PublicPort: service.publicPort, TargetPort: service.targetPort, Upstreams: compactStrings(service.upstreams)})
+	}
+	return result
 }
 
 func compactStrings(values []string) []string {

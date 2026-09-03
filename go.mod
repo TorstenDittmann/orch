@@ -13,6 +13,7 @@ require (
 	github.com/google/nftables v0.3.0
 	github.com/miekg/dns v1.1.73
 	github.com/opencontainers/runtime-spec v1.3.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0

@@ -29,6 +29,7 @@ const (
 	heartbeatInterval      = 10 * time.Second
 	maxOperationChunk      = 64 << 10
 	maxAssignedAllocations = 1000
+	maxAssignedCronJobs    = 100
 )
 
 type sessionRunner struct {
@@ -210,7 +211,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		return fmt.Errorf("read cached assignment: %w", cachedErr)
 	}
 	hello := &orchv1alpha1.AgentHello{
-		ProtocolVersion: "v1alpha1-network-1", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		ProtocolVersion: "v1alpha1-workloads-2", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
 		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
 		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
 		CgroupsV2: r.capabilities.CgroupsV2, CniVersion: r.capabilities.CNIVersion,
@@ -334,6 +335,22 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 			defer operations.finish(command.GetRequestId(), operation)
 			r.runTailLogs(operationContext, command, outbound)
 		}()
+	case *orchv1alpha1.ConnectResponse_TailCronLogs:
+		command := message.TailCronLogs
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			command.GetRunId() == "" || command.GetTailLines() == 0 || command.GetTailLines() > 10_000 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid cron log command"))
+		}
+		operationContext, cancel := context.WithCancel(ctx)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runTailCronLogs(operationContext, command, outbound)
+		}()
 	case *orchv1alpha1.ConnectResponse_Exec:
 		command := message.Exec
 		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
@@ -378,10 +395,15 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectRequest, assignment model.Assignment, statuses []model.AllocationStatus) error {
 	r.reportSeq++
 	routes, networkStatus := r.supervisor.Observations()
+	tcpRoutes := r.supervisor.TCPObservations()
+	cronJobs, jobRuns := r.supervisor.CronObservations()
 	report := &orchv1alpha1.AllocationReport{
 		BootId: r.bootID, Sequence: r.reportSeq, AssignmentGeneration: assignment.Generation,
 		AssignmentDigest: assignment.Digest, Allocations: make([]*orchv1alpha1.AllocationStatus, 0, len(statuses)),
-		Routes: make([]*orchv1alpha1.RouteStatus, 0, len(routes)),
+		Routes:    make([]*orchv1alpha1.RouteStatus, 0, len(routes)),
+		TcpRoutes: make([]*orchv1alpha1.TCPRouteStatus, 0, len(tcpRoutes)),
+		CronJobs:  make([]*orchv1alpha1.CronJobStatus, 0, len(cronJobs)),
+		JobRuns:   make([]*orchv1alpha1.JobRunStatus, 0, len(jobRuns)),
 	}
 	for _, status := range statuses {
 		item := &orchv1alpha1.AllocationStatus{
@@ -410,6 +432,38 @@ func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectReque
 			UpstreamCount: route.UpstreamCount, Reason: route.Reason, Message: route.Message,
 			UpdatedAt: timestamppb.New(route.UpdatedAt),
 		})
+	}
+	for _, route := range tcpRoutes {
+		report.TcpRoutes = append(report.TcpRoutes, &orchv1alpha1.TCPRouteStatus{
+			Application: route.Application, Service: route.Service, PublicPort: route.PublicPort,
+			TargetPort: route.TargetPort, State: routeStateProto(route.State), UpstreamCount: route.UpstreamCount,
+			Reason: route.Reason, Message: route.Message, UpdatedAt: timestamppb.New(route.UpdatedAt),
+		})
+	}
+	for _, job := range cronJobs {
+		item := &orchv1alpha1.CronJobStatus{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+			ActiveRunId: job.ActiveRunID, LastRunId: job.LastRunID, LastState: jobRunStateProto(job.LastState),
+			Reason: job.Reason, Message: job.Message, UpdatedAt: timestamppb.New(job.UpdatedAt)}
+		if job.NextRunAt != nil {
+			item.NextRunAt = timestamppb.New(*job.NextRunAt)
+		}
+		report.CronJobs = append(report.CronJobs, item)
+	}
+	for _, run := range jobRuns {
+		item := &orchv1alpha1.JobRunStatus{Id: run.ID, Application: run.Application, Job: run.Job,
+			SpecDigest: run.SpecDigest, ScheduledAt: timestamppb.New(run.ScheduledAt), State: jobRunStateProto(run.State),
+			Reason: run.Reason, Message: run.Message, UpdatedAt: timestamppb.New(run.UpdatedAt)}
+		if run.ExitCode != nil {
+			item.HasExitCode = true
+			item.ExitCode = *run.ExitCode
+		}
+		if run.StartedAt != nil {
+			item.StartedAt = timestamppb.New(*run.StartedAt)
+		}
+		if run.FinishedAt != nil {
+			item.FinishedAt = timestamppb.New(*run.FinishedAt)
+		}
+		report.JobRuns = append(report.JobRuns, item)
 	}
 	if networkStatus.Generation != 0 {
 		report.Network = &orchv1alpha1.NetworkStatus{
@@ -451,6 +505,37 @@ func (r *sessionRunner) runTailLogs(ctx context.Context, command *orchv1alpha1.T
 			case <-ctx.Done():
 				return
 			case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: response}):
+			}
+		}
+	}
+	select {
+	case <-ctx.Done():
+	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true}}):
+	}
+}
+
+func (r *sessionRunner) runTailCronLogs(ctx context.Context, command *orchv1alpha1.TailCronLogsCommand, outbound chan<- *orchv1alpha1.ConnectRequest) {
+	frames, err := r.supervisor.TailCronLogs(ctx, command.GetRunId(), command.GetTailLines())
+	if err != nil {
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "cron run logs are unavailable")
+		return
+	}
+	var finalOffset uint64
+	for _, frame := range frames {
+		if frame.Offset > finalOffset {
+			finalOffset = frame.Offset
+		}
+		for len(frame.Data) > 0 {
+			size := min(len(frame.Data), maxOperationChunk)
+			chunk := append([]byte(nil), frame.Data[:size]...)
+			frame.Data = frame.Data[size:]
+			select {
+			case <-ctx.Done():
+				return
+			case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{
+				RequestId: command.GetRequestId(), Stream: logStreamProto(frame.Stream), Data: chunk,
+				Offset: frame.Offset, Truncated: frame.Truncated,
+			}}):
 			}
 		}
 	}
@@ -543,6 +628,9 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 		if allocation.GetHttp() != nil && len(allocation.GetHttp().ProtoReflect().GetUnknown()) != 0 {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment HTTP intent contains unknown fields"))
 		}
+		if allocation.GetTcp() != nil && len(allocation.GetTcp().ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment TCP intent contains unknown fields"))
+		}
 		if allocation.GetRollback() != nil {
 			if len(allocation.GetRollback().ProtoReflect().GetUnknown()) != 0 {
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback spec contains unknown fields"))
@@ -550,11 +638,19 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 			if allocation.GetRollback().GetHttp() != nil && len(allocation.GetRollback().GetHttp().ProtoReflect().GetUnknown()) != 0 {
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback HTTP intent contains unknown fields"))
 			}
+			if allocation.GetRollback().GetTcp() != nil && len(allocation.GetRollback().GetTcp().ProtoReflect().GetUnknown()) != 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback TCP intent contains unknown fields"))
+			}
 			for _, mount := range allocation.GetRollback().GetMounts() {
 				if mount == nil || len(mount.ProtoReflect().GetUnknown()) != 0 {
 					return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback mount contains unknown fields"))
 				}
 			}
+		}
+	}
+	for _, job := range snapshot.GetCronJobs() {
+		if job == nil || len(job.ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment cron job contains unknown fields"))
 		}
 	}
 	if snapshot.GetNetwork() != nil && len(snapshot.GetNetwork().ProtoReflect().GetUnknown()) != 0 {
@@ -581,12 +677,13 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 		snapshot.GetCreatedAt() == nil || snapshot.GetCreatedAt().CheckValid() != nil {
 		return model.Assignment{}, errors.New("assignment snapshot is incomplete or for another node")
 	}
-	if len(snapshot.GetAllocations()) > maxAssignedAllocations {
+	if len(snapshot.GetAllocations()) > maxAssignedAllocations || len(snapshot.GetCronJobs()) > maxAssignedCronJobs {
 		return model.Assignment{}, fmt.Errorf("assignment exceeds the %d allocation limit", maxAssignedAllocations)
 	}
 	assignment := model.Assignment{
 		NodeID: nodeID, Generation: snapshot.GetGeneration(), Digest: snapshot.GetDigest(),
 		CreatedAt: snapshot.GetCreatedAt().AsTime(), Allocations: make([]model.AllocationDesired, 0, len(snapshot.GetAllocations())),
+		CronJobs: make([]model.CronJobDesired, 0, len(snapshot.GetCronJobs())),
 	}
 	if network := snapshot.GetNetwork(); network != nil {
 		assignment.Network = model.NetworkConfig{Generation: network.GetGeneration(), ClusterCIDR: network.GetClusterCidr(),
@@ -613,9 +710,13 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			RestartPolicy: item.GetRestartPolicy(), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
 			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
 			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
+			DependsOn: append([]string(nil), item.GetDependsOn()...),
 		}
 		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
 			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
+		}
+		if desiredTCP := item.GetTcp(); desiredTCP != nil {
+			allocation.TCP = &model.TCPDesired{Port: desiredTCP.GetPort(), PublicPort: desiredTCP.GetPublicPort()}
 		}
 		for _, mount := range item.GetMounts() {
 			allocation.Mounts = append(allocation.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
@@ -628,9 +729,13 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				RestartPolicy: rollback.GetRestartPolicy(), CPUMillis: rollback.GetCpuMillis(), MemoryBytes: rollback.GetMemoryBytes(),
 				StartDeadlineSeconds: rollback.GetStartDeadlineSeconds(), NetworkGeneration: rollback.GetNetworkGeneration(),
 				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
+				DependsOn: append([]string(nil), rollback.GetDependsOn()...),
 			}
 			if rollback.GetHttp() != nil {
 				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
+			}
+			if rollback.GetTcp() != nil {
+				allocation.Rollback.TCP = &model.TCPDesired{Port: rollback.GetTcp().GetPort(), PublicPort: rollback.GetTcp().GetPublicPort()}
 			}
 			for _, mount := range rollback.GetMounts() {
 				allocation.Rollback.Mounts = append(allocation.Rollback.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
@@ -649,7 +754,46 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 		}
 		assignment.Allocations = append(assignment.Allocations, allocation)
 	}
+	previousJob := ""
+	for _, item := range snapshot.GetCronJobs() {
+		key := item.GetApplication() + "\x00" + item.GetJob()
+		if item.GetApplication() == "" || item.GetJob() == "" || item.GetApplicationGeneration() == 0 ||
+			item.GetRevisionId() == "" || item.GetSpecDigest() == "" || (previousJob != "" && key <= previousJob) {
+			return model.Assignment{}, errors.New("assignment contains an incomplete or unordered cron job")
+		}
+		job := model.CronJobDesired{Application: item.GetApplication(), Job: item.GetJob(),
+			ApplicationGeneration: item.GetApplicationGeneration(), RevisionID: item.GetRevisionId(),
+			SpecDigest: item.GetSpecDigest(), Image: item.GetImage(), Schedule: item.GetSchedule(),
+			Command: append([]string(nil), item.GetCommand()...), Args: append([]string(nil), item.GetArgs()...),
+			Environment: cloneStringMap(item.GetEnvironment()), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
+			DependsOn: append([]string(nil), item.GetDependsOn()...), StartDeadlineSeconds: item.GetStartDeadlineSeconds(),
+			TimeoutSeconds: item.GetTimeoutSeconds(), NetworkGeneration: item.GetNetworkGeneration()}
+		if err := orchruntime.ValidateCronJob(job); err != nil || job.NetworkGeneration != assignment.Network.Generation {
+			return model.Assignment{}, fmt.Errorf("assignment cron job %q is invalid", key)
+		}
+		assignment.CronJobs = append(assignment.CronJobs, job)
+		previousJob = key
+	}
 	return assignment, nil
+}
+
+func jobRunStateProto(value string) orchv1alpha1.JobRunState {
+	switch value {
+	case model.JobRunWaiting:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_WAITING
+	case model.JobRunRunning:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_RUNNING
+	case model.JobRunSucceeded:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_SUCCEEDED
+	case model.JobRunFailed:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_FAILED
+	case model.JobRunTimedOut:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_TIMED_OUT
+	case model.JobRunSkipped:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_SKIPPED
+	default:
+		return orchv1alpha1.JobRunState_JOB_RUN_STATE_UNSPECIFIED
+	}
 }
 
 func operationResult(result any) *orchv1alpha1.ConnectRequest {

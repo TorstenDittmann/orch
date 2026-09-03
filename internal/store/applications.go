@@ -50,6 +50,18 @@ func (s *Store) Application(ctx context.Context, name string) (model.Application
 	if err != nil {
 		return model.Application{}, err
 	}
+	application.Execution.TCPRoutes, err = s.applicationTCPRoutes(ctx, name)
+	if err != nil {
+		return model.Application{}, err
+	}
+	application.Execution.CronJobs, err = s.applicationCronJobs(ctx, name)
+	if err != nil {
+		return model.Application{}, err
+	}
+	application.Execution.JobRuns, err = s.CronRuns(ctx, name, "", 20)
+	if err != nil {
+		return model.Application{}, err
+	}
 	return application, nil
 }
 
@@ -388,6 +400,123 @@ func (s *Store) applicationRoutes(ctx context.Context, name string) ([]model.Rou
 		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("read application route time: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) applicationTCPRoutes(ctx context.Context, name string) ([]model.TCPRouteStatus, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT application_name, service_name, public_port, target_port,
+		state, upstream_count, reason, message, updated_at FROM tcp_route_observations
+		WHERE application_name=? ORDER BY public_port`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.TCPRouteStatus
+	for rows.Next() {
+		var item model.TCPRouteStatus
+		var updated string
+		if err := rows.Scan(&item.Application, &item.Service, &item.PublicPort, &item.TargetPort, &item.State,
+			&item.UpstreamCount, &item.Reason, &item.Message, &updated); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) applicationCronJobs(ctx context.Context, name string) ([]model.CronJobStatus, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT application_name, job_name, spec_digest, next_run_at,
+		active_run_id, last_run_id, last_state, reason, message, updated_at
+		FROM cron_job_observations WHERE application_name=? ORDER BY job_name`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.CronJobStatus
+	for rows.Next() {
+		var item model.CronJobStatus
+		var next sql.NullString
+		var updated string
+		if err := rows.Scan(&item.Application, &item.Job, &item.SpecDigest, &next, &item.ActiveRunID,
+			&item.LastRunID, &item.LastState, &item.Reason, &item.Message, &updated); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if next.Valid {
+			value, err := time.Parse(time.RFC3339Nano, next.String)
+			if err != nil {
+				return nil, err
+			}
+			item.NextRunAt = &value
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CronRuns(ctx context.Context, application, job string, limit uint32) ([]model.JobRunStatus, error) {
+	if limit == 0 || limit > 100 {
+		limit = 20
+	}
+	query := `SELECT id, application_name, job_name, spec_digest, scheduled_at, state, exit_code,
+		started_at, finished_at, reason, message, updated_at FROM cron_run_observations WHERE application_name=?`
+	args := []any{application}
+	if job != "" {
+		query += ` AND job_name=?`
+		args = append(args, job)
+	}
+	query += ` ORDER BY scheduled_at DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.JobRunStatus
+	for rows.Next() {
+		var item model.JobRunStatus
+		var scheduled, updated string
+		var exit sql.NullInt64
+		var started, finished sql.NullString
+		if err := rows.Scan(&item.ID, &item.Application, &item.Job, &item.SpecDigest, &scheduled, &item.State,
+			&exit, &started, &finished, &item.Reason, &item.Message, &updated); err != nil {
+			return nil, err
+		}
+		item.ScheduledAt, err = time.Parse(time.RFC3339Nano, scheduled)
+		if err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if exit.Valid {
+			value := int32(exit.Int64)
+			item.ExitCode = &value
+		}
+		if started.Valid {
+			value, err := time.Parse(time.RFC3339Nano, started.String)
+			if err != nil {
+				return nil, err
+			}
+			item.StartedAt = &value
+		}
+		if finished.Valid {
+			value, err := time.Parse(time.RFC3339Nano, finished.String)
+			if err != nil {
+				return nil, err
+			}
+			item.FinishedAt = &value
 		}
 		result = append(result, item)
 	}

@@ -15,6 +15,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/tcpingress"
 )
 
 type ServeOptions struct {
@@ -23,6 +24,7 @@ type ServeOptions struct {
 	Runtime     orchruntime.Runtime
 	Discovery   discovery.Controller
 	Ingress     ingress.Controller
+	TCPIngress  TCPIngressController
 	Now         func() time.Time
 	Random      io.Reader
 }
@@ -75,6 +77,11 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		}
 		defer options.Ingress.Close()
 	}
+	tcpController := options.TCPIngress
+	if tcpController == nil {
+		tcpController = tcpingress.New(tcpingress.DefaultDrainTimeout)
+	}
+	defer tcpController.Close()
 	if options.Discovery != nil {
 		capabilities.DNSAvailable = true
 		defer func() {
@@ -88,7 +95,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		randomSource = rand.Reader
 	}
 	supervisor := NewSupervisorWithServices(cache, options.Runtime, options.Now, SupervisorServices{
-		Discovery: options.Discovery, Ingress: ingressController,
+		Discovery: options.Discovery, Ingress: ingressController, TCPIngress: tcpController,
 	}, randomSource)
 	if cached, err := cache.Assignment(ctx); err == nil {
 		if _, err := supervisor.Reconcile(ctx, cached); err != nil {

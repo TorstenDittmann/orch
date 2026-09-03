@@ -1,11 +1,13 @@
 package config
 
 const (
-	SchemaVersion         = "v1alpha1"
-	DefaultCPU            = "100m"
-	DefaultMemory         = "128Mi"
-	DefaultRestart        = "always"
-	DefaultHealthDeadline = "2m"
+	SchemaVersion           = "v1alpha1"
+	DefaultCPU              = "100m"
+	DefaultMemory           = "128Mi"
+	DefaultRestart          = "always"
+	DefaultHealthDeadline   = "2m"
+	DefaultJobStartDeadline = "1m"
+	DefaultJobTimeout       = "15m"
 )
 
 // Manifest is the resolved, validated application specification. All defaults
@@ -14,6 +16,7 @@ type Manifest struct {
 	Schema   string             `json:"schema"`
 	Name     string             `json:"name"`
 	Services map[string]Service `json:"services"`
+	CronJobs map[string]CronJob `json:"cron_jobs,omitempty"`
 	Volumes  map[string]Volume  `json:"volumes,omitempty"`
 	Deploy   Deployment         `json:"deploy"`
 }
@@ -26,6 +29,8 @@ type Service struct {
 	Restart     string            `json:"restart"`
 	Resources   Resources         `json:"resources"`
 	HTTP        *HTTP             `json:"http,omitempty"`
+	TCP         *TCP              `json:"tcp,omitempty"`
+	DependsOn   []string          `json:"depends_on,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	SecretEnv   map[string]string `json:"secret_env,omitempty"`
 	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
@@ -43,6 +48,23 @@ type HTTP struct {
 	Domains    []string `json:"domains,omitempty"`
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
+}
+
+type TCP struct {
+	Port       int  `json:"port"`
+	PublicPort *int `json:"public_port,omitempty"`
+}
+
+type CronJob struct {
+	Image         string            `json:"image"`
+	Schedule      string            `json:"schedule"`
+	Command       []string          `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	Resources     Resources         `json:"resources"`
+	Env           map[string]string `json:"env,omitempty"`
+	DependsOn     []string          `json:"depends_on,omitempty"`
+	StartDeadline string            `json:"start_deadline"`
+	Timeout       string            `json:"timeout"`
 }
 
 type SecretFile struct {

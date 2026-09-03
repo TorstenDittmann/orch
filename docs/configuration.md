@@ -32,6 +32,7 @@ the official CLI.
 | --- | --- | --- |
 | `name` | required | Application DNS label, at most 63 characters. |
 | `services` | required | Mapping of service name to service definition; at least one. |
+| `cronJobs` | empty | Mapping of scheduled one-shot jobs. |
 | `volumes` | empty | Named local volumes. |
 | `deploy` | defaults below | Application rolling-update behavior. |
 
@@ -50,6 +51,8 @@ module and remains present in rendered JSON.
 | `resources.cpu` | `"100m"` | Whole CPUs or positive millicpu, such as `"500m"`. |
 | `resources.memory` | `"128Mi"` | Positive `Ki`, `Mi`, `Gi`, or `Ti` value. |
 | `http` | absent | Internal HTTP endpoint and optional public domains. |
+| `tcp` | absent | Internal TCP endpoint and optional raw public listener. |
+| `dependsOn` | empty | Services that must be available before this service starts. |
 | `env` | empty | Plain environment variables. |
 | `secretEnv` | empty | Environment variable to secret-name references. |
 | `secretFiles` | empty | Secret-name to in-memory file projections. |
@@ -70,6 +73,44 @@ http = new Http {
   https = true
 }
 ~~~
+
+`http` and `tcp` are mutually exclusive. A TCP endpoint always receives a TCP
+readiness probe. `publicPort` additionally exposes a byte-transparent IPv4
+listener on the node:
+
+~~~pkl
+tcp = new Tcp {
+  port = 9418
+  publicPort = 9418
+}
+~~~
+
+Dependencies name services in the same application. They form a distinct,
+acyclic graph. Startup waits for one RUNNING process-only replica or one READY
+endpoint replica. Existing processes are not stopped when a dependency later
+becomes unavailable.
+
+## Scheduled jobs
+
+Cron jobs use exactly five UTC fields and run one container per occurrence.
+They do not have replicas, restart policies, endpoints, mounts, or secrets.
+
+~~~pkl
+cronJobs {
+  ["backup-monitor"] {
+    image = "registry.example/backup@sha256:..."
+    schedule = "*/2 * * * *"
+    command { "/bin/backup-monitor" }
+    dependsOn { "database" }
+    startDeadline = "30s"
+    timeout = "10m"
+  }
+}
+~~~
+
+Overlapping occurrences are skipped, failed runs are not retried, and missed
+occurrences are not replayed. `orch cron runs APP JOB` lists recent outcomes;
+`orch cron logs APP JOB RUN_ID` reads retained runtime logs.
 
 Plain and secret environment mappings may not define the same variable. Secret
 values are set through a future controller API; application configuration
@@ -190,7 +231,8 @@ The schema accepts the complete `v1alpha1` contract so future intent remains
 forward-compatible, but the runtime executes a deliberately smaller subset. An
 executable service must use a public, digest-qualified OCI image and may use
 command, args, plain environment variables, replicas, restart policy, CPU and
-memory limits, declared local volumes, and an HTTP endpoint. HTTP endpoints
+memory limits, declared local volumes, HTTP or TCP endpoints, dependency gates,
+and cron jobs. HTTP endpoints
 receive a private CNI address and a stable
 `<service>.<application>.svc.internal` DNS name. Domains are published through
 Caddy only after the readiness gate succeeds.

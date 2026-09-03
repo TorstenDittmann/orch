@@ -18,6 +18,8 @@ service ControlService {
   rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
   rpc Exec(ExecRequest) returns (stream ExecResponse);
   rpc ConfigureNetwork(ConfigureNetworkRequest) returns (ConfigureNetworkResponse);
+  rpc ListCronRuns(ListCronRunsRequest) returns (ListCronRunsResponse);
+  rpc TailCronLogs(TailCronLogsRequest) returns (stream TailCronLogsResponse);
 }
 
 enum ExecutionStatus {
@@ -70,6 +72,8 @@ message Application {
   uint64 active_generation = 15;
   string active_revision_id = 16;
   repeated RouteStatus routes = 17;
+  repeated TCPRouteStatus tcp_routes = 18;
+  repeated CronJobStatus cron_jobs = 19;
 }
 
 message Node {
@@ -198,6 +202,31 @@ message ExecRequest {
   uint32 replica = 3;
   repeated string command = 4;
   uint32 timeout_seconds = 5;
+}
+
+message ListCronRunsRequest {
+  string application = 1;
+  string job = 2;
+  uint32 limit = 3;
+}
+
+message ListCronRunsResponse {
+  repeated JobRunStatus runs = 1;
+}
+
+message TailCronLogsRequest {
+  string application = 1;
+  string job = 2;
+  string run_id = 3;
+  uint32 tail_lines = 4;
+}
+
+message TailCronLogsResponse {
+  LogStream stream = 1;
+  bytes data = 2;
+  uint64 offset = 3;
+  bool truncated = 4;
+  bool complete = 5;
 }
 
 message ConfigureNetworkRequest {

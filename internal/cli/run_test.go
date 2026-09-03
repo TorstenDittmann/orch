@@ -42,7 +42,7 @@ func TestValidate(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "valid hello (1 services) sha256:") {
+	if !strings.Contains(stdout.String(), "valid hello (1 services, 0 cron jobs) sha256:") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }

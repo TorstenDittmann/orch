@@ -170,6 +170,7 @@ services {
 The runtime examples demonstrate a preserved local volume and a readiness-gated
 private HTTP service. See [examples/runtime/orch.pkl](examples/runtime/orch.pkl),
 [examples/http/orch.pkl](examples/http/orch.pkl),
+[examples/tcp-cron/orch.pkl](examples/tcp-cron/orch.pkl),
 [docs/configuration.md](docs/configuration.md), and
 [docs/product.md](docs/product.md).
 

@@ -58,6 +58,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runLogs(ctx, args[1:], stdout, stderr)
 	case "exec":
 		return runExec(ctx, args[1:], stdout, stderr)
+	case "cron":
+		return runCron(ctx, args[1:], stdout, stderr)
 	case "remove":
 		return runRemove(ctx, args[1:], stdout, stderr)
 	case "runtime-log-sink":
@@ -537,16 +539,18 @@ func runValidate(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			Name     string `json:"name"`
 			Schema   string `json:"schema"`
 			Services int    `json:"services"`
+			CronJobs int    `json:"cron_jobs"`
 			Digest   string `json:"digest"`
 		}{
 			Valid:    true,
 			Name:     manifest.Name,
 			Schema:   manifest.Schema,
 			Services: len(manifest.Services),
+			CronJobs: len(manifest.CronJobs),
 			Digest:   digest,
 		})
 	}
-	fmt.Fprintf(stdout, "valid %s (%d services) %s\n", manifest.Name, len(manifest.Services), digest)
+	fmt.Fprintf(stdout, "valid %s (%d services, %d cron jobs) %s\n", manifest.Name, len(manifest.Services), len(manifest.CronJobs), digest)
 	return ExitOK
 }
 
@@ -747,6 +751,8 @@ Usage:
   orch app status NAME --context FILE [--json]
   orch logs APP SERVICE --replica N --tail N --context FILE
   orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]
+  orch cron runs APP JOB --context FILE [--limit N] [--json]
+  orch cron logs APP JOB RUN_ID --context FILE [--tail N]
   orch remove APP --context FILE [--idempotency-key KEY] [--json]
   orch status --context FILE [--json]
   orch events --context FILE [--after SEQUENCE] [--limit N] [--json]

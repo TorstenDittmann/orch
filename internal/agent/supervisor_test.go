@@ -18,9 +18,12 @@ import (
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/tcpingress"
 )
 
 var supervisorTestTime = time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+
+const supervisorExecutableImage = "docker.io/library/busybox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestSupervisorEnsuresAdoptsUpdatesAndRemoves(t *testing.T) {
 	t.Parallel()
@@ -80,6 +83,142 @@ func TestSupervisorEnsuresAdoptsUpdatesAndRemoves(t *testing.T) {
 		t.Fatalf("allocation state after removal = %#v, %v", states, err)
 	}
 }
+
+func TestSupervisorStartsDependenciesBeforeDependentsAndDoesNotStopRunningDependent(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	supervisor := NewSupervisor(cache, runtime, func() time.Time { return supervisorTestTime })
+	database := supervisorAllocation(t, supervisorExecutableImage)
+	database.ID, database.Service, database.RestartPolicy = "alloc-z", "database", "never"
+	database.SpecDigest = mustAllocationDigest(t, database)
+	web := supervisorAllocation(t, supervisorExecutableImage)
+	web.ID, web.Service, web.DependsOn = "alloc-a", "web", []string{"database"}
+	web.SpecDigest = mustAllocationDigest(t, web)
+	assignment := model.Assignment{Allocations: []model.AllocationDesired{web, database}}
+	statuses, err := supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := runtime.SnapshotOperations()
+	if len(operations) != 2 || !strings.Contains(operations[0], database.ID) || !strings.Contains(operations[1], web.ID) {
+		t.Fatalf("dependency start order = %v", operations)
+	}
+	if err := runtime.Exit(orchruntime.ObjectID(database.ID, database.SpecDigest), 1); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range statuses {
+		if status.Service == "web" && status.Phase != model.AllocationRunning {
+			t.Fatalf("running dependent was disrupted: %#v", statuses)
+		}
+	}
+}
+
+func TestSupervisorSchedulesOneShotCronRunAndRecordsCompletion(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	now := supervisorTestTime.Add(30 * time.Second)
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}})
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := model.CronJobDesired{Application: "hello", Job: "backup", ApplicationGeneration: 1,
+		RevisionID: "revision-one", Image: supervisorExecutableImage, Schedule: "* * * * *", CPUMillis: 100,
+		MemoryBytes: 64 << 20, StartDeadlineSeconds: 30, TimeoutSeconds: 60, NetworkGeneration: 1}
+	job.SpecDigest, err = model.CronJobSpecDigest(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := model.Assignment{Network: networkConfig, CronJobs: []model.CronJobDesired{job}}
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	now = time.Date(2026, 9, 2, 12, 1, 0, 0, time.UTC)
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	_, runs := supervisor.CronObservations()
+	if len(runs) != 1 || runs[0].State != model.JobRunRunning {
+		t.Fatalf("running cron observations = %#v", runs)
+	}
+	objects := runtime.SnapshotObjects()
+	var objectID string
+	for id, object := range objects {
+		if strings.HasPrefix(object.AllocationID, "job_") {
+			objectID = id
+		}
+	}
+	if objectID == "" {
+		t.Fatalf("cron runtime object not created: %#v", objects)
+	}
+	runtime.SetLogs(objectID, []orchruntime.LogFrame{{Stream: "stdout", Data: []byte("backup complete\n")}})
+	if err := runtime.Exit(objectID, 0); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	_, runs = supervisor.CronObservations()
+	if len(runs) != 1 || runs[0].State != model.JobRunSucceeded {
+		t.Fatalf("completed cron observations = %#v", runs)
+	}
+	frames, err := supervisor.TailCronLogs(ctx, runs[0].ID, 20)
+	if err != nil || len(frames) != 1 || string(frames[0].Data) != "backup complete\n" {
+		t.Fatalf("retained cron logs = %#v, %v", frames, err)
+	}
+}
+
+func TestSupervisorPublishesReadyTCPRoute(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	proxy := &fakeTCPIngress{}
+	now := supervisorTestTime
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now }, SupervisorServices{
+		Prober: &health.Fake{}, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}, TCPIngress: proxy,
+	})
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocation := supervisorAllocation(t, supervisorExecutableImage)
+	allocation.NetworkGeneration = 1
+	allocation.TCP = &model.TCPDesired{Port: 9418, PublicPort: 9418}
+	allocation.SpecDigest = mustAllocationDigest(t, allocation)
+	assignment := model.Assignment{Network: networkConfig, Allocations: []model.AllocationDesired{allocation}}
+	for range health.ReadySuccesses {
+		if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(health.ProbeInterval)
+	}
+	routes := supervisor.TCPObservations()
+	if len(routes) != 1 || routes[0].State != model.TCPRouteActive || routes[0].UpstreamCount != 1 || len(proxy.routes) != 1 {
+		t.Fatalf("TCP routes = %#v, applied = %#v", routes, proxy.routes)
+	}
+}
+
+type fakeTCPIngress struct{ routes []tcpingress.Route }
+
+func (f *fakeTCPIngress) Apply(_ context.Context, routes []tcpingress.Route) []model.TCPRouteStatus {
+	f.routes = append([]tcpingress.Route(nil), routes...)
+	result := make([]model.TCPRouteStatus, 0, len(routes))
+	for _, route := range routes {
+		result = append(result, model.TCPRouteStatus{Application: route.Application, Service: route.Service,
+			PublicPort: route.PublicPort, TargetPort: route.TargetPort, State: model.TCPRouteActive,
+			UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: supervisorTestTime})
+	}
+	return result
+}
+func (f *fakeTCPIngress) Close() error { return nil }
 
 func TestSupervisorKeepsPlan4ObjectDuringNetworkPreflight(t *testing.T) {
 	t.Parallel()

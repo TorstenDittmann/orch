@@ -254,7 +254,7 @@ func TestOpenRejectsUnsafeAndNewerAgentState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (3, 'future.sql', 'future')`); err != nil {
+		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (4, 'future.sql', 'future')`); err != nil {
 			t.Fatal(err)
 		}
 		if err := cache.Close(); err != nil {
@@ -343,8 +343,8 @@ func TestVersionOneAgentStateMigratesWithoutIdentityOrRuntimeLoss(t *testing.T) 
 	if err := cache.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 2 {
-		t.Fatalf("migration count = %d, want 2", migrations)
+	if migrations != 3 {
+		t.Fatalf("migration count = %d, want 3", migrations)
 	}
 }
 

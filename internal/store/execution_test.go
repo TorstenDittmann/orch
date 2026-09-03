@@ -145,6 +145,64 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 	}
 }
 
+func TestTCPReadinessAndRouteProduceHealthyExecution(t *testing.T) {
+	ctx := context.Background()
+	state := executionStore(t)
+	allocation := storeTestAllocation(t)
+	allocation.TCP = &model.TCPDesired{Port: 9418, PublicPort: 9418}
+	allocation.NetworkGeneration = 1
+	allocation.SpecDigest, _ = model.AllocationSpecDigest(allocation)
+	job := model.CronJobDesired{Application: "hello", Job: "backup", ApplicationGeneration: 1,
+		RevisionID: "revision-one", Image: allocation.Image, Schedule: "*/2 * * * *", CPUMillis: 100,
+		MemoryBytes: 64 << 20, StartDeadlineSeconds: 30, TimeoutSeconds: 300, NetworkGeneration: 1}
+	job.SpecDigest, _ = model.CronJobSpecDigest(job)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, digest, err := model.AssignmentPayloadWithJobs(networkConfig, []model.AllocationDesired{allocation}, []model.CronJobDesired{job})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, _, err := state.PublishAssignment(ctx, model.PublishAssignment{NodeID: "node-one", Digest: digest,
+		Payload: payload, Network: networkConfig, Allocations: []model.AllocationDesired{allocation}, CronJobs: []model.CronJobDesired{job}, CreatedAt: testCreatedAt.Add(2 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64", SeenAt: testCreatedAt.Add(3 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	readyAt := testCreatedAt.Add(4 * time.Minute)
+	report := model.AgentReport{NodeID: "node-one", BootID: "boot-one", Sequence: 1,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest, ReportedAt: readyAt,
+		Allocations: []model.AllocationStatus{{ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+			Replica: 1, ApplicationGeneration: 1, SpecDigest: allocation.SpecDigest, Phase: model.AllocationRunning,
+			HealthStatus: model.HealthReady, Address: "10.88.0.2", ActiveSpecDigest: allocation.SpecDigest,
+			ActiveGeneration: 1, ActiveRevisionID: allocation.RevisionID, ReadyAt: &readyAt, DeclaredPort: 9418, UpdatedAt: readyAt}},
+		TCPRoutes: []model.TCPRouteStatus{{Application: "hello", Service: "worker", PublicPort: 9418, TargetPort: 9418,
+			State: model.TCPRouteActive, UpstreamCount: 1, UpdatedAt: readyAt}},
+		CronJobs: []model.CronJobStatus{{Application: "hello", Job: "backup", SpecDigest: job.SpecDigest,
+			LastRunID: "job-one", LastState: model.JobRunSucceeded, UpdatedAt: readyAt}},
+		JobRuns: []model.JobRunStatus{{ID: "job-one", Application: "hello", Job: "backup", SpecDigest: job.SpecDigest,
+			ScheduledAt: readyAt.Add(-time.Minute), State: model.JobRunSucceeded, StartedAt: ptrTime(readyAt.Add(-time.Minute)),
+			FinishedAt: &readyAt, UpdatedAt: readyAt}},
+		Network: model.NetworkStatus{Generation: 1, State: model.NetworkReady, ClusterCIDR: model.DefaultWorkloadCIDR,
+			NodeSubnet: "10.88.0.0/24", Gateway: "10.88.0.1", DNSState: model.SubsystemReady, IngressState: model.SubsystemReady}}
+	if accepted, err := state.RecordAgentReport(ctx, report); err != nil || !accepted {
+		t.Fatalf("RecordAgentReport() = %t, %v", accepted, err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionHealthy || len(application.Execution.TCPRoutes) != 1 ||
+		len(application.Execution.CronJobs) != 1 || len(application.Execution.JobRuns) != 1 {
+		t.Fatalf("TCP execution = %#v, %v", application.Execution, err)
+	}
+}
+
+func ptrTime(value time.Time) *time.Time { return &value }
+
 func TestAgentReportEventsDescribeTransitionsWithoutRepeatingSteadyState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

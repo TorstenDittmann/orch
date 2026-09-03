@@ -4,6 +4,7 @@ type pklDocument struct {
 	Schema   string                `pkl:"schema"`
 	Name     string                `pkl:"name"`
 	Services map[string]pklService `pkl:"services"`
+	CronJobs map[string]pklCronJob `pkl:"cronJobs"`
 	Volumes  map[string]pklVolume  `pkl:"volumes"`
 	Deploy   pklDeployment         `pkl:"deploy"`
 }
@@ -16,6 +17,8 @@ type pklService struct {
 	Restart     string            `pkl:"restart"`
 	Resources   pklResources      `pkl:"resources"`
 	HTTP        *pklHTTP          `pkl:"http"`
+	TCP         *pklTCP           `pkl:"tcp"`
+	DependsOn   []string          `pkl:"dependsOn"`
 	Env         map[string]string `pkl:"env"`
 	SecretEnv   map[string]string `pkl:"secretEnv"`
 	SecretFiles []pklSecretFile   `pkl:"secretFiles"`
@@ -33,6 +36,23 @@ type pklHTTP struct {
 	Domains    []string `pkl:"domains"`
 	HealthPath string   `pkl:"healthPath"`
 	HTTPS      bool     `pkl:"https"`
+}
+
+type pklTCP struct {
+	Port       int  `pkl:"port"`
+	PublicPort *int `pkl:"publicPort"`
+}
+
+type pklCronJob struct {
+	Image         string            `pkl:"image"`
+	Schedule      string            `pkl:"schedule"`
+	Command       []string          `pkl:"command"`
+	Args          []string          `pkl:"args"`
+	Resources     pklResources      `pkl:"resources"`
+	Env           map[string]string `pkl:"env"`
+	DependsOn     []string          `pkl:"dependsOn"`
+	StartDeadline string            `pkl:"startDeadline"`
+	Timeout       string            `pkl:"timeout"`
 }
 
 type pklSecretFile struct {
@@ -62,6 +82,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 		Schema:   doc.Schema,
 		Name:     doc.Name,
 		Services: make(map[string]Service, len(doc.Services)),
+		CronJobs: make(map[string]CronJob, len(doc.CronJobs)),
 		Volumes:  make(map[string]Volume, len(doc.Volumes)),
 		Deploy: Deployment{
 			MaxSurge:       doc.Deploy.MaxSurge,
@@ -80,6 +101,14 @@ func resolvePkl(doc pklDocument) *Manifest {
 				HTTPS:      input.HTTP.HTTPS,
 			}
 		}
+		var tcpConfig *TCP
+		if input.TCP != nil {
+			tcpConfig = &TCP{Port: input.TCP.Port}
+			if input.TCP.PublicPort != nil {
+				publicPort := *input.TCP.PublicPort
+				tcpConfig.PublicPort = &publicPort
+			}
+		}
 		secretFiles := make([]SecretFile, len(input.SecretFiles))
 		for index, secret := range input.SecretFiles {
 			secretFiles[index] = SecretFile{Source: secret.Source, Target: secret.Target}
@@ -96,11 +125,22 @@ func resolvePkl(doc pklDocument) *Manifest {
 			Restart:     input.Restart,
 			Resources:   Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
 			HTTP:        httpConfig,
+			TCP:         tcpConfig,
+			DependsOn:   append([]string(nil), input.DependsOn...),
 			Env:         cloneMap(input.Env),
 			SecretEnv:   cloneMap(input.SecretEnv),
 			SecretFiles: secretFiles,
 			Constraints: cloneMap(input.Constraints),
 			Mounts:      mounts,
+		}
+	}
+	for name, input := range doc.CronJobs {
+		manifest.CronJobs[name] = CronJob{
+			Image: input.Image, Schedule: input.Schedule,
+			Command: append([]string(nil), input.Command...), Args: append([]string(nil), input.Args...),
+			Resources: Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
+			Env:       cloneMap(input.Env), DependsOn: append([]string(nil), input.DependsOn...),
+			StartDeadline: input.StartDeadline, Timeout: input.Timeout,
 		}
 	}
 	for name, input := range doc.Volumes {

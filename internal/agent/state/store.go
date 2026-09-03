@@ -77,6 +77,21 @@ type Drain struct {
 	Until        time.Time
 }
 
+type CronJobState struct {
+	Application     string
+	Job             string
+	SpecDigest      string
+	LastScheduledAt *time.Time
+	NextRunAt       *time.Time
+	ActiveRunID     string
+	UpdatedAt       time.Time
+}
+
+type CronRunState struct {
+	model.JobRunStatus
+	ObjectID string
+}
+
 func Open(ctx context.Context, path, clusterID, nodeID string) (*Store, error) {
 	if strings.TrimSpace(path) == "" || clusterID == "" || nodeID == "" {
 		return nil, fmt.Errorf("database path, cluster id, and node id are required")
@@ -237,7 +252,7 @@ func (s *Store) CommitAssignment(ctx context.Context, assignment model.Assignmen
 	if assignment.NodeID == "" || assignment.Generation == 0 || assignment.CreatedAt.IsZero() {
 		return false, fmt.Errorf("assignment is incomplete")
 	}
-	payload, digest, err := model.AssignmentPayload(assignment.Network, assignment.Allocations)
+	payload, digest, err := model.AssignmentPayloadWithJobs(assignment.Network, assignment.Allocations, assignment.CronJobs)
 	if err != nil {
 		return false, err
 	}
@@ -299,6 +314,29 @@ func (s *Store) CommitAssignment(ctx context.Context, assignment model.Assignmen
 			return false, fmt.Errorf("write cached allocation %q: %w", allocation.ID, err)
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM desired_cron_jobs`); err != nil {
+		return false, err
+	}
+	previousJob := ""
+	for _, job := range assignment.CronJobs {
+		key := job.Application + "\x00" + job.Job
+		if previousJob != "" && key <= previousJob {
+			return false, fmt.Errorf("cached cron jobs are not in strict canonical order")
+		}
+		previousJob = key
+		digest, err := model.CronJobSpecDigest(job)
+		if err != nil || digest != job.SpecDigest {
+			return false, fmt.Errorf("cron job %q spec digest does not match", key)
+		}
+		encoded, err := json.Marshal(job)
+		if err != nil {
+			return false, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO desired_cron_jobs(application_name, job_name, spec_digest, spec) VALUES (?, ?, ?, ?)`,
+			job.Application, job.Job, job.SpecDigest, string(encoded)); err != nil {
+			return false, fmt.Errorf("write cached cron job %q: %w", key, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit cached assignment: %w", err)
 	}
@@ -320,7 +358,7 @@ func (s *Store) Assignment(ctx context.Context) (model.Assignment, error) {
 	}
 	assignment.Generation = uint64(generation)
 	assignment.Payload = json.RawMessage(payload)
-	assignment.Network, assignment.Allocations, err = model.DecodeAssignmentPayload([]byte(payload))
+	assignment.Network, assignment.Allocations, assignment.CronJobs, err = model.DecodeAssignmentDocument([]byte(payload))
 	if err != nil {
 		return model.Assignment{}, fmt.Errorf("decode cached assignment: %w", err)
 	}
@@ -707,6 +745,182 @@ func (s *Store) DeleteDrain(ctx context.Context, objectID string) error {
 
 func (s *Store) DeleteAllocationState(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM allocation_state WHERE id = ?`, id)
+	return err
+}
+
+func (s *Store) CronJobStates(ctx context.Context) ([]CronJobState, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT application_name, job_name, spec_digest,
+		last_scheduled_at, next_run_at, active_run_id, updated_at
+		FROM cron_job_state ORDER BY application_name, job_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []CronJobState
+	for rows.Next() {
+		var item CronJobState
+		var last, next sql.NullString
+		var updated string
+		if err := rows.Scan(&item.Application, &item.Job, &item.SpecDigest, &last, &next, &item.ActiveRunID, &updated); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if last.Valid {
+			value, err := time.Parse(time.RFC3339Nano, last.String)
+			if err != nil {
+				return nil, err
+			}
+			item.LastScheduledAt = &value
+		}
+		if next.Valid {
+			value, err := time.Parse(time.RFC3339Nano, next.String)
+			if err != nil {
+				return nil, err
+			}
+			item.NextRunAt = &value
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SaveCronJobState(ctx context.Context, item CronJobState) error {
+	if item.Application == "" || item.Job == "" || item.SpecDigest == "" || item.UpdatedAt.IsZero() {
+		return fmt.Errorf("cron job state is incomplete")
+	}
+	var last, next any
+	if item.LastScheduledAt != nil {
+		last = item.LastScheduledAt.UTC().Format(time.RFC3339Nano)
+	}
+	if item.NextRunAt != nil {
+		next = item.NextRunAt.UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO cron_job_state
+		(application_name, job_name, spec_digest, last_scheduled_at, next_run_at, active_run_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(application_name, job_name) DO UPDATE SET
+		spec_digest=excluded.spec_digest, last_scheduled_at=excluded.last_scheduled_at,
+		next_run_at=excluded.next_run_at, active_run_id=excluded.active_run_id, updated_at=excluded.updated_at`,
+		item.Application, item.Job, item.SpecDigest, last, next, item.ActiveRunID, item.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (s *Store) DeleteCronJobStatesExcept(ctx context.Context, keys map[string]struct{}) error {
+	states, err := s.CronJobStates(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range states {
+		if _, ok := keys[item.Application+"\x00"+item.Job]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM cron_job_state WHERE application_name=? AND job_name=?`, item.Application, item.Job); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) CronRunStates(ctx context.Context) ([]CronRunState, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, application_name, job_name, spec_digest, scheduled_at,
+		state, object_id, exit_code, started_at, finished_at, reason, message, updated_at
+		FROM cron_run_state ORDER BY application_name, job_name, scheduled_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []CronRunState
+	for rows.Next() {
+		var item CronRunState
+		var scheduled, updated string
+		var started, finished sql.NullString
+		var exit sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.Application, &item.Job, &item.SpecDigest, &scheduled,
+			&item.State, &item.ObjectID, &exit, &started, &finished, &item.Reason, &item.Message, &updated); err != nil {
+			return nil, err
+		}
+		var err error
+		item.ScheduledAt, err = time.Parse(time.RFC3339Nano, scheduled)
+		if err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		if exit.Valid {
+			value := int32(exit.Int64)
+			item.ExitCode = &value
+		}
+		if started.Valid {
+			value, err := time.Parse(time.RFC3339Nano, started.String)
+			if err != nil {
+				return nil, err
+			}
+			item.StartedAt = &value
+		}
+		if finished.Valid {
+			value, err := time.Parse(time.RFC3339Nano, finished.String)
+			if err != nil {
+				return nil, err
+			}
+			item.FinishedAt = &value
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SaveCronRunState(ctx context.Context, item CronRunState) error {
+	if item.ID == "" || item.Application == "" || item.Job == "" || item.SpecDigest == "" || item.ScheduledAt.IsZero() || item.UpdatedAt.IsZero() {
+		return fmt.Errorf("cron run state is incomplete")
+	}
+	var exit, started, finished any
+	if item.ExitCode != nil {
+		exit = *item.ExitCode
+	}
+	if item.StartedAt != nil {
+		started = item.StartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if item.FinishedAt != nil {
+		finished = item.FinishedAt.UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO cron_run_state
+		(id, application_name, job_name, spec_digest, scheduled_at, state, object_id, exit_code, started_at, finished_at, reason, message, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,
+		object_id=excluded.object_id, exit_code=excluded.exit_code, started_at=excluded.started_at,
+		finished_at=excluded.finished_at, reason=excluded.reason, message=excluded.message, updated_at=excluded.updated_at`,
+		item.ID, item.Application, item.Job, item.SpecDigest, item.ScheduledAt.UTC().Format(time.RFC3339Nano), item.State,
+		item.ObjectID, exit, started, finished, item.Reason, item.Message, item.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (s *Store) CronRunsBeyond(ctx context.Context, application, job string, keep int) ([]CronRunState, error) {
+	if keep < 1 {
+		return nil, fmt.Errorf("cron run retention must be positive")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, object_id FROM cron_run_state
+		WHERE application_name=? AND job_name=? AND state NOT IN ('WAITING', 'RUNNING')
+		ORDER BY scheduled_at DESC LIMIT -1 OFFSET ?`, application, job, keep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []CronRunState
+	for rows.Next() {
+		var item CronRunState
+		if err := rows.Scan(&item.ID, &item.ObjectID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) DeleteCronRunState(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM cron_run_state WHERE id=?`, id)
 	return err
 }
 

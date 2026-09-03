@@ -33,6 +33,9 @@ func Diff(before, after *Manifest) ([]Change, error) {
 		for _, name := range sortedKeys(after.Services) {
 			changes = append(changes, Change{Kind: ChangeAdd, Path: "services." + name, After: after.Services[name]})
 		}
+		for _, name := range sortedKeys(after.CronJobs) {
+			changes = append(changes, Change{Kind: ChangeAdd, Path: "cron_jobs." + name, After: after.CronJobs[name]})
+		}
 		for _, name := range sortedKeys(after.Volumes) {
 			changes = append(changes, Change{Kind: ChangeAdd, Path: "volumes." + name, After: after.Volumes[name]})
 		}

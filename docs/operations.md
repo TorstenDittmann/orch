@@ -313,3 +313,10 @@ restore workflow rather than copying a database over a live controller.
   report matching the current acknowledged generation and digest.
 - Local volumes are neither replicated nor included in controller backup. A
   lost agent host can therefore lose the only copy of application data.
+## Scheduled jobs
+
+The agent evaluates five-field cron schedules in UTC from its durable cached
+assignment, including while the controller is unavailable. It does not replay
+historical occurrences after downtime, overlap runs, or retry failures. Use
+`orch cron runs APP JOB --context FILE` for the latest 20 outcomes and
+`orch cron logs APP JOB RUN_ID --context FILE` for a retained run's logs.

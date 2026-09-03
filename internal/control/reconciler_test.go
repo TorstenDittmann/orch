@@ -31,6 +31,74 @@ func TestReconcilerLeavesApplicationsPendingWithoutAgent(t *testing.T) {
 	}
 }
 
+func TestReconcilerPublishesTCPDependenciesAndCronTemplates(t *testing.T) {
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	port := 9418
+	manifest := newTestManifest("hello", map[string]config.Service{
+		"gitd": {Image: executableImage, TCP: &config.TCP{Port: 9418, PublicPort: &port}},
+		"web":  {Image: executableImage, DependsOn: []string{"gitd"}},
+	})
+	manifest.CronJobs = map[string]config.CronJob{"backup": {
+		Image: executableImage, Schedule: "*/2 * * * *", Resources: config.Resources{CPU: "100m", Memory: "64Mi"},
+		DependsOn: []string{"gitd"}, StartDeadline: "30s", Timeout: "5m",
+	}}
+	applyManifest(t, state, manifest, "revision-one", "application-key-one", reconcilerTestTime)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitd := allocationForService(t, assignment, "gitd", 1)
+	web := allocationForService(t, assignment, "web", 1)
+	if gitd.TCP == nil || gitd.TCP.Port != 9418 || gitd.TCP.PublicPort != 9418 || len(web.DependsOn) != 1 || web.DependsOn[0] != "gitd" {
+		t.Fatalf("published services = gitd %#v web %#v", gitd, web)
+	}
+	if len(assignment.CronJobs) != 1 || assignment.CronJobs[0].Job != "backup" || assignment.CronJobs[0].TimeoutSeconds != 300 || assignment.CronJobs[0].DependsOn[0] != "gitd" {
+		t.Fatalf("published cron jobs = %#v", assignment.CronJobs)
+	}
+}
+
+func TestTCPPublicPortOwnershipBlocksLaterApplication(t *testing.T) {
+	port := 9418
+	firstManifest := newTestManifest("first", map[string]config.Service{"git": {Image: executableImage, TCP: &config.TCP{Port: 9418, PublicPort: &port}}})
+	secondPort := 9418
+	secondManifest := newTestManifest("second", map[string]config.Service{"git": {Image: executableImage, TCP: &config.TCP{Port: 9418, PublicPort: &secondPort}}})
+	applications := []model.Application{
+		{Name: "second", Generation: 1, RevisionID: "revision-two", CanonicalManifest: mustCanonicalManifest(t, secondManifest), CreatedAt: reconcilerTestTime.Add(time.Second)},
+		{Name: "first", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, firstManifest), CreatedAt: reconcilerTestTime},
+	}
+	owners, err := desiredTCPPortOwners(applications)
+	if err != nil || owners[9418] != "first/git" {
+		t.Fatalf("owners = %#v, %v", owners, err)
+	}
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion: ingress.RequiredCaddyVersion, NetworkGeneration: 1, NodeSubnet: networkConfig.NodeSubnet,
+		NetworkState: model.NetworkReady, DNSState: model.SubsystemReady}
+	_, blocked, err := planApplicationBundleForNetwork("cluster-one", node, applications[0], networkConfig, true, nil, owners, nil)
+	if err != nil || blocked == nil || blocked.reason != "tcp_port_conflict" {
+		t.Fatalf("blocked = %#v, %v", blocked, err)
+	}
+}
+
 func TestReconcilerPlansDeterministicAllocationsAndPreservesUnaffectedSpecs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

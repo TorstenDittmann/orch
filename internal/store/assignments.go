@@ -22,7 +22,7 @@ func (s *Store) PublishAssignment(ctx context.Context, input model.PublishAssign
 	if input.NodeID == "" || input.CreatedAt.IsZero() || !json.Valid(input.Payload) {
 		return model.Assignment{}, false, fmt.Errorf("node, creation time, and valid assignment payload are required")
 	}
-	canonical, digest, err := model.AssignmentPayload(input.Network, input.Allocations)
+	canonical, digest, err := model.AssignmentPayloadWithJobs(input.Network, input.Allocations, input.CronJobs)
 	if err != nil {
 		return model.Assignment{}, false, err
 	}
@@ -45,6 +45,21 @@ func (s *Store) PublishAssignment(ctx context.Context, input model.PublishAssign
 		digestMatches, err := model.AllocationSpecDigestMatches(allocation)
 		if err != nil || !digestMatches {
 			return model.Assignment{}, false, fmt.Errorf("desired allocation %q spec digest does not match", allocation.ID)
+		}
+	}
+	previousJob := ""
+	for _, job := range input.CronJobs {
+		key := job.Application + "\x00" + job.Job
+		if previousJob != "" && key <= previousJob {
+			return model.Assignment{}, false, fmt.Errorf("desired cron jobs are not in strict canonical order")
+		}
+		previousJob = key
+		if job.Application == "" || job.Job == "" || job.ApplicationGeneration == 0 || job.RevisionID == "" || job.SpecDigest == "" {
+			return model.Assignment{}, false, fmt.Errorf("desired cron job is incomplete")
+		}
+		digest, err := model.CronJobSpecDigest(job)
+		if err != nil || digest != job.SpecDigest {
+			return model.Assignment{}, false, fmt.Errorf("desired cron job %q spec digest does not match", key)
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -109,6 +124,21 @@ func (s *Store) PublishAssignment(ctx context.Context, input model.PublishAssign
 			return model.Assignment{}, false, fmt.Errorf("insert desired allocation %q: %w", allocation.ID, err)
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM desired_cron_jobs WHERE node_id = ?`, input.NodeID); err != nil {
+		return model.Assignment{}, false, fmt.Errorf("replace desired cron jobs: %w", err)
+	}
+	for _, job := range input.CronJobs {
+		encoded, err := json.Marshal(job)
+		if err != nil {
+			return model.Assignment{}, false, fmt.Errorf("encode desired cron job %s/%s: %w", job.Application, job.Job, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO desired_cron_jobs
+			(node_id, application_name, job_name, application_generation, revision_id, spec_digest, spec, assignment_generation)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, input.NodeID, job.Application, job.Job,
+			job.ApplicationGeneration, job.RevisionID, job.SpecDigest, string(encoded), generation); err != nil {
+			return model.Assignment{}, false, fmt.Errorf("insert desired cron job %s/%s: %w", job.Application, job.Job, err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE nodes SET assignment_generation = ? WHERE id = ?`, generation, input.NodeID); err != nil {
 		return model.Assignment{}, false, fmt.Errorf("advance node assignment: %w", err)
 	}
@@ -129,7 +159,8 @@ func (s *Store) PublishAssignment(ctx context.Context, input model.PublishAssign
 		Generation  uint64 `json:"generation"`
 		Digest      string `json:"digest"`
 		Allocations int    `json:"allocations"`
-	}{input.NodeID, generation, input.Digest, len(input.Allocations)})
+		CronJobs    int    `json:"cron_jobs"`
+	}{input.NodeID, generation, input.Digest, len(input.Allocations), len(input.CronJobs)})
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events
 		(cluster_id, kind, payload, created_at) VALUES (?, ?, ?, ?)`,
 		clusterID, model.EventAssignmentUpdated, string(payload), stamp); err != nil {
@@ -140,7 +171,7 @@ func (s *Store) PublishAssignment(ctx context.Context, input model.PublishAssign
 	}
 	return model.Assignment{
 		NodeID: input.NodeID, Generation: generation, Digest: input.Digest,
-		Payload: append([]byte(nil), input.Payload...), Allocations: cloneAllocations(input.Allocations),
+		Payload: append([]byte(nil), input.Payload...), Allocations: cloneAllocations(input.Allocations), CronJobs: cloneCronJobs(input.CronJobs),
 		Network:   input.Network,
 		CreatedAt: input.CreatedAt.UTC(),
 	}, true, nil
@@ -182,7 +213,7 @@ func scanAssignment(row rowScanner) (model.Assignment, error) {
 	assignment.Generation = uint64(generation)
 	assignment.Payload = json.RawMessage(payload)
 	var err error
-	assignment.Network, assignment.Allocations, err = model.DecodeAssignmentPayload([]byte(payload))
+	assignment.Network, assignment.Allocations, assignment.CronJobs, err = model.DecodeAssignmentDocument([]byte(payload))
 	if err != nil {
 		return model.Assignment{}, err
 	}
@@ -284,7 +315,7 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 	if report.Sequence <= uint64(lastSequence) {
 		return false, nil
 	}
-	assignmentNetwork, _, err := model.DecodeAssignmentPayload([]byte(assignmentPayload))
+	assignmentNetwork, assignmentAllocations, assignmentCronJobs, err := model.DecodeAssignmentDocument([]byte(assignmentPayload))
 	if err != nil {
 		return false, fmt.Errorf("decode acknowledged assignment network: %w", err)
 	}
@@ -401,6 +432,96 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM route_observations WHERE node_id = ?`, report.NodeID); err != nil {
 		return false, fmt.Errorf("replace route observations: %w", err)
 	}
+	desiredTCP := make(map[uint32]model.AllocationDesired)
+	for _, allocation := range assignmentAllocations {
+		if allocation.TCP != nil && allocation.TCP.PublicPort != 0 {
+			desiredTCP[allocation.TCP.PublicPort] = allocation
+		}
+		if allocation.Rollback != nil && allocation.Rollback.TCP != nil && allocation.Rollback.TCP.PublicPort != 0 {
+			desiredTCP[allocation.Rollback.TCP.PublicPort] = allocation
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tcp_route_observations WHERE node_id = ?`, report.NodeID); err != nil {
+		return false, fmt.Errorf("replace TCP route observations: %w", err)
+	}
+	previousPort := uint32(0)
+	for _, route := range report.TCPRoutes {
+		desired, ok := desiredTCP[route.PublicPort]
+		contractMatches := ok && ((desired.TCP != nil && desired.TCP.PublicPort == route.PublicPort && desired.TCP.Port == route.TargetPort) ||
+			(desired.Rollback != nil && desired.Rollback.TCP != nil && desired.Rollback.TCP.PublicPort == route.PublicPort && desired.Rollback.TCP.Port == route.TargetPort))
+		if !contractMatches || desired.Application != route.Application || desired.Service != route.Service ||
+			(previousPort != 0 && route.PublicPort <= previousPort) || route.UpdatedAt.IsZero() || !validRouteState(route.State) {
+			return false, fmt.Errorf("TCP route observation for port %d is not authorized", route.PublicPort)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO tcp_route_observations
+			(node_id, application_name, service_name, public_port, target_port, state, upstream_count, reason, message, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, report.NodeID, route.Application, route.Service, route.PublicPort,
+			route.TargetPort, route.State, route.UpstreamCount, route.Reason, route.Message, route.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return false, fmt.Errorf("record TCP route observation: %w", err)
+		}
+		previousPort = route.PublicPort
+	}
+	desiredJobs := make(map[string]model.CronJobDesired, len(assignmentCronJobs))
+	for _, job := range assignmentCronJobs {
+		desiredJobs[job.Application+"\x00"+job.Job] = job
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM cron_job_observations WHERE node_id = ?`, report.NodeID); err != nil {
+		return false, fmt.Errorf("replace cron job observations: %w", err)
+	}
+	previousJob := ""
+	for _, observation := range report.CronJobs {
+		key := observation.Application + "\x00" + observation.Job
+		desired, ok := desiredJobs[key]
+		if !ok || observation.SpecDigest != desired.SpecDigest || observation.UpdatedAt.IsZero() || (previousJob != "" && key <= previousJob) {
+			return false, fmt.Errorf("cron job observation %q is not authorized or ordered", key)
+		}
+		var next any
+		if observation.NextRunAt != nil {
+			next = observation.NextRunAt.UTC().Format(time.RFC3339Nano)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO cron_job_observations
+			(node_id, application_name, job_name, spec_digest, next_run_at, active_run_id, last_run_id, last_state, reason, message, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, report.NodeID, observation.Application, observation.Job,
+			observation.SpecDigest, next, observation.ActiveRunID, observation.LastRunID, observation.LastState,
+			observation.Reason, observation.Message, observation.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return false, fmt.Errorf("record cron job observation %q: %w", key, err)
+		}
+		previousJob = key
+	}
+	for _, run := range report.JobRuns {
+		key := run.Application + "\x00" + run.Job
+		desired, ok := desiredJobs[key]
+		if !ok || run.SpecDigest != desired.SpecDigest || run.ID == "" || run.ScheduledAt.IsZero() || run.UpdatedAt.IsZero() || !validJobRunState(run.State) {
+			return false, fmt.Errorf("cron run %q is not authorized", run.ID)
+		}
+		var exit, started, finished any
+		if run.ExitCode != nil {
+			exit = *run.ExitCode
+		}
+		if run.StartedAt != nil {
+			started = run.StartedAt.UTC().Format(time.RFC3339Nano)
+		}
+		if run.FinishedAt != nil {
+			finished = run.FinishedAt.UTC().Format(time.RFC3339Nano)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO cron_run_observations
+			(id, node_id, application_name, job_name, spec_digest, scheduled_at, state, exit_code, started_at, finished_at, reason, message, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,
+			exit_code=excluded.exit_code, started_at=excluded.started_at, finished_at=excluded.finished_at,
+			reason=excluded.reason, message=excluded.message, updated_at=excluded.updated_at`, run.ID, report.NodeID,
+			run.Application, run.Job, run.SpecDigest, run.ScheduledAt.UTC().Format(time.RFC3339Nano), run.State,
+			exit, started, finished, run.Reason, run.Message, run.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return false, fmt.Errorf("record cron run %q: %w", run.ID, err)
+		}
+	}
+	for _, job := range assignmentCronJobs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM cron_run_observations WHERE id IN (
+			SELECT id FROM cron_run_observations WHERE node_id=? AND application_name=? AND job_name=?
+			AND state NOT IN ('WAITING', 'RUNNING')
+			ORDER BY scheduled_at DESC LIMIT -1 OFFSET 20)`, report.NodeID, job.Application, job.Job); err != nil {
+			return false, fmt.Errorf("prune cron run observations: %w", err)
+		}
+	}
 	previousDomain := ""
 	for _, route := range report.Routes {
 		if err := validateRouteObservation(ctx, tx, report.NodeID, route); err != nil {
@@ -503,6 +624,19 @@ func routeTransitionStates(ctx context.Context, tx *sql.Tx, nodeID string) (map[
 	return states, nil
 }
 
+func validRouteState(value string) bool {
+	return value == model.RoutePending || value == model.RouteActive || value == model.RouteFailed
+}
+
+func validJobRunState(value string) bool {
+	switch value {
+	case model.JobRunWaiting, model.JobRunRunning, model.JobRunSucceeded, model.JobRunFailed, model.JobRunTimedOut, model.JobRunSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 func insertObservedTransition(ctx context.Context, tx *sql.Tx, clusterID, kind string, payload []byte, at time.Time) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events
 		(cluster_id, kind, payload, created_at) VALUES (?, ?, ?, ?)`,
@@ -539,6 +673,8 @@ func validateObservationAgainstDesired(observation model.AllocationStatus, desir
 	declaredPort := uint32(0)
 	if desired.HTTP != nil {
 		declaredPort = desired.HTTP.Port
+	} else if desired.TCP != nil {
+		declaredPort = desired.TCP.Port
 	}
 	if observation.DeclaredPort != declaredPort {
 		return fmt.Errorf("allocation %q declared port does not match the acknowledged assignment", observation.ID)
@@ -552,6 +688,7 @@ func validateObservationAgainstDesired(observation model.AllocationStatus, desir
 	matchesDesired := false
 	matchesRollback := false
 	activeHTTP := desired.HTTP
+	activeTCP := desired.TCP
 	activeNetworkGeneration := desired.NetworkGeneration
 	if hasDigest {
 		matchesDesired = observation.ActiveSpecDigest == desired.SpecDigest &&
@@ -566,6 +703,7 @@ func validateObservationAgainstDesired(observation model.AllocationStatus, desir
 		}
 		if matchesRollback {
 			activeHTTP = desired.Rollback.HTTP
+			activeTCP = desired.Rollback.TCP
 			activeNetworkGeneration = desired.Rollback.NetworkGeneration
 		}
 	}
@@ -575,11 +713,11 @@ func validateObservationAgainstDesired(observation model.AllocationStatus, desir
 	if observation.HealthStatus == model.HealthReady && (observation.Phase != model.AllocationRunning || !hasDigest) {
 		return fmt.Errorf("ready allocation %q is not a running authorized revision", observation.ID)
 	}
-	if activeHTTP == nil && observation.HealthStatus != model.HealthNotConfigured {
-		return fmt.Errorf("allocation %q reports health for a service without an HTTP contract", observation.ID)
+	if activeHTTP == nil && activeTCP == nil && observation.HealthStatus != model.HealthNotConfigured {
+		return fmt.Errorf("allocation %q reports health for a service without an endpoint contract", observation.ID)
 	}
-	if activeHTTP != nil && observation.Phase == model.AllocationRunning && observation.HealthStatus == model.HealthNotConfigured {
-		return fmt.Errorf("running HTTP allocation %q is missing its health state", observation.ID)
+	if (activeHTTP != nil || activeTCP != nil) && observation.Phase == model.AllocationRunning && observation.HealthStatus == model.HealthNotConfigured {
+		return fmt.Errorf("running endpoint allocation %q is missing its health state", observation.ID)
 	}
 	if observation.Address == "" {
 		if observation.Phase == model.AllocationRunning && activeNetworkGeneration != 0 {
@@ -792,7 +930,7 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 	}
 	for _, application := range applications {
 		execution := model.ApplicationExecution{UpdatedAt: now}
-		var desired, observed, running, failed, serving, httpAllocations, activeFallbacks int
+		var desired, observed, running, failed, serving, endpointAllocations, activeFallbacks int
 		var rollbackStates, terminalRollbacks, activeCount int
 		var minimumDesiredGeneration, maximumDesiredGeneration int64
 		var minimumActiveGeneration, maximumActiveGeneration int64
@@ -804,9 +942,10 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			COALESCE(sum(CASE WHEN o.phase IN ('FAILED', 'BACKOFF', 'STOPPED') THEN 1 ELSE 0 END), 0),
 			COALESCE(sum(CASE WHEN ((CASE
 				WHEN o.active_generation != d.application_generation OR o.active_revision_id != d.revision_id
-				THEN json_type(d.spec, '$.rollback.http') ELSE json_type(d.spec, '$.http') END) IS NULL
+				THEN (json_type(d.spec, '$.rollback.http') IS NULL AND json_type(d.spec, '$.rollback.tcp') IS NULL)
+				ELSE (json_type(d.spec, '$.http') IS NULL AND json_type(d.spec, '$.tcp') IS NULL) END)
 				AND o.phase = 'RUNNING') OR o.health_status = 'READY' THEN 1 ELSE 0 END), 0),
-			COALESCE(sum(CASE WHEN json_type(d.spec, '$.http') IS NOT NULL THEN 1 ELSE 0 END), 0),
+			COALESCE(sum(CASE WHEN json_type(d.spec, '$.http') IS NOT NULL OR json_type(d.spec, '$.tcp') IS NOT NULL THEN 1 ELSE 0 END), 0),
 			COALESCE(sum(CASE WHEN o.active_spec_digest != '' AND
 				(o.active_spec_digest != d.spec_digest OR o.active_generation != d.application_generation OR
 				o.active_revision_id != d.revision_id) THEN 1 ELSE 0 END), 0),
@@ -821,7 +960,7 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			FROM desired_allocations d LEFT JOIN allocation_observations o ON o.id = d.id
 			WHERE d.application_name = ?`, application.name).Scan(&desired,
 			&minimumDesiredGeneration, &maximumDesiredGeneration, &observed, &running, &failed,
-			&serving, &httpAllocations, &activeFallbacks, &rollbackStates, &terminalRollbacks,
+			&serving, &endpointAllocations, &activeFallbacks, &rollbackStates, &terminalRollbacks,
 			&activeCount, &minimumActiveGeneration,
 			&maximumActiveGeneration, &minimumActiveRevision, &maximumActiveRevision); err != nil {
 			return fmt.Errorf("summarize application execution: %w", err)
@@ -829,7 +968,8 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 		var requiredRoutes, activeRoutes int
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(
 			CASE WHEN replica = 1 AND json_type(spec, '$.http.domains') = 'array'
-			THEN json_array_length(spec, '$.http.domains') ELSE 0 END), 0)
+			THEN json_array_length(spec, '$.http.domains') ELSE 0 END), 0) +
+			COALESCE(sum(CASE WHEN replica = 1 AND json_extract(spec, '$.tcp.public_port') > 0 THEN 1 ELSE 0 END), 0)
 			FROM desired_allocations WHERE application_name = ?`, application.name).Scan(&requiredRoutes); err != nil {
 			return fmt.Errorf("summarize desired application routes: %w", err)
 		}
@@ -837,6 +977,12 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			WHERE application_name = ? AND state = 'ACTIVE'`, application.name).Scan(&activeRoutes); err != nil {
 			return fmt.Errorf("summarize active application routes: %w", err)
 		}
+		var activeTCPRoutes int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM tcp_route_observations
+			WHERE application_name = ? AND state = 'ACTIVE'`, application.name).Scan(&activeTCPRoutes); err != nil {
+			return fmt.Errorf("summarize active TCP routes: %w", err)
+		}
+		activeRoutes += activeTCPRoutes
 		if desired > 0 && activeCount == desired && minimumActiveGeneration == maximumActiveGeneration &&
 			minimumActiveGeneration > 0 && minimumActiveRevision == maximumActiveRevision {
 			execution.ActiveGeneration = uint64(minimumActiveGeneration)
@@ -891,7 +1037,7 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			execution.Reason = "rollback_converging"
 			execution.Message = "the desired generation failed its health gate; replicas are converging on the authorized previous generation"
 		case observed == desired && running == desired && activeCount == desired &&
-			activeFallbacks == 0 && httpAllocations == 0:
+			activeFallbacks == 0 && endpointAllocations == 0:
 			execution.Status = model.ExecutionRunning
 			execution.Reason = "all_processes_running"
 			execution.Message = "all desired container processes are running"
@@ -1012,5 +1158,16 @@ func (s *Store) DesiredAllocation(ctx context.Context, application, service stri
 func cloneAllocations(input []model.AllocationDesired) []model.AllocationDesired {
 	result := append([]model.AllocationDesired(nil), input...)
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func cloneCronJobs(input []model.CronJobDesired) []model.CronJobDesired {
+	result := append([]model.CronJobDesired(nil), input...)
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Application == result[j].Application {
+			return result[i].Job < result[j].Job
+		}
+		return result[i].Application < result[j].Application
+	})
 	return result
 }
