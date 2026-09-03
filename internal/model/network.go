@@ -295,6 +295,12 @@ func AssignmentPayload(network NetworkConfig, allocations []AllocationDesired) (
 }
 
 func AssignmentPayloadWithJobs(network NetworkConfig, allocations []AllocationDesired, jobs []CronJobDesired) ([]byte, string, error) {
+	// Repeated protobuf fields cannot preserve the distinction between nil and
+	// empty slices. Canonicalize the required collection before hashing so a
+	// snapshot keeps the same digest after crossing the controller-agent wire.
+	if allocations == nil {
+		allocations = []AllocationDesired{}
+	}
 	var encoded []byte
 	var err error
 	if network.Generation == 0 && len(jobs) == 0 {

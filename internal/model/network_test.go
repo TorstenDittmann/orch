@@ -222,6 +222,27 @@ func TestAssignmentPayloadReadsLegacyAndNetworkDocuments(t *testing.T) {
 	}
 }
 
+func TestAssignmentPayloadCanonicalizesEmptyAllocations(t *testing.T) {
+	configuration, err := FirstNodeNetwork(DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nilPayload, nilDigest, err := AssignmentPayloadWithJobs(configuration, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyPayload, emptyDigest, err := AssignmentPayloadWithJobs(configuration, []AllocationDesired{}, []CronJobDesired{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(nilPayload) != string(emptyPayload) || nilDigest != emptyDigest {
+		t.Fatalf("nil assignment = %q, %q; empty assignment = %q, %q", nilPayload, nilDigest, emptyPayload, emptyDigest)
+	}
+	if !strings.Contains(string(nilPayload), `"allocations":[]`) {
+		t.Fatalf("canonical empty assignment = %q, want empty allocation array", nilPayload)
+	}
+}
+
 func TestPlan4AllocationDigestIsAcceptedOnlyForUnextendedIntent(t *testing.T) {
 	allocation := AllocationDesired{
 		ID: "alloc-one", Application: "hello", Service: "worker", Replica: 1,

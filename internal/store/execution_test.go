@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -737,13 +734,12 @@ func storeTestAllocation(t *testing.T) model.AllocationDesired {
 
 func storeTestPublish(t *testing.T, allocations ...model.AllocationDesired) model.PublishAssignment {
 	t.Helper()
-	payload, err := json.Marshal(allocations)
+	payload, digest, err := model.AssignmentPayload(model.NetworkConfig{}, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(payload)
 	return model.PublishAssignment{
-		NodeID: "node-one", Digest: "sha256:" + hex.EncodeToString(digest[:]), Payload: payload,
+		NodeID: "node-one", Digest: digest, Payload: payload,
 		Allocations: allocations, CreatedAt: testCreatedAt.Add(2 * time.Minute),
 	}
 }
