@@ -1,4 +1,4 @@
-import { job, run } from '@change-codes/ci';
+import { job, run } from '@change.codes/ci';
 
 export default job({
 	name: 'Go checks',
