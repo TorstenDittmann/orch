@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	pklschema "change.codes/torsten/better-swarm/pkl"
 )
 
 func TestLoadSupportsDeterministicLocalComposition(t *testing.T) {
@@ -165,7 +168,35 @@ func TestLoadDeniesAllResourcesWithoutRequesting(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsNetworkAndDependencyModulesWithoutRequesting(t *testing.T) {
+func TestLoadSupportsHTTPSModules(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		if request.URL.Path != "/v1alpha1/Application.pkl" {
+			http.NotFound(response, request)
+			return
+		}
+		_, _ = response.Write(pklschema.ApplicationSource())
+	}))
+	defer server.Close()
+
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	source := strings.Replace(validManifest, "orch:/v1alpha1/Application.pkl", server.URL+"/v1alpha1/Application.pkl", 1)
+	filename := filepath.Join(t.TempDir(), "orch.pkl")
+	writePklFile(t, filename, source)
+	manifest, err := Load(context.Background(), filename, LoadOptions{caCertificates: certificate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Name != "hello" {
+		t.Fatalf("manifest name = %q, want hello", manifest.Name)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("HTTPS module made %d requests, want 1", requests.Load())
+	}
+}
+
+func TestLoadRejectsHTTPAndDependencyModulesWithoutRequesting(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		requests.Add(1)
@@ -174,7 +205,6 @@ func TestLoadRejectsNetworkAndDependencyModulesWithoutRequesting(t *testing.T) {
 
 	tests := map[string]string{
 		"http":           server.URL + "/remote.pkl",
-		"https":          strings.Replace(server.URL, "http://", "https://", 1) + "/remote.pkl",
 		"package":        "package://example.invalid/example@1.0.0#/main.pkl",
 		"projectpackage": "projectpackage://example.invalid/example@1.0.0#/main.pkl",
 		"modulepath":     "modulepath:/main.pkl",

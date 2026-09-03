@@ -1,6 +1,6 @@
 # ADR 0008: use Pkl for typed, composable application configuration
 
-Status: Accepted by Plan #6.
+Status: Accepted by Plan #6; amended by ADR 0009.
 
 ## Decision
 

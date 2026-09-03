@@ -132,10 +132,10 @@ deploy {
 The availability values cannot both be zero. The health deadline must be from
 10 seconds through one hour.
 
-## Local composition and sandbox
+## Composition and sandbox
 
-Pkl composition is intentionally local and deterministic. A module may amend
-or import other `.pkl` modules below its evaluation root:
+Pkl composition may amend or import local `.pkl` modules below its evaluation
+root:
 
 ~~~pkl
 // base.pkl contains a complete typed application.
@@ -154,13 +154,23 @@ The default root is the real path of the entry file's directory. Pass
 live in a parent directory. The entry and every file import must remain below
 that root; symlink escapes fail closed.
 
-orch permits only Pkl standard-library modules, rooted local file modules, and
-the embedded `orch:` schema. HTTP(S), package, project-package, module-path,
-REPL, and arbitrary external module readers are unavailable. All resources are
-denied, including environment variables, external properties, files, HTTP, and
-packages. `PklProject` evaluator settings and user/global evaluator settings
-are ignored. Configuration therefore cannot fetch code, inspect the host, or
-turn secret environment values into desired state.
+orch permits Pkl standard-library modules, rooted local file modules, HTTPS
+modules, and the embedded `orch:` schema. Plaintext HTTP, package,
+project-package, module-path, REPL, and arbitrary external module readers are
+unavailable. All resources remain denied, including environment variables,
+external properties, files, HTTP(S), and packages. `PklProject` evaluator
+settings and user/global evaluator settings are ignored, so configuration
+cannot inspect the host or turn secret environment values into desired state.
+
+HTTPS modules are fetched by the operator-side CLI and may use relative HTTPS
+imports. Pin production URLs to an immutable commit or release instead of a
+moving branch. The evaluation root does not restrict network destinations, and
+a mutable remote module may resolve differently between validation, planning,
+deployment, or retries.
+
+~~~pkl
+amends "https://example.com/orch/v1alpha1/Application.pkl"
+~~~
 
 Stock Pkl tools that support external readers can resolve the embedded schema
 through the plumbing command `orch pkl reader`. The orch authoring commands
@@ -220,7 +230,10 @@ Pkl supplies source-level defaults and types. orch then applies the existing Go
 validation and normalization rules, normalizes whole CPU values to millicpu,
 sorts domains and mount projections, and encodes deterministic JSON. The
 displayed SHA-256 digest identifies this resolved contract, not Pkl source
-layout or composition. Equivalent modules therefore produce the same digest.
+layout, composition, import URLs, or remote source bytes. Equivalent resolved
+modules therefore produce the same digest. Mutable HTTPS modules can produce a
+different resolved contract, and therefore a different digest, on a later
+evaluation.
 
 `orch plan` compares a target module with an optional `--against` module and is
 local/read-only. `orch deploy` sends the exact rendered canonical JSON to the

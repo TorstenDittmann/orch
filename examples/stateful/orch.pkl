@@ -1,4 +1,4 @@
-amends "orch:/v1alpha1/Application.pkl"
+amends "../../pkl/v1alpha1/Application.pkl"
 
 name = "notes"
 

@@ -9,7 +9,7 @@ import (
 )
 
 func TestHelloCanonicalGolden(t *testing.T) {
-	manifest, err := Load(context.Background(), "../../examples/hello/orch.pkl", LoadOptions{})
+	manifest, err := Load(context.Background(), "../../examples/hello/orch.pkl", LoadOptions{RootDir: "../.."})
 	if err != nil {
 		t.Fatal(err)
 	}

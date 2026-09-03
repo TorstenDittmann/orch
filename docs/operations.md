@@ -195,8 +195,9 @@ orch events \
   --limit 50
 ~~~
 
-The CLI evaluates the typed Pkl module locally with a restricted root, applies
-defaults and validation, and sends its exact canonical JSON. The controller is
+The CLI evaluates the typed Pkl module on the operator machine, restricts local
+imports to the configured root, permits HTTPS module imports, applies defaults
+and validation, and sends its exact canonical JSON. The controller is
 authoritative for strict canonical decoding, Go validation, canonical-byte
 verification, and the SHA-256 digest; it never runs Pkl. A changed apply
 atomically commits the application generation, immutable revision, ordered

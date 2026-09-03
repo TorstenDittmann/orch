@@ -16,10 +16,10 @@ without exposing the Kubernetes or Docker Swarm APIs.
 ## The contract
 
 - One typed, versioned Pkl module describes an application and may compose
-  other local Pkl modules inside an explicit root.
+  rooted local modules and HTTPS modules.
 - Unknown fields are errors rather than silently ignored configuration.
 - Defaults are resolved before hashing or planning.
-- Plans are semantic and deterministic.
+- Plans compare resolved application values rather than source layout.
 - Secret values never belong in the manifest.
 - Local volumes are explicit and may only be used by one-replica services.
 
@@ -37,9 +37,9 @@ Install the pinned Go and Pkl toolchain and build the CLI:
 mise install
 mise exec -- make build
 
-bin/orch validate --file examples/hello/orch.pkl
-bin/orch plan --file examples/hello/orch.pkl
-bin/orch render --file examples/hello/orch.pkl
+bin/orch validate --root . --file examples/hello/orch.pkl
+bin/orch plan --root . --file examples/hello/orch.pkl
+bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
@@ -104,6 +104,7 @@ bin/orch status --context "$PWD/.orch-client/context.json"
 bin/orch nodes --context "$PWD/.orch-client/context.json"
 
 bin/orch deploy \
+  --root . \
   --file examples/runtime/orch.pkl \
   --context "$PWD/.orch-client/context.json"
 

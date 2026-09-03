@@ -66,14 +66,23 @@ application, or event information.
 Pkl executes only on the operator machine for `deploy`, `validate`, `plan`, and
 `render`. The evaluator accepts the pinned Pkl version, a single bounded entry
 module, local module imports below a real-path root, standard-library modules,
-and the embedded versioned `orch:` schema. Its ten-second deadline follows CLI
-cancellation.
+HTTPS modules, and the embedded versioned `orch:` schema. Its ten-second
+deadline follows CLI cancellation.
 
 The evaluator denies every resource scheme, including environment variables,
-external properties, local files, HTTP, and packages. It also denies network,
-package, project-package, module-path, REPL, and unregistered module schemes.
-It does not load user settings or `PklProject` evaluator settings. Root and
-symlink boundary tests, plus a loopback request sentinel, enforce that policy.
+external properties, local files, HTTP(S), and packages. It also denies
+plaintext HTTP modules, package, project-package, module-path, REPL, and
+unregistered module schemes. It does not load user settings or `PklProject`
+evaluator settings. Root and symlink boundary tests, HTTPS evaluation tests,
+and a loopback request sentinel enforce that policy.
+
+HTTPS imports make outbound requests from the operator machine and are not
+constrained by the local evaluation root. Operators must treat imported modules
+as executable configuration, use trusted endpoints, and pin immutable URLs.
+Arbitrary HTTPS destinations can reach private services visible to the operator
+and mutable content can change between commands or retries. TLS authenticates
+transport; the resolved manifest digest does not authenticate the import graph
+or remote source bytes.
 
 Pkl source and imports never cross the API. The authenticated apply request
 contains only deterministic canonical JSON. The controller strictly decodes

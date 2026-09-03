@@ -21,13 +21,14 @@ const (
 )
 
 type LoadOptions struct {
-	RootDir    string
-	PklCommand string
-	Timeout    time.Duration
+	RootDir        string
+	PklCommand     string
+	Timeout        time.Duration
+	caCertificates []byte
 }
 
-// Load evaluates one Pkl application module with deterministic, restricted
-// access and returns a resolved, validated manifest.
+// Load evaluates one Pkl application module with restricted access and returns
+// a resolved, validated manifest.
 func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest, error) {
 	timeout := options.Timeout
 	if timeout <= 0 {
@@ -51,12 +52,15 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 		func(evaluatorOptions *applepkl.EvaluatorOptions) {
 			evaluatorOptions.Properties = map[string]string{}
 			evaluatorOptions.Env = map[string]string{}
-			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^orch:/v1alpha1/Application\.pkl$`}
+			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1alpha1/Application\.pkl$`}
 			evaluatorOptions.AllowedResources = []string{`^$`}
 			evaluatorOptions.ModuleReaders = []applepkl.ModuleReader{pklschema.ModuleReader{}}
 			evaluatorOptions.CacheDir = ""
 			evaluatorOptions.RootDir = root
 			evaluatorOptions.Logger = applepkl.NoopLogger
+			if len(options.caCertificates) > 0 {
+				evaluatorOptions.Http = &applepkl.Http{CaCertificates: options.caCertificates}
+			}
 		},
 	)
 	if err != nil {
