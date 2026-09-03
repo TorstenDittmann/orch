@@ -11,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"change.codes/torsten/better-swarm/internal/config"
 	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 	"github.com/distribution/reference"
 )
@@ -28,6 +30,7 @@ type Reconciler struct {
 	cluster     model.Cluster
 	now         func() time.Time
 	onPublished func(model.Assignment)
+	secretBox   *security.SecretBox
 }
 
 func NewReconciler(state *store.Store, cluster model.Cluster, now func() time.Time, onPublished func(model.Assignment)) *Reconciler {
@@ -101,8 +104,22 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 			}
 			continue
 		}
+		resolved, secretBlocked, err := r.resolveApplicationIntent(ctx, application)
+		if err != nil {
+			return fmt.Errorf("resolve application %q secrets: %w", application.Name, err)
+		}
+		if secretBlocked != nil {
+			if secretBlocked.preservePrevious {
+				allocations = append(allocations, previousApplicationAllocations(previousByID, application.Name)...)
+				cronJobs = append(cronJobs, previousCronByApplication[application.Name]...)
+			}
+			states[application.Name] = executionState(model.ExecutionBlocked, application.Generation,
+				secretBlocked.reason, secretBlocked.message, now)
+			continue
+		}
 		planned, blocked, err := planApplicationBundleForNetwork(cluster.ID, node, application,
-			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByID)
+			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByID, resolved)
+		resolved.wipe()
 		if err != nil {
 			return fmt.Errorf("plan application %q: %w", application.Name, err)
 		}
@@ -146,7 +163,12 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return err
 	}
 	if changed && r.onPublished != nil {
-		r.onPublished(assignment)
+		hydrated, err := r.HydrateAssignment(ctx, assignment)
+		if err != nil {
+			return fmt.Errorf("hydrate assignment secret material: %w", err)
+		}
+		r.onPublished(hydrated)
+		wipeMaterials(hydrated.Materials)
 	}
 	return nil
 }
@@ -161,6 +183,25 @@ type blockReason struct {
 type plannedApplication struct {
 	allocations []model.AllocationDesired
 	cronJobs    []model.CronJobDesired
+}
+
+type resolvedApplicationIntent struct {
+	secrets    map[string]model.ResolvedSecret
+	registries map[string]model.ResolvedRegistryCredential
+}
+
+func (r *resolvedApplicationIntent) wipe() {
+	if r == nil {
+		return
+	}
+	for name, item := range r.secrets {
+		wipeBytes(item.Value)
+		delete(r.secrets, name)
+	}
+	for host, item := range r.registries {
+		wipeBytes(item.Secret)
+		delete(r.registries, host)
+	}
 }
 
 func planApplication(clusterID string, node model.Node, application model.Application) ([]model.AllocationDesired, *blockReason, error) {
@@ -182,8 +223,12 @@ func planApplicationForNetwork(clusterID string, node model.Node, application mo
 
 func planApplicationBundleForNetwork(clusterID string, node model.Node, application model.Application,
 	networkConfig model.NetworkConfig, networkFrozen bool, domainOwners map[string]string,
-	portOwners map[uint32]string, previousByID map[string]model.AllocationDesired,
+	portOwners map[uint32]string, previousByID map[string]model.AllocationDesired, resolvedValues ...*resolvedApplicationIntent,
 ) (plannedApplication, *blockReason, error) {
+	var resolved *resolvedApplicationIntent
+	if len(resolvedValues) != 0 {
+		resolved = resolvedValues[0]
+	}
 	var manifest config.Manifest
 	if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
 		return plannedApplication{}, nil, fmt.Errorf("decode stored manifest: %w", err)
@@ -213,17 +258,10 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				message: base + ".image must use a public digest-qualified OCI reference",
 			}, nil
 		}
-		domain := reference.Domain(parsed)
-		if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
-			return plannedApplication{}, &blockReason{
-				reason:  "private_registry_unsupported",
-				message: base + ".image requires a private/local registry; registry credentials are not available in this release",
-			}, nil
-		}
-		if len(service.SecretEnv) != 0 || len(service.SecretFiles) != 0 {
+		if (len(service.SecretEnv) != 0 || len(service.SecretFiles) != 0) && resolved == nil {
 			return plannedApplication{}, &blockReason{
 				reason:  "secrets_unsupported",
-				message: base + " contains secret references; secrets are not executable in this release",
+				message: base + " contains secret references but no secret resolver is configured",
 			}, nil
 		}
 		if len(service.Constraints) != 0 {
@@ -256,9 +294,8 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 		if _, ok := parsed.(reference.Digested); !ok {
 			return plannedApplication{}, &blockReason{reason: "unsupported_image_tag", message: "cronJobs." + name + ".image must use a public digest-qualified OCI reference"}, nil
 		}
-		domain := reference.Domain(parsed)
-		if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
-			return plannedApplication{}, &blockReason{reason: "private_registry_unsupported", message: "cronJobs." + name + ".image requires a private/local registry"}, nil
+		if (len(job.SecretEnv) != 0 || len(job.SecretFiles) != 0) && resolved == nil {
+			return plannedApplication{}, &blockReason{reason: "secrets_unsupported", message: "cronJobs." + name + " contains secret references but no secret resolver is configured"}, nil
 		}
 	}
 	if !networkFrozen || node.NetworkGeneration != networkConfig.Generation ||
@@ -326,6 +363,8 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				}
 			}
 			allocation.DependsOn = append([]string(nil), service.DependsOn...)
+			allocation.SecretEnvironment, allocation.SecretFiles = desiredSecretBindings(service.SecretEnv, service.SecretFiles, resolved)
+			allocation.RegistryCredential = desiredRegistryCredential(service.Image, resolved)
 			allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
 			if err != nil {
 				return plannedApplication{}, nil, err
@@ -382,6 +421,8 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: uint32(startDeadline / time.Second),
 			TimeoutSeconds: uint32(timeout / time.Second), NetworkGeneration: networkConfig.Generation,
 		}
+		desired.SecretEnvironment, desired.SecretFiles = desiredSecretBindings(job.SecretEnv, job.SecretFiles, resolved)
+		desired.RegistryCredential = desiredRegistryCredential(job.Image, resolved)
 		desired.SpecDigest, err = model.CronJobSpecDigest(desired)
 		if err != nil {
 			return plannedApplication{}, nil, err
@@ -465,7 +506,10 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		StartDeadlineSeconds: allocation.StartDeadlineSeconds,
 		HTTP:                 allocation.HTTP, TCP: allocation.TCP,
 		DependsOn: append([]string(nil), allocation.DependsOn...), NetworkGeneration: allocation.NetworkGeneration,
-		AutoRollback: allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
+		SecretEnvironment:  cloneSecretEnvironment(allocation.SecretEnvironment),
+		SecretFiles:        append([]model.SecretFileDesired(nil), allocation.SecretFiles...),
+		RegistryCredential: cloneRegistryCredential(allocation.RegistryCredential),
+		AutoRollback:       allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
 	}
 }
 
@@ -488,7 +532,224 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 		result.TCP = &tcp
 	}
 	result.DependsOn = append([]string(nil), input.DependsOn...)
+	result.SecretEnvironment = cloneSecretEnvironment(input.SecretEnvironment)
+	result.SecretFiles = append([]model.SecretFileDesired(nil), input.SecretFiles...)
+	result.RegistryCredential = cloneRegistryCredential(input.RegistryCredential)
 	return &result
+}
+
+func (r *Reconciler) resolveApplicationIntent(ctx context.Context, application model.Application) (*resolvedApplicationIntent, *blockReason, error) {
+	var manifest config.Manifest
+	if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
+		return nil, nil, err
+	}
+	result := &resolvedApplicationIntent{secrets: make(map[string]model.ResolvedSecret), registries: make(map[string]model.ResolvedRegistryCredential)}
+	secretUses := make(map[string]bool)
+	images := make([]string, 0, len(manifest.Services)+len(manifest.CronJobs))
+	for _, service := range manifest.Services {
+		images = append(images, service.Image)
+		for _, name := range service.SecretEnv {
+			secretUses[name] = true
+		}
+		for _, item := range service.SecretFiles {
+			if _, exists := secretUses[item.Source]; !exists {
+				secretUses[item.Source] = false
+			}
+		}
+	}
+	for _, job := range manifest.CronJobs {
+		images = append(images, job.Image)
+		for _, name := range job.SecretEnv {
+			secretUses[name] = true
+		}
+		for _, item := range job.SecretFiles {
+			if _, exists := secretUses[item.Source]; !exists {
+				secretUses[item.Source] = false
+			}
+		}
+	}
+	if len(secretUses) != 0 && r.secretBox == nil {
+		return nil, &blockReason{reason: "secrets_unsupported", message: "controller secret key is unavailable", preservePrevious: true}, nil
+	}
+	names := make([]string, 0, len(secretUses))
+	for name := range secretUses {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		resolved, err := r.state.ResolveApplicationSecret(ctx, r.secretBox, application.Name, name)
+		if errors.Is(err, store.ErrSecretNotFound) {
+			result.wipe()
+			return nil, &blockReason{reason: "secret_missing", message: "application secret " + application.Name + "/" + name + " is not set", preservePrevious: true}, nil
+		}
+		if err != nil {
+			result.wipe()
+			return nil, nil, err
+		}
+		if secretUses[name] && (!utf8.Valid(resolved.Value) || strings.ContainsRune(string(resolved.Value), 0)) {
+			wipeBytes(resolved.Value)
+			result.wipe()
+			return nil, &blockReason{reason: "secret_environment_invalid", message: "application secret " + application.Name + "/" + name + " cannot be projected into an environment variable", preservePrevious: true}, nil
+		}
+		result.secrets[name] = resolved
+	}
+	for _, image := range images {
+		parsed, err := reference.ParseNormalizedNamed(image)
+		if err != nil {
+			result.wipe()
+			return nil, nil, err
+		}
+		host := reference.Domain(parsed)
+		if _, exists := result.registries[host]; exists || r.secretBox == nil {
+			continue
+		}
+		credential, err := r.state.ResolveRegistryCredential(ctx, r.secretBox, host)
+		if errors.Is(err, store.ErrRegistryCredentialNotFound) {
+			continue
+		}
+		if err != nil {
+			result.wipe()
+			return nil, nil, err
+		}
+		result.registries[host] = credential
+	}
+	return result, nil, nil
+}
+
+func desiredSecretBindings(environment map[string]string, files []config.SecretFile, resolved *resolvedApplicationIntent) (map[string]model.SecretReference, []model.SecretFileDesired) {
+	if resolved == nil {
+		return nil, nil
+	}
+	env := make(map[string]model.SecretReference, len(environment))
+	for key, name := range environment {
+		item := resolved.secrets[name]
+		env[key] = model.SecretReference{Name: name, VersionID: item.VersionID}
+	}
+	if len(env) == 0 {
+		env = nil
+	}
+	secretFiles := make([]model.SecretFileDesired, 0, len(files))
+	for _, file := range files {
+		item := resolved.secrets[file.Source]
+		secretFiles = append(secretFiles, model.SecretFileDesired{SecretReference: model.SecretReference{Name: file.Source, VersionID: item.VersionID}, Target: file.Target})
+	}
+	return env, secretFiles
+}
+
+func desiredRegistryCredential(image string, resolved *resolvedApplicationIntent) *model.RegistryCredentialReference {
+	if resolved == nil {
+		return nil
+	}
+	parsed, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return nil
+	}
+	item, exists := resolved.registries[reference.Domain(parsed)]
+	if !exists {
+		return nil
+	}
+	return &model.RegistryCredentialReference{Host: item.Host, VersionID: item.VersionID, Username: item.Username}
+}
+
+func cloneSecretEnvironment(input map[string]model.SecretReference) map[string]model.SecretReference {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]model.SecretReference, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
+}
+
+func cloneRegistryCredential(input *model.RegistryCredentialReference) *model.RegistryCredentialReference {
+	if input == nil {
+		return nil
+	}
+	result := *input
+	return &result
+}
+
+func (r *Reconciler) HydrateAssignment(ctx context.Context, assignment model.Assignment) (model.Assignment, error) {
+	if r.secretBox == nil {
+		return assignment, nil
+	}
+	applicationRefs := make(map[string]model.SecretReference)
+	registryRefs := make(map[string]model.RegistryCredentialReference)
+	collect := func(application string, environment map[string]model.SecretReference, files []model.SecretFileDesired, registry *model.RegistryCredentialReference) {
+		for _, ref := range environment {
+			applicationRefs[application+"\x00"+ref.Name+"\x00"+ref.VersionID] = ref
+		}
+		for _, file := range files {
+			applicationRefs[application+"\x00"+file.Name+"\x00"+file.VersionID] = file.SecretReference
+		}
+		if registry != nil {
+			registryRefs[registry.Host+"\x00"+registry.VersionID] = *registry
+		}
+	}
+	for _, allocation := range assignment.Allocations {
+		collect(allocation.Application, allocation.SecretEnvironment, allocation.SecretFiles, allocation.RegistryCredential)
+		if allocation.Rollback != nil {
+			collect(allocation.Application, allocation.Rollback.SecretEnvironment, allocation.Rollback.SecretFiles, allocation.Rollback.RegistryCredential)
+		}
+	}
+	for _, job := range assignment.CronJobs {
+		collect(job.Application, job.SecretEnvironment, job.SecretFiles, job.RegistryCredential)
+	}
+	keys := make([]string, 0, len(applicationRefs))
+	for key := range applicationRefs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	totalBytes := 0
+	for _, key := range keys {
+		parts := strings.Split(key, "\x00")
+		resolved, err := r.state.ResolveApplicationSecretVersion(ctx, r.secretBox, parts[0], parts[1], parts[2])
+		if err != nil {
+			wipeMaterials(assignment.Materials)
+			return model.Assignment{}, err
+		}
+		assignment.Materials = append(assignment.Materials, model.SecretMaterial{Kind: model.SecretMaterialApplication,
+			Application: resolved.Application, Name: resolved.Name, VersionID: resolved.VersionID, Value: resolved.Value})
+		totalBytes += len(resolved.Value)
+		if totalBytes > 16<<20 {
+			wipeMaterials(assignment.Materials)
+			return model.Assignment{}, fmt.Errorf("assignment secret material bundle exceeds 16 MiB")
+		}
+	}
+	keys = keys[:0]
+	for key := range registryRefs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		ref := registryRefs[key]
+		resolved, err := r.state.ResolveRegistryCredentialVersion(ctx, r.secretBox, ref.Host, ref.VersionID)
+		if err != nil {
+			wipeMaterials(assignment.Materials)
+			return model.Assignment{}, err
+		}
+		assignment.Materials = append(assignment.Materials, model.SecretMaterial{Kind: model.SecretMaterialRegistry,
+			Host: resolved.Host, Username: resolved.Username, VersionID: resolved.VersionID, Value: resolved.Secret})
+		totalBytes += len(resolved.Secret)
+		if totalBytes > 16<<20 {
+			wipeMaterials(assignment.Materials)
+			return model.Assignment{}, fmt.Errorf("assignment secret material bundle exceeds 16 MiB")
+		}
+	}
+	return assignment, nil
+}
+
+func wipeMaterials(materials []model.SecretMaterial) {
+	for index := range materials {
+		wipeBytes(materials[index].Value)
+	}
+}
+
+func wipeBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 func desiredDomainOwners(applications []model.Application) (map[string]string, error) {

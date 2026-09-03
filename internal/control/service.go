@@ -45,17 +45,18 @@ type service struct {
 	random     io.Reader
 	caPEM      []byte
 	caKey      []byte
+	secretBox  *security.SecretBox
 	sessions   *sessionManager
 	reconciler *Reconciler
 }
 
-func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, sessions *sessionManager, now func() time.Time) *service {
+func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
 	if now == nil {
 		now = time.Now
 	}
 	return &service{
 		state: state, cluster: cluster, now: now, random: rand.Reader,
-		caPEM: append([]byte(nil), caPEM...), caKey: append([]byte(nil), caKey...),
+		caPEM: append([]byte(nil), caPEM...), caKey: append([]byte(nil), caKey...), secretBox: secretBox,
 		sessions: sessions,
 	}
 }
@@ -440,6 +441,210 @@ func (s *service) ListCronRuns(ctx context.Context, request *connect.Request[orc
 	return connect.NewResponse(response), nil
 }
 
+func (s *service) SetSecret(ctx context.Context, request *connect.Request[orchv1alpha1.SetSecretRequest]) (*connect.Response[orchv1alpha1.SetSecretResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	application, name := request.Msg.GetApplication(), request.Msg.GetName()
+	if err := config.ValidateApplicationName(application); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := config.ValidateApplicationName(name); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("secret name: %w", err))
+	}
+	value := request.Msg.GetValue()
+	if len(value) == 0 || len(value) > maxManifestBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("secret value must contain 1-%d bytes", maxManifestBytes))
+	}
+	defer wipeBytes(value)
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	versionID, err := newOpaqueID("secv_", s.random)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("generate secret version"))
+	}
+	result, err := s.state.SetApplicationSecret(ctx, s.secretBox, application, name, versionID,
+		value, request.Msg.GetIdempotencyKey(), s.now().UTC())
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("store secret version"))
+	}
+	if s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("publish secret rotation"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.SetSecretResponse{
+		Application: result.Application, Name: result.Name, VersionId: result.VersionID,
+		Changed: result.Changed, EventSequence: result.EventSequence, UpdatedAt: timestamppb.New(result.UpdatedAt),
+	}), nil
+}
+
+func (s *service) ListSecrets(ctx context.Context, request *connect.Request[orchv1alpha1.ListSecretsRequest]) (*connect.Response[orchv1alpha1.ListSecretsResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	application := request.Msg.GetApplication()
+	if err := config.ValidateApplicationName(application); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	items, err := s.state.ApplicationSecrets(ctx, application)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("list secret metadata"))
+	}
+	response := &orchv1alpha1.ListSecretsResponse{Secrets: make([]*orchv1alpha1.SecretMetadata, 0, len(items))}
+	for _, item := range items {
+		response.Secrets = append(response.Secrets, &orchv1alpha1.SecretMetadata{
+			Application: item.Application, Name: item.Name, CurrentVersionId: item.CurrentVersionID,
+			Referenced: item.Referenced, CreatedAt: timestamppb.New(item.CreatedAt), UpdatedAt: timestamppb.New(item.UpdatedAt),
+		})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *service) DeleteSecret(ctx context.Context, request *connect.Request[orchv1alpha1.DeleteSecretRequest]) (*connect.Response[orchv1alpha1.DeleteSecretResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	application, name := request.Msg.GetApplication(), request.Msg.GetName()
+	if err := config.ValidateApplicationName(application); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := config.ValidateApplicationName(name); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("secret name: %w", err))
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	result, err := s.state.DeleteApplicationSecret(ctx, s.secretBox, application, name, request.Msg.GetIdempotencyKey(), s.now().UTC())
+	switch {
+	case errors.Is(err, store.ErrSecretNotFound):
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, store.ErrSecretInUse):
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrIdempotencyConflict):
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	case err != nil:
+		return nil, connect.NewError(connect.CodeInternal, errors.New("delete secret"))
+	}
+	return connect.NewResponse(&orchv1alpha1.DeleteSecretResponse{
+		Application: result.Application, Name: result.Name, Changed: result.Changed,
+		EventSequence: result.EventSequence, UpdatedAt: timestamppb.New(result.UpdatedAt),
+	}), nil
+}
+
+func (s *service) LoginRegistry(ctx context.Context, request *connect.Request[orchv1alpha1.LoginRegistryRequest]) (*connect.Response[orchv1alpha1.LoginRegistryResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	host, err := store.NormalizeRegistryHost(request.Msg.GetHost())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	username := request.Msg.GetUsername()
+	if strings.TrimSpace(username) == "" || len(username) > 1024 || strings.ContainsAny(username, "\x00\r\n") {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("username must be nonempty, bounded, and contain no control characters"))
+	}
+	secret := request.Msg.GetSecret()
+	if len(secret) == 0 || len(secret) > maxManifestBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("registry secret must contain 1-%d bytes", maxManifestBytes))
+	}
+	defer wipeBytes(secret)
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	versionID, err := newOpaqueID("regv_", s.random)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("generate registry credential version"))
+	}
+	result, err := s.state.SetRegistryCredential(ctx, s.secretBox, host, username, versionID,
+		secret, request.Msg.GetIdempotencyKey(), s.now().UTC())
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("store registry credential"))
+	}
+	if s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("publish registry credential"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.LoginRegistryResponse{
+		Host: result.Host, Username: result.Username, VersionId: result.VersionID,
+		Changed: result.Changed, EventSequence: result.EventSequence, UpdatedAt: timestamppb.New(result.UpdatedAt),
+	}), nil
+}
+
+func (s *service) ListRegistries(ctx context.Context, request *connect.Request[orchv1alpha1.ListRegistriesRequest]) (*connect.Response[orchv1alpha1.ListRegistriesResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	items, err := s.state.RegistryCredentials(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("list registry credentials"))
+	}
+	response := &orchv1alpha1.ListRegistriesResponse{Registries: make([]*orchv1alpha1.RegistryCredentialMetadata, 0, len(items))}
+	for _, item := range items {
+		response.Registries = append(response.Registries, &orchv1alpha1.RegistryCredentialMetadata{
+			Host: item.Host, Username: item.Username, CurrentVersionId: item.CurrentVersionID,
+			CreatedAt: timestamppb.New(item.CreatedAt), UpdatedAt: timestamppb.New(item.UpdatedAt),
+		})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *service) LogoutRegistry(ctx context.Context, request *connect.Request[orchv1alpha1.LogoutRegistryRequest]) (*connect.Response[orchv1alpha1.LogoutRegistryResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	host, err := store.NormalizeRegistryHost(request.Msg.GetHost())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	result, err := s.state.DeleteRegistryCredential(ctx, s.secretBox, host, request.Msg.GetIdempotencyKey(), s.now().UTC())
+	switch {
+	case errors.Is(err, store.ErrRegistryCredentialNotFound):
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, store.ErrIdempotencyConflict):
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	case err != nil:
+		return nil, connect.NewError(connect.CodeInternal, errors.New("delete registry credential"))
+	}
+	if s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("publish registry credential removal"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.LogoutRegistryResponse{
+		Host: result.Host, Changed: result.Changed, EventSequence: result.EventSequence, UpdatedAt: timestamppb.New(result.UpdatedAt),
+	}), nil
+}
+
 func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orchv1alpha1.TailCronLogsRequest], stream *connect.ServerStream[orchv1alpha1.TailCronLogsResponse]) error {
 	if err := requireAdministrator(ctx); err != nil {
 		return err
@@ -696,6 +901,14 @@ func applyApplicationMessage(result model.ApplyApplicationResult) *orchv1alpha1.
 func newRevisionID(clusterID, idempotencyKey, digest string) string {
 	sum := sha256.Sum256([]byte(clusterID + "\x00" + idempotencyKey + "\x00" + digest))
 	return "rev_" + hex.EncodeToString(sum[:])
+}
+
+func newOpaqueID(prefix string, source io.Reader) (string, error) {
+	value := make([]byte, 16)
+	if _, err := io.ReadFull(source, value); err != nil {
+		return "", err
+	}
+	return prefix + hex.EncodeToString(value), nil
 }
 
 func newNodeID(clusterID, publicKeyHash string) string {

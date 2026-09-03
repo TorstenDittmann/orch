@@ -66,25 +66,63 @@ type TCPDesired struct {
 	PublicPort uint32 `json:"public_port,omitempty"`
 }
 
+// SecretReference is non-secret runtime intent. Version IDs are random and do
+// not reveal or hash the referenced value.
+type SecretReference struct {
+	Name      string `json:"name"`
+	VersionID string `json:"version_id"`
+}
+
+type SecretFileDesired struct {
+	SecretReference
+	Target string `json:"target"`
+}
+
+type RegistryCredentialReference struct {
+	Host      string `json:"host"`
+	VersionID string `json:"version_id"`
+	Username  string `json:"username"`
+}
+
+const (
+	SecretMaterialApplication = "application_secret"
+	SecretMaterialRegistry    = "registry_credential"
+)
+
+// SecretMaterial exists only while delivering an assignment over mTLS or
+// decrypting the agent cache. It is deliberately excluded from JSON.
+type SecretMaterial struct {
+	Kind        string `json:"-"`
+	Application string `json:"-"`
+	Name        string `json:"-"`
+	VersionID   string `json:"-"`
+	Host        string `json:"-"`
+	Username    string `json:"-"`
+	Value       []byte `json:"-"`
+}
+
 type RollbackSpec struct {
-	ApplicationGeneration uint64            `json:"application_generation"`
-	RevisionID            string            `json:"revision_id"`
-	SpecDigest            string            `json:"spec_digest"`
-	Image                 string            `json:"image"`
-	Command               []string          `json:"command,omitempty"`
-	Args                  []string          `json:"args,omitempty"`
-	Environment           map[string]string `json:"environment,omitempty"`
-	RestartPolicy         string            `json:"restart_policy"`
-	CPUMillis             uint64            `json:"cpu_millis"`
-	MemoryBytes           uint64            `json:"memory_bytes"`
-	Mounts                []VolumeMount     `json:"mounts,omitempty"`
-	StartDeadlineSeconds  uint32            `json:"start_deadline_seconds"`
-	HTTP                  *HTTPDesired      `json:"http,omitempty"`
-	TCP                   *TCPDesired       `json:"tcp,omitempty"`
-	DependsOn             []string          `json:"depends_on,omitempty"`
-	NetworkGeneration     uint64            `json:"network_generation"`
-	AutoRollback          bool              `json:"auto_rollback"`
-	StartBeforeStop       bool              `json:"start_before_stop"`
+	ApplicationGeneration uint64                       `json:"application_generation"`
+	RevisionID            string                       `json:"revision_id"`
+	SpecDigest            string                       `json:"spec_digest"`
+	Image                 string                       `json:"image"`
+	Command               []string                     `json:"command,omitempty"`
+	Args                  []string                     `json:"args,omitempty"`
+	Environment           map[string]string            `json:"environment,omitempty"`
+	RestartPolicy         string                       `json:"restart_policy"`
+	CPUMillis             uint64                       `json:"cpu_millis"`
+	MemoryBytes           uint64                       `json:"memory_bytes"`
+	Mounts                []VolumeMount                `json:"mounts,omitempty"`
+	StartDeadlineSeconds  uint32                       `json:"start_deadline_seconds"`
+	HTTP                  *HTTPDesired                 `json:"http,omitempty"`
+	TCP                   *TCPDesired                  `json:"tcp,omitempty"`
+	DependsOn             []string                     `json:"depends_on,omitempty"`
+	SecretEnvironment     map[string]SecretReference   `json:"secret_environment,omitempty"`
+	SecretFiles           []SecretFileDesired          `json:"secret_files,omitempty"`
+	RegistryCredential    *RegistryCredentialReference `json:"registry_credential,omitempty"`
+	NetworkGeneration     uint64                       `json:"network_generation"`
+	AutoRollback          bool                         `json:"auto_rollback"`
+	StartBeforeStop       bool                         `json:"start_before_stop"`
 }
 
 type NetworkConfig struct {
@@ -97,52 +135,64 @@ type NetworkConfig struct {
 
 // AllocationDesired is a runtime-independent, canonical unit of work.
 type AllocationDesired struct {
-	ID                    string            `json:"id"`
-	Application           string            `json:"application"`
-	Service               string            `json:"service"`
-	Replica               uint32            `json:"replica"`
-	ApplicationGeneration uint64            `json:"application_generation"`
-	RevisionID            string            `json:"revision_id"`
-	SpecDigest            string            `json:"spec_digest"`
-	Image                 string            `json:"image"`
-	Command               []string          `json:"command,omitempty"`
-	Args                  []string          `json:"args,omitempty"`
-	Environment           map[string]string `json:"environment,omitempty"`
-	RestartPolicy         string            `json:"restart_policy"`
-	CPUMillis             uint64            `json:"cpu_millis"`
-	MemoryBytes           uint64            `json:"memory_bytes"`
-	Mounts                []VolumeMount     `json:"mounts,omitempty"`
-	StartDeadlineSeconds  uint32            `json:"start_deadline_seconds"`
-	AutoRollback          bool              `json:"auto_rollback"`
-	StartBeforeStop       bool              `json:"start_before_stop"`
-	HTTP                  *HTTPDesired      `json:"http,omitempty"`
-	TCP                   *TCPDesired       `json:"tcp,omitempty"`
-	DependsOn             []string          `json:"depends_on,omitempty"`
-	NetworkGeneration     uint64            `json:"network_generation"`
-	MaxSurge              uint32            `json:"max_surge"`
-	MaxUnavailable        uint32            `json:"max_unavailable"`
-	Rollback              *RollbackSpec     `json:"rollback,omitempty"`
+	ID                    string                       `json:"id"`
+	Application           string                       `json:"application"`
+	Service               string                       `json:"service"`
+	Replica               uint32                       `json:"replica"`
+	ApplicationGeneration uint64                       `json:"application_generation"`
+	RevisionID            string                       `json:"revision_id"`
+	SpecDigest            string                       `json:"spec_digest"`
+	Image                 string                       `json:"image"`
+	Command               []string                     `json:"command,omitempty"`
+	Args                  []string                     `json:"args,omitempty"`
+	Environment           map[string]string            `json:"environment,omitempty"`
+	RestartPolicy         string                       `json:"restart_policy"`
+	CPUMillis             uint64                       `json:"cpu_millis"`
+	MemoryBytes           uint64                       `json:"memory_bytes"`
+	Mounts                []VolumeMount                `json:"mounts,omitempty"`
+	StartDeadlineSeconds  uint32                       `json:"start_deadline_seconds"`
+	AutoRollback          bool                         `json:"auto_rollback"`
+	StartBeforeStop       bool                         `json:"start_before_stop"`
+	HTTP                  *HTTPDesired                 `json:"http,omitempty"`
+	TCP                   *TCPDesired                  `json:"tcp,omitempty"`
+	DependsOn             []string                     `json:"depends_on,omitempty"`
+	SecretEnvironment     map[string]SecretReference   `json:"secret_environment,omitempty"`
+	SecretFiles           []SecretFileDesired          `json:"secret_files,omitempty"`
+	RegistryCredential    *RegistryCredentialReference `json:"registry_credential,omitempty"`
+	NetworkGeneration     uint64                       `json:"network_generation"`
+	MaxSurge              uint32                       `json:"max_surge"`
+	MaxUnavailable        uint32                       `json:"max_unavailable"`
+	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
+	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
+	// the agent decrypts its cache and are never serialized into assignments.
+	RuntimeSecretValues    map[string][]byte `json:"-"`
+	RuntimeRegistrySecrets map[string][]byte `json:"-"`
 }
 
 // CronJobDesired is an immutable one-shot workload template distributed to
 // the agent. Occurrence IDs are derived and claimed by the agent scheduler.
 type CronJobDesired struct {
-	Application           string            `json:"application"`
-	Job                   string            `json:"job"`
-	ApplicationGeneration uint64            `json:"application_generation"`
-	RevisionID            string            `json:"revision_id"`
-	SpecDigest            string            `json:"spec_digest"`
-	Image                 string            `json:"image"`
-	Schedule              string            `json:"schedule"`
-	Command               []string          `json:"command,omitempty"`
-	Args                  []string          `json:"args,omitempty"`
-	Environment           map[string]string `json:"environment,omitempty"`
-	CPUMillis             uint64            `json:"cpu_millis"`
-	MemoryBytes           uint64            `json:"memory_bytes"`
-	DependsOn             []string          `json:"depends_on,omitempty"`
-	StartDeadlineSeconds  uint32            `json:"start_deadline_seconds"`
-	TimeoutSeconds        uint32            `json:"timeout_seconds"`
-	NetworkGeneration     uint64            `json:"network_generation"`
+	Application            string                       `json:"application"`
+	Job                    string                       `json:"job"`
+	ApplicationGeneration  uint64                       `json:"application_generation"`
+	RevisionID             string                       `json:"revision_id"`
+	SpecDigest             string                       `json:"spec_digest"`
+	Image                  string                       `json:"image"`
+	Schedule               string                       `json:"schedule"`
+	Command                []string                     `json:"command,omitempty"`
+	Args                   []string                     `json:"args,omitempty"`
+	Environment            map[string]string            `json:"environment,omitempty"`
+	CPUMillis              uint64                       `json:"cpu_millis"`
+	MemoryBytes            uint64                       `json:"memory_bytes"`
+	DependsOn              []string                     `json:"depends_on,omitempty"`
+	SecretEnvironment      map[string]SecretReference   `json:"secret_environment,omitempty"`
+	SecretFiles            []SecretFileDesired          `json:"secret_files,omitempty"`
+	RegistryCredential     *RegistryCredentialReference `json:"registry_credential,omitempty"`
+	StartDeadlineSeconds   uint32                       `json:"start_deadline_seconds"`
+	TimeoutSeconds         uint32                       `json:"timeout_seconds"`
+	NetworkGeneration      uint64                       `json:"network_generation"`
+	RuntimeSecretValues    map[string][]byte            `json:"-"`
+	RuntimeRegistrySecrets map[string][]byte            `json:"-"`
 }
 
 type Assignment struct {
@@ -152,6 +202,7 @@ type Assignment struct {
 	Payload     json.RawMessage     `json:"payload"`
 	Allocations []AllocationDesired `json:"allocations"`
 	CronJobs    []CronJobDesired    `json:"cron_jobs,omitempty"`
+	Materials   []SecretMaterial    `json:"-"`
 	Network     NetworkConfig       `json:"network"`
 	CreatedAt   time.Time           `json:"created_at"`
 }
@@ -293,25 +344,28 @@ type AgentReport struct {
 // allocations survive an application update.
 func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 	spec := struct {
-		Image                string            `json:"image"`
-		Command              []string          `json:"command,omitempty"`
-		Args                 []string          `json:"args,omitempty"`
-		Environment          map[string]string `json:"environment,omitempty"`
-		RestartPolicy        string            `json:"restart_policy"`
-		CPUMillis            uint64            `json:"cpu_millis"`
-		MemoryBytes          uint64            `json:"memory_bytes"`
-		Mounts               []VolumeMount     `json:"mounts,omitempty"`
-		StartDeadlineSeconds uint32            `json:"start_deadline_seconds"`
-		AutoRollback         bool              `json:"auto_rollback"`
-		StartBeforeStop      bool              `json:"start_before_stop"`
-		HTTP                 *HTTPDesired      `json:"http,omitempty"`
-		TCP                  *TCPDesired       `json:"tcp,omitempty"`
-		DependsOn            []string          `json:"depends_on,omitempty"`
-		NetworkGeneration    uint64            `json:"network_generation"`
+		Image                string                     `json:"image"`
+		Command              []string                   `json:"command,omitempty"`
+		Args                 []string                   `json:"args,omitempty"`
+		Environment          map[string]string          `json:"environment,omitempty"`
+		RestartPolicy        string                     `json:"restart_policy"`
+		CPUMillis            uint64                     `json:"cpu_millis"`
+		MemoryBytes          uint64                     `json:"memory_bytes"`
+		Mounts               []VolumeMount              `json:"mounts,omitempty"`
+		StartDeadlineSeconds uint32                     `json:"start_deadline_seconds"`
+		AutoRollback         bool                       `json:"auto_rollback"`
+		StartBeforeStop      bool                       `json:"start_before_stop"`
+		HTTP                 *HTTPDesired               `json:"http,omitempty"`
+		TCP                  *TCPDesired                `json:"tcp,omitempty"`
+		DependsOn            []string                   `json:"depends_on,omitempty"`
+		SecretEnvironment    map[string]SecretReference `json:"secret_environment,omitempty"`
+		SecretFiles          []SecretFileDesired        `json:"secret_files,omitempty"`
+		NetworkGeneration    uint64                     `json:"network_generation"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
-		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.NetworkGeneration}
+		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
+		allocation.SecretFiles, allocation.NetworkGeneration}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)
@@ -322,19 +376,22 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 
 func CronJobSpecDigest(job CronJobDesired) (string, error) {
 	spec := struct {
-		Image                string            `json:"image"`
-		Schedule             string            `json:"schedule"`
-		Command              []string          `json:"command,omitempty"`
-		Args                 []string          `json:"args,omitempty"`
-		Environment          map[string]string `json:"environment,omitempty"`
-		CPUMillis            uint64            `json:"cpu_millis"`
-		MemoryBytes          uint64            `json:"memory_bytes"`
-		DependsOn            []string          `json:"depends_on,omitempty"`
-		StartDeadlineSeconds uint32            `json:"start_deadline_seconds"`
-		TimeoutSeconds       uint32            `json:"timeout_seconds"`
-		NetworkGeneration    uint64            `json:"network_generation"`
+		Image                string                     `json:"image"`
+		Schedule             string                     `json:"schedule"`
+		Command              []string                   `json:"command,omitempty"`
+		Args                 []string                   `json:"args,omitempty"`
+		Environment          map[string]string          `json:"environment,omitempty"`
+		CPUMillis            uint64                     `json:"cpu_millis"`
+		MemoryBytes          uint64                     `json:"memory_bytes"`
+		DependsOn            []string                   `json:"depends_on,omitempty"`
+		SecretEnvironment    map[string]SecretReference `json:"secret_environment,omitempty"`
+		SecretFiles          []SecretFileDesired        `json:"secret_files,omitempty"`
+		StartDeadlineSeconds uint32                     `json:"start_deadline_seconds"`
+		TimeoutSeconds       uint32                     `json:"timeout_seconds"`
+		NetworkGeneration    uint64                     `json:"network_generation"`
 	}{job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
-		job.MemoryBytes, job.DependsOn, job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration}
+		job.MemoryBytes, job.DependsOn, job.SecretEnvironment, job.SecretFiles,
+		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode cron job runtime spec: %w", err)

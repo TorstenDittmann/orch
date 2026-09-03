@@ -20,6 +20,12 @@ service ControlService {
   rpc ConfigureNetwork(ConfigureNetworkRequest) returns (ConfigureNetworkResponse);
   rpc ListCronRuns(ListCronRunsRequest) returns (ListCronRunsResponse);
   rpc TailCronLogs(TailCronLogsRequest) returns (stream TailCronLogsResponse);
+  rpc SetSecret(SetSecretRequest) returns (SetSecretResponse);
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
+  rpc LoginRegistry(LoginRegistryRequest) returns (LoginRegistryResponse);
+  rpc ListRegistries(ListRegistriesRequest) returns (ListRegistriesResponse);
+  rpc LogoutRegistry(LogoutRegistryRequest) returns (LogoutRegistryResponse);
 }
 
 enum ExecutionStatus {
@@ -227,6 +233,95 @@ message TailCronLogsResponse {
   uint64 offset = 3;
   bool truncated = 4;
   bool complete = 5;
+}
+
+message SecretMetadata {
+  string application = 1;
+  string name = 2;
+  string current_version_id = 3;
+  bool referenced = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message SetSecretRequest {
+  string application = 1;
+  string name = 2;
+  bytes value = 3;
+  string idempotency_key = 4;
+}
+
+message SetSecretResponse {
+  string application = 1;
+  string name = 2;
+  string version_id = 3;
+  bool changed = 4;
+  uint64 event_sequence = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListSecretsRequest {
+  string application = 1;
+}
+
+message ListSecretsResponse {
+  repeated SecretMetadata secrets = 1;
+}
+
+message DeleteSecretRequest {
+  string application = 1;
+  string name = 2;
+  string idempotency_key = 3;
+}
+
+message DeleteSecretResponse {
+  string application = 1;
+  string name = 2;
+  bool changed = 3;
+  uint64 event_sequence = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message RegistryCredentialMetadata {
+  string host = 1;
+  string username = 2;
+  string current_version_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message LoginRegistryRequest {
+  string host = 1;
+  string username = 2;
+  bytes secret = 3;
+  string idempotency_key = 4;
+}
+
+message LoginRegistryResponse {
+  string host = 1;
+  string username = 2;
+  string version_id = 3;
+  bool changed = 4;
+  uint64 event_sequence = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListRegistriesRequest {}
+
+message ListRegistriesResponse {
+  repeated RegistryCredentialMetadata registries = 1;
+}
+
+message LogoutRegistryRequest {
+  string host = 1;
+  string idempotency_key = 2;
+}
+
+message LogoutRegistryResponse {
+  string host = 1;
+  bool changed = 2;
+  uint64 event_sequence = 3;
+  google.protobuf.Timestamp updated_at = 4;
 }
 
 message ConfigureNetworkRequest {

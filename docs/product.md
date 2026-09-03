@@ -88,10 +88,11 @@ configuration foundation.
 
 The current repository implements the one-node vertical slice of these
 journeys: containerd execution, a private CNI subnet, readiness-gated local
-DNS, and exact-domain Caddy ingress with automatic HTTPS. The controller stays
-out of the data path, and the agent keeps its last accepted serving state while
-the controller is unavailable. Multi-node placement, WireGuard routing,
-rescheduling, secrets, and release packaging remain later slices. See
+DNS, exact-domain Caddy ingress with automatic HTTPS, encrypted application
+secrets, and authenticated exact-host registry pulls. The controller stays out
+of the data path, and the agent keeps its last accepted serving state while the
+controller is unavailable. Multi-node placement, WireGuard routing,
+rescheduling, and release packaging remain later slices. See
 [networking.md](networking.md) and [runtime.md](runtime.md) for the precise
 operator contract rather than inferring future guarantees from the product
 promise.

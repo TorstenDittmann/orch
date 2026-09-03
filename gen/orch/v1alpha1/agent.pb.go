@@ -535,33 +535,292 @@ func (x *TCPDesired) GetPublicPort() uint32 {
 	return 0
 }
 
+type SecretReference struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	VersionId     string                 `protobuf:"bytes,2,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretReference) Reset() {
+	*x = SecretReference{}
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretReference) ProtoMessage() {}
+
+func (x *SecretReference) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretReference.ProtoReflect.Descriptor instead.
+func (*SecretReference) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SecretReference) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecretReference) GetVersionId() string {
+	if x != nil {
+		return x.VersionId
+	}
+	return ""
+}
+
+type SecretFileDesired struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Secret        *SecretReference       `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretFileDesired) Reset() {
+	*x = SecretFileDesired{}
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretFileDesired) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretFileDesired) ProtoMessage() {}
+
+func (x *SecretFileDesired) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretFileDesired.ProtoReflect.Descriptor instead.
+func (*SecretFileDesired) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SecretFileDesired) GetSecret() *SecretReference {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *SecretFileDesired) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+type RegistryCredentialReference struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	VersionId     string                 `protobuf:"bytes,2,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistryCredentialReference) Reset() {
+	*x = RegistryCredentialReference{}
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryCredentialReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryCredentialReference) ProtoMessage() {}
+
+func (x *RegistryCredentialReference) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryCredentialReference.ProtoReflect.Descriptor instead.
+func (*RegistryCredentialReference) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RegistryCredentialReference) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *RegistryCredentialReference) GetVersionId() string {
+	if x != nil {
+		return x.VersionId
+	}
+	return ""
+}
+
+func (x *RegistryCredentialReference) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type SecretMaterial struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	VersionId     string                 `protobuf:"bytes,4,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Host          string                 `protobuf:"bytes,5,opt,name=host,proto3" json:"host,omitempty"`
+	Username      string                 `protobuf:"bytes,6,opt,name=username,proto3" json:"username,omitempty"`
+	Value         []byte                 `protobuf:"bytes,7,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretMaterial) Reset() {
+	*x = SecretMaterial{}
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretMaterial) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretMaterial) ProtoMessage() {}
+
+func (x *SecretMaterial) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretMaterial.ProtoReflect.Descriptor instead.
+func (*SecretMaterial) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SecretMaterial) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetVersionId() string {
+	if x != nil {
+		return x.VersionId
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *SecretMaterial) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
 type RollbackSpec struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	ApplicationGeneration uint64                 `protobuf:"varint,1,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
-	RevisionId            string                 `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
-	SpecDigest            string                 `protobuf:"bytes,3,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
-	Image                 string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	Command               []string               `protobuf:"bytes,5,rep,name=command,proto3" json:"command,omitempty"`
-	Args                  []string               `protobuf:"bytes,6,rep,name=args,proto3" json:"args,omitempty"`
-	Environment           map[string]string      `protobuf:"bytes,7,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RestartPolicy         string                 `protobuf:"bytes,8,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
-	CpuMillis             uint64                 `protobuf:"varint,9,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
-	MemoryBytes           uint64                 `protobuf:"varint,10,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	Mounts                []*VolumeMount         `protobuf:"bytes,11,rep,name=mounts,proto3" json:"mounts,omitempty"`
-	StartDeadlineSeconds  uint32                 `protobuf:"varint,12,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
-	Http                  *HTTPDesired           `protobuf:"bytes,13,opt,name=http,proto3" json:"http,omitempty"`
-	NetworkGeneration     uint64                 `protobuf:"varint,14,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
-	AutoRollback          bool                   `protobuf:"varint,15,opt,name=auto_rollback,json=autoRollback,proto3" json:"auto_rollback,omitempty"`
-	StartBeforeStop       bool                   `protobuf:"varint,16,opt,name=start_before_stop,json=startBeforeStop,proto3" json:"start_before_stop,omitempty"`
-	Tcp                   *TCPDesired            `protobuf:"bytes,17,opt,name=tcp,proto3" json:"tcp,omitempty"`
-	DependsOn             []string               `protobuf:"bytes,18,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	state                 protoimpl.MessageState       `protogen:"open.v1"`
+	ApplicationGeneration uint64                       `protobuf:"varint,1,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
+	RevisionId            string                       `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	SpecDigest            string                       `protobuf:"bytes,3,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
+	Image                 string                       `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
+	Command               []string                     `protobuf:"bytes,5,rep,name=command,proto3" json:"command,omitempty"`
+	Args                  []string                     `protobuf:"bytes,6,rep,name=args,proto3" json:"args,omitempty"`
+	Environment           map[string]string            `protobuf:"bytes,7,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	RestartPolicy         string                       `protobuf:"bytes,8,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
+	CpuMillis             uint64                       `protobuf:"varint,9,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryBytes           uint64                       `protobuf:"varint,10,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	Mounts                []*VolumeMount               `protobuf:"bytes,11,rep,name=mounts,proto3" json:"mounts,omitempty"`
+	StartDeadlineSeconds  uint32                       `protobuf:"varint,12,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
+	Http                  *HTTPDesired                 `protobuf:"bytes,13,opt,name=http,proto3" json:"http,omitempty"`
+	NetworkGeneration     uint64                       `protobuf:"varint,14,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
+	AutoRollback          bool                         `protobuf:"varint,15,opt,name=auto_rollback,json=autoRollback,proto3" json:"auto_rollback,omitempty"`
+	StartBeforeStop       bool                         `protobuf:"varint,16,opt,name=start_before_stop,json=startBeforeStop,proto3" json:"start_before_stop,omitempty"`
+	Tcp                   *TCPDesired                  `protobuf:"bytes,17,opt,name=tcp,proto3" json:"tcp,omitempty"`
+	DependsOn             []string                     `protobuf:"bytes,18,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	SecretEnvironment     map[string]*SecretReference  `protobuf:"bytes,19,rep,name=secret_environment,json=secretEnvironment,proto3" json:"secret_environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SecretFiles           []*SecretFileDesired         `protobuf:"bytes,20,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
+	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,21,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
 func (x *RollbackSpec) Reset() {
 	*x = RollbackSpec{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[3]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -573,7 +832,7 @@ func (x *RollbackSpec) String() string {
 func (*RollbackSpec) ProtoMessage() {}
 
 func (x *RollbackSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[3]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -586,7 +845,7 @@ func (x *RollbackSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackSpec.ProtoReflect.Descriptor instead.
 func (*RollbackSpec) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{3}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RollbackSpec) GetApplicationGeneration() uint64 {
@@ -715,6 +974,27 @@ func (x *RollbackSpec) GetDependsOn() []string {
 	return nil
 }
 
+func (x *RollbackSpec) GetSecretEnvironment() map[string]*SecretReference {
+	if x != nil {
+		return x.SecretEnvironment
+	}
+	return nil
+}
+
+func (x *RollbackSpec) GetSecretFiles() []*SecretFileDesired {
+	if x != nil {
+		return x.SecretFiles
+	}
+	return nil
+}
+
+func (x *RollbackSpec) GetRegistryCredential() *RegistryCredentialReference {
+	if x != nil {
+		return x.RegistryCredential
+	}
+	return nil
+}
+
 type NetworkConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Generation    uint64                 `protobuf:"varint,1,opt,name=generation,proto3" json:"generation,omitempty"`
@@ -728,7 +1008,7 @@ type NetworkConfig struct {
 
 func (x *NetworkConfig) Reset() {
 	*x = NetworkConfig{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[4]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +1020,7 @@ func (x *NetworkConfig) String() string {
 func (*NetworkConfig) ProtoMessage() {}
 
 func (x *NetworkConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[4]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +1033,7 @@ func (x *NetworkConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkConfig.ProtoReflect.Descriptor instead.
 func (*NetworkConfig) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{4}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *NetworkConfig) GetGeneration() uint64 {
@@ -792,39 +1072,42 @@ func (x *NetworkConfig) GetDnsZone() string {
 }
 
 type AllocationDesired struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Application           string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
-	Service               string                 `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
-	Replica               uint32                 `protobuf:"varint,4,opt,name=replica,proto3" json:"replica,omitempty"`
-	ApplicationGeneration uint64                 `protobuf:"varint,5,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
-	RevisionId            string                 `protobuf:"bytes,6,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
-	SpecDigest            string                 `protobuf:"bytes,7,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
-	Image                 string                 `protobuf:"bytes,8,opt,name=image,proto3" json:"image,omitempty"`
-	Command               []string               `protobuf:"bytes,9,rep,name=command,proto3" json:"command,omitempty"`
-	Args                  []string               `protobuf:"bytes,10,rep,name=args,proto3" json:"args,omitempty"`
-	Environment           map[string]string      `protobuf:"bytes,11,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RestartPolicy         string                 `protobuf:"bytes,12,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
-	CpuMillis             uint64                 `protobuf:"varint,13,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
-	MemoryBytes           uint64                 `protobuf:"varint,14,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	Mounts                []*VolumeMount         `protobuf:"bytes,15,rep,name=mounts,proto3" json:"mounts,omitempty"`
-	StartDeadlineSeconds  uint32                 `protobuf:"varint,16,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
-	AutoRollback          bool                   `protobuf:"varint,17,opt,name=auto_rollback,json=autoRollback,proto3" json:"auto_rollback,omitempty"`
-	StartBeforeStop       bool                   `protobuf:"varint,18,opt,name=start_before_stop,json=startBeforeStop,proto3" json:"start_before_stop,omitempty"`
-	Http                  *HTTPDesired           `protobuf:"bytes,19,opt,name=http,proto3" json:"http,omitempty"`
-	NetworkGeneration     uint64                 `protobuf:"varint,20,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
-	MaxSurge              uint32                 `protobuf:"varint,21,opt,name=max_surge,json=maxSurge,proto3" json:"max_surge,omitempty"`
-	MaxUnavailable        uint32                 `protobuf:"varint,22,opt,name=max_unavailable,json=maxUnavailable,proto3" json:"max_unavailable,omitempty"`
-	Rollback              *RollbackSpec          `protobuf:"bytes,23,opt,name=rollback,proto3" json:"rollback,omitempty"`
-	Tcp                   *TCPDesired            `protobuf:"bytes,24,opt,name=tcp,proto3" json:"tcp,omitempty"`
-	DependsOn             []string               `protobuf:"bytes,25,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	state                 protoimpl.MessageState       `protogen:"open.v1"`
+	Id                    string                       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Application           string                       `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	Service               string                       `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
+	Replica               uint32                       `protobuf:"varint,4,opt,name=replica,proto3" json:"replica,omitempty"`
+	ApplicationGeneration uint64                       `protobuf:"varint,5,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
+	RevisionId            string                       `protobuf:"bytes,6,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	SpecDigest            string                       `protobuf:"bytes,7,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
+	Image                 string                       `protobuf:"bytes,8,opt,name=image,proto3" json:"image,omitempty"`
+	Command               []string                     `protobuf:"bytes,9,rep,name=command,proto3" json:"command,omitempty"`
+	Args                  []string                     `protobuf:"bytes,10,rep,name=args,proto3" json:"args,omitempty"`
+	Environment           map[string]string            `protobuf:"bytes,11,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	RestartPolicy         string                       `protobuf:"bytes,12,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
+	CpuMillis             uint64                       `protobuf:"varint,13,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryBytes           uint64                       `protobuf:"varint,14,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	Mounts                []*VolumeMount               `protobuf:"bytes,15,rep,name=mounts,proto3" json:"mounts,omitempty"`
+	StartDeadlineSeconds  uint32                       `protobuf:"varint,16,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
+	AutoRollback          bool                         `protobuf:"varint,17,opt,name=auto_rollback,json=autoRollback,proto3" json:"auto_rollback,omitempty"`
+	StartBeforeStop       bool                         `protobuf:"varint,18,opt,name=start_before_stop,json=startBeforeStop,proto3" json:"start_before_stop,omitempty"`
+	Http                  *HTTPDesired                 `protobuf:"bytes,19,opt,name=http,proto3" json:"http,omitempty"`
+	NetworkGeneration     uint64                       `protobuf:"varint,20,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
+	MaxSurge              uint32                       `protobuf:"varint,21,opt,name=max_surge,json=maxSurge,proto3" json:"max_surge,omitempty"`
+	MaxUnavailable        uint32                       `protobuf:"varint,22,opt,name=max_unavailable,json=maxUnavailable,proto3" json:"max_unavailable,omitempty"`
+	Rollback              *RollbackSpec                `protobuf:"bytes,23,opt,name=rollback,proto3" json:"rollback,omitempty"`
+	Tcp                   *TCPDesired                  `protobuf:"bytes,24,opt,name=tcp,proto3" json:"tcp,omitempty"`
+	DependsOn             []string                     `protobuf:"bytes,25,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	SecretEnvironment     map[string]*SecretReference  `protobuf:"bytes,26,rep,name=secret_environment,json=secretEnvironment,proto3" json:"secret_environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SecretFiles           []*SecretFileDesired         `protobuf:"bytes,27,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
+	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,28,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
 func (x *AllocationDesired) Reset() {
 	*x = AllocationDesired{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[5]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -836,7 +1119,7 @@ func (x *AllocationDesired) String() string {
 func (*AllocationDesired) ProtoMessage() {}
 
 func (x *AllocationDesired) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[5]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -849,7 +1132,7 @@ func (x *AllocationDesired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationDesired.ProtoReflect.Descriptor instead.
 func (*AllocationDesired) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{5}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AllocationDesired) GetId() string {
@@ -1027,31 +1310,55 @@ func (x *AllocationDesired) GetDependsOn() []string {
 	return nil
 }
 
+func (x *AllocationDesired) GetSecretEnvironment() map[string]*SecretReference {
+	if x != nil {
+		return x.SecretEnvironment
+	}
+	return nil
+}
+
+func (x *AllocationDesired) GetSecretFiles() []*SecretFileDesired {
+	if x != nil {
+		return x.SecretFiles
+	}
+	return nil
+}
+
+func (x *AllocationDesired) GetRegistryCredential() *RegistryCredentialReference {
+	if x != nil {
+		return x.RegistryCredential
+	}
+	return nil
+}
+
 type CronJobDesired struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Application           string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
-	Job                   string                 `protobuf:"bytes,2,opt,name=job,proto3" json:"job,omitempty"`
-	ApplicationGeneration uint64                 `protobuf:"varint,3,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
-	RevisionId            string                 `protobuf:"bytes,4,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
-	SpecDigest            string                 `protobuf:"bytes,5,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
-	Image                 string                 `protobuf:"bytes,6,opt,name=image,proto3" json:"image,omitempty"`
-	Schedule              string                 `protobuf:"bytes,7,opt,name=schedule,proto3" json:"schedule,omitempty"`
-	Command               []string               `protobuf:"bytes,8,rep,name=command,proto3" json:"command,omitempty"`
-	Args                  []string               `protobuf:"bytes,9,rep,name=args,proto3" json:"args,omitempty"`
-	Environment           map[string]string      `protobuf:"bytes,10,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	CpuMillis             uint64                 `protobuf:"varint,11,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
-	MemoryBytes           uint64                 `protobuf:"varint,12,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	DependsOn             []string               `protobuf:"bytes,13,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
-	StartDeadlineSeconds  uint32                 `protobuf:"varint,14,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
-	TimeoutSeconds        uint32                 `protobuf:"varint,15,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	NetworkGeneration     uint64                 `protobuf:"varint,16,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
+	state                 protoimpl.MessageState       `protogen:"open.v1"`
+	Application           string                       `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Job                   string                       `protobuf:"bytes,2,opt,name=job,proto3" json:"job,omitempty"`
+	ApplicationGeneration uint64                       `protobuf:"varint,3,opt,name=application_generation,json=applicationGeneration,proto3" json:"application_generation,omitempty"`
+	RevisionId            string                       `protobuf:"bytes,4,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	SpecDigest            string                       `protobuf:"bytes,5,opt,name=spec_digest,json=specDigest,proto3" json:"spec_digest,omitempty"`
+	Image                 string                       `protobuf:"bytes,6,opt,name=image,proto3" json:"image,omitempty"`
+	Schedule              string                       `protobuf:"bytes,7,opt,name=schedule,proto3" json:"schedule,omitempty"`
+	Command               []string                     `protobuf:"bytes,8,rep,name=command,proto3" json:"command,omitempty"`
+	Args                  []string                     `protobuf:"bytes,9,rep,name=args,proto3" json:"args,omitempty"`
+	Environment           map[string]string            `protobuf:"bytes,10,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CpuMillis             uint64                       `protobuf:"varint,11,opt,name=cpu_millis,json=cpuMillis,proto3" json:"cpu_millis,omitempty"`
+	MemoryBytes           uint64                       `protobuf:"varint,12,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	DependsOn             []string                     `protobuf:"bytes,13,rep,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	StartDeadlineSeconds  uint32                       `protobuf:"varint,14,opt,name=start_deadline_seconds,json=startDeadlineSeconds,proto3" json:"start_deadline_seconds,omitempty"`
+	TimeoutSeconds        uint32                       `protobuf:"varint,15,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	NetworkGeneration     uint64                       `protobuf:"varint,16,opt,name=network_generation,json=networkGeneration,proto3" json:"network_generation,omitempty"`
+	SecretEnvironment     map[string]*SecretReference  `protobuf:"bytes,17,rep,name=secret_environment,json=secretEnvironment,proto3" json:"secret_environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SecretFiles           []*SecretFileDesired         `protobuf:"bytes,18,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
+	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,19,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
 func (x *CronJobDesired) Reset() {
 	*x = CronJobDesired{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[6]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1063,7 +1370,7 @@ func (x *CronJobDesired) String() string {
 func (*CronJobDesired) ProtoMessage() {}
 
 func (x *CronJobDesired) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[6]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1076,7 +1383,7 @@ func (x *CronJobDesired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CronJobDesired.ProtoReflect.Descriptor instead.
 func (*CronJobDesired) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{6}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CronJobDesired) GetApplication() string {
@@ -1191,22 +1498,44 @@ func (x *CronJobDesired) GetNetworkGeneration() uint64 {
 	return 0
 }
 
+func (x *CronJobDesired) GetSecretEnvironment() map[string]*SecretReference {
+	if x != nil {
+		return x.SecretEnvironment
+	}
+	return nil
+}
+
+func (x *CronJobDesired) GetSecretFiles() []*SecretFileDesired {
+	if x != nil {
+		return x.SecretFiles
+	}
+	return nil
+}
+
+func (x *CronJobDesired) GetRegistryCredential() *RegistryCredentialReference {
+	if x != nil {
+		return x.RegistryCredential
+	}
+	return nil
+}
+
 type AssignmentSnapshot struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Generation    uint64                 `protobuf:"varint,2,opt,name=generation,proto3" json:"generation,omitempty"`
-	Digest        string                 `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Allocations   []*AllocationDesired   `protobuf:"bytes,5,rep,name=allocations,proto3" json:"allocations,omitempty"`
-	Network       *NetworkConfig         `protobuf:"bytes,6,opt,name=network,proto3" json:"network,omitempty"`
-	CronJobs      []*CronJobDesired      `protobuf:"bytes,7,rep,name=cron_jobs,json=cronJobs,proto3" json:"cron_jobs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	NodeId          string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Generation      uint64                 `protobuf:"varint,2,opt,name=generation,proto3" json:"generation,omitempty"`
+	Digest          string                 `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Allocations     []*AllocationDesired   `protobuf:"bytes,5,rep,name=allocations,proto3" json:"allocations,omitempty"`
+	Network         *NetworkConfig         `protobuf:"bytes,6,opt,name=network,proto3" json:"network,omitempty"`
+	CronJobs        []*CronJobDesired      `protobuf:"bytes,7,rep,name=cron_jobs,json=cronJobs,proto3" json:"cron_jobs,omitempty"`
+	SecretMaterials []*SecretMaterial      `protobuf:"bytes,8,rep,name=secret_materials,json=secretMaterials,proto3" json:"secret_materials,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AssignmentSnapshot) Reset() {
 	*x = AssignmentSnapshot{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[7]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1218,7 +1547,7 @@ func (x *AssignmentSnapshot) String() string {
 func (*AssignmentSnapshot) ProtoMessage() {}
 
 func (x *AssignmentSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[7]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,7 +1560,7 @@ func (x *AssignmentSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignmentSnapshot.ProtoReflect.Descriptor instead.
 func (*AssignmentSnapshot) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{7}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AssignmentSnapshot) GetNodeId() string {
@@ -1283,6 +1612,13 @@ func (x *AssignmentSnapshot) GetCronJobs() []*CronJobDesired {
 	return nil
 }
 
+func (x *AssignmentSnapshot) GetSecretMaterials() []*SecretMaterial {
+	if x != nil {
+		return x.SecretMaterials
+	}
+	return nil
+}
+
 type AllocationStatus struct {
 	state                       protoimpl.MessageState `protogen:"open.v1"`
 	Id                          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1311,7 +1647,7 @@ type AllocationStatus struct {
 
 func (x *AllocationStatus) Reset() {
 	*x = AllocationStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[8]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1323,7 +1659,7 @@ func (x *AllocationStatus) String() string {
 func (*AllocationStatus) ProtoMessage() {}
 
 func (x *AllocationStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[8]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1336,7 +1672,7 @@ func (x *AllocationStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationStatus.ProtoReflect.Descriptor instead.
 func (*AllocationStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{8}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AllocationStatus) GetId() string {
@@ -1497,7 +1833,7 @@ type RouteStatus struct {
 
 func (x *RouteStatus) Reset() {
 	*x = RouteStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[9]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1845,7 @@ func (x *RouteStatus) String() string {
 func (*RouteStatus) ProtoMessage() {}
 
 func (x *RouteStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[9]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1858,7 @@ func (x *RouteStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteStatus.ProtoReflect.Descriptor instead.
 func (*RouteStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{9}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RouteStatus) GetApplication() string {
@@ -1612,7 +1948,7 @@ type TCPRouteStatus struct {
 
 func (x *TCPRouteStatus) Reset() {
 	*x = TCPRouteStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[10]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1624,7 +1960,7 @@ func (x *TCPRouteStatus) String() string {
 func (*TCPRouteStatus) ProtoMessage() {}
 
 func (x *TCPRouteStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[10]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1637,7 +1973,7 @@ func (x *TCPRouteStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TCPRouteStatus.ProtoReflect.Descriptor instead.
 func (*TCPRouteStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{10}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TCPRouteStatus) GetApplication() string {
@@ -1721,7 +2057,7 @@ type CronJobStatus struct {
 
 func (x *CronJobStatus) Reset() {
 	*x = CronJobStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[11]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1733,7 +2069,7 @@ func (x *CronJobStatus) String() string {
 func (*CronJobStatus) ProtoMessage() {}
 
 func (x *CronJobStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[11]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1746,7 +2082,7 @@ func (x *CronJobStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CronJobStatus.ProtoReflect.Descriptor instead.
 func (*CronJobStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{11}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CronJobStatus) GetApplication() string {
@@ -1840,7 +2176,7 @@ type JobRunStatus struct {
 
 func (x *JobRunStatus) Reset() {
 	*x = JobRunStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[12]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1852,7 +2188,7 @@ func (x *JobRunStatus) String() string {
 func (*JobRunStatus) ProtoMessage() {}
 
 func (x *JobRunStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[12]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2201,7 @@ func (x *JobRunStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobRunStatus.ProtoReflect.Descriptor instead.
 func (*JobRunStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{12}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *JobRunStatus) GetId() string {
@@ -1977,7 +2313,7 @@ type NetworkStatus struct {
 
 func (x *NetworkStatus) Reset() {
 	*x = NetworkStatus{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[13]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +2325,7 @@ func (x *NetworkStatus) String() string {
 func (*NetworkStatus) ProtoMessage() {}
 
 func (x *NetworkStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[13]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2002,7 +2338,7 @@ func (x *NetworkStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkStatus.ProtoReflect.Descriptor instead.
 func (*NetworkStatus) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{13}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *NetworkStatus) GetGeneration() uint64 {
@@ -2098,7 +2434,7 @@ type AgentHello struct {
 
 func (x *AgentHello) Reset() {
 	*x = AgentHello{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[14]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2110,7 +2446,7 @@ func (x *AgentHello) String() string {
 func (*AgentHello) ProtoMessage() {}
 
 func (x *AgentHello) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[14]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2123,7 +2459,7 @@ func (x *AgentHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHello.ProtoReflect.Descriptor instead.
 func (*AgentHello) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{14}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AgentHello) GetProtocolVersion() string {
@@ -2242,7 +2578,7 @@ type AssignmentAck struct {
 
 func (x *AssignmentAck) Reset() {
 	*x = AssignmentAck{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[15]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2254,7 +2590,7 @@ func (x *AssignmentAck) String() string {
 func (*AssignmentAck) ProtoMessage() {}
 
 func (x *AssignmentAck) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[15]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2267,7 +2603,7 @@ func (x *AssignmentAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignmentAck.ProtoReflect.Descriptor instead.
 func (*AssignmentAck) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{15}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AssignmentAck) GetBootId() string {
@@ -2309,7 +2645,7 @@ type AllocationReport struct {
 
 func (x *AllocationReport) Reset() {
 	*x = AllocationReport{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[16]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2321,7 +2657,7 @@ func (x *AllocationReport) String() string {
 func (*AllocationReport) ProtoMessage() {}
 
 func (x *AllocationReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[16]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2334,7 +2670,7 @@ func (x *AllocationReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationReport.ProtoReflect.Descriptor instead.
 func (*AllocationReport) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{16}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AllocationReport) GetBootId() string {
@@ -2417,7 +2753,7 @@ type AgentHeartbeat struct {
 
 func (x *AgentHeartbeat) Reset() {
 	*x = AgentHeartbeat{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[17]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2765,7 @@ func (x *AgentHeartbeat) String() string {
 func (*AgentHeartbeat) ProtoMessage() {}
 
 func (x *AgentHeartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[17]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2778,7 @@ func (x *AgentHeartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHeartbeat.ProtoReflect.Descriptor instead.
 func (*AgentHeartbeat) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{17}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AgentHeartbeat) GetBootId() string {
@@ -2470,7 +2806,7 @@ type TailLogsCommand struct {
 
 func (x *TailLogsCommand) Reset() {
 	*x = TailLogsCommand{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[18]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2482,7 +2818,7 @@ func (x *TailLogsCommand) String() string {
 func (*TailLogsCommand) ProtoMessage() {}
 
 func (x *TailLogsCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[18]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2495,7 +2831,7 @@ func (x *TailLogsCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TailLogsCommand.ProtoReflect.Descriptor instead.
 func (*TailLogsCommand) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{18}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TailLogsCommand) GetRequestId() string {
@@ -2530,7 +2866,7 @@ type TailCronLogsCommand struct {
 
 func (x *TailCronLogsCommand) Reset() {
 	*x = TailCronLogsCommand{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[19]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2542,7 +2878,7 @@ func (x *TailCronLogsCommand) String() string {
 func (*TailCronLogsCommand) ProtoMessage() {}
 
 func (x *TailCronLogsCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[19]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2555,7 +2891,7 @@ func (x *TailCronLogsCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TailCronLogsCommand.ProtoReflect.Descriptor instead.
 func (*TailCronLogsCommand) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{19}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *TailCronLogsCommand) GetRequestId() string {
@@ -2591,7 +2927,7 @@ type ExecCommand struct {
 
 func (x *ExecCommand) Reset() {
 	*x = ExecCommand{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[20]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2603,7 +2939,7 @@ func (x *ExecCommand) String() string {
 func (*ExecCommand) ProtoMessage() {}
 
 func (x *ExecCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[20]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2616,7 +2952,7 @@ func (x *ExecCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecCommand.ProtoReflect.Descriptor instead.
 func (*ExecCommand) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{20}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ExecCommand) GetRequestId() string {
@@ -2656,7 +2992,7 @@ type CancelOperation struct {
 
 func (x *CancelOperation) Reset() {
 	*x = CancelOperation{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[21]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2668,7 +3004,7 @@ func (x *CancelOperation) String() string {
 func (*CancelOperation) ProtoMessage() {}
 
 func (x *CancelOperation) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[21]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2681,7 +3017,7 @@ func (x *CancelOperation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOperation.ProtoReflect.Descriptor instead.
 func (*CancelOperation) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{21}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CancelOperation) GetRequestId() string {
@@ -2705,7 +3041,7 @@ type TailLogsResponse struct {
 
 func (x *TailLogsResponse) Reset() {
 	*x = TailLogsResponse{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[22]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2717,7 +3053,7 @@ func (x *TailLogsResponse) String() string {
 func (*TailLogsResponse) ProtoMessage() {}
 
 func (x *TailLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[22]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2730,7 +3066,7 @@ func (x *TailLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TailLogsResponse.ProtoReflect.Descriptor instead.
 func (*TailLogsResponse) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{22}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TailLogsResponse) GetRequestId() string {
@@ -2788,7 +3124,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[23]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2800,7 +3136,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[23]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2813,7 +3149,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{23}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ExecResponse) GetRequestId() string {
@@ -2862,7 +3198,7 @@ type OperationError struct {
 
 func (x *OperationError) Reset() {
 	*x = OperationError{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[24]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2874,7 +3210,7 @@ func (x *OperationError) String() string {
 func (*OperationError) ProtoMessage() {}
 
 func (x *OperationError) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[24]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2887,7 +3223,7 @@ func (x *OperationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationError.ProtoReflect.Descriptor instead.
 func (*OperationError) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{24}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *OperationError) GetRequestId() string {
@@ -2925,7 +3261,7 @@ type AgentOperationResult struct {
 
 func (x *AgentOperationResult) Reset() {
 	*x = AgentOperationResult{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[25]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2937,7 +3273,7 @@ func (x *AgentOperationResult) String() string {
 func (*AgentOperationResult) ProtoMessage() {}
 
 func (x *AgentOperationResult) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[25]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2950,7 +3286,7 @@ func (x *AgentOperationResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentOperationResult.ProtoReflect.Descriptor instead.
 func (*AgentOperationResult) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{25}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AgentOperationResult) GetResult() isAgentOperationResult_Result {
@@ -3025,7 +3361,7 @@ type ConnectRequest struct {
 
 func (x *ConnectRequest) Reset() {
 	*x = ConnectRequest{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[26]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3037,7 +3373,7 @@ func (x *ConnectRequest) String() string {
 func (*ConnectRequest) ProtoMessage() {}
 
 func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[26]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3050,7 +3386,7 @@ func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectRequest.ProtoReflect.Descriptor instead.
 func (*ConnectRequest) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{26}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ConnectRequest) GetMessage() isConnectRequest_Message {
@@ -3155,7 +3491,7 @@ type ConnectResponse struct {
 
 func (x *ConnectResponse) Reset() {
 	*x = ConnectResponse{}
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[27]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3167,7 +3503,7 @@ func (x *ConnectResponse) String() string {
 func (*ConnectResponse) ProtoMessage() {}
 
 func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_agent_proto_msgTypes[27]
+	mi := &file_orch_v1alpha1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3180,7 +3516,7 @@ func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectResponse.ProtoReflect.Descriptor instead.
 func (*ConnectResponse) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{27}
+	return file_orch_v1alpha1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ConnectResponse) GetMessage() isConnectResponse_Message {
@@ -3288,7 +3624,28 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"TCPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x1f\n" +
 	"\vpublic_port\x18\x02 \x01(\rR\n" +
-	"publicPort\"\xaa\x06\n" +
+	"publicPort\"D\n" +
+	"\x0fSecretReference\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x02 \x01(\tR\tversionId\"c\n" +
+	"\x11SecretFileDesired\x126\n" +
+	"\x06secret\x18\x01 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x06secret\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"l\n" +
+	"\x1bRegistryCredentialReference\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x02 \x01(\tR\tversionId\x12\x1a\n" +
+	"\busername\x18\x03 \x01(\tR\busername\"\xbf\x01\n" +
+	"\x0eSecretMaterial\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12 \n" +
+	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x04 \x01(\tR\tversionId\x12\x12\n" +
+	"\x04host\x18\x05 \x01(\tR\x04host\x12\x1a\n" +
+	"\busername\x18\x06 \x01(\tR\busername\x12\x14\n" +
+	"\x05value\x18\a \x01(\fR\x05value\"\x95\t\n" +
 	"\fRollbackSpec\x125\n" +
 	"\x16application_generation\x18\x01 \x01(\x04R\x15applicationGeneration\x12\x1f\n" +
 	"\vrevision_id\x18\x02 \x01(\tR\n" +
@@ -3312,10 +3669,16 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x11start_before_stop\x18\x10 \x01(\bR\x0fstartBeforeStop\x12+\n" +
 	"\x03tcp\x18\x11 \x01(\v2\x19.orch.v1alpha1.TCPDesiredR\x03tcp\x12\x1d\n" +
 	"\n" +
-	"depends_on\x18\x12 \x03(\tR\tdependsOn\x1a>\n" +
+	"depends_on\x18\x12 \x03(\tR\tdependsOn\x12a\n" +
+	"\x12secret_environment\x18\x13 \x03(\v22.orch.v1alpha1.RollbackSpec.SecretEnvironmentEntryR\x11secretEnvironment\x12C\n" +
+	"\fsecret_files\x18\x14 \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
+	"\x13registry_credential\x18\x15 \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
+	"\x16SecretEnvironmentEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\xa8\x01\n" +
 	"\rNetworkConfig\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\x04R\n" +
@@ -3324,7 +3687,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vnode_subnet\x18\x03 \x01(\tR\n" +
 	"nodeSubnet\x12\x18\n" +
 	"\agateway\x18\x04 \x01(\tR\agateway\x12\x19\n" +
-	"\bdns_zone\x18\x05 \x01(\tR\adnsZone\"\x99\b\n" +
+	"\bdns_zone\x18\x05 \x01(\tR\adnsZone\"\x89\v\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -3355,10 +3718,16 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\brollback\x18\x17 \x01(\v2\x1b.orch.v1alpha1.RollbackSpecR\brollback\x12+\n" +
 	"\x03tcp\x18\x18 \x01(\v2\x19.orch.v1alpha1.TCPDesiredR\x03tcp\x12\x1d\n" +
 	"\n" +
-	"depends_on\x18\x19 \x03(\tR\tdependsOn\x1a>\n" +
+	"depends_on\x18\x19 \x03(\tR\tdependsOn\x12f\n" +
+	"\x12secret_environment\x18\x1a \x03(\v27.orch.v1alpha1.AllocationDesired.SecretEnvironmentEntryR\x11secretEnvironment\x12C\n" +
+	"\fsecret_files\x18\x1b \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
+	"\x13registry_credential\x18\x1c \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9e\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
+	"\x16SecretEnvironmentEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\x8b\b\n" +
 	"\x0eCronJobDesired\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x10\n" +
 	"\x03job\x18\x02 \x01(\tR\x03job\x125\n" +
@@ -3380,10 +3749,16 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"depends_on\x18\r \x03(\tR\tdependsOn\x124\n" +
 	"\x16start_deadline_seconds\x18\x0e \x01(\rR\x14startDeadlineSeconds\x12'\n" +
 	"\x0ftimeout_seconds\x18\x0f \x01(\rR\x0etimeoutSeconds\x12-\n" +
-	"\x12network_generation\x18\x10 \x01(\x04R\x11networkGeneration\x1a>\n" +
+	"\x12network_generation\x18\x10 \x01(\x04R\x11networkGeneration\x12c\n" +
+	"\x12secret_environment\x18\x11 \x03(\v24.orch.v1alpha1.CronJobDesired.SecretEnvironmentEntryR\x11secretEnvironment\x12C\n" +
+	"\fsecret_files\x18\x12 \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
+	"\x13registry_credential\x18\x13 \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
+	"\x16SecretEnvironmentEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\xa2\x03\n" +
 	"\x12AssignmentSnapshot\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1e\n" +
 	"\n" +
@@ -3394,7 +3769,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12B\n" +
 	"\vallocations\x18\x05 \x03(\v2 .orch.v1alpha1.AllocationDesiredR\vallocations\x126\n" +
 	"\anetwork\x18\x06 \x01(\v2\x1c.orch.v1alpha1.NetworkConfigR\anetwork\x12:\n" +
-	"\tcron_jobs\x18\a \x03(\v2\x1d.orch.v1alpha1.CronJobDesiredR\bcronJobs\"\xb1\x06\n" +
+	"\tcron_jobs\x18\a \x03(\v2\x1d.orch.v1alpha1.CronJobDesiredR\bcronJobs\x12H\n" +
+	"\x10secret_materials\x18\b \x03(\v2\x1d.orch.v1alpha1.SecretMaterialR\x0fsecretMaterials\"\xb1\x06\n" +
 	"\x10AllocationStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -3652,107 +4028,128 @@ func file_orch_v1alpha1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_orch_v1alpha1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_orch_v1alpha1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_orch_v1alpha1_agent_proto_goTypes = []any{
-	(AllocationPhase)(0),          // 0: orch.v1alpha1.AllocationPhase
-	(HealthStatus)(0),             // 1: orch.v1alpha1.HealthStatus
-	(NetworkState)(0),             // 2: orch.v1alpha1.NetworkState
-	(RouteState)(0),               // 3: orch.v1alpha1.RouteState
-	(LogStream)(0),                // 4: orch.v1alpha1.LogStream
-	(JobRunState)(0),              // 5: orch.v1alpha1.JobRunState
-	(*VolumeMount)(nil),           // 6: orch.v1alpha1.VolumeMount
-	(*HTTPDesired)(nil),           // 7: orch.v1alpha1.HTTPDesired
-	(*TCPDesired)(nil),            // 8: orch.v1alpha1.TCPDesired
-	(*RollbackSpec)(nil),          // 9: orch.v1alpha1.RollbackSpec
-	(*NetworkConfig)(nil),         // 10: orch.v1alpha1.NetworkConfig
-	(*AllocationDesired)(nil),     // 11: orch.v1alpha1.AllocationDesired
-	(*CronJobDesired)(nil),        // 12: orch.v1alpha1.CronJobDesired
-	(*AssignmentSnapshot)(nil),    // 13: orch.v1alpha1.AssignmentSnapshot
-	(*AllocationStatus)(nil),      // 14: orch.v1alpha1.AllocationStatus
-	(*RouteStatus)(nil),           // 15: orch.v1alpha1.RouteStatus
-	(*TCPRouteStatus)(nil),        // 16: orch.v1alpha1.TCPRouteStatus
-	(*CronJobStatus)(nil),         // 17: orch.v1alpha1.CronJobStatus
-	(*JobRunStatus)(nil),          // 18: orch.v1alpha1.JobRunStatus
-	(*NetworkStatus)(nil),         // 19: orch.v1alpha1.NetworkStatus
-	(*AgentHello)(nil),            // 20: orch.v1alpha1.AgentHello
-	(*AssignmentAck)(nil),         // 21: orch.v1alpha1.AssignmentAck
-	(*AllocationReport)(nil),      // 22: orch.v1alpha1.AllocationReport
-	(*AgentHeartbeat)(nil),        // 23: orch.v1alpha1.AgentHeartbeat
-	(*TailLogsCommand)(nil),       // 24: orch.v1alpha1.TailLogsCommand
-	(*TailCronLogsCommand)(nil),   // 25: orch.v1alpha1.TailCronLogsCommand
-	(*ExecCommand)(nil),           // 26: orch.v1alpha1.ExecCommand
-	(*CancelOperation)(nil),       // 27: orch.v1alpha1.CancelOperation
-	(*TailLogsResponse)(nil),      // 28: orch.v1alpha1.TailLogsResponse
-	(*ExecResponse)(nil),          // 29: orch.v1alpha1.ExecResponse
-	(*OperationError)(nil),        // 30: orch.v1alpha1.OperationError
-	(*AgentOperationResult)(nil),  // 31: orch.v1alpha1.AgentOperationResult
-	(*ConnectRequest)(nil),        // 32: orch.v1alpha1.ConnectRequest
-	(*ConnectResponse)(nil),       // 33: orch.v1alpha1.ConnectResponse
-	nil,                           // 34: orch.v1alpha1.RollbackSpec.EnvironmentEntry
-	nil,                           // 35: orch.v1alpha1.AllocationDesired.EnvironmentEntry
-	nil,                           // 36: orch.v1alpha1.CronJobDesired.EnvironmentEntry
-	(*timestamppb.Timestamp)(nil), // 37: google.protobuf.Timestamp
+	(AllocationPhase)(0),                // 0: orch.v1alpha1.AllocationPhase
+	(HealthStatus)(0),                   // 1: orch.v1alpha1.HealthStatus
+	(NetworkState)(0),                   // 2: orch.v1alpha1.NetworkState
+	(RouteState)(0),                     // 3: orch.v1alpha1.RouteState
+	(LogStream)(0),                      // 4: orch.v1alpha1.LogStream
+	(JobRunState)(0),                    // 5: orch.v1alpha1.JobRunState
+	(*VolumeMount)(nil),                 // 6: orch.v1alpha1.VolumeMount
+	(*HTTPDesired)(nil),                 // 7: orch.v1alpha1.HTTPDesired
+	(*TCPDesired)(nil),                  // 8: orch.v1alpha1.TCPDesired
+	(*SecretReference)(nil),             // 9: orch.v1alpha1.SecretReference
+	(*SecretFileDesired)(nil),           // 10: orch.v1alpha1.SecretFileDesired
+	(*RegistryCredentialReference)(nil), // 11: orch.v1alpha1.RegistryCredentialReference
+	(*SecretMaterial)(nil),              // 12: orch.v1alpha1.SecretMaterial
+	(*RollbackSpec)(nil),                // 13: orch.v1alpha1.RollbackSpec
+	(*NetworkConfig)(nil),               // 14: orch.v1alpha1.NetworkConfig
+	(*AllocationDesired)(nil),           // 15: orch.v1alpha1.AllocationDesired
+	(*CronJobDesired)(nil),              // 16: orch.v1alpha1.CronJobDesired
+	(*AssignmentSnapshot)(nil),          // 17: orch.v1alpha1.AssignmentSnapshot
+	(*AllocationStatus)(nil),            // 18: orch.v1alpha1.AllocationStatus
+	(*RouteStatus)(nil),                 // 19: orch.v1alpha1.RouteStatus
+	(*TCPRouteStatus)(nil),              // 20: orch.v1alpha1.TCPRouteStatus
+	(*CronJobStatus)(nil),               // 21: orch.v1alpha1.CronJobStatus
+	(*JobRunStatus)(nil),                // 22: orch.v1alpha1.JobRunStatus
+	(*NetworkStatus)(nil),               // 23: orch.v1alpha1.NetworkStatus
+	(*AgentHello)(nil),                  // 24: orch.v1alpha1.AgentHello
+	(*AssignmentAck)(nil),               // 25: orch.v1alpha1.AssignmentAck
+	(*AllocationReport)(nil),            // 26: orch.v1alpha1.AllocationReport
+	(*AgentHeartbeat)(nil),              // 27: orch.v1alpha1.AgentHeartbeat
+	(*TailLogsCommand)(nil),             // 28: orch.v1alpha1.TailLogsCommand
+	(*TailCronLogsCommand)(nil),         // 29: orch.v1alpha1.TailCronLogsCommand
+	(*ExecCommand)(nil),                 // 30: orch.v1alpha1.ExecCommand
+	(*CancelOperation)(nil),             // 31: orch.v1alpha1.CancelOperation
+	(*TailLogsResponse)(nil),            // 32: orch.v1alpha1.TailLogsResponse
+	(*ExecResponse)(nil),                // 33: orch.v1alpha1.ExecResponse
+	(*OperationError)(nil),              // 34: orch.v1alpha1.OperationError
+	(*AgentOperationResult)(nil),        // 35: orch.v1alpha1.AgentOperationResult
+	(*ConnectRequest)(nil),              // 36: orch.v1alpha1.ConnectRequest
+	(*ConnectResponse)(nil),             // 37: orch.v1alpha1.ConnectResponse
+	nil,                                 // 38: orch.v1alpha1.RollbackSpec.EnvironmentEntry
+	nil,                                 // 39: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
+	nil,                                 // 40: orch.v1alpha1.AllocationDesired.EnvironmentEntry
+	nil,                                 // 41: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
+	nil,                                 // 42: orch.v1alpha1.CronJobDesired.EnvironmentEntry
+	nil,                                 // 43: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
+	(*timestamppb.Timestamp)(nil),       // 44: google.protobuf.Timestamp
 }
 var file_orch_v1alpha1_agent_proto_depIdxs = []int32{
-	34, // 0: orch.v1alpha1.RollbackSpec.environment:type_name -> orch.v1alpha1.RollbackSpec.EnvironmentEntry
-	6,  // 1: orch.v1alpha1.RollbackSpec.mounts:type_name -> orch.v1alpha1.VolumeMount
-	7,  // 2: orch.v1alpha1.RollbackSpec.http:type_name -> orch.v1alpha1.HTTPDesired
-	8,  // 3: orch.v1alpha1.RollbackSpec.tcp:type_name -> orch.v1alpha1.TCPDesired
-	35, // 4: orch.v1alpha1.AllocationDesired.environment:type_name -> orch.v1alpha1.AllocationDesired.EnvironmentEntry
-	6,  // 5: orch.v1alpha1.AllocationDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
-	7,  // 6: orch.v1alpha1.AllocationDesired.http:type_name -> orch.v1alpha1.HTTPDesired
-	9,  // 7: orch.v1alpha1.AllocationDesired.rollback:type_name -> orch.v1alpha1.RollbackSpec
-	8,  // 8: orch.v1alpha1.AllocationDesired.tcp:type_name -> orch.v1alpha1.TCPDesired
-	36, // 9: orch.v1alpha1.CronJobDesired.environment:type_name -> orch.v1alpha1.CronJobDesired.EnvironmentEntry
-	37, // 10: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
-	11, // 11: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
-	10, // 12: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
-	12, // 13: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
-	0,  // 14: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
-	37, // 15: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 16: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
-	37, // 17: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
-	3,  // 18: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	37, // 19: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 20: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	37, // 21: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	37, // 22: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
-	5,  // 23: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
-	37, // 24: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
-	37, // 25: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
-	5,  // 26: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
-	37, // 27: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
-	37, // 28: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
-	37, // 29: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 30: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
-	14, // 31: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	15, // 32: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
-	19, // 33: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
-	16, // 34: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	17, // 35: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
-	18, // 36: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
-	4,  // 37: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	4,  // 38: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
-	28, // 39: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
-	29, // 40: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
-	30, // 41: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
-	20, // 42: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
-	21, // 43: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
-	22, // 44: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
-	23, // 45: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
-	31, // 46: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
-	13, // 47: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
-	24, // 48: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
-	26, // 49: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
-	27, // 50: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
-	25, // 51: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
-	32, // 52: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
-	33, // 53: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
-	53, // [53:54] is the sub-list for method output_type
-	52, // [52:53] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	9,  // 0: orch.v1alpha1.SecretFileDesired.secret:type_name -> orch.v1alpha1.SecretReference
+	38, // 1: orch.v1alpha1.RollbackSpec.environment:type_name -> orch.v1alpha1.RollbackSpec.EnvironmentEntry
+	6,  // 2: orch.v1alpha1.RollbackSpec.mounts:type_name -> orch.v1alpha1.VolumeMount
+	7,  // 3: orch.v1alpha1.RollbackSpec.http:type_name -> orch.v1alpha1.HTTPDesired
+	8,  // 4: orch.v1alpha1.RollbackSpec.tcp:type_name -> orch.v1alpha1.TCPDesired
+	39, // 5: orch.v1alpha1.RollbackSpec.secret_environment:type_name -> orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
+	10, // 6: orch.v1alpha1.RollbackSpec.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	11, // 7: orch.v1alpha1.RollbackSpec.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	40, // 8: orch.v1alpha1.AllocationDesired.environment:type_name -> orch.v1alpha1.AllocationDesired.EnvironmentEntry
+	6,  // 9: orch.v1alpha1.AllocationDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
+	7,  // 10: orch.v1alpha1.AllocationDesired.http:type_name -> orch.v1alpha1.HTTPDesired
+	13, // 11: orch.v1alpha1.AllocationDesired.rollback:type_name -> orch.v1alpha1.RollbackSpec
+	8,  // 12: orch.v1alpha1.AllocationDesired.tcp:type_name -> orch.v1alpha1.TCPDesired
+	41, // 13: orch.v1alpha1.AllocationDesired.secret_environment:type_name -> orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
+	10, // 14: orch.v1alpha1.AllocationDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	11, // 15: orch.v1alpha1.AllocationDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	42, // 16: orch.v1alpha1.CronJobDesired.environment:type_name -> orch.v1alpha1.CronJobDesired.EnvironmentEntry
+	43, // 17: orch.v1alpha1.CronJobDesired.secret_environment:type_name -> orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
+	10, // 18: orch.v1alpha1.CronJobDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	11, // 19: orch.v1alpha1.CronJobDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	44, // 20: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
+	15, // 21: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
+	14, // 22: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
+	16, // 23: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
+	12, // 24: orch.v1alpha1.AssignmentSnapshot.secret_materials:type_name -> orch.v1alpha1.SecretMaterial
+	0,  // 25: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
+	44, // 26: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 27: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
+	44, // 28: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
+	3,  // 29: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	44, // 30: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 31: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	44, // 32: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	44, // 33: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
+	5,  // 34: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
+	44, // 35: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
+	44, // 36: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
+	5,  // 37: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
+	44, // 38: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
+	44, // 39: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
+	44, // 40: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 41: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
+	18, // 42: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	19, // 43: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
+	23, // 44: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
+	20, // 45: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	21, // 46: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	22, // 47: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
+	4,  // 48: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	4,  // 49: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
+	32, // 50: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
+	33, // 51: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
+	34, // 52: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
+	24, // 53: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
+	25, // 54: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
+	26, // 55: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
+	27, // 56: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
+	35, // 57: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
+	17, // 58: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
+	28, // 59: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
+	30, // 60: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
+	31, // 61: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
+	29, // 62: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
+	9,  // 63: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	9,  // 64: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	9,  // 65: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	36, // 66: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
+	37, // 67: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
+	67, // [67:68] is the sub-list for method output_type
+	66, // [66:67] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_agent_proto_init() }
@@ -3760,19 +4157,19 @@ func file_orch_v1alpha1_agent_proto_init() {
 	if File_orch_v1alpha1_agent_proto != nil {
 		return
 	}
-	file_orch_v1alpha1_agent_proto_msgTypes[25].OneofWrappers = []any{
+	file_orch_v1alpha1_agent_proto_msgTypes[29].OneofWrappers = []any{
 		(*AgentOperationResult_Log)(nil),
 		(*AgentOperationResult_Exec)(nil),
 		(*AgentOperationResult_Error)(nil),
 	}
-	file_orch_v1alpha1_agent_proto_msgTypes[26].OneofWrappers = []any{
+	file_orch_v1alpha1_agent_proto_msgTypes[30].OneofWrappers = []any{
 		(*ConnectRequest_Hello)(nil),
 		(*ConnectRequest_AssignmentAck)(nil),
 		(*ConnectRequest_AllocationReport)(nil),
 		(*ConnectRequest_Heartbeat)(nil),
 		(*ConnectRequest_OperationResult)(nil),
 	}
-	file_orch_v1alpha1_agent_proto_msgTypes[27].OneofWrappers = []any{
+	file_orch_v1alpha1_agent_proto_msgTypes[31].OneofWrappers = []any{
 		(*ConnectResponse_Assignment)(nil),
 		(*ConnectResponse_TailLogs)(nil),
 		(*ConnectResponse_Exec)(nil),
@@ -3785,7 +4182,7 @@ func file_orch_v1alpha1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_agent_proto_rawDesc), len(file_orch_v1alpha1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   31,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

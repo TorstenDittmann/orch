@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	agentProtocolVersion  = "v1alpha1-workloads-2"
+	agentProtocolVersion  = "v1alpha1-workloads-3"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
 )
@@ -293,6 +293,9 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		item.Http = httpDesiredMessage(allocation.HTTP)
 		item.Tcp = tcpDesiredMessage(allocation.TCP)
 		item.DependsOn = append([]string(nil), allocation.DependsOn...)
+		item.SecretEnvironment = secretEnvironmentMessage(allocation.SecretEnvironment)
+		item.SecretFiles = secretFilesMessage(allocation.SecretFiles)
+		item.RegistryCredential = registryCredentialMessage(allocation.RegistryCredential)
 		item.Rollback = rollbackSpecMessage(allocation.Rollback)
 		for _, mount := range allocation.Mounts {
 			item.Mounts = append(item.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
@@ -300,16 +303,55 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		message.Allocations = append(message.Allocations, item)
 	}
 	for _, job := range assignment.CronJobs {
-		message.CronJobs = append(message.CronJobs, &orchv1alpha1.CronJobDesired{
+		item := &orchv1alpha1.CronJobDesired{
 			Application: job.Application, Job: job.Job, ApplicationGeneration: job.ApplicationGeneration,
 			RevisionId: job.RevisionID, SpecDigest: job.SpecDigest, Image: job.Image, Schedule: job.Schedule,
 			Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
 			Environment: cloneEnvironment(job.Environment), CpuMillis: job.CPUMillis, MemoryBytes: job.MemoryBytes,
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: job.StartDeadlineSeconds,
 			TimeoutSeconds: job.TimeoutSeconds, NetworkGeneration: job.NetworkGeneration,
+		}
+		item.SecretEnvironment = secretEnvironmentMessage(job.SecretEnvironment)
+		item.SecretFiles = secretFilesMessage(job.SecretFiles)
+		item.RegistryCredential = registryCredentialMessage(job.RegistryCredential)
+		message.CronJobs = append(message.CronJobs, item)
+	}
+	for _, material := range assignment.Materials {
+		message.SecretMaterials = append(message.SecretMaterials, &orchv1alpha1.SecretMaterial{
+			Kind: material.Kind, Application: material.Application, Name: material.Name,
+			VersionId: material.VersionID, Host: material.Host, Username: material.Username,
+			Value: append([]byte(nil), material.Value...),
 		})
 	}
 	return message
+}
+
+func secretEnvironmentMessage(input map[string]model.SecretReference) map[string]*orchv1alpha1.SecretReference {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]*orchv1alpha1.SecretReference, len(input))
+	for name, reference := range input {
+		result[name] = &orchv1alpha1.SecretReference{Name: reference.Name, VersionId: reference.VersionID}
+	}
+	return result
+}
+
+func secretFilesMessage(input []model.SecretFileDesired) []*orchv1alpha1.SecretFileDesired {
+	result := make([]*orchv1alpha1.SecretFileDesired, 0, len(input))
+	for _, file := range input {
+		result = append(result, &orchv1alpha1.SecretFileDesired{
+			Secret: &orchv1alpha1.SecretReference{Name: file.Name, VersionId: file.VersionID}, Target: file.Target,
+		})
+	}
+	return result
+}
+
+func registryCredentialMessage(input *model.RegistryCredentialReference) *orchv1alpha1.RegistryCredentialReference {
+	if input == nil {
+		return nil
+	}
+	return &orchv1alpha1.RegistryCredentialReference{Host: input.Host, VersionId: input.VersionID, Username: input.Username}
 }
 
 func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
@@ -340,6 +382,9 @@ func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpe
 		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop,
 	}
+	message.SecretEnvironment = secretEnvironmentMessage(rollback.SecretEnvironment)
+	message.SecretFiles = secretFilesMessage(rollback.SecretFiles)
+	message.RegistryCredential = registryCredentialMessage(rollback.RegistryCredential)
 	for _, mount := range rollback.Mounts {
 		message.Mounts = append(message.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
 	}

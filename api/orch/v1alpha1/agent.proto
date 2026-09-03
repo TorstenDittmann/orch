@@ -67,6 +67,32 @@ message TCPDesired {
   uint32 public_port = 2;
 }
 
+message SecretReference {
+  string name = 1;
+  string version_id = 2;
+}
+
+message SecretFileDesired {
+  SecretReference secret = 1;
+  string target = 2;
+}
+
+message RegistryCredentialReference {
+  string host = 1;
+  string version_id = 2;
+  string username = 3;
+}
+
+message SecretMaterial {
+  string kind = 1;
+  string application = 2;
+  string name = 3;
+  string version_id = 4;
+  string host = 5;
+  string username = 6;
+  bytes value = 7;
+}
+
 message RollbackSpec {
   uint64 application_generation = 1;
   string revision_id = 2;
@@ -86,6 +112,9 @@ message RollbackSpec {
   bool start_before_stop = 16;
   TCPDesired tcp = 17;
   repeated string depends_on = 18;
+  map<string, SecretReference> secret_environment = 19;
+  repeated SecretFileDesired secret_files = 20;
+  RegistryCredentialReference registry_credential = 21;
 }
 
 message NetworkConfig {
@@ -122,6 +151,9 @@ message AllocationDesired {
   RollbackSpec rollback = 23;
   TCPDesired tcp = 24;
   repeated string depends_on = 25;
+  map<string, SecretReference> secret_environment = 26;
+  repeated SecretFileDesired secret_files = 27;
+  RegistryCredentialReference registry_credential = 28;
 }
 
 message CronJobDesired {
@@ -141,6 +173,9 @@ message CronJobDesired {
   uint32 start_deadline_seconds = 14;
   uint32 timeout_seconds = 15;
   uint64 network_generation = 16;
+  map<string, SecretReference> secret_environment = 17;
+  repeated SecretFileDesired secret_files = 18;
+  RegistryCredentialReference registry_credential = 19;
 }
 
 message AssignmentSnapshot {
@@ -151,6 +186,7 @@ message AssignmentSnapshot {
   repeated AllocationDesired allocations = 5;
   NetworkConfig network = 6;
   repeated CronJobDesired cron_jobs = 7;
+  repeated SecretMaterial secret_materials = 8;
 }
 
 message AllocationStatus {

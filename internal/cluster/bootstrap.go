@@ -24,6 +24,7 @@ import (
 
 const (
 	DatabaseFilename            = "control.db"
+	SecretKeyFilename           = "secret-master.key"
 	controllerIdentityDirectory = "pki"
 	administratorRootDirectory  = "identities"
 )

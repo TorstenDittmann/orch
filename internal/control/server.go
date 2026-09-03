@@ -17,11 +17,13 @@ import (
 
 	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
 )
 
 const maxHTTPBodyBytes = maxManifestBytes + 64<<10
+const maxAgentMessageBytes = 20 << 20
 
 type Options struct {
 	DataDir string
@@ -82,13 +84,31 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return fail(err, state, nil)
 	}
+	secretKeyPath := filepath.Join(dataDir, clusterctl.SecretKeyFilename)
+	storedSecretFingerprint, err := state.SecretKeyFingerprint(ctx)
+	if err != nil {
+		return fail(fmt.Errorf("read controller secret key metadata: %w", err), state, nil)
+	}
+	var secretBox *security.SecretBox
+	if storedSecretFingerprint != "" {
+		secretBox, err = security.LoadSecretBox(secretKeyPath, nil)
+	} else {
+		secretBox, _, err = security.LoadOrCreateSecretBox(secretKeyPath, nil)
+	}
+	if err != nil {
+		return fail(fmt.Errorf("load controller secret key: %w", err), state, nil)
+	}
+	if err := state.EnsureSecretKeyFingerprint(ctx, secretBox.Fingerprint(), now()); err != nil {
+		return fail(fmt.Errorf("validate controller secret key: %w", err), state, nil)
+	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", options.Listen)
 	if err != nil {
 		return fail(fmt.Errorf("listen on %s: %w", options.Listen, err), state, nil)
 	}
 	sessions := newSessionManager(now)
-	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, sessions, now)
+	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, secretBox, sessions, now)
 	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
+	reconciler.secretBox = secretBox
 	implementation.reconciler = reconciler
 	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now}
 	path, handler := orchv1alpha1connect.NewControlServiceHandler(
@@ -100,8 +120,8 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	mux.Handle(path, authenticateAdministrator(cluster.ID, http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	agentPath, agentHandler := orchv1alpha1connect.NewAgentServiceHandler(
 		agentImplementation,
-		connect.WithReadMaxBytes(maxHTTPBodyBytes),
-		connect.WithSendMaxBytes(maxHTTPBodyBytes),
+		connect.WithReadMaxBytes(maxAgentMessageBytes),
+		connect.WithSendMaxBytes(maxAgentMessageBytes),
 	)
 	mux.Handle(agentPath, authenticateAgent(cluster.ID, state, agentHandler))
 	mux.HandleFunc("/healthz", healthHandler)

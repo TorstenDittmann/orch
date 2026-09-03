@@ -37,9 +37,10 @@ digest for amd64 and arm64. A digest is immutable; update it deliberately rather
 than changing it through a tag.
 
 HTTP services may declare a private port, an optional readiness path, and
-optional public domains. Tag-only images, localhost/private registry
-requirements, secret references, and node constraints are not partially
-applied. The controller reports a stable `BLOCKED` reason for those cases.
+optional public domains. Tag-only images and node constraints are not partially
+applied. Digest-qualified private registry images are supported with an
+exact-host credential or anonymously when the registry permits it. Missing
+referenced secrets block only that application's new intent.
 
 ## Object ownership and content lifetime
 
@@ -201,8 +202,8 @@ Linux; real-runtime evidence must come from a compatible dedicated host.
 
 ## Deliberate omissions
 
-This slice has no secrets, registry credentials, node labels/constraints,
-multi-node routing or scheduling, drain, failover, agent certificate
+This slice has no node labels/constraints, multi-node routing or scheduling,
+drain, failover, agent certificate
 rotation/revocation, node replacement, installer ownership, or automated
 restore. WireGuard is explicitly deferred; one node owns the first workload
 subnet only. Those omissions are surfaced rather than silently ignored.

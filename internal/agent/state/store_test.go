@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -18,6 +19,7 @@ import (
 
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
+	"change.codes/torsten/better-swarm/internal/security"
 )
 
 var stateTestTime = time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
@@ -82,6 +84,66 @@ func TestAssignmentCommitIsDurableMonotonicAndIdentityBound(t *testing.T) {
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode().Perm() != 0o600 || !info.Mode().IsRegular() {
 		t.Fatalf("database info = %#v, %v", info, err)
+	}
+}
+
+func TestAssignmentSecretMaterialsAreEncryptedAndRecoverable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	directory := privateTestDir(t)
+	path := filepath.Join(directory, "agent.db")
+	cache, err := Open(ctx, path, "cluster-one", "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := security.NewSecretBox(bytes.Repeat([]byte{5}, security.SecretKeySize), bytes.NewReader(bytes.Repeat([]byte{6}, 1024)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.ConfigureSecretBox(ctx, box); err != nil {
+		t.Fatal(err)
+	}
+	allocation := testAllocation(t, "docker.io/library/busybox@sha256:"+strings.Repeat("a", 64))
+	allocation.SecretEnvironment = map[string]model.SecretReference{"TOKEN": {Name: "token", VersionID: "secv_one"}}
+	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := []byte("agent-only-sensitive-value")
+	assignment := testAssignment(t, "node-one", 1, allocation)
+	assignment.Materials = []model.SecretMaterial{{Kind: model.SecretMaterialApplication, Application: "hello", Name: "token", VersionID: "secv_one", Value: plaintext}}
+	if changed, err := cache.CommitAssignment(ctx, assignment); err != nil || !changed {
+		t.Fatalf("CommitAssignment() = %t, %v", changed, err)
+	}
+	conflicting := assignment
+	conflicting.Materials = []model.SecretMaterial{{Kind: model.SecretMaterialApplication, Application: "hello", Name: "token", VersionID: "secv_one", Value: []byte("substituted")}}
+	if _, err := cache.CommitAssignment(ctx, conflicting); !errors.Is(err, ErrAssignmentConflict) {
+		t.Fatalf("same-version material substitution = %v", err)
+	}
+	if err := cache.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		contents, readErr := os.ReadFile(path + suffix)
+		if readErr == nil && bytes.Contains(contents, plaintext) {
+			t.Fatalf("plaintext secret appears in agent database%s", suffix)
+		}
+	}
+	reopened, err := Open(ctx, path, "cluster-one", "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if err := reopened.ConfigureSecretBox(ctx, box); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.Assignment(ctx)
+	if err != nil || len(got.Materials) != 1 || !bytes.Equal(got.Materials[0].Value, plaintext) {
+		t.Fatalf("recovered assignment material = %#v, %v", got.Materials, err)
+	}
+	wrong, _ := security.NewSecretBox(bytes.Repeat([]byte{8}, security.SecretKeySize), nil)
+	if err := reopened.ConfigureSecretBox(ctx, wrong); err == nil {
+		t.Fatal("ConfigureSecretBox() accepted a mismatched key")
 	}
 }
 
@@ -254,7 +316,7 @@ func TestOpenRejectsUnsafeAndNewerAgentState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (4, 'future.sql', 'future')`); err != nil {
+		if _, err := cache.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum) VALUES (5, 'future.sql', 'future')`); err != nil {
 			t.Fatal(err)
 		}
 		if err := cache.Close(); err != nil {
@@ -343,8 +405,8 @@ func TestVersionOneAgentStateMigratesWithoutIdentityOrRuntimeLoss(t *testing.T) 
 	if err := cache.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 3 {
-		t.Fatalf("migration count = %d, want 3", migrations)
+	if migrations != 4 {
+		t.Fatalf("migration count = %d, want 4", migrations)
 	}
 }
 

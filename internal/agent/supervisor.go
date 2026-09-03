@@ -91,6 +91,11 @@ func NewSupervisorWithServices(cache *state.Store, runtime orchruntime.Runtime, 
 func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment) ([]model.AllocationStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var err error
+	assignment, err = attachRuntimeSecrets(assignment)
+	if err != nil {
+		return nil, err
+	}
 	s.serving = make(map[string]string)
 	s.servingSpecs = make(map[string]string)
 	s.accepted = make(map[string]state.ServingEndpoint)
@@ -1065,7 +1070,9 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		Mounts:               append([]model.VolumeMount(nil), rollback.Mounts...),
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
-		DependsOn:         append([]string(nil), rollback.DependsOn...),
+		DependsOn: append([]string(nil), rollback.DependsOn...), SecretEnvironment: cloneSecretEnvironment(rollback.SecretEnvironment),
+		SecretFiles: append([]model.SecretFileDesired(nil), rollback.SecretFiles...), RegistryCredential: cloneRegistryCredential(rollback.RegistryCredential),
+		RuntimeSecretValues: allocation.RuntimeSecretValues, RuntimeRegistrySecrets: allocation.RuntimeRegistrySecrets,
 		NetworkGeneration: rollback.NetworkGeneration,
 	}
 }
@@ -1504,16 +1511,24 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 		keys[key] = struct{}{}
 		jobState := stateByKey[key]
 		if jobState.SpecDigest != job.SpecDigest || jobState.NextRunAt == nil {
-			if jobState.ActiveRunID != "" {
-				if err := s.cancelCronRun(ctx, runByID[jobState.ActiveRunID], "job_replaced", now); err != nil {
-					return err
+			active := runByID[jobState.ActiveRunID]
+			// A running occurrence owns the old immutable template until it
+			// exits. The replacement template becomes schedulable on the next
+			// reconciliation, avoiding secret or image changes underneath a run.
+			if jobState.SpecDigest != job.SpecDigest && active.State == model.JobRunRunning {
+				// Keep the old scheduler state for this pass.
+			} else {
+				if jobState.ActiveRunID != "" {
+					if err := s.cancelCronRun(ctx, runByID[jobState.ActiveRunID], "job_replaced", now); err != nil {
+						return err
+					}
 				}
+				next, err := schedule.Next(job.Schedule, now)
+				if err != nil {
+					return fmt.Errorf("evaluate cron job %s/%s: %w", job.Application, job.Job, err)
+				}
+				jobState = state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, NextRunAt: &next, UpdatedAt: now}
 			}
-			next, err := schedule.Next(job.Schedule, now)
-			if err != nil {
-				return fmt.Errorf("evaluate cron job %s/%s: %w", job.Application, job.Job, err)
-			}
-			jobState = state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, NextRunAt: &next, UpdatedAt: now}
 		}
 
 		// Collapse any delayed wake-up to one occurrence. Older ticks are not
@@ -1718,11 +1733,95 @@ func cronRunAllocation(job model.CronJobDesired, runID string) (model.Allocation
 		Image: job.Image, Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
 		Environment: cloneStringMap(job.Environment), RestartPolicy: "never", CPUMillis: job.CPUMillis,
 		MemoryBytes: job.MemoryBytes, StartDeadlineSeconds: job.StartDeadlineSeconds,
-		NetworkGeneration: job.NetworkGeneration,
+		SecretEnvironment: cloneSecretEnvironment(job.SecretEnvironment), SecretFiles: append([]model.SecretFileDesired(nil), job.SecretFiles...),
+		RegistryCredential: cloneRegistryCredential(job.RegistryCredential), RuntimeSecretValues: job.RuntimeSecretValues,
+		RuntimeRegistrySecrets: job.RuntimeRegistrySecrets, NetworkGeneration: job.NetworkGeneration,
 	}
 	var err error
 	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
 	return allocation, err
+}
+
+func attachRuntimeSecrets(assignment model.Assignment) (model.Assignment, error) {
+	applicationValues := make(map[string][]byte)
+	registryValues := make(map[string][]byte)
+	for _, material := range assignment.Materials {
+		switch material.Kind {
+		case model.SecretMaterialApplication:
+			applicationValues[material.Application+"\x00"+material.Name+"\x00"+material.VersionID] = material.Value
+		case model.SecretMaterialRegistry:
+			registryValues[material.Host+"\x00"+material.VersionID] = material.Value
+		}
+	}
+	attach := func(application string, environment map[string]model.SecretReference, files []model.SecretFileDesired,
+		registry *model.RegistryCredentialReference, values map[string][]byte, registries map[string][]byte) error {
+		for _, reference := range environment {
+			value := applicationValues[application+"\x00"+reference.Name+"\x00"+reference.VersionID]
+			if len(value) == 0 {
+				return fmt.Errorf("secret material for %s/%s is unavailable", application, reference.Name)
+			}
+			values[reference.VersionID] = value
+		}
+		for _, file := range files {
+			value := applicationValues[application+"\x00"+file.Name+"\x00"+file.VersionID]
+			if len(value) == 0 {
+				return fmt.Errorf("secret material for %s/%s is unavailable", application, file.Name)
+			}
+			values[file.VersionID] = value
+		}
+		if registry != nil {
+			value := registryValues[registry.Host+"\x00"+registry.VersionID]
+			if len(value) == 0 {
+				return fmt.Errorf("registry credential material for %s is unavailable", registry.Host)
+			}
+			registries[registry.VersionID] = value
+		}
+		return nil
+	}
+	for index := range assignment.Allocations {
+		allocation := &assignment.Allocations[index]
+		allocation.RuntimeSecretValues = make(map[string][]byte)
+		allocation.RuntimeRegistrySecrets = make(map[string][]byte)
+		if err := attach(allocation.Application, allocation.SecretEnvironment, allocation.SecretFiles, allocation.RegistryCredential,
+			allocation.RuntimeSecretValues, allocation.RuntimeRegistrySecrets); err != nil {
+			return model.Assignment{}, err
+		}
+		if allocation.Rollback != nil {
+			if err := attach(allocation.Application, allocation.Rollback.SecretEnvironment, allocation.Rollback.SecretFiles,
+				allocation.Rollback.RegistryCredential, allocation.RuntimeSecretValues, allocation.RuntimeRegistrySecrets); err != nil {
+				return model.Assignment{}, err
+			}
+		}
+	}
+	for index := range assignment.CronJobs {
+		job := &assignment.CronJobs[index]
+		job.RuntimeSecretValues = make(map[string][]byte)
+		job.RuntimeRegistrySecrets = make(map[string][]byte)
+		if err := attach(job.Application, job.SecretEnvironment, job.SecretFiles, job.RegistryCredential,
+			job.RuntimeSecretValues, job.RuntimeRegistrySecrets); err != nil {
+			return model.Assignment{}, err
+		}
+	}
+	return assignment, nil
+}
+
+func cloneSecretEnvironment(input map[string]model.SecretReference) map[string]model.SecretReference {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]model.SecretReference, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
+}
+
+func cloneRegistryCredential(input *model.RegistryCredentialReference) *model.RegistryCredentialReference {
+	if input == nil {
+		return nil
+	}
+	result := *input
+	return &result
 }
 
 func cronRunID(application, job string, scheduledAt time.Time) string {

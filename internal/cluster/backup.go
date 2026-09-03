@@ -8,17 +8,20 @@ import (
 	"strings"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 )
 
 type BackupOptions struct {
-	DataDir string
-	Output  string
+	DataDir         string
+	Output          string
+	SecretKeyOutput string
 }
 
 type BackupResult struct {
-	Cluster model.Cluster
-	Output  string
+	Cluster         model.Cluster
+	Output          string
+	SecretKeyOutput string
 }
 
 // Backup creates a verified online SQLite backup without replacing an
@@ -67,8 +70,74 @@ func Backup(ctx context.Context, options BackupOptions) (result BackupResult, fi
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("read cluster state: %w", err)
 	}
-	if err := state.Backup(ctx, output); err != nil {
+	hasEncrypted, err := state.HasEncryptedMaterial(ctx)
+	if err != nil {
 		return BackupResult{}, err
 	}
-	return BackupResult{Cluster: stored, Output: output}, nil
+	secretKeyOutput := ""
+	if hasEncrypted {
+		if strings.TrimSpace(options.SecretKeyOutput) == "" {
+			return BackupResult{}, fmt.Errorf("%w: --secret-key-output is required because the database contains encrypted secrets", ErrInvalidOptions)
+		}
+		secretKeyOutput, err = filepath.Abs(options.SecretKeyOutput)
+		if err != nil || secretKeyOutput == output || pathWithin(secretKeyOutput, dataDir) {
+			return BackupResult{}, fmt.Errorf("%w: secret key output must be distinct and outside the live data directory", ErrInvalidOptions)
+		}
+		if err := copySecretKey(filepath.Join(dataDir, SecretKeyFilename), secretKeyOutput); err != nil {
+			return BackupResult{}, err
+		}
+	}
+	if err := state.Backup(ctx, output); err != nil {
+		if secretKeyOutput != "" {
+			_ = os.Remove(secretKeyOutput)
+		}
+		return BackupResult{}, err
+	}
+	return BackupResult{Cluster: stored, Output: output, SecretKeyOutput: secretKeyOutput}, nil
+}
+
+func copySecretKey(source, destination string) (finalErr error) {
+	if _, err := security.LoadSecretBox(source, nil); err != nil {
+		return fmt.Errorf("validate cluster secret key: %w", err)
+	}
+	contents, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read cluster secret key: %w", err)
+	}
+	defer func() {
+		for index := range contents {
+			contents[index] = 0
+		}
+	}()
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return fmt.Errorf("create secret key backup directory: %w", err)
+	}
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create secret key backup: %w", err)
+	}
+	remove := true
+	closed := false
+	defer func() {
+		if !closed {
+			if err := file.Close(); err != nil && finalErr == nil {
+				finalErr = err
+			}
+		}
+		if remove {
+			_ = os.Remove(destination)
+		}
+	}()
+	if _, err := file.Write(contents); err != nil {
+		return fmt.Errorf("write secret key backup: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync secret key backup: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close secret key backup: %w", err)
+	}
+	closed = true
+	remove = false
+	return nil
 }

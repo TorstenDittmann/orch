@@ -21,6 +21,7 @@ import (
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/leases"
+	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/plugins"
@@ -72,6 +73,12 @@ func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error
 	loggerInfo, err := os.Lstat(options.LoggerPath)
 	if err != nil || !loggerInfo.Mode().IsRegular() || loggerInfo.Mode().Perm()&0o111 == 0 || loggerInfo.Mode().Perm()&0o022 != 0 {
 		return nil, fmt.Errorf("orch log sink must be an executable regular file that is not group/world-writable: %s", options.LoggerPath)
+	}
+	if options.SecretsDir != "" {
+		options.SecretsDir, err = filepath.Abs(options.SecretsDir)
+		if err != nil {
+			return nil, fmt.Errorf("resolve runtime secrets path: %w", err)
+		}
 	}
 	namespace := "orch-" + strings.ReplaceAll(options.ClusterID, "_", "-")
 	client, err := containerdclient.New(socket,
@@ -222,6 +229,9 @@ func (c *runtimeClient) ListOwned(ctx context.Context) ([]orchruntime.Object, er
 	if err := c.reconcileNetworkState(ctx, result, seen); err != nil {
 		return nil, err
 	}
+	if err := c.reconcileSecretProjections(seen); err != nil {
+		return nil, fmt.Errorf("reconcile runtime secret projections: %w", err)
+	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
@@ -260,6 +270,9 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 		if taskErr == nil {
 			_, _ = task.Delete(ctx)
 		}
+		if _, err := c.secretMounts(allocation); err != nil {
+			return orchruntime.Object{}, err
+		}
 		return c.startTask(ctx, existing, allocation)
 	} else if !errdefs.IsNotFound(err) {
 		return orchruntime.Object{}, err
@@ -280,7 +293,7 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 		}
 	}()
 	leaseContext := leases.WithLease(ctx, lease.ID)
-	image, err := c.resolveImage(leaseContext, allocation.Image)
+	image, err := c.resolveImage(leaseContext, allocation)
 	if err != nil {
 		return orchruntime.Object{}, err
 	}
@@ -297,6 +310,7 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 		containerdclient.WithRuntime(plugins.RuntimeRuncV2, nil),
 	)
 	if err != nil {
+		_ = c.removeSecretProjection(id)
 		if errdefs.IsAlreadyExists(err) {
 			return orchruntime.Object{}, fmt.Errorf("runtime id %q already exists: %w", id, orchruntime.ErrOwnershipMismatch)
 		}
@@ -305,13 +319,15 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 	object, err := c.startTask(leaseContext, container, allocation)
 	if err != nil {
 		_ = container.Delete(context.Background(), containerdclient.WithSnapshotCleanup)
+		_ = c.removeSecretProjection(id)
 		return orchruntime.Object{}, err
 	}
 	keepLease = true
 	return object, nil
 }
 
-func (c *runtimeClient) resolveImage(ctx context.Context, reference string) (containerdclient.Image, error) {
+func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.AllocationDesired) (containerdclient.Image, error) {
+	reference := allocation.Image
 	image, err := c.client.GetImage(ctx, reference)
 	if err == nil {
 		if !imageMatchesDigest(image, reference) {
@@ -325,18 +341,40 @@ func (c *runtimeClient) resolveImage(ctx context.Context, reference string) (con
 	if !errdefs.IsNotFound(err) {
 		return nil, fmt.Errorf("inspect local digest image %q: %w", reference, err)
 	}
-	image, err = c.client.Pull(ctx, reference,
+	pullOptions := []containerdclient.RemoteOpt{
 		containerdclient.WithPullUnpack,
 		containerdclient.WithPullSnapshotter(c.options.Snapshotter),
 		containerdclient.WithPlatform(platforms.DefaultString()),
-	)
+	}
+	if credential := allocation.RegistryCredential; credential != nil {
+		secret := append([]byte(nil), allocation.RuntimeRegistrySecrets[credential.VersionID]...)
+		if len(secret) == 0 {
+			return nil, fmt.Errorf("registry credential material for %q is unavailable", credential.Host)
+		}
+		defer wipeSecretBytes(secret)
+		authorizer := docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
+			if host != credential.Host && !(credential.Host == "docker.io" && host == "registry-1.docker.io") {
+				return "", "", nil
+			}
+			return credential.Username, string(secret), nil
+		}))
+		resolver := docker.NewResolver(docker.ResolverOptions{Hosts: docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer))})
+		pullOptions = append(pullOptions, containerdclient.WithResolver(resolver))
+	}
+	image, err = c.client.Pull(ctx, reference, pullOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("pull public digest image %q: %w", reference, err)
+		return nil, fmt.Errorf("pull digest image %q: %w", reference, err)
 	}
 	if !imageMatchesDigest(image, reference) {
 		return nil, fmt.Errorf("pulled image %q target does not match its digest", reference)
 	}
 	return image, nil
+}
+
+func wipeSecretBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 func imageMatchesDigest(image containerdclient.Image, reference string) bool {
@@ -515,7 +553,7 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 			if err := c.deleteOwnedLease(ctx, id); err != nil {
 				return err
 			}
-			return removeObjectLogs(c.options.LogsDir, id)
+			return errors.Join(removeObjectLogs(c.options.LogsDir, id), c.removeSecretProjection(id))
 		}
 		return err
 	}
@@ -551,7 +589,21 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 	if err := c.deleteOwnedLease(ctx, id); err != nil {
 		return err
 	}
-	return removeObjectLogs(c.options.LogsDir, id)
+	return errors.Join(removeObjectLogs(c.options.LogsDir, id), c.removeSecretProjection(id))
+}
+
+func (c *runtimeClient) removeSecretProjection(objectID string) error {
+	if c.options.SecretsDir == "" || objectID == "" {
+		return nil
+	}
+	path := filepath.Join(c.options.SecretsDir, objectID)
+	if filepath.Dir(path) != c.options.SecretsDir {
+		return fmt.Errorf("invalid runtime secret projection identity")
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove runtime secret projection: %w", err)
+	}
+	return nil
 }
 
 func (c *runtimeClient) TailLogs(ctx context.Context, id string, lines uint32) ([]orchruntime.LogFrame, error) {

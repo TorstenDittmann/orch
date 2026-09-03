@@ -21,6 +21,7 @@ const (
 	ConfigVersion        = 1
 	ConfigFilename       = "agent.json"
 	DatabaseFilename     = "agent.db"
+	SecretCacheKeyFile   = "secret-cache.key"
 	EnrollmentFilename   = ".enrollment.json"
 	IdentityDirectory    = "pki"
 	LogsDirectory        = "logs"

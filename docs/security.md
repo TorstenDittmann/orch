@@ -110,10 +110,18 @@ remote JSON does not disclose credential paths. The context stores relative
 paths rather than embedding key material.
 
 Application events contain desired-state identifiers or status reason codes,
-not workload logs or exec payloads. Canonical desired state is returned only by
-the authenticated application read API. Manifest secret fields hold references,
-not values; any such application is `BLOCKED` because secret-value storage is
-not implemented.
+not workload logs, exec payloads, or secret values. Canonical desired state is
+returned only by the authenticated application read API. Manifest secret
+fields hold references, not values. Values and registry credentials are
+immutable AES-256-GCM envelope-encrypted versions; metadata list APIs never
+return plaintext.
+
+The controller key-encryption key and the agent cache key are separate mode
+`0600` files outside their SQLite databases. Assignment records contain only
+version references. Resolved values travel in a separate transient bundle over
+the mutually authenticated agent stream, and the agent encrypts that bundle
+under its cache key before acknowledging the assignment. A missing or
+mismatched key fails closed.
 
 The controller never persists workload log bytes, exec arguments, or exec
 output. The agent keeps stdout and stderr in separate protected, bounded files.
@@ -129,12 +137,15 @@ object. Label mismatch fails closed.
 
 Workloads receive fresh PID, mount, IPC, UTS, cgroup, and network namespaces,
 no Linux capabilities, no-new-privileges, no host devices, and explicit cgroups
-v2 CPU/memory limits. Only declared agent-managed local volumes are bind
-mounted. The containerd socket, controller state, agent identity, and agent
-state are never mounted. The agent attaches each task to its own network
-namespace with the pinned CNI plugins. It owns only a deterministic bridge,
-host-local allocation directory, application resolver files, and uniquely named nftables
-table; a missing ownership marker or an overlapping host route fails closed.
+v2 CPU/memory limits. Only declared agent-managed local volumes and read-only
+secret projections are bind mounted. Secret projection sources live on a
+root-only, no-exec tmpfs; secret environment variables are loaded by an init
+handoff rather than stored in OCI metadata. The containerd socket, controller
+state, agent identity, and agent state are never mounted. The agent attaches
+each task to its own network namespace with the pinned CNI plugins. It owns only
+a deterministic bridge, host-local allocation directory, application resolver
+files, and uniquely named nftables table; a missing ownership marker or an
+overlapping host route fails closed.
 
 Caddy is a separate process under a dedicated non-root account. Its pinned,
 root-owned binary receives only `cap_net_bind_service`; the agent fixes its
@@ -151,6 +162,8 @@ credentials.
 - Back up controller PKI and administrator credentials separately from the
   verified database backup, using encryption and access controls appropriate
   for private keys.
+- When encrypted records exist, supply `--secret-key-output` to controller
+  backup and store that key separately from the encrypted database snapshot.
 - Treat possession of `ca-key.pem` as full cluster identity authority and
   possession of `admin-key.pem` as administrator access. Treat possession of
   `agent-key.pem` as control of the enrolled node identity.

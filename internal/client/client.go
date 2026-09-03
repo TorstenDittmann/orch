@@ -185,3 +185,57 @@ func (client *Client) TailCronLogs(ctx context.Context, application, job, runID 
 		Application: application, Job: job, RunId: runID, TailLines: tailLines,
 	}))
 }
+
+func (client *Client) SetSecret(ctx context.Context, application, name string, value []byte, idempotencyKey string) (*orchv1alpha1.SetSecretResponse, error) {
+	response, err := client.service.SetSecret(ctx, connect.NewRequest(&orchv1alpha1.SetSecretRequest{
+		Application: application, Name: name, Value: value, IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListSecrets(ctx context.Context, application string) ([]*orchv1alpha1.SecretMetadata, error) {
+	response, err := client.service.ListSecrets(ctx, connect.NewRequest(&orchv1alpha1.ListSecretsRequest{Application: application}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetSecrets(), nil
+}
+
+func (client *Client) DeleteSecret(ctx context.Context, application, name, idempotencyKey string) (*orchv1alpha1.DeleteSecretResponse, error) {
+	response, err := client.service.DeleteSecret(ctx, connect.NewRequest(&orchv1alpha1.DeleteSecretRequest{
+		Application: application, Name: name, IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) LoginRegistry(ctx context.Context, host, username string, secret []byte, idempotencyKey string) (*orchv1alpha1.LoginRegistryResponse, error) {
+	response, err := client.service.LoginRegistry(ctx, connect.NewRequest(&orchv1alpha1.LoginRegistryRequest{
+		Host: host, Username: username, Secret: secret, IdempotencyKey: idempotencyKey,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListRegistries(ctx context.Context) ([]*orchv1alpha1.RegistryCredentialMetadata, error) {
+	response, err := client.service.ListRegistries(ctx, connect.NewRequest(&orchv1alpha1.ListRegistriesRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetRegistries(), nil
+}
+
+func (client *Client) LogoutRegistry(ctx context.Context, host, idempotencyKey string) (*orchv1alpha1.LogoutRegistryResponse, error) {
+	response, err := client.service.LogoutRegistry(ctx, connect.NewRequest(&orchv1alpha1.LogoutRegistryRequest{Host: host, IdempotencyKey: idempotencyKey}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}

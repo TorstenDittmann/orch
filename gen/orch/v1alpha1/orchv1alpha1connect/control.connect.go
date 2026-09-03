@@ -67,6 +67,24 @@ const (
 	// ControlServiceTailCronLogsProcedure is the fully-qualified name of the ControlService's
 	// TailCronLogs RPC.
 	ControlServiceTailCronLogsProcedure = "/orch.v1alpha1.ControlService/TailCronLogs"
+	// ControlServiceSetSecretProcedure is the fully-qualified name of the ControlService's SetSecret
+	// RPC.
+	ControlServiceSetSecretProcedure = "/orch.v1alpha1.ControlService/SetSecret"
+	// ControlServiceListSecretsProcedure is the fully-qualified name of the ControlService's
+	// ListSecrets RPC.
+	ControlServiceListSecretsProcedure = "/orch.v1alpha1.ControlService/ListSecrets"
+	// ControlServiceDeleteSecretProcedure is the fully-qualified name of the ControlService's
+	// DeleteSecret RPC.
+	ControlServiceDeleteSecretProcedure = "/orch.v1alpha1.ControlService/DeleteSecret"
+	// ControlServiceLoginRegistryProcedure is the fully-qualified name of the ControlService's
+	// LoginRegistry RPC.
+	ControlServiceLoginRegistryProcedure = "/orch.v1alpha1.ControlService/LoginRegistry"
+	// ControlServiceListRegistriesProcedure is the fully-qualified name of the ControlService's
+	// ListRegistries RPC.
+	ControlServiceListRegistriesProcedure = "/orch.v1alpha1.ControlService/ListRegistries"
+	// ControlServiceLogoutRegistryProcedure is the fully-qualified name of the ControlService's
+	// LogoutRegistry RPC.
+	ControlServiceLogoutRegistryProcedure = "/orch.v1alpha1.ControlService/LogoutRegistry"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -83,6 +101,12 @@ type ControlServiceClient interface {
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailCronLogsResponse], error)
+	SetSecret(context.Context, *connect.Request[v1alpha1.SetSecretRequest]) (*connect.Response[v1alpha1.SetSecretResponse], error)
+	ListSecrets(context.Context, *connect.Request[v1alpha1.ListSecretsRequest]) (*connect.Response[v1alpha1.ListSecretsResponse], error)
+	DeleteSecret(context.Context, *connect.Request[v1alpha1.DeleteSecretRequest]) (*connect.Response[v1alpha1.DeleteSecretResponse], error)
+	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
+	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
+	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -168,6 +192,42 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("TailCronLogs")),
 			connect.WithClientOptions(opts...),
 		),
+		setSecret: connect.NewClient[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse](
+			httpClient,
+			baseURL+ControlServiceSetSecretProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SetSecret")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecrets: connect.NewClient[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse](
+			httpClient,
+			baseURL+ControlServiceListSecretsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListSecrets")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSecret: connect.NewClient[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse](
+			httpClient,
+			baseURL+ControlServiceDeleteSecretProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("DeleteSecret")),
+			connect.WithClientOptions(opts...),
+		),
+		loginRegistry: connect.NewClient[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse](
+			httpClient,
+			baseURL+ControlServiceLoginRegistryProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("LoginRegistry")),
+			connect.WithClientOptions(opts...),
+		),
+		listRegistries: connect.NewClient[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse](
+			httpClient,
+			baseURL+ControlServiceListRegistriesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListRegistries")),
+			connect.WithClientOptions(opts...),
+		),
+		logoutRegistry: connect.NewClient[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse](
+			httpClient,
+			baseURL+ControlServiceLogoutRegistryProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -185,6 +245,12 @@ type controlServiceClient struct {
 	configureNetwork  *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
 	listCronRuns      *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
 	tailCronLogs      *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
+	setSecret         *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
+	listSecrets       *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
+	deleteSecret      *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
+	loginRegistry     *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
+	listRegistries    *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
+	logoutRegistry    *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -247,6 +313,36 @@ func (c *controlServiceClient) TailCronLogs(ctx context.Context, req *connect.Re
 	return c.tailCronLogs.CallServerStream(ctx, req)
 }
 
+// SetSecret calls orch.v1alpha1.ControlService.SetSecret.
+func (c *controlServiceClient) SetSecret(ctx context.Context, req *connect.Request[v1alpha1.SetSecretRequest]) (*connect.Response[v1alpha1.SetSecretResponse], error) {
+	return c.setSecret.CallUnary(ctx, req)
+}
+
+// ListSecrets calls orch.v1alpha1.ControlService.ListSecrets.
+func (c *controlServiceClient) ListSecrets(ctx context.Context, req *connect.Request[v1alpha1.ListSecretsRequest]) (*connect.Response[v1alpha1.ListSecretsResponse], error) {
+	return c.listSecrets.CallUnary(ctx, req)
+}
+
+// DeleteSecret calls orch.v1alpha1.ControlService.DeleteSecret.
+func (c *controlServiceClient) DeleteSecret(ctx context.Context, req *connect.Request[v1alpha1.DeleteSecretRequest]) (*connect.Response[v1alpha1.DeleteSecretResponse], error) {
+	return c.deleteSecret.CallUnary(ctx, req)
+}
+
+// LoginRegistry calls orch.v1alpha1.ControlService.LoginRegistry.
+func (c *controlServiceClient) LoginRegistry(ctx context.Context, req *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error) {
+	return c.loginRegistry.CallUnary(ctx, req)
+}
+
+// ListRegistries calls orch.v1alpha1.ControlService.ListRegistries.
+func (c *controlServiceClient) ListRegistries(ctx context.Context, req *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error) {
+	return c.listRegistries.CallUnary(ctx, req)
+}
+
+// LogoutRegistry calls orch.v1alpha1.ControlService.LogoutRegistry.
+func (c *controlServiceClient) LogoutRegistry(ctx context.Context, req *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error) {
+	return c.logoutRegistry.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
@@ -261,6 +357,12 @@ type ControlServiceHandler interface {
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error
+	SetSecret(context.Context, *connect.Request[v1alpha1.SetSecretRequest]) (*connect.Response[v1alpha1.SetSecretResponse], error)
+	ListSecrets(context.Context, *connect.Request[v1alpha1.ListSecretsRequest]) (*connect.Response[v1alpha1.ListSecretsResponse], error)
+	DeleteSecret(context.Context, *connect.Request[v1alpha1.DeleteSecretRequest]) (*connect.Response[v1alpha1.DeleteSecretResponse], error)
+	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
+	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
+	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -342,6 +444,42 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("TailCronLogs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceSetSecretHandler := connect.NewUnaryHandler(
+		ControlServiceSetSecretProcedure,
+		svc.SetSecret,
+		connect.WithSchema(controlServiceMethods.ByName("SetSecret")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListSecretsHandler := connect.NewUnaryHandler(
+		ControlServiceListSecretsProcedure,
+		svc.ListSecrets,
+		connect.WithSchema(controlServiceMethods.ByName("ListSecrets")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceDeleteSecretHandler := connect.NewUnaryHandler(
+		ControlServiceDeleteSecretProcedure,
+		svc.DeleteSecret,
+		connect.WithSchema(controlServiceMethods.ByName("DeleteSecret")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceLoginRegistryHandler := connect.NewUnaryHandler(
+		ControlServiceLoginRegistryProcedure,
+		svc.LoginRegistry,
+		connect.WithSchema(controlServiceMethods.ByName("LoginRegistry")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListRegistriesHandler := connect.NewUnaryHandler(
+		ControlServiceListRegistriesProcedure,
+		svc.ListRegistries,
+		connect.WithSchema(controlServiceMethods.ByName("ListRegistries")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceLogoutRegistryHandler := connect.NewUnaryHandler(
+		ControlServiceLogoutRegistryProcedure,
+		svc.LogoutRegistry,
+		connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -368,6 +506,18 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListCronRunsHandler.ServeHTTP(w, r)
 		case ControlServiceTailCronLogsProcedure:
 			controlServiceTailCronLogsHandler.ServeHTTP(w, r)
+		case ControlServiceSetSecretProcedure:
+			controlServiceSetSecretHandler.ServeHTTP(w, r)
+		case ControlServiceListSecretsProcedure:
+			controlServiceListSecretsHandler.ServeHTTP(w, r)
+		case ControlServiceDeleteSecretProcedure:
+			controlServiceDeleteSecretHandler.ServeHTTP(w, r)
+		case ControlServiceLoginRegistryProcedure:
+			controlServiceLoginRegistryHandler.ServeHTTP(w, r)
+		case ControlServiceListRegistriesProcedure:
+			controlServiceListRegistriesHandler.ServeHTTP(w, r)
+		case ControlServiceLogoutRegistryProcedure:
+			controlServiceLogoutRegistryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -423,4 +573,28 @@ func (UnimplementedControlServiceHandler) ListCronRuns(context.Context, *connect
 
 func (UnimplementedControlServiceHandler) TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.TailCronLogs is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SetSecret(context.Context, *connect.Request[v1alpha1.SetSecretRequest]) (*connect.Response[v1alpha1.SetSecretResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.SetSecret is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListSecrets(context.Context, *connect.Request[v1alpha1.ListSecretsRequest]) (*connect.Response[v1alpha1.ListSecretsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListSecrets is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) DeleteSecret(context.Context, *connect.Request[v1alpha1.DeleteSecretRequest]) (*connect.Response[v1alpha1.DeleteSecretResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteSecret is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.LoginRegistry is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListRegistries is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.LogoutRegistry is not implemented"))
 }

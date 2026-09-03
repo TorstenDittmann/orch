@@ -60,10 +60,16 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runExec(ctx, args[1:], stdout, stderr)
 	case "cron":
 		return runCron(ctx, args[1:], stdout, stderr)
+	case "secret":
+		return runSecret(ctx, args[1:], stdout, stderr)
+	case "registry":
+		return runRegistry(ctx, args[1:], stdout, stderr)
 	case "remove":
 		return runRemove(ctx, args[1:], stdout, stderr)
 	case "runtime-log-sink":
 		return runRuntimeLogSink(ctx, args[1:], stderr)
+	case "runtime-secret-init":
+		return runRuntimeSecretInit(args[1:], stderr)
 	case "status":
 		return runStatus(ctx, args[1:], stdout, stderr)
 	case "events":
@@ -460,10 +466,11 @@ func runClusterInit(args []string, stdout, stderr io.Writer) int {
 func runClusterBackup(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cluster backup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dataDir, output string
+	var dataDir, output, secretKeyOutput string
 	var jsonOutput bool
 	flags.StringVar(&dataDir, "data-dir", "", "controller state directory")
 	flags.StringVar(&output, "output", "", "new backup database path")
+	flags.StringVar(&secretKeyOutput, "secret-key-output", "", "new backup path for the secret encryption key when required")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
@@ -476,7 +483,7 @@ func runClusterBackup(args []string, stdout, stderr io.Writer) int {
 		writeError(stderr, fmt.Errorf("cluster backup requires %s", strings.Join(missing, ", ")), jsonOutput)
 		return ExitInvalid
 	}
-	result, err := clusterctl.Backup(context.Background(), clusterctl.BackupOptions{DataDir: dataDir, Output: output})
+	result, err := clusterctl.Backup(context.Background(), clusterctl.BackupOptions{DataDir: dataDir, Output: output, SecretKeyOutput: secretKeyOutput})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		if errors.Is(err, clusterctl.ErrInvalidOptions) {
@@ -486,12 +493,16 @@ func runClusterBackup(args []string, stdout, stderr io.Writer) int {
 	}
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
-			ClusterID string `json:"cluster_id"`
-			Name      string `json:"name"`
-			Output    string `json:"output"`
-		}{ClusterID: result.Cluster.ID, Name: result.Cluster.Name, Output: result.Output})
+			ClusterID       string `json:"cluster_id"`
+			Name            string `json:"name"`
+			Output          string `json:"output"`
+			SecretKeyOutput string `json:"secret_key_output,omitempty"`
+		}{ClusterID: result.Cluster.ID, Name: result.Cluster.Name, Output: result.Output, SecretKeyOutput: result.SecretKeyOutput})
 	}
 	fmt.Fprintf(stdout, "Backed up cluster %s (%s)\nOutput: %s\n", result.Cluster.Name, result.Cluster.ID, result.Output)
+	if result.SecretKeyOutput != "" {
+		fmt.Fprintf(stdout, "Secret key: %s\n", result.SecretKeyOutput)
+	}
 	return ExitOK
 }
 
@@ -742,7 +753,7 @@ func printHelp(output io.Writer) {
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
-  orch cluster backup --data-dir DIR --output FILE [--json]
+  orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch controller serve --data-dir DIR --listen ADDRESS
   orch agent init --name NAME --context FILE --data-dir DIR [--json]
   orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
@@ -753,6 +764,12 @@ Usage:
   orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]
   orch cron runs APP JOB --context FILE [--limit N] [--json]
   orch cron logs APP JOB RUN_ID --context FILE [--tail N]
+  orch secret set APP NAME --from-stdin --context FILE [--json]
+  orch secret list APP --context FILE [--json]
+  orch secret delete APP NAME --context FILE [--json]
+  orch registry login HOST --username USER --password-stdin --context FILE [--json]
+  orch registry list --context FILE [--json]
+  orch registry logout HOST --context FILE [--json]
   orch remove APP --context FILE [--idempotency-key KEY] [--json]
   orch status --context FILE [--json]
   orch events --context FILE [--after SEQUENCE] [--limit N] [--json]
@@ -775,7 +792,7 @@ func printClusterHelp(output io.Writer) {
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR --context FILE [--json]
-  orch cluster backup --data-dir DIR --output FILE [--json]`)
+  orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]`)
 }
 
 func printControllerHelp(output io.Writer) {

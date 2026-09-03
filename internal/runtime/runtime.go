@@ -35,6 +35,7 @@ type Options struct {
 	Snapshotter  string
 	LogsDir      string
 	VolumesDir   string
+	SecretsDir   string
 	LoggerPath   string
 	ResolverPath string
 	Network      network.Manager

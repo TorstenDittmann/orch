@@ -30,6 +30,7 @@ const (
 	maxOperationChunk      = 64 << 10
 	maxAssignedAllocations = 1000
 	maxAssignedCronJobs    = 100
+	maxSecretBundleBytes   = 16 << 20
 )
 
 type sessionRunner struct {
@@ -204,14 +205,14 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	httpClient := &http.Client{Transport: transport}
 	defer transport.CloseIdleConnections()
 	client := orchv1alpha1connect.NewAgentServiceClient(httpClient, r.credentials.Config.Server,
-		connect.WithSendMaxBytes(2<<20), connect.WithReadMaxBytes(2<<20))
+		connect.WithSendMaxBytes(20<<20), connect.WithReadMaxBytes(20<<20))
 	stream := client.Connect(ctx)
 	cached, cachedErr := r.cache.Assignment(ctx)
 	if cachedErr != nil && !errors.Is(cachedErr, state.ErrNoAssignment) {
 		return fmt.Errorf("read cached assignment: %w", cachedErr)
 	}
 	hello := &orchv1alpha1.AgentHello{
-		ProtocolVersion: "v1alpha1-workloads-2", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		ProtocolVersion: "v1alpha1-workloads-3", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
 		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
 		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
 		CgroupsV2: r.capabilities.CgroupsV2, CniVersion: r.capabilities.CNIVersion,
@@ -625,6 +626,9 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment volume mount contains unknown fields"))
 			}
 		}
+		if err := rejectSecretReferences(allocation.GetSecretEnvironment(), allocation.GetSecretFiles(), allocation.GetRegistryCredential()); err != nil {
+			return err
+		}
 		if allocation.GetHttp() != nil && len(allocation.GetHttp().ProtoReflect().GetUnknown()) != 0 {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment HTTP intent contains unknown fields"))
 		}
@@ -646,15 +650,43 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 					return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment rollback mount contains unknown fields"))
 				}
 			}
+			if err := rejectSecretReferences(allocation.GetRollback().GetSecretEnvironment(), allocation.GetRollback().GetSecretFiles(), allocation.GetRollback().GetRegistryCredential()); err != nil {
+				return err
+			}
 		}
 	}
 	for _, job := range snapshot.GetCronJobs() {
 		if job == nil || len(job.ProtoReflect().GetUnknown()) != 0 {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment cron job contains unknown fields"))
 		}
+		if err := rejectSecretReferences(job.GetSecretEnvironment(), job.GetSecretFiles(), job.GetRegistryCredential()); err != nil {
+			return err
+		}
+	}
+	for _, material := range snapshot.GetSecretMaterials() {
+		if material == nil || len(material.ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment secret material contains unknown fields"))
+		}
 	}
 	if snapshot.GetNetwork() != nil && len(snapshot.GetNetwork().ProtoReflect().GetUnknown()) != 0 {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment network contains unknown fields"))
+	}
+	return nil
+}
+
+func rejectSecretReferences(environment map[string]*orchv1alpha1.SecretReference, files []*orchv1alpha1.SecretFileDesired, registry *orchv1alpha1.RegistryCredentialReference) error {
+	for _, reference := range environment {
+		if reference == nil || len(reference.ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment secret reference contains unknown fields"))
+		}
+	}
+	for _, file := range files {
+		if file == nil || len(file.ProtoReflect().GetUnknown()) != 0 || file.GetSecret() == nil || len(file.GetSecret().ProtoReflect().GetUnknown()) != 0 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment secret file contains unknown fields"))
+		}
+	}
+	if registry != nil && len(registry.ProtoReflect().GetUnknown()) != 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment registry credential reference contains unknown fields"))
 	}
 	return nil
 }
@@ -712,6 +744,9 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
 			DependsOn: append([]string(nil), item.GetDependsOn()...),
 		}
+		allocation.SecretEnvironment = secretEnvironmentModel(item.GetSecretEnvironment())
+		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
+		allocation.RegistryCredential = registryCredentialModel(item.GetRegistryCredential())
 		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
 			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
 		}
@@ -731,6 +766,9 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
 				DependsOn: append([]string(nil), rollback.GetDependsOn()...),
 			}
+			allocation.Rollback.SecretEnvironment = secretEnvironmentModel(rollback.GetSecretEnvironment())
+			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())
+			allocation.Rollback.RegistryCredential = registryCredentialModel(rollback.GetRegistryCredential())
 			if rollback.GetHttp() != nil {
 				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
 			}
@@ -767,14 +805,69 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			Command: append([]string(nil), item.GetCommand()...), Args: append([]string(nil), item.GetArgs()...),
 			Environment: cloneStringMap(item.GetEnvironment()), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
 			DependsOn: append([]string(nil), item.GetDependsOn()...), StartDeadlineSeconds: item.GetStartDeadlineSeconds(),
-			TimeoutSeconds: item.GetTimeoutSeconds(), NetworkGeneration: item.GetNetworkGeneration()}
+			TimeoutSeconds: item.GetTimeoutSeconds(), NetworkGeneration: item.GetNetworkGeneration(),
+			SecretEnvironment: secretEnvironmentModel(item.GetSecretEnvironment()),
+			SecretFiles:       secretFilesModel(item.GetSecretFiles()), RegistryCredential: registryCredentialModel(item.GetRegistryCredential())}
 		if err := orchruntime.ValidateCronJob(job); err != nil || job.NetworkGeneration != assignment.Network.Generation {
 			return model.Assignment{}, fmt.Errorf("assignment cron job %q is invalid", key)
 		}
 		assignment.CronJobs = append(assignment.CronJobs, job)
 		previousJob = key
 	}
+	seenMaterials := make(map[string]struct{}, len(snapshot.GetSecretMaterials()))
+	totalMaterialBytes := 0
+	for _, item := range snapshot.GetSecretMaterials() {
+		if item == nil || item.GetVersionId() == "" || len(item.GetValue()) == 0 || len(item.GetValue()) > 1<<20 {
+			return model.Assignment{}, errors.New("assignment contains invalid secret material")
+		}
+		totalMaterialBytes += len(item.GetValue())
+		if totalMaterialBytes > maxSecretBundleBytes {
+			return model.Assignment{}, errors.New("assignment secret material bundle is too large")
+		}
+		material := model.SecretMaterial{Kind: item.GetKind(), Application: item.GetApplication(), Name: item.GetName(),
+			VersionID: item.GetVersionId(), Host: item.GetHost(), Username: item.GetUsername(), Value: append([]byte(nil), item.GetValue()...)}
+		key := material.Kind + "\x00" + material.Application + "\x00" + material.Name + "\x00" + material.Host + "\x00" + material.VersionID
+		if _, exists := seenMaterials[key]; exists ||
+			(material.Kind == model.SecretMaterialApplication && (material.Application == "" || material.Name == "" || material.Host != "")) ||
+			(material.Kind == model.SecretMaterialRegistry && (material.Host == "" || material.Application != "" || material.Name != "")) ||
+			(material.Kind != model.SecretMaterialApplication && material.Kind != model.SecretMaterialRegistry) {
+			return model.Assignment{}, errors.New("assignment contains invalid or duplicate secret material")
+		}
+		seenMaterials[key] = struct{}{}
+		assignment.Materials = append(assignment.Materials, material)
+	}
 	return assignment, nil
+}
+
+func secretEnvironmentModel(input map[string]*orchv1alpha1.SecretReference) map[string]model.SecretReference {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make(map[string]model.SecretReference, len(input))
+	for key, item := range input {
+		if item != nil {
+			result[key] = model.SecretReference{Name: item.GetName(), VersionID: item.GetVersionId()}
+		}
+	}
+	return result
+}
+
+func secretFilesModel(input []*orchv1alpha1.SecretFileDesired) []model.SecretFileDesired {
+	result := make([]model.SecretFileDesired, 0, len(input))
+	for _, item := range input {
+		if item != nil && item.GetSecret() != nil {
+			result = append(result, model.SecretFileDesired{SecretReference: model.SecretReference{
+				Name: item.GetSecret().GetName(), VersionID: item.GetSecret().GetVersionId()}, Target: item.GetTarget()})
+		}
+	}
+	return result
+}
+
+func registryCredentialModel(input *orchv1alpha1.RegistryCredentialReference) *model.RegistryCredentialReference {
+	if input == nil {
+		return nil
+	}
+	return &model.RegistryCredentialReference{Host: input.GetHost(), VersionID: input.GetVersionId(), Username: input.GetUsername()}
 }
 
 func jobRunStateProto(value string) orchv1alpha1.JobRunState {

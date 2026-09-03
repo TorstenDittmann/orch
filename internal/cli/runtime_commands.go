@@ -122,6 +122,7 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
 		Snapshotter: snapshotter, LogsDir: filepath.Join(dataDir, agentctl.LogsDirectory),
 		VolumesDir:   filepath.Join(dataDir, agentctl.VolumesDirectory),
+		SecretsDir:   filepath.Join(dataDir, "runtime-secrets"),
 		ResolverPath: filepath.Join(dataDir, "network", "resolv.conf"), Network: networkManager,
 	})
 	if err != nil {

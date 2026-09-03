@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 )
 
@@ -339,7 +341,6 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 		reason   string
 	}{
 		{name: "tag image", manifest: runtimeManifest("docker.io/library/busybox:latest"), reason: "unsupported_image_tag"},
-		{name: "private registry", manifest: runtimeManifest("localhost:5000/example/app@sha256:" + strings.Repeat("a", 64)), reason: "private_registry_unsupported"},
 		{name: "secret", manifest: runtimeManifest(executableImage, func(service *config.Service) {
 			service.SecretEnv = map[string]string{"TOKEN": "token"}
 		}), reason: "secrets_unsupported"},
@@ -375,6 +376,104 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 				t.Fatalf("stable blocker advanced assignment to %d", assignment.Generation)
 			}
 		})
+	}
+}
+
+func TestReconcilerBlocksMissingSecretAndRollsReferencingWorkloadOnRotation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) {
+		service.SecretEnv = map[string]string{"TOKEN": "token"}
+	}), "revision-one", "application-key-one", reconcilerTestTime)
+	box, err := security.NewSecretBox(bytes.Repeat([]byte{1}, security.SecretKeySize), bytes.NewReader(bytes.Repeat([]byte{2}, 4096)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
+	reconciler.secretBox = box
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Reason != "secret_missing" {
+		t.Fatalf("missing-secret execution = %#v, %v", application.Execution, err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if _, err := state.SetApplicationSecret(ctx, box, "hello", "token", "secv_one", []byte("first"), "secret-key-one-0001", reconcilerTestTime.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(first.Allocations) != 1 || first.Allocations[0].SecretEnvironment["TOKEN"].VersionID != "secv_one" {
+		t.Fatalf("first secret assignment = %#v, %v", first, err)
+	}
+	hydrated, err := reconciler.HydrateAssignment(ctx, first)
+	if err != nil || len(hydrated.Materials) != 1 || string(hydrated.Materials[0].Value) != "first" {
+		t.Fatalf("hydrated assignment = %#v, %v", hydrated.Materials, err)
+	}
+	firstDigest := first.Allocations[0].SpecDigest
+	if _, err := state.SetApplicationSecret(ctx, box, "hello", "token", "secv_two", []byte("second"), "secret-key-two-0002", reconcilerTestTime.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(second.Allocations) != 1 || second.Allocations[0].SpecDigest == firstDigest ||
+		second.Allocations[0].SecretEnvironment["TOKEN"].VersionID != "secv_two" {
+		t.Fatalf("rotated secret assignment = %#v, %v", second, err)
+	}
+}
+
+func TestRegistryCredentialRotationUpdatesPullAuthorizationWithoutRestart(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	box, err := security.NewSecretBox(bytes.Repeat([]byte{3}, security.SecretKeySize), bytes.NewReader(bytes.Repeat([]byte{4}, 4096)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.SetRegistryCredential(ctx, box, "registry.example:5443", "robot", "regv_one", []byte("first"), "registry-key-one-01", reconcilerTestTime); err != nil {
+		t.Fatal(err)
+	}
+	image := "registry.example:5443/team/app@sha256:" + strings.Repeat("b", 64)
+	applyManifest(t, state, runtimeManifest(image), "revision-one", "application-key-one", reconcilerTestTime)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
+	reconciler.secretBox = box
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(first.Allocations) != 1 || first.Allocations[0].RegistryCredential == nil || first.Allocations[0].RegistryCredential.VersionID != "regv_one" {
+		t.Fatalf("first registry assignment = %#v, %v", first, err)
+	}
+	if _, err := state.SetRegistryCredential(ctx, box, "registry.example:5443", "robot", "regv_two", []byte("second"), "registry-key-two-02", reconcilerTestTime.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(second.Allocations) != 1 || second.Allocations[0].RegistryCredential.VersionID != "regv_two" ||
+		second.Allocations[0].SpecDigest != first.Allocations[0].SpecDigest || second.Generation <= first.Generation {
+		t.Fatalf("rotated registry assignment = %#v, %v", second, err)
 	}
 }
 

@@ -15,12 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
+	"change.codes/torsten/better-swarm/internal/security"
 	_ "modernc.org/sqlite"
 )
 
@@ -36,8 +38,28 @@ var (
 
 type Store struct {
 	db        *sql.DB
+	secretBox *security.SecretBox
 	closeOnce sync.Once
 	closeErr  error
+}
+
+func (s *Store) ConfigureSecretBox(ctx context.Context, box *security.SecretBox) error {
+	if box == nil {
+		return errors.New("agent secret cache key is required")
+	}
+	var fingerprint string
+	err := s.db.QueryRowContext(ctx, `SELECT fingerprint FROM secret_cache_key_metadata WHERE singleton = 1`).Scan(&fingerprint)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO secret_cache_key_metadata(singleton, fingerprint) VALUES (1, ?)`, box.Fingerprint()); err != nil {
+			return fmt.Errorf("initialize agent secret cache key: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("read agent secret cache key metadata: %w", err)
+	} else if fingerprint != box.Fingerprint() {
+		return errors.New("agent secret cache key does not match encrypted cache")
+	}
+	s.secretBox = box
+	return nil
 }
 
 type AllocationState struct {
@@ -259,6 +281,10 @@ func (s *Store) CommitAssignment(ctx context.Context, assignment model.Assignmen
 	if assignment.Digest != digest {
 		return false, fmt.Errorf("assignment digest does not match allocations")
 	}
+	encryptedMaterials, err := s.encryptAssignmentMaterials(assignment)
+	if err != nil {
+		return false, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -281,6 +307,9 @@ func (s *Store) CommitAssignment(ctx context.Context, assignment model.Assignmen
 		if assignment.Generation == uint64(generation) {
 			if assignment.Digest != currentDigest {
 				return false, ErrAssignmentConflict
+			}
+			if err := verifyStoredMaterialHashes(ctx, tx, encryptedMaterials); err != nil {
+				return false, err
 			}
 			return false, nil
 		}
@@ -337,6 +366,20 @@ func (s *Store) CommitAssignment(ctx context.Context, assignment model.Assignmen
 			return false, fmt.Errorf("write cached cron job %q: %w", key, err)
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM secret_materials`); err != nil {
+		return false, err
+	}
+	for _, item := range encryptedMaterials {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO secret_materials
+			(kind, application_name, secret_name, registry_host, username, version_id, algorithm, nonce,
+			 ciphertext, wrapped_key_nonce, wrapped_key, value_hmac, assignment_generation)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, item.material.Kind, item.material.Application,
+			item.material.Name, item.material.Host, item.material.Username, item.material.VersionID,
+			item.encrypted.Algorithm, item.encrypted.Nonce, item.encrypted.Ciphertext,
+			item.encrypted.WrappedKeyNonce, item.encrypted.WrappedKey, item.valueHMAC, assignment.Generation); err != nil {
+			return false, fmt.Errorf("write encrypted agent secret cache: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit cached assignment: %w", err)
 	}
@@ -363,7 +406,159 @@ func (s *Store) Assignment(ctx context.Context) (model.Assignment, error) {
 		return model.Assignment{}, fmt.Errorf("decode cached assignment: %w", err)
 	}
 	assignment.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
-	return assignment, err
+	if err != nil {
+		return model.Assignment{}, err
+	}
+	assignment.Materials, err = s.loadAssignmentMaterials(ctx, assignment.NodeID, assignment.Generation)
+	if err != nil {
+		return model.Assignment{}, err
+	}
+	return assignment, nil
+}
+
+type encryptedAssignmentMaterial struct {
+	material  model.SecretMaterial
+	encrypted security.EncryptedValue
+	valueHMAC string
+}
+
+func (s *Store) encryptAssignmentMaterials(assignment model.Assignment) ([]encryptedAssignmentMaterial, error) {
+	expected := assignmentSecretReferences(assignment)
+	if len(expected) == 0 && len(assignment.Materials) == 0 {
+		return nil, nil
+	}
+	if s.secretBox == nil {
+		return nil, errors.New("agent secret cache key is unavailable")
+	}
+	provided := make(map[string]model.SecretMaterial, len(assignment.Materials))
+	for _, material := range assignment.Materials {
+		key := secretMaterialKey(material)
+		if _, duplicate := provided[key]; duplicate || len(material.Value) == 0 || len(material.Value) > 1<<20 {
+			return nil, errors.New("assignment secret materials are invalid or duplicated")
+		}
+		provided[key] = material
+	}
+	if len(expected) != len(provided) {
+		return nil, errors.New("assignment secret materials do not match its references")
+	}
+	keys := make([]string, 0, len(expected))
+	for key, reference := range expected {
+		material, ok := provided[key]
+		if !ok || material.Username != reference.Username {
+			return nil, errors.New("assignment secret materials do not match its references")
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]encryptedAssignmentMaterial, 0, len(keys))
+	for _, key := range keys {
+		material := provided[key]
+		aad := agentSecretAAD(assignment.NodeID, assignment.Generation, material)
+		encrypted, err := s.secretBox.Seal(aad, material.Value)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt agent secret cache: %w", err)
+		}
+		valueHMAC := s.secretBox.RequestHMAC([]byte("agent-cache-material"), aad, material.Value)
+		result = append(result, encryptedAssignmentMaterial{material: material, encrypted: encrypted, valueHMAC: valueHMAC})
+	}
+	return result, nil
+}
+
+func verifyStoredMaterialHashes(ctx context.Context, tx *sql.Tx, materials []encryptedAssignmentMaterial) error {
+	rows, err := tx.QueryContext(ctx, `SELECT kind, application_name, secret_name, registry_host, version_id, value_hmac
+		FROM secret_materials ORDER BY kind, application_name, secret_name, registry_host, version_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	stored := make(map[string]string)
+	for rows.Next() {
+		var material model.SecretMaterial
+		var valueHMAC string
+		if err := rows.Scan(&material.Kind, &material.Application, &material.Name, &material.Host, &material.VersionID, &valueHMAC); err != nil {
+			return err
+		}
+		stored[secretMaterialKey(material)] = valueHMAC
+	}
+	if err := rows.Err(); err != nil || len(stored) != len(materials) {
+		if err != nil {
+			return err
+		}
+		return ErrAssignmentConflict
+	}
+	for _, material := range materials {
+		if stored[secretMaterialKey(material.material)] != material.valueHMAC {
+			return ErrAssignmentConflict
+		}
+	}
+	return nil
+}
+
+func (s *Store) loadAssignmentMaterials(ctx context.Context, nodeID string, generation uint64) ([]model.SecretMaterial, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT kind, application_name, secret_name, registry_host, username,
+		version_id, algorithm, nonce, ciphertext, wrapped_key_nonce, wrapped_key
+		FROM secret_materials WHERE assignment_generation = ?
+		ORDER BY kind, application_name, secret_name, registry_host, version_id`, generation)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.SecretMaterial
+	for rows.Next() {
+		var material model.SecretMaterial
+		var encrypted security.EncryptedValue
+		if err := rows.Scan(&material.Kind, &material.Application, &material.Name, &material.Host, &material.Username,
+			&material.VersionID, &encrypted.Algorithm, &encrypted.Nonce, &encrypted.Ciphertext,
+			&encrypted.WrappedKeyNonce, &encrypted.WrappedKey); err != nil {
+			return nil, err
+		}
+		if s.secretBox == nil {
+			return nil, errors.New("agent secret cache key is unavailable")
+		}
+		material.Value, err = s.secretBox.Open(agentSecretAAD(nodeID, generation, material), encrypted)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt agent secret cache: %w", err)
+		}
+		result = append(result, material)
+	}
+	return result, rows.Err()
+}
+
+func assignmentSecretReferences(assignment model.Assignment) map[string]model.SecretMaterial {
+	result := make(map[string]model.SecretMaterial)
+	collect := func(application string, environment map[string]model.SecretReference, files []model.SecretFileDesired, registry *model.RegistryCredentialReference) {
+		for _, reference := range environment {
+			material := model.SecretMaterial{Kind: model.SecretMaterialApplication, Application: application, Name: reference.Name, VersionID: reference.VersionID}
+			result[secretMaterialKey(material)] = material
+		}
+		for _, file := range files {
+			material := model.SecretMaterial{Kind: model.SecretMaterialApplication, Application: application, Name: file.Name, VersionID: file.VersionID}
+			result[secretMaterialKey(material)] = material
+		}
+		if registry != nil {
+			material := model.SecretMaterial{Kind: model.SecretMaterialRegistry, Host: registry.Host, VersionID: registry.VersionID, Username: registry.Username}
+			result[secretMaterialKey(material)] = material
+		}
+	}
+	for _, allocation := range assignment.Allocations {
+		collect(allocation.Application, allocation.SecretEnvironment, allocation.SecretFiles, allocation.RegistryCredential)
+		if allocation.Rollback != nil {
+			collect(allocation.Application, allocation.Rollback.SecretEnvironment, allocation.Rollback.SecretFiles, allocation.Rollback.RegistryCredential)
+		}
+	}
+	for _, job := range assignment.CronJobs {
+		collect(job.Application, job.SecretEnvironment, job.SecretFiles, job.RegistryCredential)
+	}
+	return result
+}
+
+func secretMaterialKey(material model.SecretMaterial) string {
+	return material.Kind + "\x00" + material.Application + "\x00" + material.Name + "\x00" + material.Host + "\x00" + material.VersionID
+}
+
+func agentSecretAAD(nodeID string, generation uint64, material model.SecretMaterial) []byte {
+	return security.SecretAssociatedData("agent-cache", nodeID, strconv.FormatUint(generation, 10), material.Kind,
+		material.Application, material.Name, material.Host, material.Username, material.VersionID)
 }
 
 func (s *Store) AllocationStates(ctx context.Context) ([]AllocationState, error) {

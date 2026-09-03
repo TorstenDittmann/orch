@@ -7,11 +7,11 @@ without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
 > The repository currently contains a networked single-node execution slice.
-> One administrator-enrolled Linux agent runs digest-pinned public OCI
+> One administrator-enrolled Linux agent runs digest-pinned OCI
 > workloads through containerd 2.3.4/runc, attaches isolated CNI networks,
 > publishes `svc.internal` DNS, gates traffic on readiness, and manages Caddy
-> ingress. Secrets, private registries, and multi-node scheduling remain
-> deliberately unavailable and produce explicit `BLOCKED` status.
+> ingress. Encrypted application secrets and exact-host private-registry
+> credentials are supported. Multi-node scheduling remains unavailable.
 
 ## The contract
 
@@ -108,6 +108,13 @@ bin/orch deploy \
   --file examples/runtime/orch.pkl \
   --context "$PWD/.orch-client/context.json"
 
+printf '%s' "$APP_TOKEN" | bin/orch secret set runtime-demo token \
+  --from-stdin --context "$PWD/.orch-client/context.json"
+
+printf '%s' "$REGISTRY_TOKEN" | bin/orch registry login registry.example \
+  --username robot --password-stdin \
+  --context "$PWD/.orch-client/context.json"
+
 bin/orch app status runtime-demo \
   --context "$PWD/.orch-client/context.json"
 
@@ -125,7 +132,8 @@ bin/orch events \
 
 bin/orch cluster backup \
   --data-dir "$PWD/.orch-controller" \
-  --output "$PWD/backups/lab.db"
+  --output "$PWD/backups/lab.db" \
+  --secret-key-output "$PWD/offline-keys/lab-secret.key"
 ~~~
 
 Initialization is idempotent for identical inputs and never rotates existing
@@ -171,6 +179,7 @@ The runtime examples demonstrate a preserved local volume and a readiness-gated
 private HTTP service. See [examples/runtime/orch.pkl](examples/runtime/orch.pkl),
 [examples/http/orch.pkl](examples/http/orch.pkl),
 [examples/tcp-cron/orch.pkl](examples/tcp-cron/orch.pkl),
+[examples/secrets/orch.pkl](examples/secrets/orch.pkl),
 [docs/configuration.md](docs/configuration.md), and
 [docs/product.md](docs/product.md).
 
@@ -195,14 +204,15 @@ running it; see
 ## Status and roadmap
 
 The product roadmap is captured in change.codes Plan #1. Durable bootstrap is
-Plan #2, and the authenticated control API is Plan #3. Work is split into
-reviewable vertical slices:
+Plan #2, the authenticated control API is Plan #3, and encrypted secrets and
+registry authentication are Plan #8. Work is split into reviewable vertical
+slices:
 
 1. Configuration and CLI contract.
 2. Secure single-node controller/agent/runtime.
 3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
-4. Multi-node scheduling and WireGuard routing.
-5. Secrets and operator workflows.
+4. Multi-node scheduling and WireGuard routing (next).
+5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 
 The public name and open-source license are intentionally undecided until

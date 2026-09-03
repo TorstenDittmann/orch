@@ -275,17 +275,21 @@ a consistent snapshot:
 ~~~console
 orch cluster backup \
   --data-dir /var/lib/orch \
-  --output /var/backups/orch/lab-2026-09-02.db
+  --output /var/backups/orch/lab-2026-09-02.db \
+  --secret-key-output /media/offline/orch/lab-2026-09-02.key
 ~~~
 
 The output must be outside the live data directory and must not already exist.
 Before publication, orch runs SQLite integrity and foreign-key checks, syncs
-the staged file, and publishes it without clobbering another backup.
+the staged file, and publishes it without clobbering another backup. When any
+encrypted secret version exists, `--secret-key-output` is required and is also
+created without clobbering. Store that key separately from the database.
 
 The database backup contains cluster state, enrolled-node public metadata,
-assignment history, observed execution state, and events. It does not contain
-the CA, controller key, administrator key, agent private identity, agent cache,
-workload logs, or local volume contents. Preserve those files separately with
+assignment history, observed execution state, events, and encrypted secret
+records. It does not contain the secret decryption key, CA, controller key,
+administrator key, agent private identity, agent cache, workload logs, or local
+volume contents. Preserve those files separately with
 an access-controlled system backup. Automated restore over live controller
 state is deliberately not implemented yet; stop and wait for a documented
 restore workflow rather than copying a database over a live controller.

@@ -1941,6 +1941,894 @@ func (x *TailCronLogsResponse) GetComplete() bool {
 	return false
 }
 
+type SecretMetadata struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Application      string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	CurrentVersionId string                 `protobuf:"bytes,3,opt,name=current_version_id,json=currentVersionId,proto3" json:"current_version_id,omitempty"`
+	Referenced       bool                   `protobuf:"varint,4,opt,name=referenced,proto3" json:"referenced,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SecretMetadata) Reset() {
+	*x = SecretMetadata{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretMetadata) ProtoMessage() {}
+
+func (x *SecretMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretMetadata.ProtoReflect.Descriptor instead.
+func (*SecretMetadata) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SecretMetadata) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *SecretMetadata) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecretMetadata) GetCurrentVersionId() string {
+	if x != nil {
+		return x.CurrentVersionId
+	}
+	return ""
+}
+
+func (x *SecretMetadata) GetReferenced() bool {
+	if x != nil {
+		return x.Referenced
+	}
+	return false
+}
+
+func (x *SecretMetadata) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *SecretMetadata) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type SetSecretRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Application    string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Value          []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SetSecretRequest) Reset() {
+	*x = SetSecretRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSecretRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSecretRequest) ProtoMessage() {}
+
+func (x *SetSecretRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSecretRequest.ProtoReflect.Descriptor instead.
+func (*SetSecretRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *SetSecretRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *SetSecretRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SetSecretRequest) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *SetSecretRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type SetSecretResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	VersionId     string                 `protobuf:"bytes,3,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Changed       bool                   `protobuf:"varint,4,opt,name=changed,proto3" json:"changed,omitempty"`
+	EventSequence uint64                 `protobuf:"varint,5,opt,name=event_sequence,json=eventSequence,proto3" json:"event_sequence,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSecretResponse) Reset() {
+	*x = SetSecretResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSecretResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSecretResponse) ProtoMessage() {}
+
+func (x *SetSecretResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSecretResponse.ProtoReflect.Descriptor instead.
+func (*SetSecretResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *SetSecretResponse) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *SetSecretResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SetSecretResponse) GetVersionId() string {
+	if x != nil {
+		return x.VersionId
+	}
+	return ""
+}
+
+func (x *SetSecretResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *SetSecretResponse) GetEventSequence() uint64 {
+	if x != nil {
+		return x.EventSequence
+	}
+	return 0
+}
+
+func (x *SetSecretResponse) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type ListSecretsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSecretsRequest) Reset() {
+	*x = ListSecretsRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecretsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecretsRequest) ProtoMessage() {}
+
+func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecretsRequest.ProtoReflect.Descriptor instead.
+func (*ListSecretsRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListSecretsRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+type ListSecretsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Secrets       []*SecretMetadata      `protobuf:"bytes,1,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSecretsResponse) Reset() {
+	*x = ListSecretsResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecretsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecretsResponse) ProtoMessage() {}
+
+func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecretsResponse.ProtoReflect.Descriptor instead.
+func (*ListSecretsResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListSecretsResponse) GetSecrets() []*SecretMetadata {
+	if x != nil {
+		return x.Secrets
+	}
+	return nil
+}
+
+type DeleteSecretRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Application    string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DeleteSecretRequest) Reset() {
+	*x = DeleteSecretRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSecretRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSecretRequest) ProtoMessage() {}
+
+func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSecretRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSecretRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *DeleteSecretRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *DeleteSecretRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DeleteSecretRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type DeleteSecretResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Changed       bool                   `protobuf:"varint,3,opt,name=changed,proto3" json:"changed,omitempty"`
+	EventSequence uint64                 `protobuf:"varint,4,opt,name=event_sequence,json=eventSequence,proto3" json:"event_sequence,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSecretResponse) Reset() {
+	*x = DeleteSecretResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSecretResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSecretResponse) ProtoMessage() {}
+
+func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSecretResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *DeleteSecretResponse) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *DeleteSecretResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DeleteSecretResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *DeleteSecretResponse) GetEventSequence() uint64 {
+	if x != nil {
+		return x.EventSequence
+	}
+	return 0
+}
+
+func (x *DeleteSecretResponse) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type RegistryCredentialMetadata struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Host             string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Username         string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	CurrentVersionId string                 `protobuf:"bytes,3,opt,name=current_version_id,json=currentVersionId,proto3" json:"current_version_id,omitempty"`
+	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *RegistryCredentialMetadata) Reset() {
+	*x = RegistryCredentialMetadata{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryCredentialMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryCredentialMetadata) ProtoMessage() {}
+
+func (x *RegistryCredentialMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryCredentialMetadata.ProtoReflect.Descriptor instead.
+func (*RegistryCredentialMetadata) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *RegistryCredentialMetadata) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *RegistryCredentialMetadata) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *RegistryCredentialMetadata) GetCurrentVersionId() string {
+	if x != nil {
+		return x.CurrentVersionId
+	}
+	return ""
+}
+
+func (x *RegistryCredentialMetadata) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *RegistryCredentialMetadata) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type LoginRegistryRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Host           string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Username       string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Secret         []byte                 `protobuf:"bytes,3,opt,name=secret,proto3" json:"secret,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LoginRegistryRequest) Reset() {
+	*x = LoginRegistryRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoginRegistryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoginRegistryRequest) ProtoMessage() {}
+
+func (x *LoginRegistryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoginRegistryRequest.ProtoReflect.Descriptor instead.
+func (*LoginRegistryRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *LoginRegistryRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *LoginRegistryRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *LoginRegistryRequest) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *LoginRegistryRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type LoginRegistryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	VersionId     string                 `protobuf:"bytes,3,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Changed       bool                   `protobuf:"varint,4,opt,name=changed,proto3" json:"changed,omitempty"`
+	EventSequence uint64                 `protobuf:"varint,5,opt,name=event_sequence,json=eventSequence,proto3" json:"event_sequence,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LoginRegistryResponse) Reset() {
+	*x = LoginRegistryResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoginRegistryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoginRegistryResponse) ProtoMessage() {}
+
+func (x *LoginRegistryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoginRegistryResponse.ProtoReflect.Descriptor instead.
+func (*LoginRegistryResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *LoginRegistryResponse) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *LoginRegistryResponse) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *LoginRegistryResponse) GetVersionId() string {
+	if x != nil {
+		return x.VersionId
+	}
+	return ""
+}
+
+func (x *LoginRegistryResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *LoginRegistryResponse) GetEventSequence() uint64 {
+	if x != nil {
+		return x.EventSequence
+	}
+	return 0
+}
+
+func (x *LoginRegistryResponse) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type ListRegistriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRegistriesRequest) Reset() {
+	*x = ListRegistriesRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRegistriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRegistriesRequest) ProtoMessage() {}
+
+func (x *ListRegistriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRegistriesRequest.ProtoReflect.Descriptor instead.
+func (*ListRegistriesRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{34}
+}
+
+type ListRegistriesResponse struct {
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	Registries    []*RegistryCredentialMetadata `protobuf:"bytes,1,rep,name=registries,proto3" json:"registries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRegistriesResponse) Reset() {
+	*x = ListRegistriesResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRegistriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRegistriesResponse) ProtoMessage() {}
+
+func (x *ListRegistriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRegistriesResponse.ProtoReflect.Descriptor instead.
+func (*ListRegistriesResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ListRegistriesResponse) GetRegistries() []*RegistryCredentialMetadata {
+	if x != nil {
+		return x.Registries
+	}
+	return nil
+}
+
+type LogoutRegistryRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Host           string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LogoutRegistryRequest) Reset() {
+	*x = LogoutRegistryRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutRegistryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutRegistryRequest) ProtoMessage() {}
+
+func (x *LogoutRegistryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutRegistryRequest.ProtoReflect.Descriptor instead.
+func (*LogoutRegistryRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *LogoutRegistryRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *LogoutRegistryRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type LogoutRegistryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Changed       bool                   `protobuf:"varint,2,opt,name=changed,proto3" json:"changed,omitempty"`
+	EventSequence uint64                 `protobuf:"varint,3,opt,name=event_sequence,json=eventSequence,proto3" json:"event_sequence,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogoutRegistryResponse) Reset() {
+	*x = LogoutRegistryResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutRegistryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutRegistryResponse) ProtoMessage() {}
+
+func (x *LogoutRegistryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutRegistryResponse.ProtoReflect.Descriptor instead.
+func (*LogoutRegistryResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *LogoutRegistryResponse) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *LogoutRegistryResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *LogoutRegistryResponse) GetEventSequence() uint64 {
+	if x != nil {
+		return x.EventSequence
+	}
+	return 0
+}
+
+func (x *LogoutRegistryResponse) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
 type ConfigureNetworkRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Cidr           string                 `protobuf:"bytes,1,opt,name=cidr,proto3" json:"cidr,omitempty"`
@@ -1951,7 +2839,7 @@ type ConfigureNetworkRequest struct {
 
 func (x *ConfigureNetworkRequest) Reset() {
 	*x = ConfigureNetworkRequest{}
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1963,7 +2851,7 @@ func (x *ConfigureNetworkRequest) String() string {
 func (*ConfigureNetworkRequest) ProtoMessage() {}
 
 func (x *ConfigureNetworkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[24]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1976,7 +2864,7 @@ func (x *ConfigureNetworkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureNetworkRequest.ProtoReflect.Descriptor instead.
 func (*ConfigureNetworkRequest) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{24}
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ConfigureNetworkRequest) GetCidr() string {
@@ -2007,7 +2895,7 @@ type ConfigureNetworkResponse struct {
 
 func (x *ConfigureNetworkResponse) Reset() {
 	*x = ConfigureNetworkResponse{}
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2019,7 +2907,7 @@ func (x *ConfigureNetworkResponse) String() string {
 func (*ConfigureNetworkResponse) ProtoMessage() {}
 
 func (x *ConfigureNetworkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orch_v1alpha1_control_proto_msgTypes[25]
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2032,7 +2920,7 @@ func (x *ConfigureNetworkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureNetworkResponse.ProtoReflect.Descriptor instead.
 func (*ConfigureNetworkResponse) Descriptor() ([]byte, []int) {
-	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{25}
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ConfigureNetworkResponse) GetCidr() string {
@@ -2250,7 +3138,83 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x1c\n" +
 	"\ttruncated\x18\x04 \x01(\bR\ttruncated\x12\x1a\n" +
-	"\bcomplete\x18\x05 \x01(\bR\bcomplete\"V\n" +
+	"\bcomplete\x18\x05 \x01(\bR\bcomplete\"\x8a\x02\n" +
+	"\x0eSecretMetadata\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12,\n" +
+	"\x12current_version_id\x18\x03 \x01(\tR\x10currentVersionId\x12\x1e\n" +
+	"\n" +
+	"referenced\x18\x04 \x01(\bR\n" +
+	"referenced\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x87\x01\n" +
+	"\x10SetSecretRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\x12'\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xe4\x01\n" +
+	"\x11SetSecretResponse\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x03 \x01(\tR\tversionId\x12\x18\n" +
+	"\achanged\x18\x04 \x01(\bR\achanged\x12%\n" +
+	"\x0eevent_sequence\x18\x05 \x01(\x04R\reventSequence\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"6\n" +
+	"\x12ListSecretsRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\"N\n" +
+	"\x13ListSecretsResponse\x127\n" +
+	"\asecrets\x18\x01 \x03(\v2\x1d.orch.v1alpha1.SecretMetadataR\asecrets\"t\n" +
+	"\x13DeleteSecretRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\xc8\x01\n" +
+	"\x14DeleteSecretResponse\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\achanged\x18\x03 \x01(\bR\achanged\x12%\n" +
+	"\x0eevent_sequence\x18\x04 \x01(\x04R\reventSequence\x129\n" +
+	"\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xf0\x01\n" +
+	"\x1aRegistryCredentialMetadata\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12,\n" +
+	"\x12current_version_id\x18\x03 \x01(\tR\x10currentVersionId\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x87\x01\n" +
+	"\x14LoginRegistryRequest\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x16\n" +
+	"\x06secret\x18\x03 \x01(\fR\x06secret\x12'\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"\xe2\x01\n" +
+	"\x15LoginRegistryResponse\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x1d\n" +
+	"\n" +
+	"version_id\x18\x03 \x01(\tR\tversionId\x12\x18\n" +
+	"\achanged\x18\x04 \x01(\bR\achanged\x12%\n" +
+	"\x0eevent_sequence\x18\x05 \x01(\x04R\reventSequence\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x17\n" +
+	"\x15ListRegistriesRequest\"c\n" +
+	"\x16ListRegistriesResponse\x12I\n" +
+	"\n" +
+	"registries\x18\x01 \x03(\v2).orch.v1alpha1.RegistryCredentialMetadataR\n" +
+	"registries\"T\n" +
+	"\x15LogoutRegistryRequest\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\xa8\x01\n" +
+	"\x16LogoutRegistryResponse\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x18\n" +
+	"\achanged\x18\x02 \x01(\bR\achanged\x12%\n" +
+	"\x0eevent_sequence\x18\x03 \x01(\x04R\reventSequence\x129\n" +
+	"\n" +
+	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"V\n" +
 	"\x17ConfigureNetworkRequest\x12\x12\n" +
 	"\x04cidr\x18\x01 \x01(\tR\x04cidr\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\xe2\x01\n" +
@@ -2281,7 +3245,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\"NODE_CONNECTION_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fNODE_CONNECTION_STATUS_ENROLLED\x10\x01\x12$\n" +
 	" NODE_CONNECTION_STATUS_CONNECTED\x10\x02\x12'\n" +
-	"#NODE_CONNECTION_STATUS_DISCONNECTED\x10\x032\xb3\b\n" +
+	"#NODE_CONNECTION_STATUS_DISCONNECTED\x10\x032\xcc\f\n" +
 	"\x0eControlService\x12Q\n" +
 	"\n" +
 	"GetCluster\x12 .orch.v1alpha1.GetClusterRequest\x1a!.orch.v1alpha1.GetClusterResponse\x12]\n" +
@@ -2296,7 +3260,13 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x04Exec\x12\x1a.orch.v1alpha1.ExecRequest\x1a\x1b.orch.v1alpha1.ExecResponse0\x01\x12c\n" +
 	"\x10ConfigureNetwork\x12&.orch.v1alpha1.ConfigureNetworkRequest\x1a'.orch.v1alpha1.ConfigureNetworkResponse\x12W\n" +
 	"\fListCronRuns\x12\".orch.v1alpha1.ListCronRunsRequest\x1a#.orch.v1alpha1.ListCronRunsResponse\x12Y\n" +
-	"\fTailCronLogs\x12\".orch.v1alpha1.TailCronLogsRequest\x1a#.orch.v1alpha1.TailCronLogsResponse0\x01BBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\fTailCronLogs\x12\".orch.v1alpha1.TailCronLogsRequest\x1a#.orch.v1alpha1.TailCronLogsResponse0\x01\x12N\n" +
+	"\tSetSecret\x12\x1f.orch.v1alpha1.SetSecretRequest\x1a .orch.v1alpha1.SetSecretResponse\x12T\n" +
+	"\vListSecrets\x12!.orch.v1alpha1.ListSecretsRequest\x1a\".orch.v1alpha1.ListSecretsResponse\x12W\n" +
+	"\fDeleteSecret\x12\".orch.v1alpha1.DeleteSecretRequest\x1a#.orch.v1alpha1.DeleteSecretResponse\x12Z\n" +
+	"\rLoginRegistry\x12#.orch.v1alpha1.LoginRegistryRequest\x1a$.orch.v1alpha1.LoginRegistryResponse\x12]\n" +
+	"\x0eListRegistries\x12$.orch.v1alpha1.ListRegistriesRequest\x1a%.orch.v1alpha1.ListRegistriesResponse\x12]\n" +
+	"\x0eLogoutRegistry\x12$.orch.v1alpha1.LogoutRegistryRequest\x1a%.orch.v1alpha1.LogoutRegistryResponseBBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_control_proto_rawDescOnce sync.Once
@@ -2311,102 +3281,138 @@ func file_orch_v1alpha1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_orch_v1alpha1_control_proto_goTypes = []any{
-	(ExecutionStatus)(0),              // 0: orch.v1alpha1.ExecutionStatus
-	(NodeConnectionStatus)(0),         // 1: orch.v1alpha1.NodeConnectionStatus
-	(*Cluster)(nil),                   // 2: orch.v1alpha1.Cluster
-	(*Application)(nil),               // 3: orch.v1alpha1.Application
-	(*Node)(nil),                      // 4: orch.v1alpha1.Node
-	(*Event)(nil),                     // 5: orch.v1alpha1.Event
-	(*GetClusterRequest)(nil),         // 6: orch.v1alpha1.GetClusterRequest
-	(*GetClusterResponse)(nil),        // 7: orch.v1alpha1.GetClusterResponse
-	(*GetApplicationRequest)(nil),     // 8: orch.v1alpha1.GetApplicationRequest
-	(*GetApplicationResponse)(nil),    // 9: orch.v1alpha1.GetApplicationResponse
-	(*ListEventsRequest)(nil),         // 10: orch.v1alpha1.ListEventsRequest
-	(*ListEventsResponse)(nil),        // 11: orch.v1alpha1.ListEventsResponse
-	(*ApplyApplicationRequest)(nil),   // 12: orch.v1alpha1.ApplyApplicationRequest
-	(*ApplyApplicationResponse)(nil),  // 13: orch.v1alpha1.ApplyApplicationResponse
-	(*EnrollAgentRequest)(nil),        // 14: orch.v1alpha1.EnrollAgentRequest
-	(*EnrollAgentResponse)(nil),       // 15: orch.v1alpha1.EnrollAgentResponse
-	(*ListNodesRequest)(nil),          // 16: orch.v1alpha1.ListNodesRequest
-	(*ListNodesResponse)(nil),         // 17: orch.v1alpha1.ListNodesResponse
-	(*RemoveApplicationRequest)(nil),  // 18: orch.v1alpha1.RemoveApplicationRequest
-	(*RemoveApplicationResponse)(nil), // 19: orch.v1alpha1.RemoveApplicationResponse
-	(*TailLogsRequest)(nil),           // 20: orch.v1alpha1.TailLogsRequest
-	(*ExecRequest)(nil),               // 21: orch.v1alpha1.ExecRequest
-	(*ListCronRunsRequest)(nil),       // 22: orch.v1alpha1.ListCronRunsRequest
-	(*ListCronRunsResponse)(nil),      // 23: orch.v1alpha1.ListCronRunsResponse
-	(*TailCronLogsRequest)(nil),       // 24: orch.v1alpha1.TailCronLogsRequest
-	(*TailCronLogsResponse)(nil),      // 25: orch.v1alpha1.TailCronLogsResponse
-	(*ConfigureNetworkRequest)(nil),   // 26: orch.v1alpha1.ConfigureNetworkRequest
-	(*ConfigureNetworkResponse)(nil),  // 27: orch.v1alpha1.ConfigureNetworkResponse
-	(*timestamppb.Timestamp)(nil),     // 28: google.protobuf.Timestamp
-	(*AllocationStatus)(nil),          // 29: orch.v1alpha1.AllocationStatus
-	(*RouteStatus)(nil),               // 30: orch.v1alpha1.RouteStatus
-	(*TCPRouteStatus)(nil),            // 31: orch.v1alpha1.TCPRouteStatus
-	(*CronJobStatus)(nil),             // 32: orch.v1alpha1.CronJobStatus
-	(*JobRunStatus)(nil),              // 33: orch.v1alpha1.JobRunStatus
-	(LogStream)(0),                    // 34: orch.v1alpha1.LogStream
-	(*TailLogsResponse)(nil),          // 35: orch.v1alpha1.TailLogsResponse
-	(*ExecResponse)(nil),              // 36: orch.v1alpha1.ExecResponse
+	(ExecutionStatus)(0),               // 0: orch.v1alpha1.ExecutionStatus
+	(NodeConnectionStatus)(0),          // 1: orch.v1alpha1.NodeConnectionStatus
+	(*Cluster)(nil),                    // 2: orch.v1alpha1.Cluster
+	(*Application)(nil),                // 3: orch.v1alpha1.Application
+	(*Node)(nil),                       // 4: orch.v1alpha1.Node
+	(*Event)(nil),                      // 5: orch.v1alpha1.Event
+	(*GetClusterRequest)(nil),          // 6: orch.v1alpha1.GetClusterRequest
+	(*GetClusterResponse)(nil),         // 7: orch.v1alpha1.GetClusterResponse
+	(*GetApplicationRequest)(nil),      // 8: orch.v1alpha1.GetApplicationRequest
+	(*GetApplicationResponse)(nil),     // 9: orch.v1alpha1.GetApplicationResponse
+	(*ListEventsRequest)(nil),          // 10: orch.v1alpha1.ListEventsRequest
+	(*ListEventsResponse)(nil),         // 11: orch.v1alpha1.ListEventsResponse
+	(*ApplyApplicationRequest)(nil),    // 12: orch.v1alpha1.ApplyApplicationRequest
+	(*ApplyApplicationResponse)(nil),   // 13: orch.v1alpha1.ApplyApplicationResponse
+	(*EnrollAgentRequest)(nil),         // 14: orch.v1alpha1.EnrollAgentRequest
+	(*EnrollAgentResponse)(nil),        // 15: orch.v1alpha1.EnrollAgentResponse
+	(*ListNodesRequest)(nil),           // 16: orch.v1alpha1.ListNodesRequest
+	(*ListNodesResponse)(nil),          // 17: orch.v1alpha1.ListNodesResponse
+	(*RemoveApplicationRequest)(nil),   // 18: orch.v1alpha1.RemoveApplicationRequest
+	(*RemoveApplicationResponse)(nil),  // 19: orch.v1alpha1.RemoveApplicationResponse
+	(*TailLogsRequest)(nil),            // 20: orch.v1alpha1.TailLogsRequest
+	(*ExecRequest)(nil),                // 21: orch.v1alpha1.ExecRequest
+	(*ListCronRunsRequest)(nil),        // 22: orch.v1alpha1.ListCronRunsRequest
+	(*ListCronRunsResponse)(nil),       // 23: orch.v1alpha1.ListCronRunsResponse
+	(*TailCronLogsRequest)(nil),        // 24: orch.v1alpha1.TailCronLogsRequest
+	(*TailCronLogsResponse)(nil),       // 25: orch.v1alpha1.TailCronLogsResponse
+	(*SecretMetadata)(nil),             // 26: orch.v1alpha1.SecretMetadata
+	(*SetSecretRequest)(nil),           // 27: orch.v1alpha1.SetSecretRequest
+	(*SetSecretResponse)(nil),          // 28: orch.v1alpha1.SetSecretResponse
+	(*ListSecretsRequest)(nil),         // 29: orch.v1alpha1.ListSecretsRequest
+	(*ListSecretsResponse)(nil),        // 30: orch.v1alpha1.ListSecretsResponse
+	(*DeleteSecretRequest)(nil),        // 31: orch.v1alpha1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),       // 32: orch.v1alpha1.DeleteSecretResponse
+	(*RegistryCredentialMetadata)(nil), // 33: orch.v1alpha1.RegistryCredentialMetadata
+	(*LoginRegistryRequest)(nil),       // 34: orch.v1alpha1.LoginRegistryRequest
+	(*LoginRegistryResponse)(nil),      // 35: orch.v1alpha1.LoginRegistryResponse
+	(*ListRegistriesRequest)(nil),      // 36: orch.v1alpha1.ListRegistriesRequest
+	(*ListRegistriesResponse)(nil),     // 37: orch.v1alpha1.ListRegistriesResponse
+	(*LogoutRegistryRequest)(nil),      // 38: orch.v1alpha1.LogoutRegistryRequest
+	(*LogoutRegistryResponse)(nil),     // 39: orch.v1alpha1.LogoutRegistryResponse
+	(*ConfigureNetworkRequest)(nil),    // 40: orch.v1alpha1.ConfigureNetworkRequest
+	(*ConfigureNetworkResponse)(nil),   // 41: orch.v1alpha1.ConfigureNetworkResponse
+	(*timestamppb.Timestamp)(nil),      // 42: google.protobuf.Timestamp
+	(*AllocationStatus)(nil),           // 43: orch.v1alpha1.AllocationStatus
+	(*RouteStatus)(nil),                // 44: orch.v1alpha1.RouteStatus
+	(*TCPRouteStatus)(nil),             // 45: orch.v1alpha1.TCPRouteStatus
+	(*CronJobStatus)(nil),              // 46: orch.v1alpha1.CronJobStatus
+	(*JobRunStatus)(nil),               // 47: orch.v1alpha1.JobRunStatus
+	(LogStream)(0),                     // 48: orch.v1alpha1.LogStream
+	(*TailLogsResponse)(nil),           // 49: orch.v1alpha1.TailLogsResponse
+	(*ExecResponse)(nil),               // 50: orch.v1alpha1.ExecResponse
 }
 var file_orch_v1alpha1_control_proto_depIdxs = []int32{
-	28, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	42, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: orch.v1alpha1.Application.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	28, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
-	28, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
-	28, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
-	29, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	30, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
-	31, // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	32, // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	42, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
+	42, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
+	43, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	44, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
+	45, // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	46, // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
 	1,  // 9: orch.v1alpha1.Node.connection_status:type_name -> orch.v1alpha1.NodeConnectionStatus
-	28, // 10: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
-	28, // 11: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
-	28, // 12: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
+	42, // 10: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
+	42, // 11: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
+	42, // 12: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 13: orch.v1alpha1.GetClusterResponse.cluster:type_name -> orch.v1alpha1.Cluster
 	3,  // 14: orch.v1alpha1.GetApplicationResponse.application:type_name -> orch.v1alpha1.Application
 	5,  // 15: orch.v1alpha1.ListEventsResponse.events:type_name -> orch.v1alpha1.Event
 	0,  // 16: orch.v1alpha1.ApplyApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	28, // 17: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
-	28, // 18: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	28, // 19: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	42, // 17: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
+	42, // 18: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 19: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
 	4,  // 20: orch.v1alpha1.ListNodesResponse.nodes:type_name -> orch.v1alpha1.Node
 	0,  // 21: orch.v1alpha1.RemoveApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	28, // 22: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	33, // 23: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
-	34, // 24: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	28, // 25: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
-	6,  // 26: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
-	8,  // 27: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
-	10, // 28: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
-	12, // 29: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
-	14, // 30: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
-	16, // 31: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
-	18, // 32: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
-	20, // 33: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
-	21, // 34: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
-	26, // 35: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
-	22, // 36: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
-	24, // 37: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
-	7,  // 38: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
-	9,  // 39: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
-	11, // 40: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
-	13, // 41: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
-	15, // 42: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
-	17, // 43: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
-	19, // 44: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
-	35, // 45: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
-	36, // 46: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
-	27, // 47: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
-	23, // 48: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
-	25, // 49: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
-	38, // [38:50] is the sub-list for method output_type
-	26, // [26:38] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	42, // 22: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	47, // 23: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
+	48, // 24: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	42, // 25: orch.v1alpha1.SecretMetadata.created_at:type_name -> google.protobuf.Timestamp
+	42, // 26: orch.v1alpha1.SecretMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 27: orch.v1alpha1.SetSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	26, // 28: orch.v1alpha1.ListSecretsResponse.secrets:type_name -> orch.v1alpha1.SecretMetadata
+	42, // 29: orch.v1alpha1.DeleteSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 30: orch.v1alpha1.RegistryCredentialMetadata.created_at:type_name -> google.protobuf.Timestamp
+	42, // 31: orch.v1alpha1.RegistryCredentialMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 32: orch.v1alpha1.LoginRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	33, // 33: orch.v1alpha1.ListRegistriesResponse.registries:type_name -> orch.v1alpha1.RegistryCredentialMetadata
+	42, // 34: orch.v1alpha1.LogoutRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	42, // 35: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
+	6,  // 36: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
+	8,  // 37: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
+	10, // 38: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
+	12, // 39: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
+	14, // 40: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
+	16, // 41: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
+	18, // 42: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
+	20, // 43: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
+	21, // 44: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
+	40, // 45: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
+	22, // 46: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
+	24, // 47: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
+	27, // 48: orch.v1alpha1.ControlService.SetSecret:input_type -> orch.v1alpha1.SetSecretRequest
+	29, // 49: orch.v1alpha1.ControlService.ListSecrets:input_type -> orch.v1alpha1.ListSecretsRequest
+	31, // 50: orch.v1alpha1.ControlService.DeleteSecret:input_type -> orch.v1alpha1.DeleteSecretRequest
+	34, // 51: orch.v1alpha1.ControlService.LoginRegistry:input_type -> orch.v1alpha1.LoginRegistryRequest
+	36, // 52: orch.v1alpha1.ControlService.ListRegistries:input_type -> orch.v1alpha1.ListRegistriesRequest
+	38, // 53: orch.v1alpha1.ControlService.LogoutRegistry:input_type -> orch.v1alpha1.LogoutRegistryRequest
+	7,  // 54: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
+	9,  // 55: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
+	11, // 56: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
+	13, // 57: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
+	15, // 58: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
+	17, // 59: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
+	19, // 60: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
+	49, // 61: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
+	50, // 62: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
+	41, // 63: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
+	23, // 64: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
+	25, // 65: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
+	28, // 66: orch.v1alpha1.ControlService.SetSecret:output_type -> orch.v1alpha1.SetSecretResponse
+	30, // 67: orch.v1alpha1.ControlService.ListSecrets:output_type -> orch.v1alpha1.ListSecretsResponse
+	32, // 68: orch.v1alpha1.ControlService.DeleteSecret:output_type -> orch.v1alpha1.DeleteSecretResponse
+	35, // 69: orch.v1alpha1.ControlService.LoginRegistry:output_type -> orch.v1alpha1.LoginRegistryResponse
+	37, // 70: orch.v1alpha1.ControlService.ListRegistries:output_type -> orch.v1alpha1.ListRegistriesResponse
+	39, // 71: orch.v1alpha1.ControlService.LogoutRegistry:output_type -> orch.v1alpha1.LogoutRegistryResponse
+	54, // [54:72] is the sub-list for method output_type
+	36, // [36:54] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_control_proto_init() }
@@ -2421,7 +3427,7 @@ func file_orch_v1alpha1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_control_proto_rawDesc), len(file_orch_v1alpha1_control_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   26,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

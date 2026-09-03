@@ -94,8 +94,14 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	}
 	assignment, err := s.state.CurrentAssignment(ctx, nodeID)
 	if err == nil {
-		if err := enqueueAssignment(session, assignment); err != nil {
-			return connect.NewError(connect.CodeResourceExhausted, err)
+		assignment, err = s.reconciler.HydrateAssignment(ctx, assignment)
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, errors.New("hydrate current agent assignment"))
+		}
+		enqueueErr := enqueueAssignment(session, assignment)
+		wipeMaterials(assignment.Materials)
+		if enqueueErr != nil {
+			return connect.NewError(connect.CodeResourceExhausted, enqueueErr)
 		}
 	} else if !errors.Is(err, store.ErrAssignmentNotFound) {
 		return connect.NewError(connect.CodeInternal, errors.New("read current agent assignment"))

@@ -4,6 +4,7 @@ package containerd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -16,8 +17,10 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sys/unix"
 
 	"change.codes/torsten/better-swarm/internal/model"
+	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 )
 
 func (c *runtimeClient) specOptions(image containerdclient.Image, allocation model.AllocationDesired, mounts []specs.Mount) []oci.SpecOpts {
@@ -44,7 +47,31 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 		oci.WithMounts(mounts),
 		hardenedSpec,
 	)
+	if len(allocation.SecretEnvironment) != 0 {
+		opts = append(opts, withSecretEnvironment(allocation.SecretEnvironment))
+	}
 	return opts
+}
+
+func withSecretEnvironment(environment map[string]model.SecretReference) oci.SpecOpts {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
+		if spec.Process == nil || len(spec.Process.Args) == 0 {
+			return fmt.Errorf("image did not produce a process for secret environment initialization")
+		}
+		names := make([]string, 0, len(environment))
+		for name := range environment {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		arguments := []string{"/run/orch/secret-init", "runtime-secret-init"}
+		for index, name := range names {
+			arguments = append(arguments, fmt.Sprintf("%s=/run/orch/secrets/%d", name, index))
+		}
+		arguments = append(arguments, "--")
+		arguments = append(arguments, spec.Process.Args...)
+		spec.Process.Args = arguments
+		return nil
+	}
 }
 
 func withNoSwap(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
@@ -99,6 +126,11 @@ func (c *runtimeClient) volumeMounts(allocation model.AllocationDesired) ([]spec
 		}
 		result = append(result, specs.Mount{Destination: mount.Target, Type: "bind", Source: hostPath, Options: options})
 	}
+	secretMounts, err := c.secretMounts(allocation)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, secretMounts...)
 	if allocation.NetworkGeneration != 0 {
 		if c.options.ResolverPath == "" {
 			return nil, fmt.Errorf("workload resolver path is unavailable")
@@ -125,6 +157,127 @@ func (c *runtimeClient) volumeMounts(allocation model.AllocationDesired) ([]spec
 		})
 	}
 	return result, nil
+}
+
+func (c *runtimeClient) secretMounts(allocation model.AllocationDesired) ([]specs.Mount, error) {
+	if len(allocation.SecretEnvironment) == 0 && len(allocation.SecretFiles) == 0 {
+		return nil, nil
+	}
+	if c.options.SecretsDir == "" {
+		return nil, fmt.Errorf("runtime secret tmpfs path is unavailable")
+	}
+	if err := ensureSecretTmpfs(c.options.SecretsDir); err != nil {
+		return nil, err
+	}
+	objectID := orchruntime.ObjectID(allocation.ID, allocation.SpecDigest)
+	objectDir := filepath.Join(c.options.SecretsDir, objectID)
+	if filepath.Dir(objectDir) != c.options.SecretsDir {
+		return nil, fmt.Errorf("invalid runtime secret projection identity")
+	}
+	if err := os.RemoveAll(objectDir); err != nil {
+		return nil, fmt.Errorf("clear runtime secret projection: %w", err)
+	}
+	if err := os.Mkdir(objectDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create runtime secret projection: %w", err)
+	}
+	marker := []byte(c.options.ClusterID + "\x00" + c.options.NodeID + "\x00" + objectID)
+	if err := os.WriteFile(filepath.Join(objectDir, ".orch-owned"), marker, 0o400); err != nil {
+		return nil, fmt.Errorf("mark runtime secret projection ownership: %w", err)
+	}
+	paths := make(map[string]string)
+	writeVersion := func(version string) (string, error) {
+		if existing := paths[version]; existing != "" {
+			return existing, nil
+		}
+		value := allocation.RuntimeSecretValues[version]
+		if len(value) == 0 {
+			return "", fmt.Errorf("secret material version %q is unavailable", version)
+		}
+		path := filepath.Join(objectDir, fmt.Sprintf("value-%d", len(paths)))
+		if err := os.WriteFile(path, value, 0o400); err != nil {
+			return "", fmt.Errorf("write runtime secret projection: %w", err)
+		}
+		paths[version] = path
+		return path, nil
+	}
+	result := make([]specs.Mount, 0, len(allocation.SecretEnvironment)+len(allocation.SecretFiles)+1)
+	if len(allocation.SecretEnvironment) != 0 {
+		result = append(result, specs.Mount{Destination: "/run/orch/secret-init", Type: "bind", Source: c.options.LoggerPath, Options: []string{"rbind", "ro"}})
+		names := make([]string, 0, len(allocation.SecretEnvironment))
+		for name := range allocation.SecretEnvironment {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for index, name := range names {
+			hostPath, err := writeVersion(allocation.SecretEnvironment[name].VersionID)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, specs.Mount{Destination: fmt.Sprintf("/run/orch/secrets/%d", index), Type: "bind", Source: hostPath, Options: []string{"rbind", "ro"}})
+		}
+	}
+	for _, file := range allocation.SecretFiles {
+		hostPath, err := writeVersion(file.VersionID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, specs.Mount{Destination: file.Target, Type: "bind", Source: hostPath, Options: []string{"rbind", "ro"}})
+	}
+	return result, nil
+}
+
+func (c *runtimeClient) reconcileSecretProjections(owned map[string]struct{}) error {
+	if c.options.SecretsDir == "" {
+		return nil
+	}
+	var status unix.Statfs_t
+	if err := unix.Statfs(c.options.SecretsDir, &status); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if uint64(status.Type) != uint64(unix.TMPFS_MAGIC) {
+		return nil
+	}
+	entries, err := os.ReadDir(c.options.SecretsDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, exists := owned[entry.Name()]; exists {
+			continue
+		}
+		objectDir := filepath.Join(c.options.SecretsDir, entry.Name())
+		marker, err := os.ReadFile(filepath.Join(objectDir, ".orch-owned"))
+		if err != nil || string(marker) != c.options.ClusterID+"\x00"+c.options.NodeID+"\x00"+entry.Name() {
+			continue
+		}
+		if err := os.RemoveAll(objectDir); err != nil {
+			return fmt.Errorf("remove stale runtime secret projection %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func ensureSecretTmpfs(path string) error {
+	if err := ensurePrivateDirectory(path); err != nil {
+		return fmt.Errorf("prepare runtime secret tmpfs: %w", err)
+	}
+	var status unix.Statfs_t
+	if err := unix.Statfs(path, &status); err != nil {
+		return fmt.Errorf("inspect runtime secret tmpfs: %w", err)
+	}
+	if uint64(status.Type) == uint64(unix.TMPFS_MAGIC) {
+		return nil
+	}
+	if err := unix.Mount("tmpfs", path, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "mode=0700,size=64m"); err != nil {
+		return fmt.Errorf("mount runtime secret tmpfs: %w", err)
+	}
+	return nil
 }
 
 func ensurePrivateDirectory(path string) error {

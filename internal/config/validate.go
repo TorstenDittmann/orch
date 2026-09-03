@@ -269,6 +269,27 @@ func Validate(manifest *Manifest) error {
 		validateStringList(base+".command", job.Command, add)
 		validateStringList(base+".args", job.Args, add)
 		validateEnvironment(base+".env", job.Env, false, add)
+		validateEnvironment(base+".secret_env", job.SecretEnv, true, add)
+		for key := range job.Env {
+			if _, exists := job.SecretEnv[key]; exists {
+				add(base+".secret_env."+key, "duplicates a plain environment variable")
+			}
+		}
+		if len(job.SecretFiles) > maxSecretFilesPerService {
+			add(base+".secret_files", fmt.Sprintf("must not contain more than %d entries", maxSecretFilesPerService))
+		}
+		secretTargets := make(map[string]struct{})
+		for index, secret := range job.SecretFiles {
+			item := fmt.Sprintf("%s.secret_files[%d]", base, index)
+			validateDNSLabel(item+".source", secret.Source, add)
+			if !safeSecretTarget(secret.Target) {
+				add(item+".target", "must be a clean absolute path below /run/secrets")
+			}
+			if _, exists := secretTargets[secret.Target]; exists {
+				add(item+".target", "duplicates another secret file target")
+			}
+			secretTargets[secret.Target] = struct{}{}
+		}
 		if !validCPU(job.Resources.CPU) {
 			add(base+".resources.cpu", "must be a positive whole CPU count or millicpu value such as 500m")
 		}

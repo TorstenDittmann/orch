@@ -93,6 +93,10 @@ class CronJob {
 
   env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
 
+  secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  secretFiles: Listing<SecretFile>(length <= 64) = new {}
+
   dependsOn: Listing<DnsLabel>(length <= 64, isDistinct) = new {}
 
   startDeadline: String = "1m"

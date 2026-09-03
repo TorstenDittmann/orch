@@ -38,6 +38,8 @@ facts {
     cronJob.startDeadline == "1m"
     cronJob.timeout == "15m"
     cronJob.dependsOn.isEmpty
+    cronJob.secretEnv.isEmpty
+    cronJob.secretFiles.isEmpty
   }
   ["deployment defaults"] {
     deployment.maxSurge == 1

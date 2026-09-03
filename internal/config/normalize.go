@@ -48,6 +48,10 @@ func normalize(manifest *Manifest) {
 	for name, job := range manifest.CronJobs {
 		job.Resources.CPU = normalizeCPU(job.Resources.CPU)
 		job.Env = nilIfEmpty(job.Env)
+		job.SecretEnv = nilIfEmpty(job.SecretEnv)
+		sort.Slice(job.SecretFiles, func(left, right int) bool {
+			return job.SecretFiles[left].Target < job.SecretFiles[right].Target
+		})
 		sort.Strings(job.DependsOn)
 		if len(job.Command) == 0 {
 			job.Command = nil
@@ -57,6 +61,9 @@ func normalize(manifest *Manifest) {
 		}
 		if len(job.DependsOn) == 0 {
 			job.DependsOn = nil
+		}
+		if len(job.SecretFiles) == 0 {
+			job.SecretFiles = nil
 		}
 		manifest.CronJobs[name] = job
 	}

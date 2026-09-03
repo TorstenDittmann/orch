@@ -26,9 +26,6 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 		{name: "cpu overflow", want: "incomplete", edit: func(value *model.AllocationDesired) { value.CPUMillis = uint64(1<<63-1)/100 + 1 }},
 		{name: "memory overflow", want: "incomplete", edit: func(value *model.AllocationDesired) { value.MemoryBytes = uint64(1 << 63) }},
 		{name: "image tag", want: "digest-qualified", edit: func(value *model.AllocationDesired) { value.Image = "docker.io/library/busybox:latest" }},
-		{name: "local registry", want: "private registry", edit: func(value *model.AllocationDesired) {
-			value.Image = "localhost:5000/test/app@sha256:" + strings.Repeat("b", 64)
-		}},
 		{name: "restart policy", want: "restart policy", edit: func(value *model.AllocationDesired) { value.RestartPolicy = "sometimes" }},
 		{name: "empty command", want: "command", edit: func(value *model.AllocationDesired) { value.Command = []string{""} }},
 		{name: "oversized argument", want: "bounded", edit: func(value *model.AllocationDesired) {
@@ -74,6 +71,22 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 	mismatch.Args = []string{"changed"}
 	if err := validateAllocation(mismatch); err == nil || !strings.Contains(err.Error(), "spec digest") {
 		t.Fatalf("spec mismatch = %v", err)
+	}
+}
+
+func TestValidateAllocationAcceptsDigestPinnedPrivateRegistry(t *testing.T) {
+	t.Parallel()
+	allocation := runtimeTestAllocation(t)
+	allocation.Image = "registry.example:5443/team/app@sha256:" + strings.Repeat("b", 64)
+	allocation.RegistryCredential = &model.RegistryCredentialReference{Host: "registry.example:5443", VersionID: "regv_one", Username: "robot"}
+	allocation.SpecDigest = runtimeTestDigest(t, allocation)
+	if err := validateAllocation(allocation); err != nil {
+		t.Fatalf("validate private registry allocation: %v", err)
+	}
+	allocation.RegistryCredential.Host = "other.example:5443"
+	allocation.SpecDigest = runtimeTestDigest(t, allocation)
+	if err := validateAllocation(allocation); err == nil || !strings.Contains(err.Error(), "registry credential") {
+		t.Fatalf("validate cross-host registry credential = %v", err)
 	}
 }
 

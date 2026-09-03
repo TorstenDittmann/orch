@@ -93,7 +93,8 @@ becomes unavailable.
 ## Scheduled jobs
 
 Cron jobs use exactly five UTC fields and run one container per occurrence.
-They do not have replicas, restart policies, endpoints, mounts, or secrets.
+They do not have replicas, restart policies, endpoints, or persistent mounts.
+They support the same `secretEnv` and `secretFiles` projections as services.
 
 ~~~pkl
 cronJobs {
@@ -112,9 +113,16 @@ Overlapping occurrences are skipped, failed runs are not retried, and missed
 occurrences are not replayed. `orch cron runs APP JOB` lists recent outcomes;
 `orch cron logs APP JOB RUN_ID` reads retained runtime logs.
 
-Plain and secret environment mappings may not define the same variable. Secret
-values are set through a future controller API; application configuration
-contains names only.
+Plain and secret environment mappings may not define the same variable.
+Application configuration contains names only; set values over the
+administrator mTLS API through stdin:
+
+~~~console
+printf '%s' "$DATABASE_URL" | orch secret set my-app database-url \
+  --from-stdin --context ./context.json
+orch secret list my-app --context ./context.json
+orch secret delete my-app old-secret --context ./context.json
+~~~
 
 ~~~pkl
 secretEnv {
@@ -130,6 +138,19 @@ secretFiles {
 ~~~
 
 Secret file targets must be clean paths below `/run/secrets`.
+
+Registry credentials are cluster-scoped and selected automatically by the
+exact host in each digest-qualified image reference:
+
+~~~console
+printf '%s' "$REGISTRY_TOKEN" | orch registry login registry.example:5443 \
+  --username robot --password-stdin --context ./context.json
+orch registry list --context ./context.json
+orch registry logout registry.example:5443 --context ./context.json
+~~~
+
+Registries use HTTPS and system trust roots. Custom CAs, insecure HTTP,
+wildcard matching, and registry mirrors are not supported.
 
 ## Local volumes
 
@@ -243,8 +264,8 @@ application as `BLOCKED` with a stable reason:
 | Intent or requirement | Reason |
 | --- | --- |
 | Image tag without a digest | `unsupported_image_tag` |
-| Local/private registry requiring credentials | `private_registry_unsupported` |
-| `secretEnv` or `secretFiles` | `secrets_unsupported` |
+| Referenced application secret is absent | `secret_missing` |
+| Secret environment value is not valid UTF-8 or contains NUL | `secret_environment_invalid` |
 | Node constraints | `constraints_unsupported` |
 | Non-Linux or non-amd64/arm64 node | `unsupported_platform` |
 | Missing cgroups v2 | `cgroups_v2_required` |

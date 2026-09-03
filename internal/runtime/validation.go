@@ -49,9 +49,6 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 		return fmt.Errorf("image must be digest-qualified")
 	}
 	domain := reference.Domain(named)
-	if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
-		return fmt.Errorf("private registry references are unsupported")
-	}
 	if len(allocation.Command) > maxRuntimeCommandEntries || len(allocation.Args) > maxRuntimeCommandEntries {
 		return fmt.Errorf("runtime command or argument list is too large")
 	}
@@ -84,6 +81,10 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 		}
 		mountTargets[mount.Target] = struct{}{}
 		totalBytes += len(mount.Name) + len(mount.Target)
+	}
+	if err := validateSecretBindings(allocation.Application, domain, allocation.Environment, mountTargets,
+		allocation.SecretEnvironment, allocation.SecretFiles, allocation.RegistryCredential); err != nil {
+		return err
 	}
 	if allocation.HTTP != nil {
 		if allocation.HTTP.Port == 0 || allocation.HTTP.Port > 65535 ||
@@ -168,9 +169,6 @@ func ValidateCronJob(job model.CronJobDesired) error {
 		return fmt.Errorf("cron image must be digest-qualified")
 	}
 	domain := reference.Domain(named)
-	if domain == "localhost" || strings.HasPrefix(domain, "localhost:") {
-		return fmt.Errorf("private cron image registries are unsupported")
-	}
 	if len(job.Command) > maxRuntimeCommandEntries || len(job.Args) > maxRuntimeCommandEntries || len(job.Environment) > maxRuntimeEnvironmentEntries || len(job.DependsOn) > 64 {
 		return fmt.Errorf("runtime cron job collections are too large")
 	}
@@ -186,6 +184,10 @@ func ValidateCronJob(job model.CronJobDesired) error {
 			return fmt.Errorf("runtime cron environment is invalid")
 		}
 		totalBytes += len(key) + len(value)
+	}
+	if err := validateSecretBindings(job.Application, domain, job.Environment, nil,
+		job.SecretEnvironment, job.SecretFiles, job.RegistryCredential); err != nil {
+		return err
 	}
 	if !sort.StringsAreSorted(job.DependsOn) {
 		return fmt.Errorf("runtime cron dependencies are not canonical")
@@ -218,8 +220,45 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		CPUMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes, Mounts: rollback.Mounts,
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
-		DependsOn: rollback.DependsOn, NetworkGeneration: rollback.NetworkGeneration,
+		DependsOn: rollback.DependsOn, SecretEnvironment: rollback.SecretEnvironment, SecretFiles: rollback.SecretFiles,
+		RegistryCredential: rollback.RegistryCredential, NetworkGeneration: rollback.NetworkGeneration,
 	}
+}
+
+func validateSecretBindings(application, imageDomain string, environment map[string]string, mountTargets map[string]struct{},
+	secretEnvironment map[string]model.SecretReference, secretFiles []model.SecretFileDesired,
+	registry *model.RegistryCredentialReference) error {
+	if len(secretEnvironment) > maxRuntimeEnvironmentEntries || len(secretFiles) > maxRuntimeMounts {
+		return fmt.Errorf("runtime secret bindings contain too many entries")
+	}
+	for name, item := range secretEnvironment {
+		if !validEnvironmentName(name) || len(name) > 256 || !validDNSLabel(item.Name) || !validOpaqueID(item.VersionID) {
+			return fmt.Errorf("runtime secret environment binding is invalid")
+		}
+		if _, exists := environment[name]; exists {
+			return fmt.Errorf("runtime secret environment binding conflicts with a literal environment value")
+		}
+	}
+	secretTargets := make(map[string]struct{}, len(secretFiles))
+	for _, item := range secretFiles {
+		if !validDNSLabel(item.Name) || !validOpaqueID(item.VersionID) || !safeMountTarget(item.Target) ||
+			item.Target == "/run/orch" || strings.HasPrefix(item.Target, "/run/orch/") {
+			return fmt.Errorf("runtime secret file binding is invalid")
+		}
+		if _, exists := secretTargets[item.Target]; exists {
+			return fmt.Errorf("runtime secret file target is duplicated")
+		}
+		if _, exists := mountTargets[item.Target]; exists {
+			return fmt.Errorf("runtime secret file target conflicts with a volume mount")
+		}
+		secretTargets[item.Target] = struct{}{}
+	}
+	if registry != nil && (registry.Host == "" || len(registry.Host) > 255 || registry.Host != imageDomain || !validOpaqueID(registry.VersionID) ||
+		registry.Username == "" || strings.ContainsAny(registry.Username, "\x00\r\n") || len(registry.Username) > 1024) {
+		return fmt.Errorf("runtime registry credential reference is invalid")
+	}
+	_ = application
+	return nil
 }
 
 func validOpaqueID(value string) bool {

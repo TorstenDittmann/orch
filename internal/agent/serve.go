@@ -15,6 +15,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/ingress"
 	"change.codes/torsten/better-swarm/internal/network"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/tcpingress"
 )
 
@@ -52,6 +53,13 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		return fmt.Errorf("open agent cache: %w", err)
 	}
 	defer cache.Close()
+	secretBox, _, err := security.LoadOrCreateSecretBox(filepath.Join(dataDir, SecretCacheKeyFile), rand.Reader)
+	if err != nil {
+		return fmt.Errorf("load agent secret cache key: %w", err)
+	}
+	if err := cache.ConfigureSecretBox(ctx, secretBox); err != nil {
+		return fmt.Errorf("configure agent secret cache: %w", err)
+	}
 	if configurable, ok := options.Runtime.(interface{ SetAttachmentStore(network.AttachmentStore) }); ok {
 		configurable.SetAttachmentStore(cache)
 	}
