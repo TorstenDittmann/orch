@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	connectrpc.com/connect v1.19.2
-	github.com/apple/pkl-go v0.14.0
+	github.com/apple/pkl-go v0.14.1-0.20260826164911-a15d198922e0
 	github.com/containerd/containerd/v2 v2.3.4
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v1.0.0-rc.4

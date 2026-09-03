@@ -21,7 +21,10 @@ external module schemes. User settings, environment variables, external
 properties, package caches, and `PklProject` evaluator settings are not
 inherited. Evaluation is deadline-bound and size-bound.
 
-Pkl 0.32.1 and `github.com/apple/pkl-go` 0.14.0 are pinned in the repository.
+Pkl 0.32.1 is pinned in the repository. The Go SDK is pinned to Apple's
+post-0.14.0 dispatcher fix (`a15d198922e0`) until that fix is included in a
+tagged release; the 0.14.0 release can report cancellation as a successful nil
+evaluator and deadlock on late responses.
 The operator installs Pkl through mise. Bundling the executable is a release
 packaging concern outside this decision.
 

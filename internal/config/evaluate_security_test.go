@@ -254,16 +254,19 @@ exec sleep 5
 `)
 	filename := filepath.Join(t.TempDir(), "orch.pkl")
 	writePklFile(t, filename, validManifest)
-	ctx, cancel := context.WithCancel(context.Background())
-	timer := time.AfterFunc(25*time.Millisecond, cancel)
-	defer timer.Stop()
-	started := time.Now()
-	_, err := Load(ctx, filename, LoadOptions{PklCommand: script, Timeout: 5 * time.Second})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Load() error = %v, want context cancellation", err)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("cancellation took %s", elapsed)
+	for attempt := 0; attempt < 10; attempt++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		timer := time.AfterFunc(25*time.Millisecond, cancel)
+		started := time.Now()
+		_, err := Load(ctx, filename, LoadOptions{PklCommand: script, Timeout: 5 * time.Second})
+		timer.Stop()
+		cancel()
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("attempt %d: Load() error = %v, want context cancellation", attempt, err)
+		}
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatalf("attempt %d: cancellation took %s", attempt, elapsed)
+		}
 	}
 }
 
