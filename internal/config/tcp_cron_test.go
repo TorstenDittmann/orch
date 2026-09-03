@@ -13,6 +13,9 @@ name = "platform"
 services {
   ["gitd"] {
     image = "example.invalid/gitd:1"
+    constraints {
+      ["storage"] = "fast"
+    }
     tcp = new Tcp {
       port = 9418
       publicPort = 9418
@@ -37,6 +40,9 @@ cronJobs {
     image = "example.invalid/backup:1"
     schedule = "*/2 * * * *"
     dependsOn { "gitd" }
+    constraints {
+      ["region"] = "eu-west"
+    }
   }
 }
 `
@@ -47,12 +53,47 @@ func TestLoadTypedTCPDependenciesAndCronDefaults(t *testing.T) {
 	if gitd.TCP == nil || gitd.TCP.Port != 9418 || gitd.TCP.PublicPort == nil || *gitd.TCP.PublicPort != 9418 {
 		t.Fatalf("gitd TCP = %#v", gitd.TCP)
 	}
+	if !reflect.DeepEqual(gitd.Constraints, map[string]string{"storage": "fast"}) {
+		t.Fatalf("service constraints = %#v", gitd.Constraints)
+	}
 	if got := manifest.Services["web"].DependsOn; !reflect.DeepEqual(got, []string{"gitd", "redis"}) {
 		t.Fatalf("depends_on = %#v", got)
 	}
 	job := manifest.CronJobs["backup-monitor"]
 	if job.StartDeadline != DefaultJobStartDeadline || job.Timeout != DefaultJobTimeout || job.Resources.CPU != DefaultCPU {
 		t.Fatalf("cron defaults = %#v", job)
+	}
+	if !reflect.DeepEqual(job.Constraints, map[string]string{"region": "eu-west"}) {
+		t.Fatalf("cron constraints = %#v", job.Constraints)
+	}
+}
+
+func TestCronConstraintsRoundTripCanonicalJSON(t *testing.T) {
+	manifest := loadManifest(t, tcpCronManifest)
+	canonical, err := CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseCanonicalJSON(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(parsed.CronJobs["backup-monitor"].Constraints, map[string]string{"region": "eu-west"}) {
+		t.Fatalf("cron constraints = %#v", parsed.CronJobs["backup-monitor"].Constraints)
+	}
+	if !reflect.DeepEqual(parsed.Services["gitd"].Constraints, map[string]string{"storage": "fast"}) {
+		t.Fatalf("service constraints = %#v", parsed.Services["gitd"].Constraints)
+	}
+}
+
+func TestValidateRejectsInvalidCronConstraints(t *testing.T) {
+	manifest := loadManifest(t, tcpCronManifest)
+	job := manifest.CronJobs["backup-monitor"]
+	job.Constraints = map[string]string{"region": ""}
+	manifest.CronJobs["backup-monitor"] = job
+	var validation *ValidationError
+	if !errors.As(Validate(manifest), &validation) || !hasProblem(validation, "cron_jobs.backup-monitor.constraints") {
+		t.Fatalf("problems = %#v", validation.Problems)
 	}
 }
 

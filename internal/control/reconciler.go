@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -26,11 +27,13 @@ import (
 // snapshot. It deliberately contains no placement algorithm: this release has
 // at most one node.
 type Reconciler struct {
+	mu          sync.Mutex
 	state       *store.Store
 	cluster     model.Cluster
 	now         func() time.Time
 	onPublished func(model.Assignment)
 	secretBox   *security.SecretBox
+	sessions    *sessionManager
 }
 
 func NewReconciler(state *store.Store, cluster model.Cluster, now func() time.Time, onPublished func(model.Assignment)) *Reconciler {
@@ -43,6 +46,8 @@ func NewReconciler(state *store.Store, cluster model.Cluster, now func() time.Ti
 // Reconcile is safe to call after every desired-state, enrollment, capability,
 // or connection change. Identical allocation sets do not advance generation.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	cluster, err := r.state.Cluster(ctx)
 	if err != nil {
 		return fmt.Errorf("read cluster network configuration: %w", err)
@@ -67,7 +72,13 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		}
 		return r.state.UpdateApplicationExecutions(ctx, states)
 	}
+	if usesDistributedScheduler(nodes, applications) {
+		return r.reconcileDistributed(ctx, cluster, applications, nodes, now)
+	}
+	return r.reconcileLegacy(ctx, cluster, applications, nodes, now)
+}
 
+func (r *Reconciler) reconcileLegacy(ctx context.Context, cluster model.Cluster, applications []model.Application, nodes []model.Node, now time.Time) error {
 	node := nodes[0]
 	networkConfig, err := model.FirstNodeNetwork(cluster.WorkloadCIDR, cluster.NetworkGeneration)
 	if err != nil {
@@ -173,6 +184,19 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+func usesDistributedScheduler(nodes []model.Node, applications []model.Application) bool {
+	if len(nodes) > 1 || applicationsUseConstraints(applications) {
+		return true
+	}
+	for _, node := range nodes {
+		if node.Ordinal != 0 || node.Lifecycle != model.NodeLifecycleActive || node.TotalCPUMillis != 0 ||
+			node.AllocatableCPUMillis != 0 || node.AdvertiseAddress != "" || node.WireGuardPublicKey != "" {
+			return true
+		}
+	}
+	return false
+}
+
 type blockReason struct {
 	status           string
 	reason           string
@@ -262,12 +286,6 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			return plannedApplication{}, &blockReason{
 				reason:  "secrets_unsupported",
 				message: base + " contains secret references but no secret resolver is configured",
-			}, nil
-		}
-		if len(service.Constraints) != 0 {
-			return plannedApplication{}, &blockReason{
-				reason:  "constraints_unsupported",
-				message: base + ".constraints requires a later scheduling release",
 			}, nil
 		}
 		if service.HTTP != nil && len(service.HTTP.Domains) != 0 {
@@ -474,9 +492,6 @@ func nodeBlocker(node model.Node) *blockReason {
 	if !node.DNSAvailable {
 		return nodeBlock("", "dns_unavailable", "the enrolled agent does not report an available workload DNS service")
 	}
-	if node.CaddyVersion != ingress.RequiredCaddyVersion {
-		return nodeBlock("", "caddy_unavailable", "the enrolled agent does not report Caddy "+ingress.RequiredCaddyVersion)
-	}
 	if node.NetworkState == model.NetworkFailed {
 		reason := node.NetworkReason
 		if reason == "" {
@@ -487,6 +502,9 @@ func nodeBlocker(node model.Node) *blockReason {
 			message = "the enrolled agent could not prepare the workload network"
 		}
 		return nodeBlock("", reason, message)
+	}
+	if node.Ingress && node.CaddyVersion != ingress.RequiredCaddyVersion {
+		return nodeBlock("", "caddy_unavailable", "the enrolled agent does not report Caddy "+ingress.RequiredCaddyVersion)
 	}
 	return nil
 }

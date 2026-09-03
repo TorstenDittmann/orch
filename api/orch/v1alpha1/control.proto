@@ -26,6 +26,8 @@ service ControlService {
   rpc LoginRegistry(LoginRegistryRequest) returns (LoginRegistryResponse);
   rpc ListRegistries(ListRegistriesRequest) returns (ListRegistriesResponse);
   rpc LogoutRegistry(LogoutRegistryRequest) returns (LogoutRegistryResponse);
+  rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
 }
 
 enum ExecutionStatus {
@@ -47,6 +49,15 @@ enum NodeConnectionStatus {
   NODE_CONNECTION_STATUS_ENROLLED = 1;
   NODE_CONNECTION_STATUS_CONNECTED = 2;
   NODE_CONNECTION_STATUS_DISCONNECTED = 3;
+  NODE_CONNECTION_STATUS_UNREACHABLE = 4;
+}
+
+enum NodeLifecycle {
+  NODE_LIFECYCLE_UNSPECIFIED = 0;
+  NODE_LIFECYCLE_ACTIVE = 1;
+  NODE_LIFECYCLE_CORDONED = 2;
+  NODE_LIFECYCLE_DRAINING = 3;
+  NODE_LIFECYCLE_REMOVED = 4;
 }
 
 message Cluster {
@@ -106,6 +117,20 @@ message Node {
   uint32 draining_objects = 21;
   string cni_plugins_version = 22;
   bool dns_available = 23;
+  uint32 ordinal = 24;
+  NodeLifecycle lifecycle = 25;
+  map<string, string> labels = 26;
+  bool ingress = 27;
+  uint64 total_cpu_millis = 28;
+  uint64 total_memory_bytes = 29;
+  uint64 allocatable_cpu_millis = 30;
+  uint64 allocatable_memory_bytes = 31;
+  string advertise_address = 32;
+  string wireguard_public_key = 33;
+  uint32 wireguard_listen_port = 34;
+  uint64 assigned_cpu_millis = 35;
+  uint64 assigned_memory_bytes = 36;
+  repeated string drain_blockers = 37;
 }
 
 message Event {
@@ -179,6 +204,35 @@ message ListNodesRequest {}
 
 message ListNodesResponse {
   repeated Node nodes = 1;
+}
+
+message UpdateNodeRequest {
+  string name = 1;
+  map<string, string> labels = 2;
+  repeated string remove_labels = 3;
+  NodeLifecycle lifecycle = 4;
+  bool set_ingress = 5;
+  bool ingress = 6;
+  string idempotency_key = 7;
+}
+
+message UpdateNodeResponse {
+  Node node = 1;
+  bool changed = 2;
+  uint64 event_sequence = 3;
+}
+
+message RemoveNodeRequest {
+  string name = 1;
+  bool lost = 2;
+  bool confirm_fenced = 3;
+  string idempotency_key = 4;
+}
+
+message RemoveNodeResponse {
+  string name = 1;
+  bool changed = 2;
+  uint64 event_sequence = 3;
 }
 
 message RemoveApplicationRequest {

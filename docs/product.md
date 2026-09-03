@@ -48,6 +48,12 @@ external database, discovery service, secret manager, or ingress controller.
 4. Keep existing traffic and agent-local restarts working while the controller
    itself is unavailable.
 
+Recovery is intentionally bounded. After 60 seconds unreachable, orch may
+place new attempts for stateless service replicas and withdraw the old node's
+endpoints. A partition can leave the old cached processes alive, so temporary
+duplicates are possible. Local-volume services and cron ownership do not move
+until their different safety requirements are satisfied.
+
 ## Product rules
 
 - The public abstraction is an application made of services.
@@ -56,6 +62,7 @@ external database, discovery service, secret manager, or ingress controller.
 - The controller distributes intent but never proxies application traffic.
 - Local state is never presented as replicated state.
 - Secure node identity and encrypted cross-node traffic are defaults.
+- Hard label and capacity requirements are never weakened to make a placement.
 - A new feature must serve one of the core journeys or wait.
 
 ## Non-goals for v0.1
@@ -86,13 +93,20 @@ configuration foundation.
 
 ## Current implementation boundary
 
-The current repository implements the one-node vertical slice of these
-journeys: containerd execution, a private CNI subnet, readiness-gated local
-DNS, exact-domain Caddy ingress with automatic HTTPS, encrypted application
-secrets, and authenticated exact-host registry pulls. The controller stays out
-of the data path, and the agent keeps its last accepted serving state while the
-controller is unavailable. Multi-node placement, WireGuard routing,
-rescheduling, and release packaging remain later slices. See
+The repository implements these journeys for one through 20 nodes: containerd
+execution, private per-node CNI subnets, readiness-gated global DNS,
+exact-domain Caddy ingress with automatic HTTPS, raw TCP ingress, encrypted
+application secrets, authenticated exact-host registry pulls, deterministic
+placement, direct WireGuard routing, and node operations. This remains a
+single-controller design: during a controller outage
+agents preserve their last accepted data plane, but deployments, scheduling,
+drain, and rollout progress pause. See
 [networking.md](networking.md) and [runtime.md](runtime.md) for the precise
 operator contract rather than inferring future guarantees from the product
 promise.
+
+The distributed contract deliberately does not promise automatic fencing,
+singleton execution during partitions, exactly-once cron, portable local
+volumes, distributed storage, NAT traversal, or control-plane high
+availability. Those limits are part of the product, not hidden implementation
+details.

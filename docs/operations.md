@@ -1,9 +1,9 @@
-# Single-node operations
+# Cluster operations
 
-The current implementation runs one durable controller and exactly one
-administrator-enrolled execution agent. The agent uses an externally installed
-containerd/runc runtime. Multi-node scheduling, node replacement, certificate
-rotation, and automated restore are not included.
+orch runs one durable controller and one through 20 administrator-enrolled
+execution agents. Agents use an externally installed containerd/runc runtime.
+Controller HA, automatic
+host fencing, certificate rotation, and automated restore are not included.
 
 ## Initialize a cluster
 
@@ -81,6 +81,22 @@ restart supervision, and converges with the controller after reconnecting.
 probes. It returns only `ok`, never cluster metadata. All ConnectRPC operator
 methods require a verified administrator certificate.
 
+## Upgrade an existing one-node cluster
+
+Plan #9 changes the internal controller/agent protocol, so upgrade the
+controller and agents as one coordinated maintenance operation. Stop the
+existing agent, stop and back up the controller, upgrade both binaries, start
+the controller so its forward-only migration completes, and then start the
+original agent before enrolling more nodes. Do not run old and new protocol
+versions together.
+
+The migration preserves the original node ID, certificate and public-key
+binding, first workload `/24`, immutable application/assignment history,
+encrypted records, and local runtime ownership labels. Matching existing
+workloads are adopted rather than recreated. A failed migration must be
+recovered from the pre-upgrade controller backup; do not edit SQLite or
+host-local CNI state by hand.
+
 ## Configure the workload CIDR
 
 New clusters use `10.88.0.0/16`. Before the first agent reports a ready
@@ -95,13 +111,14 @@ orch network configure \
 
 The command is idempotent and reports its retry key. The first `READY` network
 observation freezes the CIDR permanently for this cluster; later attempts to
-change it fail closed. The one supported node owns the first `/24` and uses its
-first usable address as the bridge and DNS gateway.
+change it fail closed. Every active node owns one stable `/24` and uses its
+first usable address as the bridge and DNS gateway. A migrated first node keeps
+the first `/24` and existing workload objects.
 
 ## Enroll and run the agent
 
 `agent init` creates a P-256 private key locally, stages its CSR and retry key,
-and asks the running controller to enroll the one supported node:
+and asks the running controller to enroll a uniquely named node:
 
 ~~~console
 orch agent init \
@@ -112,16 +129,19 @@ orch agent init \
 
 The controller receives only the signed CSR and returns public certificates.
 If the request outcome is uncertain, rerun the exact command with the same data
-directory; orch resumes the staged CSR and idempotency key. A second node or a
-replacement key for the enrolled node is rejected.
+directory; orch resumes the staged CSR and idempotency key. Repeat the command
+on each host with a unique node name and private data directory. At most 20
+active nodes may be enrolled; replacing a key for an existing identity is
+rejected.
 
 Start the agent on a supported Linux host:
 
 Install the official CNI plugins 1.9.1 in `/opt/cni/bin`, enable
-`net.ipv4.ip_forward=1`, and make nftables available. Install Caddy 2.11.3 as a
-root-owned executable with only the low-port capability, then prepare its
-dedicated identity and private state directory. Exact account-management
-commands vary by distribution; the resulting invariants can be checked with:
+`net.ipv4.ip_forward=1`, and make nftables available. On ingress-enabled nodes,
+install Caddy 2.11.3 as a root-owned executable with only the low-port
+capability, then prepare its dedicated identity and private state directory.
+Exact account-management commands vary by distribution; the resulting
+invariants can be checked with:
 
 ~~~console
 setcap cap_net_bind_service=+ep /usr/bin/caddy
@@ -131,6 +151,10 @@ install -d -m 0700 -o orch-ingress -g orch-ingress /var/lib/orch-ingress
 ~~~console
 orch agent serve \
   --data-dir /var/lib/orch-agent \
+  --advertise-address 10.0.0.11 \
+  --wireguard-port 51820 \
+  --system-reserved-cpu 500m \
+  --system-reserved-memory 512Mi \
   --containerd-socket /run/containerd/containerd.sock \
   --snapshotter overlayfs \
   --cni-bin-dir /opt/cni/bin \
@@ -139,15 +163,23 @@ orch agent serve \
   --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
+The advertised address must be a canonical private IPv4 address reachable
+from every other node. Permit the
+configured UDP port, 51820 by default, between nodes. Reservations are
+subtracted from detected host totals; remaining CPU and memory are hard
+scheduling capacity, with no overcommit.
+
 The process validates the protected identity and SQLite cache before contacting
 containerd. It then requires Linux `amd64` or `arm64`, cgroups v2, containerd
 2.3.4, the configured snapshotter, `containerd-shim-runc-v2`, `runc`, official
 CNI plugins 1.9.1 with CNI 1.1.0 support, IPv4 forwarding, nftables, and the
-exact Caddy version, file capability, dedicated user, and owned admin socket.
-DNS and validated Caddy must both be ready before the first network generation
-is frozen, even when no public route is declared. Missing network/ingress
-capabilities are reported to the controller as explicit blockers. Run only one
-agent process for the data directory; `agent.lock` enforces local ownership.
+WireGuard kernel support and an available UDP listen port. An ingress-enabled
+node additionally requires the exact Caddy version, file capability, dedicated
+user, and owned admin socket; compute-only nodes do not. DNS and the requested
+network/ingress role must be ready before the first network generation is
+accepted. Missing capabilities are reported to the controller as explicit
+blockers. Run only one agent process for the data directory; `agent.lock`
+enforces local ownership.
 
 See [networking.md](networking.md) for CIDR conflict recovery, DNS behavior,
 firewall ownership, public DNS and port requirements, Caddy persistence, and
@@ -170,13 +202,58 @@ The resulting layout is:
 │   ├── host-local/
 │   ├── firewall-owner.json
 │   ├── resolv.conf
-│   └── resolv-<application>.conf
+│   ├── resolv-<application>.conf
+│   └── wireguard/
+│       ├── owner.json
+│       └── wireguard.key
 └── volumes/
 ~~~
 
 Stop the agent with SIGINT or SIGTERM. It closes its control stream and cache
 but intentionally leaves desired tasks running. On restart, matching
 orch-labeled tasks are adopted; mismatched objects are refused.
+
+## Label and operate nodes
+
+The node-management commands are:
+
+~~~console
+orch node label node-1 region=eu-west storage=fast --context "$HOME/.config/orch/context.json"
+orch node unlabel node-1 storage --context "$HOME/.config/orch/context.json"
+orch node cordon node-1 --context "$HOME/.config/orch/context.json"
+orch node uncordon node-1 --context "$HOME/.config/orch/context.json"
+orch node ingress node-1 --enable --context "$HOME/.config/orch/context.json"
+orch node drain node-1 --context "$HOME/.config/orch/context.json"
+orch node remove node-1 --context "$HOME/.config/orch/context.json"
+orch node remove node-1 --lost --confirm-fenced --context "$HOME/.config/orch/context.json"
+~~~
+
+Labels are bounded exact key/value placement data. The `orch.*` prefix is
+reserved for immutable system labels. Changing a label may move only affected
+stateless allocations; it does not trigger a general rebalance. Ingress is a
+dedicated node property, not a label.
+
+Lifecycle and connection are separate:
+
+- `ACTIVE` nodes may keep and receive work.
+- `CORDONED` nodes keep current work but receive no new placements.
+- `DRAINING` nodes receive no new work and progressively evacuate movable work
+  within rollout budgets. The operation resumes after controller restart.
+- `REMOVED` nodes no longer authenticate, receive assignments, or join the
+  WireGuard mesh.
+
+Graceful drain waits for active cron runs and old assignment acknowledgement.
+A durable local-volume claim cannot move, so drain reports
+`local_volume_pinned` until the operator chooses how to handle that data.
+Normal removal requires the node connected, drained, empty, and acknowledging
+its final empty assignment.
+
+For an unreachable host, first fence it outside orch by powering it off or
+isolating its network/storage. Only then use `--lost --confirm-fenced`. This
+assertion allows its subnet to be reused and its cron templates to be assigned
+elsewhere; it never copies or recreates local-volume data. Without confirmed
+fencing, an unreachable cron owner remains sticky to avoid an automatic
+duplicate run.
 
 ## Inspect and submit desired state
 
@@ -238,9 +315,11 @@ orch exec runtime-demo worker --replica 1 \
   --context "$HOME/.config/orch/context.json" -- /bin/echo ok
 ~~~
 
-Node connection state is the current controller process's observation. An
-application reports desired and active generations plus ordered allocation and
-route states. `RUNNING` means the exact desired processes are alive. HTTP
+Node lifecycle is durable; connection is the current controller process's
+observation. `orch nodes` includes labels, total/reserved/assigned capacity,
+subnet, mesh and ingress state, plus drain blockers. An application reports
+node name, logical replica, immutable attempt ID, placement reason, desired and
+active revisions, and ordered route states. `RUNNING` means the exact desired processes are alive. HTTP
 applications reach `HEALTHY` only after readiness and all requested routes are
 active; `ROLLED_BACK` identifies the still-active previous generation. See
 [runtime.md](runtime.md) for every status and runtime limit.
@@ -248,8 +327,9 @@ active; `ROLLED_BACK` identifies the still-active previous generation. See
 Logs are a finite tail, not follow mode. Stdout and stderr remain separate and
 are streamed through the controller without being persisted there. Exec has no
 stdin or TTY, is never retried, accepts at most 64 arguments/8 KiB, and has a
-maximum five-minute timeout. Both operations require the exact allocation to be
-running on a currently connected agent.
+maximum five-minute timeout. Both operations resolve the current placement and
+require its exact node to be connected. Stale attempt IDs fail closed rather
+than reaching an old process.
 
 ## Remove an application
 
@@ -308,7 +388,9 @@ restore workflow rather than copying a database over a live controller.
   them. Inspect and recover or remove that state manually; never assume it is
   safe to mint a replacement administrator.
 - SQLite WAL is the single controller's source of truth. There is no control
-  plane high availability in this release.
+  plane high availability in this release. While it is unavailable, agents
+  preserve tasks, local restarts, WireGuard, DNS, ingress, and owned cron
+  schedules, but deployment, placement, drain, and rollout progress stops.
 - Controller state changes and idempotency responses commit in one transaction.
   A transport failure may leave the caller uncertain, so retry with the exact
   idempotency key printed or supplied for that request.
@@ -316,11 +398,22 @@ restore workflow rather than copying a database over a live controller.
   it does not mean a process has started. Execution state changes only from a
   report matching the current acknowledged generation and digest.
 - Local volumes are neither replicated nor included in controller backup. A
-  lost agent host can therefore lose the only copy of application data.
+  lost agent host can therefore lose the only copy of application data. Its
+  allocation reports `volume_node_lost` and is never started against an empty
+  volume on another node.
+- After 60 seconds unreachable, stateless replicas may be replaced with new
+  attempt IDs and stale endpoints are withdrawn. A partitioned old agent may
+  still run its cached attempt, so temporary duplicates are possible. orch
+  does not provide automatic fencing or singleton execution.
+
 ## Scheduled jobs
 
-The agent evaluates five-field cron schedules in UTC from its durable cached
-assignment, including while the controller is unavailable. It does not replay
-historical occurrences after downtime, overlap runs, or retry failures. Use
+The sticky owner agent evaluates five-field cron schedules in UTC from its
+durable cached assignment, including while the controller is unavailable. It
+does not replay historical occurrences after downtime, overlap runs, or retry
+failures. Graceful drain transfers ownership only after an active run finishes
+and the old node acknowledges removal. An unreachable owner is not replaced
+until external fencing is explicitly confirmed; exactly-once execution is not
+claimed. Use
 `orch cron runs APP JOB --context FILE` for the latest 20 outcomes and
 `orch cron logs APP JOB RUN_ID --context FILE` for a retained run's logs.

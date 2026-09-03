@@ -49,6 +49,7 @@ func normalize(manifest *Manifest) {
 		job.Resources.CPU = normalizeCPU(job.Resources.CPU)
 		job.Env = nilIfEmpty(job.Env)
 		job.SecretEnv = nilIfEmpty(job.SecretEnv)
+		job.Constraints = nilIfEmpty(job.Constraints)
 		sort.Slice(job.SecretFiles, func(left, right int) bool {
 			return job.SecretFiles[left].Target < job.SecretFiles[right].Target
 		})

@@ -14,7 +14,7 @@ import (
 	"change.codes/torsten/better-swarm/internal/model"
 )
 
-func TestAgentEnrollmentIsSingleNodeAndExactlyReplayable(t *testing.T) {
+func TestAgentEnrollmentIsMultiNodeAndExactlyReplayable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	state := openTestStore(t)
@@ -39,7 +39,7 @@ func TestAgentEnrollmentIsSingleNodeAndExactlyReplayable(t *testing.T) {
 		t.Fatalf("idempotency conflict = %v", err)
 	}
 	second := testEnrollAgent("node-two", "node-2", strings.Repeat("b", 64), "enrollment-key-two", strings.Repeat("3", 64))
-	if _, err := state.EnrollAgent(ctx, second); !errors.Is(err, ErrNodeAlreadyEnrolled) {
+	if result, err := state.EnrollAgent(ctx, second); err != nil || !result.Changed {
 		t.Fatalf("second node = %v", err)
 	}
 	wrongIdentity := input
@@ -50,11 +50,12 @@ func TestAgentEnrollmentIsSingleNodeAndExactlyReplayable(t *testing.T) {
 		t.Fatalf("same key with wrong node identity = %v", err)
 	}
 	nodes, err := state.Nodes(ctx)
-	if err != nil || len(nodes) != 1 || nodes[0].ClusterID != "cluster-one" || nodes[0].PublicKeyHash != input.PublicKeyHash {
+	if err != nil || len(nodes) != 2 || nodes[0].ClusterID != "cluster-one" || nodes[0].PublicKeyHash != input.PublicKeyHash ||
+		nodes[1].Ordinal != 1 || !nodes[0].Ingress || nodes[1].Ingress {
 		t.Fatalf("Nodes() = %#v, %v", nodes, err)
 	}
 	events, err := state.EventsAfter(ctx, 0, 10)
-	if err != nil || len(events) != 2 || events[1].Kind != model.EventNodeEnrolled {
+	if err != nil || len(events) != 3 || events[1].Kind != model.EventNodeEnrolled || events[2].Kind != model.EventNodeEnrolled {
 		t.Fatalf("events = %#v, %v", events, err)
 	}
 }
@@ -116,6 +117,9 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 	application, err := state.Application(ctx, "hello")
 	if err != nil || application.Execution.Status != model.ExecutionRunning || application.Execution.ObservedGeneration != 1 || len(application.Execution.Allocations) != 1 {
 		t.Fatalf("application execution = %#v, %v", application.Execution, err)
+	}
+	if observed := application.Execution.Allocations[0]; observed.NodeID != "node-one" || observed.NodeName != "node-1" {
+		t.Fatalf("allocation placement identity = %#v", observed)
 	}
 	node, err := state.Node(ctx)
 	if err != nil || node.AcknowledgedGeneration != 1 || node.LastReportSequence != 1 || node.LastBootID != "boot-one" {
@@ -198,6 +202,9 @@ func TestTCPReadinessAndRouteProduceHealthyExecution(t *testing.T) {
 	if err != nil || application.Execution.Status != model.ExecutionHealthy || len(application.Execution.TCPRoutes) != 1 ||
 		len(application.Execution.CronJobs) != 1 || len(application.Execution.JobRuns) != 1 {
 		t.Fatalf("TCP execution = %#v, %v", application.Execution, err)
+	}
+	if route := application.Execution.TCPRoutes[0]; route.NodeID != "node-one" || route.NodeName != "node-1" {
+		t.Fatalf("TCP route node identity = %#v", route)
 	}
 }
 

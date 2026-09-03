@@ -53,6 +53,7 @@ type pklCronJob struct {
 	SecretEnv     map[string]string `pkl:"secretEnv"`
 	SecretFiles   []pklSecretFile   `pkl:"secretFiles"`
 	DependsOn     []string          `pkl:"dependsOn"`
+	Constraints   map[string]string `pkl:"constraints"`
 	StartDeadline string            `pkl:"startDeadline"`
 	Timeout       string            `pkl:"timeout"`
 }
@@ -147,6 +148,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			Resources: Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
 			Env:       cloneMap(input.Env), SecretEnv: cloneMap(input.SecretEnv), SecretFiles: secretFiles,
 			DependsOn:     append([]string(nil), input.DependsOn...),
+			Constraints:   cloneMap(input.Constraints),
 			StartDeadline: input.StartDeadline, Timeout: input.Timeout,
 		}
 	}

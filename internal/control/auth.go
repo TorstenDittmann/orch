@@ -33,12 +33,23 @@ func authenticateAgent(clusterID string, state *store.Store, next http.Handler) 
 			principal.err = errors.New("verified agent client certificate is required")
 			principal.code = connect.CodeUnauthenticated
 		} else {
-			node, err := state.Node(request.Context())
+			certificate := request.TLS.PeerCertificates[0]
+			nodeID, identityErr := security.AgentNodeID(certificate, clusterID)
+			if identityErr != nil {
+				principal.err = identityErr
+				principal.code = connect.CodePermissionDenied
+				ctx := context.WithValue(request.Context(), agentPrincipalKey{}, principal)
+				next.ServeHTTP(response, request.WithContext(ctx))
+				return
+			}
+			node, err := state.NodeByID(request.Context(), nodeID)
 			if err != nil {
 				principal.err = errors.New("no agent is enrolled")
 				principal.code = connect.CodePermissionDenied
+			} else if node.Lifecycle == "REMOVED" {
+				principal.err = errors.New("agent node was removed")
+				principal.code = connect.CodePermissionDenied
 			} else {
-				certificate := request.TLS.PeerCertificates[0]
 				if err := security.VerifyAgentPeerIdentity(certificate, clusterID, node.ID); err != nil {
 					principal.err = err
 					principal.code = connect.CodePermissionDenied

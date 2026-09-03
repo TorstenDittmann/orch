@@ -205,7 +205,7 @@ func TestAssignmentCommitPreservesPlan4AllocationDuringNetworkPreflight(t *testi
 		t.Fatalf("CommitAssignment(legacy preflight) = %t, %v", changed, err)
 	}
 	got, err := cache.Assignment(context.Background())
-	if err != nil || len(got.Allocations) != 1 || got.Allocations[0].SpecDigest != allocation.SpecDigest || got.Network != network {
+	if err != nil || len(got.Allocations) != 1 || got.Allocations[0].SpecDigest != allocation.SpecDigest || !model.NetworkConfigEqual(got.Network, network) {
 		t.Fatalf("Assignment(legacy preflight) = %#v, %v", got, err)
 	}
 }

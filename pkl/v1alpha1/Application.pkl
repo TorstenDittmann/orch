@@ -53,6 +53,7 @@ class Service {
 
   secretFiles: Listing<SecretFile>(length <= 64) = new {}
 
+  /// Exact node-label matches required by every replica.
   constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
 
   mounts: Listing<Mount>(length <= 64) = new {}
@@ -98,6 +99,9 @@ class CronJob {
   secretFiles: Listing<SecretFile>(length <= 64) = new {}
 
   dependsOn: Listing<DnsLabel>(length <= 64, isDistinct) = new {}
+
+  /// Exact node-label matches required to own this cron schedule.
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
 
   startDeadline: String = "1m"
 

@@ -17,16 +17,23 @@ var (
 )
 
 type Capabilities struct {
-	OperatingSystem   string
-	Architecture      string
-	RuntimeVersion    string
-	Snapshotter       string
-	CgroupsV2         bool
-	CNIVersion        string
-	CNIPluginsVersion string
-	Nftables          bool
-	CaddyVersion      string
-	DNSAvailable      bool
+	OperatingSystem        string
+	Architecture           string
+	RuntimeVersion         string
+	Snapshotter            string
+	CgroupsV2              bool
+	CNIVersion             string
+	CNIPluginsVersion      string
+	Nftables               bool
+	CaddyVersion           string
+	DNSAvailable           bool
+	TotalCPUMillis         uint64
+	TotalMemoryBytes       uint64
+	AllocatableCPUMillis   uint64
+	AllocatableMemoryBytes uint64
+	AdvertiseAddress       string
+	WireGuardPublicKey     string
+	WireGuardListenPort    uint32
 }
 
 type Options struct {

@@ -50,7 +50,7 @@ func (f *Fake) PrepareNetwork(_ context.Context, config model.NetworkConfig) err
 		return f.NetworkError
 	}
 	if config.Generation != 0 {
-		if f.PreparedNetwork != config {
+		if !model.NetworkConfigEqual(f.PreparedNetwork, config) {
 			f.Operations = append(f.Operations, "network:"+config.NodeSubnet)
 			f.PreparedNetwork = config
 			if prefix, err := netip.ParsePrefix(config.NodeSubnet); err == nil {

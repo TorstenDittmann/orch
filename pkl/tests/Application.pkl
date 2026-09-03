@@ -40,6 +40,7 @@ facts {
     cronJob.dependsOn.isEmpty
     cronJob.secretEnv.isEmpty
     cronJob.secretFiles.isEmpty
+    cronJob.constraints.isEmpty
   }
   ["deployment defaults"] {
     deployment.maxSurge == 1

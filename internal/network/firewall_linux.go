@@ -5,10 +5,12 @@ package network
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -23,6 +25,7 @@ type firewall struct {
 	stateDir  string
 	tableName string
 	bridge    string
+	wireguard string
 }
 
 type firewallOwner struct {
@@ -91,6 +94,16 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},
 		&expr.Verdict{Kind: expr.VerdictAccept},
 	}})
+	// WireGuard cryptographically authenticates peers and enforces their
+	// configured source prefixes. Permit those routed packets onto the local
+	// workload bridge without opening any foreign host interface.
+	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: append([]byte(f.wireguard), 0)},
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}})
 	states := expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED
 	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
@@ -108,6 +121,19 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},
 		&expr.Verdict{Kind: expr.VerdictDrop},
+	}})
+	cluster := netip.MustParsePrefix(config.ClusterCIDR)
+	clusterAddress := cluster.Addr().As4()
+	clusterMask := binary.BigEndian.Uint32(net.CIDRMask(cluster.Bits(), 32))
+	maskBytes, clusterBytes := make([]byte, 4), make([]byte, 4)
+	binary.BigEndian.PutUint32(maskBytes, clusterMask)
+	binary.BigEndian.PutUint32(clusterBytes, binary.BigEndian.Uint32(clusterAddress[:])&clusterMask)
+	// Cluster traffic must retain allocation source addresses across the mesh.
+	connection.AddRule(&nftables.Rule{Table: table, Chain: postrouting, Exprs: []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: maskBytes, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: clusterBytes},
+		&expr.Verdict{Kind: expr.VerdictAccept},
 	}})
 	subnet := netip.MustParsePrefix(config.NodeSubnet)
 	address := subnet.Addr().As4()

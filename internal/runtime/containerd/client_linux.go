@@ -27,6 +27,7 @@ import (
 	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
+	"golang.org/x/sys/unix"
 
 	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/network"
@@ -114,17 +115,25 @@ func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities
 	capabilities := orchruntime.Capabilities{
 		OperatingSystem: "linux", Architecture: runtime.GOARCH,
 		RuntimeVersion: "containerd " + version.Version, Snapshotter: c.options.Snapshotter, CgroupsV2: true,
+		TotalCPUMillis: uint64(runtime.NumCPU()) * 1000,
 	}
+	var system unix.Sysinfo_t
+	if err := unix.Sysinfo(&system); err == nil {
+		capabilities.TotalMemoryBytes = system.Totalram * uint64(system.Unit)
+	}
+	capabilities.AllocatableCPUMillis = capabilities.TotalCPUMillis
+	capabilities.AllocatableMemoryBytes = capabilities.TotalMemoryBytes
 	if c.options.Network != nil {
 		networkCapabilities, networkErr := c.options.Network.Preflight(ctx)
 		c.mu.Lock()
 		c.networkPreflightErr = networkErr
-		if networkErr == nil {
-			c.networkCapabilities = networkCapabilities
-			capabilities.CNIVersion = networkCapabilities.CNIVersion
-			capabilities.CNIPluginsVersion = networkCapabilities.CNIPluginsVersion
-			capabilities.Nftables = networkCapabilities.Nftables
-		}
+		c.networkCapabilities = networkCapabilities
+		capabilities.CNIVersion = networkCapabilities.CNIVersion
+		capabilities.CNIPluginsVersion = networkCapabilities.CNIPluginsVersion
+		capabilities.Nftables = networkCapabilities.Nftables
+		capabilities.AdvertiseAddress = networkCapabilities.AdvertiseAddress
+		capabilities.WireGuardPublicKey = networkCapabilities.WireGuardPublicKey
+		capabilities.WireGuardListenPort = networkCapabilities.WireGuardListenPort
 		c.mu.Unlock()
 	}
 	return capabilities, nil
@@ -144,9 +153,7 @@ func (c *runtimeClient) PrepareNetwork(ctx context.Context, config model.Network
 		capabilities, err := c.options.Network.Preflight(ctx)
 		c.mu.Lock()
 		c.networkPreflightErr = err
-		if err == nil {
-			c.networkCapabilities = capabilities
-		}
+		c.networkCapabilities = capabilities
 		c.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("network preflight: %w", err)

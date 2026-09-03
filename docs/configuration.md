@@ -87,14 +87,39 @@ tcp = new Tcp {
 
 Dependencies name services in the same application. They form a distinct,
 acyclic graph. Startup waits for one RUNNING process-only replica or one READY
-endpoint replica. Existing processes are not stopped when a dependency later
-becomes unavailable.
+endpoint replica anywhere in the cluster. Existing processes are not stopped
+when a dependency later becomes unavailable; the outage blocks and explains
+future starts.
+
+Constraints are exact matches against operator labels. Every key/value pair
+must match on a node; orch does not interpret ranges, sets, preferences, or
+topology expressions. The `orch.*` prefix is reserved for immutable system
+labels. Replicas spread across feasible nodes when capacity allows, without a
+manifest-level spread policy:
+
+~~~pkl
+services {
+  ["web"] {
+    image = "registry.example/web@sha256:..."
+    replicas = 3
+    constraints {
+      ["region"] = "eu-west"
+      ["tier"] = "compute"
+    }
+  }
+}
+~~~
+
+An empty mapping preserves the earlier `v1alpha1` canonical form and service
+spec digest. Constraints are hard requirements: unmatched labels or exhausted
+CPU/memory capacity block placement rather than falling back to another node.
 
 ## Scheduled jobs
 
 Cron jobs use exactly five UTC fields and run one container per occurrence.
 They do not have replicas, restart policies, endpoints, or persistent mounts.
-They support the same `secretEnv` and `secretFiles` projections as services.
+They support the same `secretEnv`, `secretFiles`, and exact node-label
+`constraints` as services.
 
 ~~~pkl
 cronJobs {
@@ -103,6 +128,7 @@ cronJobs {
     schedule = "*/2 * * * *"
     command { "/bin/backup-monitor" }
     dependsOn { "database" }
+    constraints { ["region"] = "eu-west" }
     startDeadline = "30s"
     timeout = "10m"
   }
@@ -177,8 +203,10 @@ volumes {
 }
 ~~~
 
-These rules make the future scheduler's failure behavior explicit: the
-allocation stays attached to the node holding the data.
+At first placement the controller records a durable node claim. Every later
+generation stays on that node. Cordon leaves it running, drain reports
+`local_volume_pinned`, and loss reports `volume_node_lost`; orch never creates
+an empty replacement volume on another node.
 
 ## Deployment defaults
 
@@ -246,17 +274,18 @@ mise exec -- pkl eval \
   examples/hello/orch.pkl
 ~~~
 
-## Execution support in this slice
+## Execution support
 
-The schema accepts the complete `v1alpha1` contract so future intent remains
-forward-compatible, but the runtime executes a deliberately smaller subset. An
-executable service must use a public, digest-qualified OCI image and may use
+The schema accepts the complete `v1alpha1` contract. An executable service must
+use a digest-qualified OCI image and may use
 command, args, plain environment variables, replicas, restart policy, CPU and
 memory limits, declared local volumes, HTTP or TCP endpoints, dependency gates,
-and cron jobs. HTTP endpoints
-receive a private CNI address and a stable
+exact label constraints, and cron jobs. HTTP endpoints receive a private CNI
+address and a stable
 `<service>.<application>.svc.internal` DNS name. Domains are published through
-Caddy only after the readiness gate succeeds.
+Caddy on ingress-enabled nodes only after the readiness gate succeeds.
+Placement constraints, capacity, dependencies, and endpoint catalogs are
+enforced across the cluster.
 
 The controller stores valid but currently unsupported intent and reports the
 application as `BLOCKED` with a stable reason:
@@ -266,7 +295,10 @@ application as `BLOCKED` with a stable reason:
 | Image tag without a digest | `unsupported_image_tag` |
 | Referenced application secret is absent | `secret_missing` |
 | Secret environment value is not valid UTF-8 or contains NUL | `secret_environment_invalid` |
-| Node constraints | `constraints_unsupported` |
+| No node matches exact constraints | `constraint_mismatch` |
+| Matching nodes lack CPU | `insufficient_cpu` |
+| Matching nodes lack memory | `insufficient_memory` |
+| Claimed local-volume node is lost | `volume_node_lost` |
 | Non-Linux or non-amd64/arm64 node | `unsupported_platform` |
 | Missing cgroups v2 | `cgroups_v2_required` |
 | Missing compatible containerd | `containerd_unavailable` |

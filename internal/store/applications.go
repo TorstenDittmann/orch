@@ -18,6 +18,8 @@ const applyApplicationOperation = "application.apply"
 
 var (
 	ErrApplicationNotFound = errors.New("application was not found")
+	ErrApplicationLimit    = errors.New("cluster application limit of 100 was reached")
+	ErrAllocationLimit     = errors.New("cluster desired allocation limit of 200 was reached")
 	ErrIdempotencyConflict = errors.New("idempotency key was already used for a different request")
 )
 
@@ -138,6 +140,16 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		RevisionID: input.RevisionID, ExecutionStatus: model.ExecutionPending,
 		CreatedAt: stamp, UpdatedAt: stamp,
 	}
+	creatingOrReactivating := errors.Is(err, ErrApplicationNotFound) || current.DeletedAt != nil
+	if creatingOrReactivating {
+		var activeApplications int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM applications WHERE deleted_at IS NULL`).Scan(&activeApplications); err != nil {
+			return model.ApplyApplicationResult{}, fmt.Errorf("count active applications: %w", err)
+		}
+		if activeApplications >= 100 {
+			return model.ApplyApplicationResult{}, ErrApplicationLimit
+		}
+	}
 
 	if errors.Is(err, ErrApplicationNotFound) {
 		result.Generation = 1
@@ -159,6 +171,17 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 	}
 
 	if result.Changed {
+		requested, err := manifestAllocationCount(input.CanonicalManifest)
+		if err != nil {
+			return model.ApplyApplicationResult{}, err
+		}
+		total, err := otherApplicationAllocationCount(ctx, tx, input.Name)
+		if err != nil {
+			return model.ApplyApplicationResult{}, err
+		}
+		if requested > 200 || total > 200-requested {
+			return model.ApplyApplicationResult{}, ErrAllocationLimit
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO application_revisions
 			(id, application_name, generation, digest, canonical_manifest, created_at)
 			VALUES (?, ?, ?, ?, ?, ?)`, input.RevisionID, input.Name, result.Generation,
@@ -209,6 +232,51 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		return model.ApplyApplicationResult{}, fmt.Errorf("commit application apply: %w", err)
 	}
 	return result, nil
+}
+
+func manifestAllocationCount(canonical []byte) (uint64, error) {
+	var document struct {
+		Services map[string]struct {
+			Replicas uint64 `json:"replicas"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(canonical, &document); err != nil {
+		return 0, fmt.Errorf("decode canonical manifest allocation count: %w", err)
+	}
+	var total uint64
+	for _, service := range document.Services {
+		if service.Replicas > 200 || total > 200-service.Replicas {
+			return 201, nil
+		}
+		total += service.Replicas
+	}
+	return total, nil
+}
+
+func otherApplicationAllocationCount(ctx context.Context, tx *sql.Tx, excluded string) (uint64, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT r.canonical_manifest FROM applications a
+		JOIN application_revisions r ON r.application_name = a.name AND r.generation = a.generation
+		WHERE a.deleted_at IS NULL AND a.name != ?`, excluded)
+	if err != nil {
+		return 0, fmt.Errorf("read active application allocation counts: %w", err)
+	}
+	defer rows.Close()
+	var total uint64
+	for rows.Next() {
+		var canonical string
+		if err := rows.Scan(&canonical); err != nil {
+			return 0, fmt.Errorf("scan active application allocation count: %w", err)
+		}
+		count, err := manifestAllocationCount([]byte(canonical))
+		if err != nil {
+			return 0, err
+		}
+		if count > 200 || total > 200-count {
+			return 201, nil
+		}
+		total += count
+	}
+	return total, rows.Err()
 }
 
 func validateApplicationInput(input model.ApplyApplication) error {
@@ -321,12 +389,14 @@ func scanApplication(row applicationScanner) (model.Application, error) {
 }
 
 func (s *Store) applicationObservations(ctx context.Context, name string) ([]model.AllocationStatus, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, application_name, service_name, replica,
-		application_generation, spec_digest, phase, reason, message, exit_code,
-		restart_count, updated_at, health_status, address, active_spec_digest,
-		active_generation, active_revision_id, ready_at, declared_port
-		FROM allocation_observations WHERE application_name = ?
-		ORDER BY service_name, replica, id`, name)
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.application_name, o.service_name, o.replica,
+		o.application_generation, o.spec_digest, o.phase, o.reason, o.message, o.exit_code,
+		o.restart_count, o.updated_at, o.health_status, o.address, o.active_spec_digest,
+		o.active_generation, o.active_revision_id, o.ready_at, o.declared_port,
+		o.node_id, n.name, COALESCE(p.reason, '')
+		FROM allocation_observations o JOIN nodes n ON n.id = o.node_id
+		LEFT JOIN placement_attempts p ON p.id = o.id
+		WHERE o.application_name = ? ORDER BY o.service_name, o.replica, o.id`, name)
 	if err != nil {
 		return nil, fmt.Errorf("read application allocations: %w", err)
 	}
@@ -341,7 +411,8 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 		if err := rows.Scan(&item.ID, &item.Application, &item.Service, &replica,
 			&generation, &item.SpecDigest, &item.Phase, &item.Reason, &item.Message,
 			&exitCode, &restartCount, &updatedAt, &item.HealthStatus, &item.Address,
-			&item.ActiveSpecDigest, &activeGeneration, &item.ActiveRevisionID, &readyAt, &item.DeclaredPort); err != nil {
+			&item.ActiveSpecDigest, &activeGeneration, &item.ActiveRevisionID, &readyAt, &item.DeclaredPort,
+			&item.NodeID, &item.NodeName, &item.PlacementReason); err != nil {
 			return nil, fmt.Errorf("scan application allocation: %w", err)
 		}
 		if replica < 1 || generation < 1 || restartCount < 0 {
@@ -374,10 +445,24 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 	return result, nil
 }
 
+func (s *Store) CronRunNode(ctx context.Context, application, job, runID string) (model.Node, error) {
+	var nodeID string
+	err := s.db.QueryRowContext(ctx, `SELECT node_id FROM cron_run_observations
+		WHERE application_name = ? AND job_name = ? AND id = ?`, application, job, runID).Scan(&nodeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Node{}, ErrAssignmentNotFound
+	}
+	if err != nil {
+		return model.Node{}, fmt.Errorf("read cron run owner: %w", err)
+	}
+	return s.NodeByID(ctx, nodeID)
+}
+
 func (s *Store) applicationRoutes(ctx context.Context, name string) ([]model.RouteStatus, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT application_name, service_name, domain, https,
-		state, certificate_state, upstream_count, reason, message, updated_at
-		FROM route_observations WHERE application_name = ? ORDER BY domain`, name)
+	rows, err := s.db.QueryContext(ctx, `SELECT r.application_name, r.service_name, r.domain, r.https,
+		r.state, r.certificate_state, r.upstream_count, r.reason, r.message, r.updated_at,
+		r.node_id, n.name FROM route_observations r JOIN nodes n ON n.id = r.node_id
+		WHERE r.application_name = ? ORDER BY r.domain, n.name`, name)
 	if err != nil {
 		return nil, fmt.Errorf("read application routes: %w", err)
 	}
@@ -389,7 +474,7 @@ func (s *Store) applicationRoutes(ctx context.Context, name string) ([]model.Rou
 		var updatedAt string
 		if err := rows.Scan(&item.Application, &item.Service, &item.Domain, &https,
 			&item.State, &item.CertificateState, &upstreams, &item.Reason, &item.Message,
-			&updatedAt); err != nil {
+			&updatedAt, &item.NodeID, &item.NodeName); err != nil {
 			return nil, fmt.Errorf("scan application route: %w", err)
 		}
 		if upstreams < 0 {
@@ -407,9 +492,10 @@ func (s *Store) applicationRoutes(ctx context.Context, name string) ([]model.Rou
 }
 
 func (s *Store) applicationTCPRoutes(ctx context.Context, name string) ([]model.TCPRouteStatus, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT application_name, service_name, public_port, target_port,
-		state, upstream_count, reason, message, updated_at FROM tcp_route_observations
-		WHERE application_name=? ORDER BY public_port`, name)
+	rows, err := s.db.QueryContext(ctx, `SELECT r.application_name, r.service_name, r.public_port, r.target_port,
+		r.state, r.upstream_count, r.reason, r.message, r.updated_at, r.node_id, n.name
+		FROM tcp_route_observations r JOIN nodes n ON n.id = r.node_id
+		WHERE r.application_name=? ORDER BY r.public_port, n.name`, name)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +505,7 @@ func (s *Store) applicationTCPRoutes(ctx context.Context, name string) ([]model.
 		var item model.TCPRouteStatus
 		var updated string
 		if err := rows.Scan(&item.Application, &item.Service, &item.PublicPort, &item.TargetPort, &item.State,
-			&item.UpstreamCount, &item.Reason, &item.Message, &updated); err != nil {
+			&item.UpstreamCount, &item.Reason, &item.Message, &updated, &item.NodeID, &item.NodeName); err != nil {
 			return nil, err
 		}
 		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)

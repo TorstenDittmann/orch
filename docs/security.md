@@ -2,14 +2,13 @@
 
 The current slice establishes local identity, secure file boundaries, an
 authenticated HTTPS API for one controller, and administrator-authorized
-enrollment for exactly one agent. It does not yet provide certificate rotation,
-revocation, node replacement, additional administrator issuance, or multi-user
-RBAC.
+enrollment of at most 20 active agents. It does not provide certificate rotation,
+revocation lists, additional administrator issuance, or multi-user RBAC.
 
 ## Identity hierarchy
 
 Initialization creates a P-256 private cluster CA and two leaf identities.
-Agent enrollment later signs a third leaf identity:
+Each agent enrollment later signs another leaf identity:
 
 - The controller certificate has server-auth and client-auth extended key
   usages. Its DNS name or IP SAN is taken from `--server`.
@@ -45,17 +44,21 @@ usage, or an expired certificate is rejected. The CLI performs the symmetric
 controller role/cluster check in addition to normal TLS hostname and chain
 verification.
 
-The agent stream is a separate ConnectRPC route. It requires the exact enrolled
-agent certificate, public-key fingerprint, certificate serial, cluster ID, and
-node ID. An administrator or controller certificate cannot open it. A healthy
-stream prevents another process holding copied agent credentials from taking
-over; a stale session is replaceable only after the heartbeat timeout.
+The agent stream is a separate ConnectRPC route. It requires the exact active
+node's enrolled certificate, public-key fingerprint, certificate serial,
+cluster ID, and node ID. An administrator or controller certificate cannot
+open it. One healthy stream is permitted per node identity; concurrent streams
+from different active nodes are independent. A removed node certificate is
+rejected immediately.
 
-Enrollment itself is an administrator-only API. The agent private key never
+Enrollment itself is an administrator-only API, bounded to 20 active nodes.
+The agent private key never
 crosses the network: `agent init` durably stages the private key, CSR, and
 idempotency key before sending the CSR. The controller ignores requested CSR
 SANs and signs only the computed node identity. Lost or expired agent identity
-cannot be silently replaced in this release.
+cannot be silently replaced in this release. Removal is not proof of host
+fencing: an unreachable node must be powered off or otherwise isolated by the
+operator before `--lost --confirm-fenced` is used.
 
 The metadata-free `/healthz` endpoint is the only route that permits a TLS
 connection without a client certificate. It reports no version, cluster,
@@ -123,6 +126,13 @@ the mutually authenticated agent stream, and the agent encrypts that bundle
 under its cache key before acknowledging the assignment. A missing or
 mismatched key fails closed.
 
+Each multi-node agent also owns a distinct mode-`0600` WireGuard private key
+outside SQLite. Only its public key is reported to the controller and assigned
+to peers. The controller authorizes an exact public key, private IPv4 endpoint,
+UDP port, and `/24` per active peer; an agent rejects catalogs containing
+unknown subnets or keys. Cross-node workload traffic is encrypted by
+WireGuard, but encryption does not supply workload identity or network policy.
+
 The controller never persists workload log bytes, exec arguments, or exec
 output. The agent keeps stdout and stderr in separate protected, bounded files.
 Exec is non-interactive, deadline-bound, and routed only to an exact running
@@ -179,7 +189,28 @@ credentials.
   marker or Caddy account for unrelated services.
 - Back up local volume directories separately. They are preserved on remove
   but are neither replicated nor present in controller backups.
+- Permit WireGuard UDP (51820 by default) only between the canonical private
+  node addresses and keep those addresses mutually reachable. orch does not
+  provide NAT traversal, a relay, or automatic cloud firewall changes.
+- Treat `--lost --confirm-fenced` as a safety assertion, not a cleanup shortcut.
+  Verify the old host cannot run its cached assignment before permitting cron
+  ownership or a node subnet to be reused.
 
-The current single-node design stores the CA key online for agent enrollment.
+The single-controller design stores the CA key online for agent enrollment.
 Moving signing offline or introducing an intermediate CA requires a separate
 design and migration plan.
+
+## Partition and controller-outage boundary
+
+The controller removes an unreachable node's endpoints from new discovery and
+ingress catalogs and may replace its stateless service attempts after the
+60-second loss grace. It cannot revoke an assignment already cached on an
+isolated host. That host may continue running processes and restarting them,
+so a partition can temporarily create duplicate stateless instances. orch
+does not claim fencing or strong singleton execution.
+
+Local-volume allocations never move automatically. Cron ownership moves only
+after graceful acknowledgement or explicit confirmed fencing. During a
+controller outage, agents continue their last authenticated assignment,
+WireGuard peer set, DNS, ingress, cron schedules, and local restart behavior;
+no new placement or rollout decision is authorized.

@@ -50,6 +50,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runController(ctx, args[1:], stdout, stderr)
 	case "nodes":
 		return runNodes(ctx, args[1:], stdout, stderr)
+	case "node":
+		return runNode(ctx, args[1:], stdout, stderr)
 	case "network":
 		return runNetwork(ctx, args[1:], stdout, stderr)
 	case "app":
@@ -759,6 +761,7 @@ Usage:
   orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
   orch network configure --cidr CIDR --context FILE [--idempotency-key KEY] [--json]
   orch nodes --context FILE [--json]
+  orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE
   orch app status NAME --context FILE [--json]
   orch logs APP SERVICE --replica N --tail N --context FILE
   orch exec APP SERVICE --replica N --context FILE -- COMMAND [ARG...]

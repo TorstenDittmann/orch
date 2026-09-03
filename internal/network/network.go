@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -13,10 +14,11 @@ import (
 )
 
 var (
-	ErrNotFound          = errors.New("network attachment was not found")
-	ErrOwnershipMismatch = errors.New("network ownership does not match")
-	ErrCIDRConflict      = errors.New("workload CIDR conflicts with host networking")
-	ErrUnsupported       = errors.New("workload networking is unsupported on this platform")
+	ErrNotFound             = errors.New("network attachment was not found")
+	ErrOwnershipMismatch    = errors.New("network ownership does not match")
+	ErrCIDRConflict         = errors.New("workload CIDR conflicts with host networking")
+	ErrWireGuardUnavailable = errors.New("WireGuard is unavailable")
+	ErrUnsupported          = errors.New("workload networking is unsupported on this platform")
 )
 
 const (
@@ -25,9 +27,12 @@ const (
 )
 
 type Capabilities struct {
-	CNIVersion        string
-	CNIPluginsVersion string
-	Nftables          bool
+	CNIVersion          string
+	CNIPluginsVersion   string
+	Nftables            bool
+	AdvertiseAddress    string
+	WireGuardPublicKey  string
+	WireGuardListenPort uint32
 }
 
 type Options struct {
@@ -65,6 +70,7 @@ type AttachmentStore interface {
 
 type Manager interface {
 	Preflight(context.Context) (Capabilities, error)
+	Validate(context.Context, model.NetworkConfig) error
 	Prepare(context.Context, model.NetworkConfig) error
 	Attach(context.Context, AttachmentRequest) (Attachment, error)
 	Inspect(context.Context, AttachmentRequest) (Attachment, error)
@@ -107,6 +113,17 @@ func (f *Fake) Preflight(context.Context) (Capabilities, error) {
 	return f.Capabilities, f.PreflightErr
 }
 
+func (f *Fake) Validate(_ context.Context, config model.NetworkConfig) error {
+	if f.PrepareErr != nil {
+		return f.PrepareErr
+	}
+	prefix, err := netip.ParsePrefix(config.NodeSubnet)
+	if err != nil || config.Generation == 0 || !prefix.Addr().Is4() {
+		return fmt.Errorf("invalid fake network configuration")
+	}
+	return nil
+}
+
 func (f *Fake) Prepare(_ context.Context, config model.NetworkConfig) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -117,7 +134,7 @@ func (f *Fake) Prepare(_ context.Context, config model.NetworkConfig) error {
 	if err != nil || config.Generation == 0 || !prefix.Addr().Is4() {
 		return fmt.Errorf("invalid fake network configuration")
 	}
-	if f.Config == config {
+	if reflect.DeepEqual(f.Config, config) {
 		return nil
 	}
 	f.Config = config

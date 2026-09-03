@@ -281,3 +281,47 @@ func TestApplyApplicationValidatesInput(t *testing.T) {
 		t.Fatalf("ApplyApplication() = %v, want digest mismatch", err)
 	}
 }
+
+func TestApplyApplicationRejectsOneHundredFirstActiveApplication(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 100; index++ {
+		name := fmt.Sprintf("app-%03d", index)
+		input := applicationInput(fmt.Sprintf(`{"name":%q}`, name), fmt.Sprintf("revision-%03d", index),
+			fmt.Sprintf("application-key-%03d", index), testCreatedAt)
+		input.Name = name
+		if _, err := state.ApplyApplication(ctx, input); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	overflow := applicationInput(`{"name":"overflow"}`, "revision-overflow", "application-key-overflow", testCreatedAt)
+	overflow.Name = "overflow"
+	if _, err := state.ApplyApplication(ctx, overflow); !errors.Is(err, ErrApplicationLimit) {
+		t.Fatalf("one-hundred-first application = %v", err)
+	}
+}
+
+func TestApplyApplicationRejectsMoreThanTwoHundredClusterAllocations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	firstManifest := `{"name":"first","services":{"web":{"replicas":100},"worker":{"replicas":100}}}`
+	first := applicationInput(firstManifest, "allocation-limit-first", "allocation-limit-key-first", testCreatedAt)
+	first.Name = "first"
+	if _, err := state.ApplyApplication(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := applicationInput(`{"name":"second","services":{"web":{"replicas":1}}}`,
+		"allocation-limit-second", "allocation-limit-key-second", testCreatedAt)
+	second.Name = "second"
+	if _, err := state.ApplyApplication(ctx, second); !errors.Is(err, ErrAllocationLimit) {
+		t.Fatalf("two-hundred-first allocation = %v", err)
+	}
+}

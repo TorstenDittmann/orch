@@ -32,16 +32,18 @@ type Options struct {
 }
 
 type Server struct {
-	listener     net.Listener
-	http         *http.Server
-	state        *store.Store
-	sessions     *sessionManager
-	lock         *dataLock
-	serveDone    chan struct{}
-	serveErr     error
-	shutdownOnce sync.Once
-	shutdownDone chan struct{}
-	shutdownErr  error
+	listener        net.Listener
+	http            *http.Server
+	state           *store.Store
+	sessions        *sessionManager
+	lock            *dataLock
+	serveDone       chan struct{}
+	serveErr        error
+	shutdownOnce    sync.Once
+	shutdownDone    chan struct{}
+	shutdownErr     error
+	reconcileCancel context.CancelFunc
+	reconcileDone   chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -109,6 +111,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, secretBox, sessions, now)
 	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
 	reconciler.secretBox = secretBox
+	reconciler.sessions = sessions
 	implementation.reconciler = reconciler
 	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now}
 	path, handler := orchv1alpha1connect.NewControlServiceHandler(
@@ -144,10 +147,25 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          log.New(io.Discard, "", 0),
 	}
+	reconcileContext, reconcileCancel := context.WithCancel(ctx)
 	server := &Server{
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
+		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}),
 	}
+	go func() {
+		defer close(server.reconcileDone)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-reconcileContext.Done():
+				return
+			case <-ticker.C:
+				_ = reconciler.Reconcile(reconcileContext)
+			}
+		}
+	}()
 	go func() {
 		defer close(server.serveDone)
 		err := httpServer.ServeTLS(listener, "", "")
@@ -193,6 +211,8 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	}
 	server.shutdownOnce.Do(func() {
 		defer close(server.shutdownDone)
+		server.reconcileCancel()
+		<-server.reconcileDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

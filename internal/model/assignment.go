@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -126,12 +127,30 @@ type RollbackSpec struct {
 }
 
 type NetworkConfig struct {
-	Generation  uint64 `json:"generation"`
-	ClusterCIDR string `json:"cluster_cidr"`
-	NodeSubnet  string `json:"node_subnet"`
-	Gateway     string `json:"gateway"`
-	DNSZone     string `json:"dns_zone"`
+	Generation          uint64            `json:"generation"`
+	ClusterCIDR         string            `json:"cluster_cidr"`
+	NodeSubnet          string            `json:"node_subnet"`
+	Gateway             string            `json:"gateway"`
+	DNSZone             string            `json:"dns_zone"`
+	WireGuardListenPort uint16            `json:"wireguard_listen_port,omitempty"`
+	Peers               []WireGuardPeer   `json:"peers,omitempty"`
+	Endpoints           []ServiceEndpoint `json:"endpoints,omitempty"`
+	IngressEnabled      bool              `json:"ingress_enabled,omitempty"`
 }
+
+type ServiceEndpoint struct {
+	AllocationID  string   `json:"allocation_id"`
+	Application   string   `json:"application"`
+	Service       string   `json:"service"`
+	Address       string   `json:"address"`
+	Port          uint32   `json:"port"`
+	NodeID        string   `json:"node_id"`
+	Domains       []string `json:"domains,omitempty"`
+	HTTPS         bool     `json:"https,omitempty"`
+	TCPPublicPort uint32   `json:"tcp_public_port,omitempty"`
+}
+
+func NetworkConfigEqual(left, right NetworkConfig) bool { return reflect.DeepEqual(left, right) }
 
 // AllocationDesired is a runtime-independent, canonical unit of work.
 type AllocationDesired struct {
@@ -208,6 +227,8 @@ type Assignment struct {
 }
 
 type TCPRouteStatus struct {
+	NodeID        string    `json:"node_id,omitempty"`
+	NodeName      string    `json:"node_name,omitempty"`
 	Application   string    `json:"application"`
 	Service       string    `json:"service"`
 	PublicPort    uint32    `json:"public_port"`
@@ -249,6 +270,9 @@ type JobRunStatus struct {
 
 type AllocationStatus struct {
 	ID                    string     `json:"id"`
+	NodeID                string     `json:"node_id,omitempty"`
+	NodeName              string     `json:"node_name,omitempty"`
+	PlacementReason       string     `json:"placement_reason,omitempty"`
 	Application           string     `json:"application"`
 	Service               string     `json:"service"`
 	Replica               uint32     `json:"replica"`
@@ -272,6 +296,8 @@ type AllocationStatus struct {
 }
 
 type RouteStatus struct {
+	NodeID           string    `json:"node_id,omitempty"`
+	NodeName         string    `json:"node_name,omitempty"`
 	Application      string    `json:"application"`
 	Service          string    `json:"service"`
 	Domain           string    `json:"domain"`
@@ -309,19 +335,26 @@ type PublishAssignment struct {
 }
 
 type AgentCapabilities struct {
-	NodeID            string
-	BootID            string
-	OperatingSystem   string
-	Architecture      string
-	RuntimeVersion    string
-	Snapshotter       string
-	CgroupsV2         bool
-	CNIVersion        string
-	CNIPluginsVersion string
-	Nftables          bool
-	CaddyVersion      string
-	DNSAvailable      bool
-	SeenAt            time.Time
+	NodeID                 string
+	BootID                 string
+	OperatingSystem        string
+	Architecture           string
+	RuntimeVersion         string
+	Snapshotter            string
+	CgroupsV2              bool
+	CNIVersion             string
+	CNIPluginsVersion      string
+	Nftables               bool
+	CaddyVersion           string
+	DNSAvailable           bool
+	TotalCPUMillis         uint64
+	TotalMemoryBytes       uint64
+	AllocatableCPUMillis   uint64
+	AllocatableMemoryBytes uint64
+	AdvertiseAddress       string
+	WireGuardPublicKey     string
+	WireGuardListenPort    uint32
+	SeenAt                 time.Time
 }
 
 type AgentReport struct {

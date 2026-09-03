@@ -1,0 +1,25 @@
+amends "orch:/v1alpha1/Application.pkl"
+
+name = "multinode-demo"
+
+services {
+  ["api"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command { "/bin/sh" }
+    args { "-c"; "mkdir -p /www; echo ok >/www/healthz; exec httpd -f -p 8080 -h /www" }
+    replicas = 3
+    resources {
+      cpu = "250m"
+      memory = "128Mi"
+    }
+    constraints {
+      ["region"] = "eu-west"
+      ["tier"] = "compute"
+    }
+    http = new Http {
+      port = 8080
+      healthPath = "/healthz"
+    }
+  }
+}

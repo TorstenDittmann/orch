@@ -212,12 +212,16 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		return fmt.Errorf("read cached assignment: %w", cachedErr)
 	}
 	hello := &orchv1alpha1.AgentHello{
-		ProtocolVersion: "v1alpha1-workloads-3", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		ProtocolVersion: "v1alpha1-workloads-4", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
 		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
 		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
 		CgroupsV2: r.capabilities.CgroupsV2, CniVersion: r.capabilities.CNIVersion,
 		CniPluginsVersion: r.capabilities.CNIPluginsVersion, Nftables: r.capabilities.Nftables,
 		CaddyVersion: r.capabilities.CaddyVersion, DnsAvailable: r.capabilities.DNSAvailable,
+		TotalCpuMillis: r.capabilities.TotalCPUMillis, TotalMemoryBytes: r.capabilities.TotalMemoryBytes,
+		AllocatableCpuMillis: r.capabilities.AllocatableCPUMillis, AllocatableMemoryBytes: r.capabilities.AllocatableMemoryBytes,
+		AdvertiseAddress: r.capabilities.AdvertiseAddress, WireguardPublicKey: r.capabilities.WireGuardPublicKey,
+		WireguardListenPort: r.capabilities.WireGuardListenPort,
 	}
 	if cachedErr == nil {
 		hello.CachedAssignmentGeneration = cached.Generation
@@ -310,14 +314,16 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		if _, err := r.cache.CommitAssignment(ctx, assignment); err != nil {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("durably cache assignment: %w", err))
 		}
+		statuses, err := r.supervisor.Reconcile(ctx, assignment)
+		if err != nil {
+			return fmt.Errorf("reconcile assignment: %w", err)
+		}
+		// Acknowledge only after the durable assignment has actually converged.
+		// This makes a final empty-assignment ACK a reliable removal fence.
 		if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
 			BootId: r.bootID, Generation: assignment.Generation, Digest: assignment.Digest,
 		}}}); err != nil {
 			return err
-		}
-		statuses, err := r.supervisor.Reconcile(ctx, assignment)
-		if err != nil {
-			return fmt.Errorf("reconcile assignment: %w", err)
 		}
 		return r.enqueueReport(outbound, assignment, statuses)
 	case *orchv1alpha1.ConnectResponse_TailLogs:
@@ -719,10 +725,40 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 	}
 	if network := snapshot.GetNetwork(); network != nil {
 		assignment.Network = model.NetworkConfig{Generation: network.GetGeneration(), ClusterCIDR: network.GetClusterCidr(),
-			NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(), DNSZone: network.GetDnsZone()}
-		expected, err := model.FirstNodeNetwork(assignment.Network.ClusterCIDR, assignment.Network.Generation)
-		if err != nil || expected != assignment.Network {
+			NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(), DNSZone: network.GetDnsZone(),
+			IngressEnabled: network.GetIngressEnabled(), WireGuardListenPort: uint16(network.GetWireguardListenPort())}
+		for _, peer := range network.GetPeers() {
+			if peer == nil || len(peer.ProtoReflect().GetUnknown()) != 0 {
+				return model.Assignment{}, errors.New("assignment WireGuard peer contains unknown fields")
+			}
+			assignment.Network.Peers = append(assignment.Network.Peers, model.WireGuardPeer{
+				NodeID: peer.GetNodeId(), PublicKey: peer.GetPublicKey(), Endpoint: peer.GetEndpoint(), AllowedSubnet: peer.GetAllowedSubnet(),
+			})
+		}
+		for _, endpoint := range network.GetEndpoints() {
+			if endpoint == nil || len(endpoint.ProtoReflect().GetUnknown()) != 0 {
+				return model.Assignment{}, errors.New("assignment service endpoint contains unknown fields")
+			}
+			assignment.Network.Endpoints = append(assignment.Network.Endpoints, model.ServiceEndpoint{
+				AllocationID: endpoint.GetAllocationId(), Application: endpoint.GetApplication(), Service: endpoint.GetService(),
+				Address: endpoint.GetAddress(), Port: endpoint.GetPort(), NodeID: endpoint.GetNodeId(),
+				Domains: append([]string(nil), endpoint.GetDomains()...), HTTPS: endpoint.GetHttps(),
+				TCPPublicPort: endpoint.GetTcpPublicPort(),
+			})
+		}
+		if err := model.ValidateNodeNetwork(assignment.Network); err != nil {
 			return model.Assignment{}, errors.New("assignment network is invalid")
+		}
+		if len(assignment.Network.Peers) != 0 {
+			configuration := model.WireGuardConfig{Generation: assignment.Network.Generation,
+				ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+				ListenPort: assignment.Network.WireGuardListenPort, Peers: assignment.Network.Peers}
+			if err := model.ValidateWireGuardConfig(configuration); err != nil {
+				return model.Assignment{}, fmt.Errorf("assignment WireGuard configuration is invalid: %w", err)
+			}
+		}
+		if err := model.ValidateServiceEndpoints(assignment.Network); err != nil {
+			return model.Assignment{}, fmt.Errorf("assignment service endpoint catalog is invalid: %w", err)
 		}
 	}
 	previousID := ""

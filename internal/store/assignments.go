@@ -441,6 +441,15 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 			desiredTCP[allocation.Rollback.TCP.PublicPort] = allocation
 		}
 	}
+	for _, endpoint := range assignmentNetwork.Endpoints {
+		if endpoint.TCPPublicPort == 0 {
+			continue
+		}
+		desiredTCP[endpoint.TCPPublicPort] = model.AllocationDesired{
+			Application: endpoint.Application, Service: endpoint.Service,
+			TCP: &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort},
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tcp_route_observations WHERE node_id = ?`, report.NodeID); err != nil {
 		return false, fmt.Errorf("replace TCP route observations: %w", err)
 	}
@@ -524,7 +533,7 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 	}
 	previousDomain := ""
 	for _, route := range report.Routes {
-		if err := validateRouteObservation(ctx, tx, report.NodeID, route); err != nil {
+		if err := validateRouteObservation(ctx, tx, report.NodeID, assignmentNetwork, route); err != nil {
 			return false, err
 		}
 		if previousDomain != "" && route.Domain <= previousDomain {
@@ -764,8 +773,12 @@ func validateNetworkObservation(observation model.NetworkStatus, desired model.N
 	if !validSubsystemState(observation.IngressState) {
 		return fmt.Errorf("network observation has invalid ingress state %q", observation.IngressState)
 	}
+	wantIngressState := model.SubsystemNotConfigured
+	if desired.IngressEnabled {
+		wantIngressState = model.SubsystemReady
+	}
 	if observation.State == model.NetworkReady &&
-		(observation.DNSState != model.SubsystemReady || observation.IngressState != model.SubsystemReady) {
+		(observation.DNSState != model.SubsystemReady || observation.IngressState != wantIngressState) {
 		return fmt.Errorf("network observation cannot be ready while DNS is %q or ingress is %q",
 			observation.DNSState, observation.IngressState)
 	}
@@ -814,7 +827,7 @@ func freezeNetworkFromReport(ctx context.Context, tx *sql.Tx, observation model.
 	return nil
 }
 
-func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, route model.RouteStatus) error {
+func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, network model.NetworkConfig, route model.RouteStatus) error {
 	if route.Application == "" || route.Service == "" || route.Domain == "" || route.UpdatedAt.IsZero() ||
 		len(route.CertificateState) > 128 || len(route.Reason) > 128 || len(route.Message) > 1024 {
 		return fmt.Errorf("route observation is incomplete")
@@ -845,6 +858,18 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ro
 	defer rows.Close()
 	allowed := false
 	activeContract := false
+	for _, endpoint := range network.Endpoints {
+		if endpoint.Application != route.Application || endpoint.Service != route.Service || endpoint.HTTPS != route.HTTPS {
+			continue
+		}
+		for _, domain := range endpoint.Domains {
+			if domain == route.Domain {
+				allowed = true
+				activeContract = true
+				break
+			}
+		}
+	}
 	for rows.Next() {
 		var encoded, phase, activeDigest, activeRevision string
 		var activeGeneration uint64
@@ -973,12 +998,12 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			FROM desired_allocations WHERE application_name = ?`, application.name).Scan(&requiredRoutes); err != nil {
 			return fmt.Errorf("summarize desired application routes: %w", err)
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM route_observations
+		if err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT domain) FROM route_observations
 			WHERE application_name = ? AND state = 'ACTIVE'`, application.name).Scan(&activeRoutes); err != nil {
 			return fmt.Errorf("summarize active application routes: %w", err)
 		}
 		var activeTCPRoutes int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM tcp_route_observations
+		if err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT public_port) FROM tcp_route_observations
 			WHERE application_name = ? AND state = 'ACTIVE'`, application.name).Scan(&activeTCPRoutes); err != nil {
 			return fmt.Errorf("summarize active TCP routes: %w", err)
 		}
@@ -992,7 +1017,13 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			if desired != 0 {
 				continue
 			}
-			if network.Generation != 0 && (network.State != model.NetworkReady || network.DrainingObjects != 0) {
+			var pendingNodes int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM nodes
+				WHERE lifecycle != 'REMOVED' AND
+				(assignment_generation != acknowledged_generation OR draining_objects != 0)`).Scan(&pendingNodes); err != nil {
+				return fmt.Errorf("summarize application removal fences: %w", err)
+			}
+			if pendingNodes != 0 || (network.Generation != 0 && (network.State != model.NetworkReady || network.DrainingObjects != 0)) {
 				execution.Status = model.ExecutionStopping
 				execution.ObservedGeneration = application.generation
 				execution.Reason = "endpoint_drain_pending"
@@ -1138,21 +1169,31 @@ func validExecutionStatus(status string) bool {
 }
 
 func (s *Store) DesiredAllocation(ctx context.Context, application, service string, replica uint32) (model.AllocationDesired, error) {
+	allocation, _, err := s.DesiredAllocationNode(ctx, application, service, replica)
+	return allocation, err
+}
+
+func (s *Store) DesiredAllocationNode(ctx context.Context, application, service string, replica uint32) (model.AllocationDesired, model.Node, error) {
 	var encoded string
-	err := s.db.QueryRowContext(ctx, `SELECT spec FROM desired_allocations
+	var nodeID string
+	err := s.db.QueryRowContext(ctx, `SELECT spec, node_id FROM desired_allocations
 		WHERE application_name = ? AND service_name = ? AND replica = ?`,
-		application, service, replica).Scan(&encoded)
+		application, service, replica).Scan(&encoded, &nodeID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.AllocationDesired{}, ErrAssignmentNotFound
+		return model.AllocationDesired{}, model.Node{}, ErrAssignmentNotFound
 	}
 	if err != nil {
-		return model.AllocationDesired{}, fmt.Errorf("read desired allocation: %w", err)
+		return model.AllocationDesired{}, model.Node{}, fmt.Errorf("read desired allocation: %w", err)
 	}
 	var allocation model.AllocationDesired
 	if err := json.Unmarshal([]byte(encoded), &allocation); err != nil {
-		return model.AllocationDesired{}, fmt.Errorf("decode desired allocation: %w", err)
+		return model.AllocationDesired{}, model.Node{}, fmt.Errorf("decode desired allocation: %w", err)
 	}
-	return allocation, nil
+	node, err := s.NodeByID(ctx, nodeID)
+	if err != nil {
+		return model.AllocationDesired{}, model.Node{}, err
+	}
+	return allocation, node, nil
 }
 
 func cloneAllocations(input []model.AllocationDesired) []model.AllocationDesired {

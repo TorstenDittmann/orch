@@ -85,6 +85,12 @@ const (
 	// ControlServiceLogoutRegistryProcedure is the fully-qualified name of the ControlService's
 	// LogoutRegistry RPC.
 	ControlServiceLogoutRegistryProcedure = "/orch.v1alpha1.ControlService/LogoutRegistry"
+	// ControlServiceUpdateNodeProcedure is the fully-qualified name of the ControlService's UpdateNode
+	// RPC.
+	ControlServiceUpdateNodeProcedure = "/orch.v1alpha1.ControlService/UpdateNode"
+	// ControlServiceRemoveNodeProcedure is the fully-qualified name of the ControlService's RemoveNode
+	// RPC.
+	ControlServiceRemoveNodeProcedure = "/orch.v1alpha1.ControlService/RemoveNode"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -107,6 +113,8 @@ type ControlServiceClient interface {
 	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
 	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
+	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
+	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -228,6 +236,18 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
 			connect.WithClientOptions(opts...),
 		),
+		updateNode: connect.NewClient[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse](
+			httpClient,
+			baseURL+ControlServiceUpdateNodeProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("UpdateNode")),
+			connect.WithClientOptions(opts...),
+		),
+		removeNode: connect.NewClient[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse](
+			httpClient,
+			baseURL+ControlServiceRemoveNodeProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -251,6 +271,8 @@ type controlServiceClient struct {
 	loginRegistry     *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
 	listRegistries    *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
 	logoutRegistry    *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	updateNode        *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
+	removeNode        *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -343,6 +365,16 @@ func (c *controlServiceClient) LogoutRegistry(ctx context.Context, req *connect.
 	return c.logoutRegistry.CallUnary(ctx, req)
 }
 
+// UpdateNode calls orch.v1alpha1.ControlService.UpdateNode.
+func (c *controlServiceClient) UpdateNode(ctx context.Context, req *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error) {
+	return c.updateNode.CallUnary(ctx, req)
+}
+
+// RemoveNode calls orch.v1alpha1.ControlService.RemoveNode.
+func (c *controlServiceClient) RemoveNode(ctx context.Context, req *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error) {
+	return c.removeNode.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
@@ -363,6 +395,8 @@ type ControlServiceHandler interface {
 	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
 	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
+	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
+	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -480,6 +514,18 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceUpdateNodeHandler := connect.NewUnaryHandler(
+		ControlServiceUpdateNodeProcedure,
+		svc.UpdateNode,
+		connect.WithSchema(controlServiceMethods.ByName("UpdateNode")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRemoveNodeHandler := connect.NewUnaryHandler(
+		ControlServiceRemoveNodeProcedure,
+		svc.RemoveNode,
+		connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceGetClusterProcedure:
@@ -518,6 +564,10 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListRegistriesHandler.ServeHTTP(w, r)
 		case ControlServiceLogoutRegistryProcedure:
 			controlServiceLogoutRegistryHandler.ServeHTTP(w, r)
+		case ControlServiceUpdateNodeProcedure:
+			controlServiceUpdateNodeHandler.ServeHTTP(w, r)
+		case ControlServiceRemoveNodeProcedure:
+			controlServiceRemoveNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -597,4 +647,12 @@ func (UnimplementedControlServiceHandler) ListRegistries(context.Context, *conne
 
 func (UnimplementedControlServiceHandler) LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.LogoutRegistry is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.UpdateNode is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveNode is not implemented"))
 }

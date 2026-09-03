@@ -73,7 +73,8 @@ func New(options Options) (Manager, error) {
 		bridgeManager: &bridgeManager{
 			stateDir: options.StateDir, name: bridge, alias: "orch-managed-" + digest,
 		},
-		firewall: &firewall{stateDir: options.StateDir, tableName: "orch_" + digest, bridge: bridge},
+		firewall: &firewall{stateDir: options.StateDir, tableName: "orch_" + digest, bridge: bridge,
+			wireguard: WireGuardInterfaceName(options.ClusterID, options.NodeID)},
 	}, nil
 }
 
@@ -138,18 +139,11 @@ func (m *linuxManager) Preflight(ctx context.Context) (Capabilities, error) {
 func (m *linuxManager) Prepare(ctx context.Context, desired model.NetworkConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.preflightReady {
-		return fmt.Errorf("network preflight has not succeeded")
-	}
-	expected, err := model.FirstNodeNetwork(desired.ClusterCIDR, desired.Generation)
-	if err != nil || expected != desired {
-		return fmt.Errorf("network configuration is not the deterministic first-node network")
-	}
-	if m.list != nil && m.loopback != nil && m.config == desired {
-		return nil
-	}
-	if err := m.detectOverlap(desired); err != nil {
+	if err := m.validateDesired(desired); err != nil {
 		return err
+	}
+	if m.list != nil && m.loopback != nil && model.NetworkConfigEqual(m.config, desired) {
+		return nil
 	}
 	// DNS must bind the gateway before the controller can freeze the network
 	// and publish the first networked allocation. CNI normally creates the
@@ -158,6 +152,29 @@ func (m *linuxManager) Prepare(ctx context.Context, desired model.NetworkConfig)
 	if err := m.bridgeManager.prepare(desired); err != nil {
 		return err
 	}
+	return m.prepareAfterBridge(ctx, desired)
+}
+
+func (m *linuxManager) Validate(_ context.Context, desired model.NetworkConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.validateDesired(desired)
+}
+
+func (m *linuxManager) validateDesired(desired model.NetworkConfig) error {
+	if !m.preflightReady {
+		return fmt.Errorf("network preflight has not succeeded")
+	}
+	if err := model.ValidateNodeNetwork(desired); err != nil {
+		return fmt.Errorf("network configuration is invalid: %w", err)
+	}
+	if err := m.detectOverlap(desired); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *linuxManager) prepareAfterBridge(ctx context.Context, desired model.NetworkConfig) error {
 	hostLocalDir := filepath.Join(m.options.StateDir, "host-local")
 	if err := ensurePrivateDirectory(hostLocalDir); err != nil {
 		return err
@@ -350,7 +367,7 @@ func (m *linuxManager) detectOverlap(desired model.NetworkConfig) error {
 		return fmt.Errorf("list host interfaces: %w", err)
 	}
 	for _, item := range interfaces {
-		if item.Name == m.bridge {
+		if item.Name == m.bridge || item.Name == m.firewall.wireguard {
 			continue
 		}
 		addresses, err := item.Addrs()
@@ -369,7 +386,7 @@ func (m *linuxManager) detectOverlap(desired model.NetworkConfig) error {
 		return err
 	}
 	for _, route := range routes {
-		if route.Interface != m.bridge && route.Prefix.Bits() != 0 && prefixesOverlap(cluster, route.Prefix) {
+		if route.Interface != m.bridge && route.Interface != m.firewall.wireguard && route.Prefix.Bits() != 0 && prefixesOverlap(cluster, route.Prefix) {
 			return fmt.Errorf("%w: workload CIDR overlaps host route %s", ErrCIDRConflict, route.Prefix)
 		}
 	}

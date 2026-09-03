@@ -35,9 +35,8 @@ type bridgeOwner struct {
 }
 
 func (b *bridgeManager) prepare(config model.NetworkConfig) error {
-	expected, err := model.FirstNodeNetwork(config.ClusterCIDR, config.Generation)
-	if err != nil || expected != config {
-		return fmt.Errorf("bridge network configuration is invalid")
+	if err := model.ValidateNodeNetwork(config); err != nil {
+		return fmt.Errorf("bridge network configuration is invalid: %w", err)
 	}
 	want := bridgeOwner{
 		Name: b.name, Alias: b.alias, NetworkGeneration: config.Generation,
@@ -72,9 +71,9 @@ func (b *bridgeManager) prepare(config model.NetworkConfig) error {
 		if err := netlink.LinkAdd(candidate); err != nil {
 			return fmt.Errorf("create workload bridge %q: %w", b.name, err)
 		}
-		link, err = netlink.LinkByName(b.name)
-		if err != nil {
-			return fmt.Errorf("inspect created workload bridge %q: %w", b.name, err)
+		link, linkErr = netlink.LinkByName(b.name)
+		if linkErr != nil {
+			return fmt.Errorf("inspect created workload bridge %q: %w", b.name, linkErr)
 		}
 	}
 	if link.Type() != "bridge" {

@@ -123,6 +123,29 @@ message NetworkConfig {
   string node_subnet = 3;
   string gateway = 4;
   string dns_zone = 5;
+  repeated WireGuardPeer peers = 6;
+  repeated ServiceEndpoint endpoints = 7;
+  bool ingress_enabled = 8;
+  uint32 wireguard_listen_port = 9;
+}
+
+message WireGuardPeer {
+  string node_id = 1;
+  string public_key = 2;
+  string endpoint = 3;
+  string allowed_subnet = 4;
+}
+
+message ServiceEndpoint {
+  string allocation_id = 1;
+  string application = 2;
+  string service = 3;
+  string address = 4;
+  uint32 port = 5;
+  string node_id = 6;
+  repeated string domains = 7;
+  bool https = 8;
+  uint32 tcp_public_port = 9;
 }
 
 message AllocationDesired {
@@ -210,6 +233,9 @@ message AllocationStatus {
   string active_revision_id = 18;
   google.protobuf.Timestamp ready_at = 19;
   uint32 declared_port = 20;
+  string node_id = 21;
+  string node_name = 22;
+  string placement_reason = 23;
 }
 
 message RouteStatus {
@@ -223,6 +249,8 @@ message RouteStatus {
   string reason = 8;
   string message = 9;
   google.protobuf.Timestamp updated_at = 10;
+  string node_id = 11;
+  string node_name = 12;
 }
 
 message TCPRouteStatus {
@@ -235,6 +263,8 @@ message TCPRouteStatus {
   string reason = 7;
   string message = 8;
   google.protobuf.Timestamp updated_at = 9;
+  string node_id = 10;
+  string node_name = 11;
 }
 
 enum JobRunState {
@@ -305,6 +335,13 @@ message AgentHello {
   string caddy_version = 13;
   string cni_plugins_version = 14;
   bool dns_available = 15;
+  uint64 total_cpu_millis = 16;
+  uint64 total_memory_bytes = 17;
+  uint64 allocatable_cpu_millis = 18;
+  uint64 allocatable_memory_bytes = 19;
+  string advertise_address = 20;
+  string wireguard_public_key = 21;
+  uint32 wireguard_listen_port = 22;
 }
 
 message AssignmentAck {

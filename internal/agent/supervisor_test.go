@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -951,6 +952,31 @@ func TestDesiredRoutesUseEachServingRevisionPort(t *testing.T) {
 	if len(pending) != 0 || len(routes) != 1 || !reflect.DeepEqual(routes[0].Upstreams,
 		[]string{"10.88.0.2:9090", "10.88.0.3:8080"}) {
 		t.Fatalf("routes = %#v, pending = %#v", routes, pending)
+	}
+}
+
+func TestRemoteEndpointCatalogFeedsDNSHTTPAndTCP(t *testing.T) {
+	t.Parallel()
+	endpoint := model.ServiceEndpoint{
+		AllocationID: "alloc-remote", Application: "hello", Service: "web", NodeID: "node-two",
+		Address: "10.88.1.2", Port: 8080, Domains: []string{"app.example.com"}, HTTPS: true, TCPPublicPort: 9000,
+	}
+	assignment := model.Assignment{Network: model.NetworkConfig{Generation: 1, Endpoints: []model.ServiceEndpoint{endpoint}}}
+	allocations, serving, specs := remoteServingView(assignment, nil, nil)
+	routes, pending := desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+	if len(pending) != 0 || len(routes) != 1 || routes[0].Domain != "app.example.com" ||
+		!reflect.DeepEqual(routes[0].Upstreams, []string{"10.88.1.2:8080"}) {
+		t.Fatalf("remote HTTP routes = %#v, pending = %#v", routes, pending)
+	}
+	tcpRoutes := desiredTCPRoutes(allocations, serving, specs)
+	if len(tcpRoutes) != 1 || tcpRoutes[0].PublicPort != 9000 ||
+		!reflect.DeepEqual(tcpRoutes[0].Upstreams, []string{"10.88.1.2"}) {
+		t.Fatalf("remote TCP routes = %#v", tcpRoutes)
+	}
+	snapshot := discoverySnapshot(nil, nil, assignment.Network.Endpoints)
+	name := discovery.ServiceName("hello", "web")
+	if !reflect.DeepEqual(snapshot.Addresses[name], []netip.Addr{netip.MustParseAddr("10.88.1.2")}) {
+		t.Fatalf("remote DNS snapshot = %#v", snapshot)
 	}
 }
 

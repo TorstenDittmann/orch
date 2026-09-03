@@ -113,6 +113,8 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 			networkStatus.Reason = "network_prepare_failed"
 			if errors.Is(err, network.ErrCIDRConflict) {
 				networkStatus.Reason = "network_cidr_conflict"
+			} else if errors.Is(err, network.ErrWireGuardUnavailable) {
+				networkStatus.Reason = "wireguard_unavailable"
 			}
 			networkStatus.Message = boundedMessage(err.Error())
 			networkStatus.DNSState = model.SubsystemBlocked
@@ -220,7 +222,7 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 	}
 	for _, allocation := range orderedAllocations(assignment.Allocations) {
 		owned := objectsByAllocation[allocation.ID]
-		if unavailableDependencies(allocation, statuses) && (rollbackApplications[allocation.Application] || !hasExactRunning(allocation, owned)) {
+		if unavailableDependencies(allocation, statuses, assignment.Network.Endpoints) && (rollbackApplications[allocation.Application] || !hasExactRunning(allocation, owned)) {
 			status := dependencyWaitingStatus(allocation, stateByID[allocation.ID], s.now().UTC())
 			for _, object := range owned {
 				if !object.Running {
@@ -350,7 +352,7 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		s.tcpRoutes = nil
 		s.network = model.NetworkStatus{}
 	}
-	if err := s.reconcileCronJobs(ctx, assignment.CronJobs, statuses); err != nil {
+	if err := s.reconcileCronJobs(ctx, assignment.CronJobs, statuses, assignment.Network.Endpoints); err != nil {
 		return nil, err
 	}
 	return statuses, nil
@@ -418,9 +420,15 @@ func orderedAllocations(allocations []model.AllocationDesired) []model.Allocatio
 	return result
 }
 
-func unavailableDependencies(allocation model.AllocationDesired, statuses []model.AllocationStatus) bool {
+func unavailableDependencies(allocation model.AllocationDesired, statuses []model.AllocationStatus, endpoints []model.ServiceEndpoint) bool {
 	for _, dependency := range allocation.DependsOn {
 		available := false
+		for _, endpoint := range endpoints {
+			if endpoint.Application == allocation.Application && endpoint.Service == dependency && endpoint.Address != "" {
+				available = true
+				break
+			}
+		}
 		for _, status := range statuses {
 			if status.Application != allocation.Application || status.Service != dependency || status.Phase != model.AllocationRunning {
 				continue
@@ -1326,7 +1334,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 			s.dnsAddress = ""
 		}
 		if !s.dnsStarted && networkStatus.DNSState != model.SubsystemFailed {
-			if err := s.discovery.Replace(discoverySnapshot(assignment.Allocations, accepted)); err != nil {
+			if err := s.discovery.Replace(discoverySnapshot(assignment.Allocations, accepted, assignment.Network.Endpoints)); err != nil {
 				return false, fmt.Errorf("restore durable service discovery snapshot: %w", err)
 			}
 			if err := s.discovery.Start(dnsAddress); err != nil {
@@ -1351,7 +1359,37 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 	if err := s.state.StageServingEndpoints(ctx, candidate); err != nil {
 		return false, fmt.Errorf("stage service discovery snapshot: %w", err)
 	}
-	routes, pending := desiredRoutes(assignment.Allocations, statuses, s.serving, s.servingSpecs, now)
+	if !assignment.Network.IngressEnabled {
+		s.routes = nil
+		s.tcpRoutes = nil
+		networkStatus.IngressState = model.SubsystemNotConfigured
+		if s.ingress != nil {
+			_, _ = s.ingress.Apply(ctx, nil, now)
+		}
+		if s.tcpIngress != nil {
+			s.tcpIngress.Apply(ctx, nil)
+		}
+		if !dnsReady {
+			networkStatus.State = model.NetworkPending
+			networkStatus.Reason = "dns_pending"
+			networkStatus.Message = "waiting for the workload DNS listener"
+			return false, nil
+		}
+		if err := s.state.CommitServingEndpoints(ctx); err != nil {
+			return false, fmt.Errorf("accept service discovery snapshot: %w", err)
+		}
+		if s.discovery != nil {
+			if err := s.discovery.Replace(discoverySnapshot(assignment.Allocations, candidate, assignment.Network.Endpoints)); err != nil {
+				return false, fmt.Errorf("publish service discovery snapshot: %w", err)
+			}
+		}
+		networkStatus.State = model.NetworkReady
+		networkStatus.Reason = "network_ready"
+		networkStatus.Message = "workload networking and service discovery are ready"
+		return true, nil
+	}
+	routeAllocations, routeServing, routeSpecs := remoteServingView(assignment, s.serving, s.servingSpecs)
+	routes, pending := desiredRoutes(routeAllocations, statuses, routeServing, routeSpecs, now)
 	activated := dnsReady
 	if !dnsReady {
 		reason := networkStatus.Reason
@@ -1425,7 +1463,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 			}
 		}
 	}
-	tcpRoutes := desiredTCPRoutes(assignment.Allocations, s.serving, s.servingSpecs)
+	tcpRoutes := desiredTCPRoutes(routeAllocations, routeServing, routeSpecs)
 	if len(tcpRoutes) == 0 {
 		s.tcpRoutes = nil
 		if s.tcpIngress != nil {
@@ -1462,7 +1500,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 			return false, fmt.Errorf("accept service discovery snapshot: %w", err)
 		}
 		if s.discovery != nil {
-			if err := s.discovery.Replace(discoverySnapshot(assignment.Allocations, candidate)); err != nil {
+			if err := s.discovery.Replace(discoverySnapshot(assignment.Allocations, candidate, assignment.Network.Endpoints)); err != nil {
 				return false, fmt.Errorf("publish service discovery snapshot: %w", err)
 			}
 		}
@@ -1486,7 +1524,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 	return activated, nil
 }
 
-func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.CronJobDesired, allocations []model.AllocationStatus) error {
+func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.CronJobDesired, allocations []model.AllocationStatus, endpoints []model.ServiceEndpoint) error {
 	now := s.now().UTC()
 	jobStates, err := s.state.CronJobStates(ctx)
 	if err != nil {
@@ -1596,7 +1634,7 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 				if now.After(run.ScheduledAt.Add(time.Duration(job.StartDeadlineSeconds) * time.Second)) {
 					finishCronRun(&run, model.JobRunSkipped, "start_deadline_exceeded", "the occurrence missed its start deadline", now)
 					jobState.ActiveRunID = ""
-				} else if jobDependenciesAvailable(job, allocations) {
+				} else if jobDependenciesAvailable(job, allocations, endpoints) {
 					allocation, err := cronRunAllocation(job, run.ID)
 					if err != nil {
 						return err
@@ -1721,9 +1759,9 @@ func (s *Supervisor) cancelCronRun(ctx context.Context, run state.CronRunState, 
 	return s.state.SaveCronRunState(ctx, run)
 }
 
-func jobDependenciesAvailable(job model.CronJobDesired, allocations []model.AllocationStatus) bool {
+func jobDependenciesAvailable(job model.CronJobDesired, allocations []model.AllocationStatus, endpoints []model.ServiceEndpoint) bool {
 	allocation := model.AllocationDesired{Application: job.Application, DependsOn: job.DependsOn}
-	return !unavailableDependencies(allocation, allocations)
+	return !unavailableDependencies(allocation, allocations, endpoints)
 }
 
 func cronRunAllocation(job model.CronJobDesired, runID string) (model.AllocationDesired, error) {
@@ -1851,7 +1889,7 @@ func proposedServingEndpoints(allocations []model.AllocationDesired, serving, sp
 	return result
 }
 
-func discoverySnapshot(allocations []model.AllocationDesired, endpoints []state.ServingEndpoint) discovery.Snapshot {
+func discoverySnapshot(allocations []model.AllocationDesired, endpoints []state.ServingEndpoint, remote []model.ServiceEndpoint) discovery.Snapshot {
 	snapshot := discovery.Snapshot{Known: make(map[string]struct{}), Addresses: make(map[string][]netip.Addr)}
 	for _, allocation := range allocations {
 		snapshot.Known[discovery.ServiceName(allocation.Application, allocation.Service)] = struct{}{}
@@ -1863,7 +1901,68 @@ func discoverySnapshot(allocations []model.AllocationDesired, endpoints []state.
 			snapshot.Addresses[name] = append(snapshot.Addresses[name], address)
 		}
 	}
+	for _, endpoint := range remote {
+		name := discovery.ServiceName(endpoint.Application, endpoint.Service)
+		snapshot.Known[name] = struct{}{}
+		if address, err := netip.ParseAddr(endpoint.Address); err == nil && address.Is4() {
+			snapshot.Addresses[name] = append(snapshot.Addresses[name], address)
+		}
+	}
+	for name := range snapshot.Addresses {
+		sort.Slice(snapshot.Addresses[name], func(i, j int) bool {
+			return snapshot.Addresses[name][i].Less(snapshot.Addresses[name][j])
+		})
+		snapshot.Addresses[name] = compactAddresses(snapshot.Addresses[name])
+	}
 	return snapshot
+}
+
+func remoteServingView(assignment model.Assignment, serving, specs map[string]string) ([]model.AllocationDesired, map[string]string, map[string]string) {
+	allocations := append([]model.AllocationDesired(nil), assignment.Allocations...)
+	addresses := cloneStringMap(serving)
+	digests := cloneStringMap(specs)
+	if addresses == nil {
+		addresses = make(map[string]string)
+	}
+	if digests == nil {
+		digests = make(map[string]string)
+	}
+	local := make(map[string]struct{}, len(allocations))
+	for _, allocation := range allocations {
+		local[allocation.ID] = struct{}{}
+	}
+	for _, endpoint := range assignment.Network.Endpoints {
+		if _, exists := local[endpoint.AllocationID]; exists {
+			continue
+		}
+		allocation := model.AllocationDesired{
+			ID: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
+			SpecDigest: "remote", NetworkGeneration: assignment.Network.Generation,
+		}
+		if len(endpoint.Domains) != 0 {
+			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
+		}
+		if endpoint.TCPPublicPort != 0 {
+			allocation.TCP = &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort}
+		}
+		allocations = append(allocations, allocation)
+		addresses[endpoint.AllocationID] = endpoint.Address
+		digests[endpoint.AllocationID] = "remote"
+	}
+	return allocations, addresses, digests
+}
+
+func compactAddresses(values []netip.Addr) []netip.Addr {
+	if len(values) < 2 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if value != result[len(result)-1] {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func filterServingEndpoints(endpoints []state.ServingEndpoint, objects []orchruntime.Object) []state.ServingEndpoint {

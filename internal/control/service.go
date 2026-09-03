@@ -213,6 +213,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if errors.Is(err, store.ErrIdempotencyConflict) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, err)
 	}
+	if errors.Is(err, store.ErrApplicationLimit) || errors.Is(err, store.ErrAllocationLimit) {
+		return nil, connect.NewError(connect.CodeResourceExhausted, err)
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("persist application desired state"))
 	}
@@ -302,14 +305,152 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 	}
 	response := &orchv1alpha1.ListNodesResponse{Nodes: make([]*orchv1alpha1.Node, 0, len(nodes))}
 	for _, node := range nodes {
+		assignedCPU, assignedMemory, err := s.state.NodeAssignedResources(ctx, node.ID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("read node resource reservations"))
+		}
+		node.AssignedCPUMillis, node.AssignedMemoryBytes = assignedCPU, assignedMemory
+		node.DrainBlockers, err = s.state.NodeDrainBlockers(ctx, node)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("read node drain blockers"))
+		}
 		if s.sessions != nil && s.sessions.Connected(node.ID) {
 			node.ConnectionStatus = model.NodeConnected
+		} else if node.LastSeenAt != nil && s.now().Sub(*node.LastSeenAt) >= agentHeartbeatTimeout {
+			node.ConnectionStatus = model.NodeUnreachable
 		} else if node.LastSeenAt != nil {
 			node.ConnectionStatus = model.NodeDisconnected
 		}
 		response.Nodes = append(response.Nodes, nodeMessage(node))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (s *service) UpdateNode(ctx context.Context, request *connect.Request[orchv1alpha1.UpdateNodeRequest]) (*connect.Response[orchv1alpha1.UpdateNodeResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	for key, value := range request.Msg.GetLabels() {
+		if err := validateNodeLabel(key, value); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+	}
+	for _, key := range request.Msg.GetRemoveLabels() {
+		if strings.TrimSpace(key) == "" || strings.HasPrefix(key, "orch.") {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("remove_labels contains an invalid or reserved key"))
+		}
+	}
+	lifecycle := lifecycleModel(request.Msg.GetLifecycle())
+	hashRequest := proto.Clone(request.Msg).(*orchv1alpha1.UpdateNodeRequest)
+	hashRequest.IdempotencyKey = ""
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(hashRequest)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("encode node update"))
+	}
+	digest := sha256.Sum256(encoded)
+	result, err := s.state.UpdateNode(ctx, model.UpdateNode{
+		NodeName: request.Msg.GetName(), Labels: request.Msg.GetLabels(), RemoveLabels: request.Msg.GetRemoveLabels(),
+		SetLifecycle: request.Msg.GetLifecycle() != orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_UNSPECIFIED,
+		Lifecycle:    lifecycle, SetIngress: request.Msg.GetSetIngress(), Ingress: request.Msg.GetIngress(),
+		IdempotencyKey: request.Msg.GetIdempotencyKey(), RequestHash: hex.EncodeToString(digest[:]), UpdatedAt: s.now().UTC(),
+	})
+	if errors.Is(err, store.ErrNodeNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if result.Changed && s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("reconcile node update"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.UpdateNodeResponse{
+		Node: nodeMessage(result.Node), Changed: result.Changed, EventSequence: result.EventSequence,
+	}), nil
+}
+
+func (s *service) RemoveNode(ctx context.Context, request *connect.Request[orchv1alpha1.RemoveNodeRequest]) (*connect.Response[orchv1alpha1.RemoveNodeResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(request.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key must be 16-128 URL-safe characters"))
+	}
+	if request.Msg.GetLost() != request.Msg.GetConfirmFenced() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("lost removal requires --confirm-fenced; confirmation is accepted only with --lost"))
+	}
+	hashRequest := proto.Clone(request.Msg).(*orchv1alpha1.RemoveNodeRequest)
+	hashRequest.IdempotencyKey = ""
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(hashRequest)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("encode node removal"))
+	}
+	digest := sha256.Sum256(encoded)
+	node, nodeErr := s.state.NodeByName(ctx, request.Msg.GetName())
+	if nodeErr != nil && !errors.Is(nodeErr, store.ErrNodeNotFound) {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read node"))
+	}
+	connected := nodeErr == nil && s.sessions != nil && s.sessions.Connected(node.ID)
+	if request.Msg.GetLost() && connected {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("lost node removal requires the agent to be unreachable"))
+	}
+	result, err := s.state.RemoveNode(ctx, model.RemoveNode{
+		NodeName: request.Msg.GetName(), Lost: request.Msg.GetLost(), Connected: connected,
+		IdempotencyKey: request.Msg.GetIdempotencyKey(), RequestHash: hex.EncodeToString(digest[:]), RemovedAt: s.now().UTC(),
+	})
+	if errors.Is(err, store.ErrNodeNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	if result.Changed && nodeErr == nil && s.sessions != nil {
+		s.sessions.Disconnect(node.ID)
+	}
+	if result.Changed && s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("reconcile node removal"))
+		}
+	}
+	return connect.NewResponse(&orchv1alpha1.RemoveNodeResponse{
+		Name: result.Name, Changed: result.Changed, EventSequence: result.EventSequence,
+	}), nil
+}
+
+func validateNodeLabel(key, value string) error {
+	if key == "" || value == "" || len(key) > 256 || len(value) > 4096 || strings.ContainsRune(key, '\x00') || strings.ContainsRune(value, '\x00') || strings.HasPrefix(key, "orch.") {
+		return fmt.Errorf("node label %q is empty, too long, contains NUL, or uses the reserved orch. prefix", key)
+	}
+	return nil
+}
+
+func lifecycleModel(value orchv1alpha1.NodeLifecycle) string {
+	switch value {
+	case orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_ACTIVE:
+		return model.NodeLifecycleActive
+	case orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_CORDONED:
+		return model.NodeLifecycleCordoned
+	case orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_DRAINING:
+		return model.NodeLifecycleDraining
+	default:
+		return ""
+	}
 }
 
 func (s *service) RemoveApplication(ctx context.Context, request *connect.Request[orchv1alpha1.RemoveApplicationRequest]) (*connect.Response[orchv1alpha1.RemoveApplicationResponse], error) {
@@ -675,8 +816,8 @@ func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orc
 	if !found {
 		return connect.NewError(connect.CodeNotFound, errors.New("cron run was not found"))
 	}
-	nodes, err := s.state.Nodes(ctx)
-	if err != nil || len(nodes) == 0 {
+	node, err := s.state.CronRunNode(ctx, request.Msg.GetApplication(), request.Msg.GetJob(), request.Msg.GetRunId())
+	if err != nil {
 		return connect.NewError(connect.CodeUnavailable, errors.New("agent is unavailable"))
 	}
 	tailLines := request.Msg.GetTailLines()
@@ -688,7 +829,7 @@ func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orc
 	}
 	operationContext, cancelContext := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelContext()
-	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, nodes[0].ID, func(requestID string) *orchv1alpha1.ConnectResponse {
+	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailCronLogs{TailCronLogs: &orchv1alpha1.TailCronLogsCommand{RequestId: requestID, RunId: request.Msg.GetRunId(), TailLines: tailLines}}}
 	})
 	if err != nil {
@@ -810,16 +951,12 @@ func (s *service) operationTarget(ctx context.Context, application, serviceName 
 	if replica == 0 {
 		return model.AllocationDesired{}, model.Node{}, connect.NewError(connect.CodeInvalidArgument, errors.New("replica must be positive"))
 	}
-	allocation, err := s.state.DesiredAllocation(ctx, application, serviceName, replica)
+	allocation, node, err := s.state.DesiredAllocationNode(ctx, application, serviceName, replica)
 	if errors.Is(err, store.ErrAssignmentNotFound) {
 		return model.AllocationDesired{}, model.Node{}, connect.NewError(connect.CodeNotFound, errors.New("allocation was not found in current desired state"))
 	}
 	if err != nil {
 		return model.AllocationDesired{}, model.Node{}, connect.NewError(connect.CodeInternal, errors.New("read desired allocation"))
-	}
-	node, err := s.state.Node(ctx)
-	if err != nil {
-		return model.AllocationDesired{}, model.Node{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("no agent is enrolled"))
 	}
 	if s.sessions == nil || !s.sessions.Connected(node.ID) {
 		return model.AllocationDesired{}, model.Node{}, connect.NewError(connect.CodeUnavailable, errAgentDisconnected)
@@ -954,6 +1091,13 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		CaddyVersion: node.CaddyVersion, IngressState: node.IngressState,
 		DrainingObjects:   node.DrainingObjects,
 		CniPluginsVersion: node.CNIPluginsVersion, DnsAvailable: node.DNSAvailable,
+		Ordinal: node.Ordinal, Lifecycle: lifecycleMessage(node.Lifecycle), Labels: cloneEnvironment(node.Labels),
+		Ingress: node.Ingress, TotalCpuMillis: node.TotalCPUMillis, TotalMemoryBytes: node.TotalMemoryBytes,
+		AllocatableCpuMillis: node.AllocatableCPUMillis, AllocatableMemoryBytes: node.AllocatableMemoryBytes,
+		AssignedCpuMillis: node.AssignedCPUMillis, AssignedMemoryBytes: node.AssignedMemoryBytes,
+		AdvertiseAddress: node.AdvertiseAddress, WireguardPublicKey: node.WireGuardPublicKey,
+		WireguardListenPort: node.WireGuardListenPort,
+		DrainBlockers:       append([]string(nil), node.DrainBlockers...),
 	}
 	if node.LastSeenAt != nil {
 		message.LastSeenAt = timestamppb.New(*node.LastSeenAt)
@@ -963,15 +1107,33 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		message.ConnectionStatus = orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED
 	case model.NodeDisconnected:
 		message.ConnectionStatus = orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_DISCONNECTED
+	case model.NodeUnreachable:
+		message.ConnectionStatus = orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_UNREACHABLE
 	default:
 		message.ConnectionStatus = orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_ENROLLED
 	}
 	return message
 }
 
+func lifecycleMessage(value string) orchv1alpha1.NodeLifecycle {
+	switch value {
+	case model.NodeLifecycleActive:
+		return orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_ACTIVE
+	case model.NodeLifecycleCordoned:
+		return orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_CORDONED
+	case model.NodeLifecycleDraining:
+		return orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_DRAINING
+	case model.NodeLifecycleRemoved:
+		return orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_REMOVED
+	default:
+		return orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_UNSPECIFIED
+	}
+}
+
 func allocationStatusMessage(status model.AllocationStatus) *orchv1alpha1.AllocationStatus {
 	message := &orchv1alpha1.AllocationStatus{
 		Id: status.ID, Application: status.Application, Service: status.Service, Replica: status.Replica,
+		NodeId: status.NodeID, NodeName: status.NodeName, PlacementReason: status.PlacementReason,
 		ApplicationGeneration: status.ApplicationGeneration, SpecDigest: status.SpecDigest,
 		Phase: allocationPhaseMessage(status.Phase), Reason: status.Reason, Message: status.Message,
 		RestartCount: status.RestartCount, UpdatedAt: timestamppb.New(status.UpdatedAt),
@@ -992,6 +1154,7 @@ func allocationStatusMessage(status model.AllocationStatus) *orchv1alpha1.Alloca
 
 func routeStatusMessage(status model.RouteStatus) *orchv1alpha1.RouteStatus {
 	return &orchv1alpha1.RouteStatus{
+		NodeId: status.NodeID, NodeName: status.NodeName,
 		Application: status.Application, Service: status.Service, Domain: status.Domain,
 		Https: status.HTTPS, State: routeStateMessage(status.State), CertificateState: status.CertificateState,
 		UpstreamCount: status.UpstreamCount, Reason: status.Reason, Message: status.Message,
@@ -1001,6 +1164,7 @@ func routeStatusMessage(status model.RouteStatus) *orchv1alpha1.RouteStatus {
 
 func tcpRouteStatusMessage(status model.TCPRouteStatus) *orchv1alpha1.TCPRouteStatus {
 	return &orchv1alpha1.TCPRouteStatus{Application: status.Application, Service: status.Service,
+		NodeId: status.NodeID, NodeName: status.NodeName,
 		PublicPort: status.PublicPort, TargetPort: status.TargetPort, State: routeStateMessage(status.State),
 		UpstreamCount: status.UpstreamCount, Reason: status.Reason, Message: status.Message,
 		UpdatedAt: timestamppb.New(status.UpdatedAt)}

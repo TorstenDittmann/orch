@@ -65,6 +65,7 @@ type CronJob struct {
 	SecretEnv     map[string]string `json:"secret_env,omitempty"`
 	SecretFiles   []SecretFile      `json:"secret_files,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
+	Constraints   map[string]string `json:"constraints,omitempty"`
 	StartDeadline string            `json:"start_deadline"`
 	Timeout       string            `json:"timeout"`
 }

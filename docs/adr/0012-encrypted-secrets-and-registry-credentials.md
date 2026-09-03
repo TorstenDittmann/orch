@@ -47,5 +47,5 @@ that file, and the two artifacts must be stored separately.
 - Losing either controller or agent cache keys fails closed; orch does not
   silently replace a key for existing encrypted state.
 - This slice does not add an external KMS, per-user RBAC, custom registry CAs,
-  insecure registries, registry mirrors, secret replication, or multi-node
-  placement.
+  insecure registries, registry mirrors, or secret replication. Multi-node
+  placement is a separate contract in ADR 0013.

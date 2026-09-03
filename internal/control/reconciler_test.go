@@ -3,7 +3,9 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,215 @@ import (
 )
 
 const executableImage = "docker.io/library/busybox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func TestDistributedReconcilerSpreadsConstrainedReplicasAndBuildsMesh(t *testing.T) {
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollDistributedNode(t, state, "node-one", "node-1", "10.0.0.1", 'a', '1')
+	enrollDistributedNode(t, state, "node-two", "node-2", "10.0.0.2", 'b', '2')
+	for _, nodeID := range []string{"node-one", "node-two"} {
+		if err := state.UpdateNodeLabels(ctx, nodeID, map[string]string{"region": "eu"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := reconcilerTestTime.Add(2 * time.Minute)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return now }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for index, nodeID := range []string{"node-one", "node-two"} {
+		assignment, err := state.CurrentAssignment(ctx, nodeID)
+		if err != nil || len(assignment.Network.Peers) != 1 || assignment.Network.WireGuardListenPort != model.DefaultWireGuardListenPort {
+			t.Fatalf("preflight assignment %s = %#v, %v", nodeID, assignment.Network, err)
+		}
+		if err := state.AcknowledgeAssignment(ctx, nodeID, assignment.Generation, assignment.Digest); err != nil {
+			t.Fatal(err)
+		}
+		ingressState := model.SubsystemNotConfigured
+		if assignment.Network.IngressEnabled {
+			ingressState = model.SubsystemReady
+		}
+		recorded, err := state.RecordAgentReport(ctx, model.AgentReport{
+			NodeID: nodeID, BootID: []string{"boot-node-one", "boot-node-two"}[index], Sequence: 1,
+			AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+			Network: model.NetworkStatus{Generation: assignment.Network.Generation, State: model.NetworkReady,
+				ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+				Gateway: assignment.Network.Gateway, DNSState: model.SubsystemReady, IngressState: ingressState},
+			ReportedAt: now,
+		})
+		if err != nil || !recorded {
+			t.Fatalf("ready report %s = %t, %v", nodeID, recorded, err)
+		}
+	}
+	manifest := runtimeManifest(executableImage, func(service *config.Service) {
+		service.Replicas = 2
+		service.Constraints = map[string]string{"region": "eu"}
+	})
+	applyManifest(t, state, manifest, "revision-one", "application-key-one", now)
+	now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := state.CurrentAssignment(ctx, "node-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Allocations) != 1 || len(second.Allocations) != 1 ||
+		first.Allocations[0].Replica == second.Allocations[0].Replica || first.Allocations[0].ID == second.Allocations[0].ID {
+		t.Fatalf("distributed assignments = %#v / %#v", first.Allocations, second.Allocations)
+	}
+}
+
+func TestDistributedRolloutAdmitsOneReplacementUntilItIsReady(t *testing.T) {
+	oldOne := model.AllocationDesired{ID: "one", Application: "app", Service: "web", Replica: 1, ApplicationGeneration: 1, SpecDigest: "old-one"}
+	oldTwo := model.AllocationDesired{ID: "two", Application: "app", Service: "web", Replica: 2, ApplicationGeneration: 1, SpecDigest: "old-two"}
+	newOne, newTwo := oldOne, oldTwo
+	newOne.ApplicationGeneration, newOne.SpecDigest = 2, "new-one"
+	newTwo.ApplicationGeneration, newTwo.SpecDigest = 2, "new-two"
+	application := model.Application{Name: "app", Generation: 2}
+	first := gateDistributedRollout(application, []model.AllocationDesired{newOne, newTwo}, map[string]model.AllocationDesired{"one": oldOne, "two": oldTwo})
+	if first[0].ApplicationGeneration != 2 || first[1].ApplicationGeneration != 1 {
+		t.Fatalf("first rollout admission = %#v", first)
+	}
+	application.Execution.Allocations = []model.AllocationStatus{{
+		Application: "app", Service: "web", Replica: 1, Phase: model.AllocationRunning,
+		ActiveGeneration: 2, HealthStatus: model.HealthReady,
+	}}
+	second := gateDistributedRollout(application, []model.AllocationDesired{newOne, newTwo}, map[string]model.AllocationDesired{"one": newOne, "two": oldTwo})
+	if second[0].ApplicationGeneration != 2 || second[1].ApplicationGeneration != 2 {
+		t.Fatalf("second rollout admission = %#v", second)
+	}
+}
+
+func TestDistributedReservationIncludesAuthorizedSurge(t *testing.T) {
+	allocation := model.AllocationDesired{
+		CPUMillis: 200, MemoryBytes: 128 << 20, StartBeforeStop: true,
+		Rollback: &model.RollbackSpec{CPUMillis: 100, MemoryBytes: 64 << 20},
+	}
+	reservation := allocationReservation(allocation)
+	if reservation.CPUMillis != 300 || reservation.MemoryBytes != 192<<20 {
+		t.Fatalf("allocationReservation() = %#v", reservation)
+	}
+	preserved := assignmentResources([]model.AllocationDesired{allocation}, []model.CronJobDesired{{
+		CPUMillis: 50, MemoryBytes: 32 << 20,
+	}})
+	if preserved.CPUMillis != 350 || preserved.MemoryBytes != 224<<20 {
+		t.Fatalf("assignmentResources() = %#v", preserved)
+	}
+	allocation.StartBeforeStop = false
+	reservation = allocationReservation(allocation)
+	if reservation.CPUMillis != 200 || reservation.MemoryBytes != 128<<20 {
+		t.Fatalf("stop-before-start allocationReservation() = %#v", reservation)
+	}
+}
+
+func TestDrainReplacementRequiresAcknowledgedReadyTarget(t *testing.T) {
+	desired := model.AllocationDesired{
+		ID: "attempt-new", Application: "app", Service: "web", Replica: 1,
+		ApplicationGeneration: 2, RevisionID: "revision-two", SpecDigest: "digest-two",
+	}
+	assignment := model.Assignment{Generation: 7, Allocations: []model.AllocationDesired{desired}}
+	node := model.Node{AcknowledgedGeneration: 7}
+	execution := model.ApplicationExecution{Allocations: []model.AllocationStatus{{
+		ID: desired.ID, Application: desired.Application, Service: desired.Service, Replica: desired.Replica,
+		Phase: model.AllocationRunning, HealthStatus: model.HealthReady,
+		ActiveGeneration: desired.ApplicationGeneration, ActiveRevisionID: desired.RevisionID,
+		ActiveSpecDigest: desired.SpecDigest,
+	}}}
+	if !drainReplacementReady(node, assignment, desired, execution) {
+		t.Fatal("acknowledged, exact, ready replacement was rejected")
+	}
+
+	tests := []struct {
+		name       string
+		node       model.Node
+		assignment model.Assignment
+		execution  model.ApplicationExecution
+	}{
+		{name: "not acknowledged", node: model.Node{AcknowledgedGeneration: 6}, assignment: assignment, execution: execution},
+		{name: "not assigned", node: node, assignment: model.Assignment{Generation: 7}, execution: execution},
+		{name: "not observed", node: node, assignment: assignment},
+		{name: "not running", node: node, assignment: assignment, execution: func() model.ApplicationExecution {
+			candidate := execution
+			candidate.Allocations = append([]model.AllocationStatus(nil), execution.Allocations...)
+			candidate.Allocations[0].Phase = model.AllocationStarting
+			return candidate
+		}()},
+		{name: "wrong active digest", node: node, assignment: assignment, execution: func() model.ApplicationExecution {
+			candidate := execution
+			candidate.Allocations = append([]model.AllocationStatus(nil), execution.Allocations...)
+			candidate.Allocations[0].ActiveSpecDigest = "other"
+			return candidate
+		}()},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if drainReplacementReady(test.node, test.assignment, desired, test.execution) {
+				t.Fatal("unsafe replacement was accepted")
+			}
+		})
+	}
+	execution.Allocations[0].HealthStatus = model.HealthNotConfigured
+	if !drainReplacementReady(node, assignment, desired, execution) {
+		t.Fatal("running replacement without a configured health check was rejected")
+	}
+}
+
+func TestCronReleaseRequiresIdleAcknowledgedOwner(t *testing.T) {
+	previous := model.CronJobDesired{Application: "app", Job: "backup", SpecDigest: "cron-digest"}
+	assignment := model.Assignment{Generation: 4, CronJobs: []model.CronJobDesired{previous}}
+	node := model.Node{ID: "node-one", AcknowledgedGeneration: 4}
+	ownership := store.CronOwnership{NodeID: node.ID, Application: previous.Application, Job: previous.Job, SpecDigest: previous.SpecDigest}
+	if !cronReleaseReady(node, assignment, ownership, previous, true) {
+		t.Fatal("idle acknowledged cron owner was not releasable")
+	}
+
+	tests := []struct {
+		name       string
+		node       model.Node
+		assignment model.Assignment
+		ownership  store.CronOwnership
+		connected  bool
+	}{
+		{name: "disconnected", node: node, assignment: assignment, ownership: ownership},
+		{name: "not acknowledged", node: model.Node{ID: node.ID, AcknowledgedGeneration: 3}, assignment: assignment, ownership: ownership, connected: true},
+		{name: "job absent", node: node, assignment: model.Assignment{Generation: 4}, ownership: ownership, connected: true},
+		{name: "active run", node: node, assignment: assignment, ownership: func() store.CronOwnership {
+			candidate := ownership
+			candidate.ActiveRunID = "run-one"
+			return candidate
+		}(), connected: true},
+		{name: "wrong owner", node: node, assignment: assignment, ownership: func() store.CronOwnership {
+			candidate := ownership
+			candidate.NodeID = "node-two"
+			return candidate
+		}(), connected: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if cronReleaseReady(test.node, test.assignment, test.ownership, previous, test.connected) {
+				t.Fatal("unsafe cron release was accepted")
+			}
+		})
+	}
+}
+
+func TestEndpointCatalogContainsOnlyLocallyReachableNodes(t *testing.T) {
+	configuration := model.NetworkConfig{Peers: []model.WireGuardPeer{{NodeID: "node-two"}}}
+	endpoints := []model.ServiceEndpoint{
+		{AllocationID: "one", NodeID: "node-one"},
+		{AllocationID: "two", NodeID: "node-two"},
+		{AllocationID: "three", NodeID: "node-three"},
+	}
+	got := reachableEndpoints(configuration, "node-one", endpoints)
+	if len(got) != 2 || got[0].NodeID != "node-one" || got[1].NodeID != "node-two" {
+		t.Fatalf("reachableEndpoints() = %#v", got)
+	}
+}
 
 func TestReconcilerLeavesApplicationsPendingWithoutAgent(t *testing.T) {
 	t.Parallel()
@@ -344,9 +555,6 @@ func TestReconcilerBlocksUnsupportedIntentWithStableReasons(t *testing.T) {
 		{name: "secret", manifest: runtimeManifest(executableImage, func(service *config.Service) {
 			service.SecretEnv = map[string]string{"TOKEN": "token"}
 		}), reason: "secrets_unsupported"},
-		{name: "constraint", manifest: runtimeManifest(executableImage, func(service *config.Service) {
-			service.Constraints = map[string]string{"region": "local"}
-		}), reason: "constraints_unsupported"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -496,7 +704,8 @@ func TestNodeCapabilityBlockersAreExplicit(t *testing.T) {
 		{name: "CNI plugins", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion}, status: model.ExecutionBlocked, reason: "cni_plugins_unavailable"},
 		{name: "nftables", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion}, status: model.ExecutionBlocked, reason: "nftables_required"},
 		{name: "DNS", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true}, status: model.ExecutionBlocked, reason: "dns_unavailable"},
-		{name: "Caddy", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true}, status: model.ExecutionBlocked, reason: "caddy_unavailable"},
+		{name: "network failure before Caddy", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true, Ingress: true, NetworkState: model.NetworkFailed, NetworkReason: "wireguard_unavailable"}, status: model.ExecutionBlocked, reason: "wireguard_unavailable"},
+		{name: "Caddy", node: model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true, Ingress: true}, status: model.ExecutionBlocked, reason: "caddy_unavailable"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -512,6 +721,11 @@ func TestNodeCapabilityBlockersAreExplicit(t *testing.T) {
 				t.Fatalf("planApplication() blocker = %#v, %v", blocked, err)
 			}
 		})
+	}
+	compute := model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true}
+	if blocked := nodeBlocker(compute); blocked != nil {
+		t.Fatalf("compute-only node without Caddy blocker = %#v", blocked)
 	}
 }
 
@@ -581,6 +795,33 @@ func enrollCompatibleNode(t *testing.T, state *store.Store) {
 		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion,
 		Nftables: true, DNSAvailable: true, CaddyVersion: ingress.RequiredCaddyVersion,
 		SeenAt: reconcilerTestTime.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func enrollDistributedNode(t *testing.T, state *store.Store, nodeID, name, advertise string, certificateHash, requestHash byte) {
+	t.Helper()
+	if _, err := state.EnrollAgent(context.Background(), model.EnrollAgent{
+		NodeID: nodeID, Name: name, PublicKeyHash: strings.Repeat(string(certificateHash), 64), CertificateSerial: name,
+		CertificatePEM: []byte("agent certificate"), CertificateNotAfter: reconcilerTestTime.AddDate(1, 0, 0),
+		ClusterID: "cluster-one", ControllerEndpoint: "https://controller.example:9443", CACertificatePEM: []byte("CA certificate"),
+		IdempotencyKey: "enrollment-key-" + nodeID, RequestHash: strings.Repeat(string(requestHash), 64), CreatedAt: reconcilerTestTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	keyByte := byte(1)
+	if nodeID == "node-two" {
+		keyByte = 2
+	}
+	if err := state.UpdateAgentCapabilities(context.Background(), model.AgentCapabilities{
+		NodeID: nodeID, BootID: "boot-" + nodeID, OperatingSystem: "linux", Architecture: "amd64",
+		RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion,
+		Nftables: true, DNSAvailable: true, CaddyVersion: ingress.RequiredCaddyVersion,
+		TotalCPUMillis: 4000, TotalMemoryBytes: 8 << 30, AllocatableCPUMillis: 3500, AllocatableMemoryBytes: 7 << 30,
+		AdvertiseAddress: advertise, WireGuardPublicKey: base64.StdEncoding.EncodeToString(slices.Repeat([]byte{keyByte}, 32)),
+		WireGuardListenPort: model.DefaultWireGuardListenPort, SeenAt: reconcilerTestTime.Add(time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}

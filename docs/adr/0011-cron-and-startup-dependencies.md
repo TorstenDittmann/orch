@@ -22,7 +22,8 @@ runs per job. Missed historical occurrences are not replayed.
 
 ## Consequences
 
-Schedules continue during controller outages while the agent has its cached
-assignment. A single-node durable claim provides at-most-one execution for the
-current architecture. Multi-node ownership and failover require a later
-scheduler design and are intentionally not implied by this contract.
+Schedules continue during controller outages while the owner agent has its
+cached assignment. Sticky multi-node ownership makes graceful handoff wait for
+active completion and old-node acknowledgement, while an unreachable owner
+moves only after explicit confirmed fencing. Exactly-once execution is still
+not implied by this contract.

@@ -9,6 +9,8 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,7 +92,9 @@ func runAgentInit(ctx context.Context, args []string, stdout, stderr io.Writer) 
 func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("agent serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dataDir, socket, snapshotter, cniBinDir, caddyBinary, ingressUser, ingressDataDir string
+	var dataDir, socket, snapshotter, cniBinDir, caddyBinary, ingressUser, ingressDataDir, advertiseAddress string
+	var systemReservedCPU, systemReservedMemory string
+	var wireGuardPort uint
 	flags.StringVar(&dataDir, "data-dir", "", "agent state directory")
 	flags.StringVar(&socket, "containerd-socket", "", "containerd socket path")
 	flags.StringVar(&snapshotter, "snapshotter", "overlayfs", "containerd snapshotter")
@@ -98,11 +102,25 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 	flags.StringVar(&caddyBinary, "caddy-binary", "/usr/bin/caddy", "pinned Caddy executable")
 	flags.StringVar(&ingressUser, "ingress-user", "orch-ingress", "dedicated unprivileged Caddy user")
 	flags.StringVar(&ingressDataDir, "ingress-data-dir", "/var/lib/orch-ingress", "private Caddy data directory owned by --ingress-user")
+	flags.StringVar(&advertiseAddress, "advertise-address", "", "private IPv4 address reachable by the other nodes")
+	flags.UintVar(&wireGuardPort, "wireguard-port", 51820, "WireGuard UDP listen port")
+	flags.StringVar(&systemReservedCPU, "system-reserved-cpu", "500m", "CPU reserved for the host (for example 500m)")
+	flags.StringVar(&systemReservedMemory, "system-reserved-memory", "512Mi", "memory reserved for the host (for example 512Mi)")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
-	if flags.NArg() != 0 || dataDir == "" || socket == "" || snapshotter == "" || cniBinDir == "" || caddyBinary == "" || ingressUser == "" || ingressDataDir == "" {
-		fmt.Fprintln(stderr, "agent serve requires nonempty runtime, CNI, and Caddy paths and identities")
+	if flags.NArg() != 0 || dataDir == "" || socket == "" || snapshotter == "" || cniBinDir == "" || caddyBinary == "" || ingressUser == "" || ingressDataDir == "" || advertiseAddress == "" {
+		fmt.Fprintln(stderr, "agent serve requires nonempty runtime, CNI, Caddy, and --advertise-address values")
+		return ExitInvalid
+	}
+	reservedCPU, err := parseReservedCPU(systemReservedCPU)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("invalid --system-reserved-cpu: %w", err), false)
+		return ExitInvalid
+	}
+	reservedMemory, err := parseReservedMemory(systemReservedMemory)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("invalid --system-reserved-memory: %w", err), false)
 		return ExitInvalid
 	}
 	credentials, err := agentctl.Load(dataDir, time.Now())
@@ -110,13 +128,34 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
-	networkManager, err := network.New(network.Options{
+	localNetwork, err := network.New(network.Options{
 		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
 		BinDir: cniBinDir, StateDir: filepath.Join(dataDir, "network"),
 	})
 	if err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
+	}
+	if wireGuardPort == 0 || wireGuardPort > math.MaxUint16 {
+		_ = localNetwork.Close()
+		writeError(stderr, errors.New("--wireguard-port must be between 1 and 65535"), false)
+		return ExitInvalid
+	}
+	wireGuard, wireGuardErr := network.NewWireGuard(network.WireGuardOptions{
+		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
+		StateDir: filepath.Join(dataDir, "network", "wireguard"),
+	})
+	if wireGuardErr != nil {
+		_ = localNetwork.Close()
+		writeError(stderr, wireGuardErr, false)
+		return ExitRuntime
+	}
+	networkManager, err := network.NewMesh(localNetwork, wireGuard, advertiseAddress, uint16(wireGuardPort))
+	if err != nil {
+		_ = wireGuard.Close()
+		_ = localNetwork.Close()
+		writeError(stderr, err, false)
+		return ExitInvalid
 	}
 	runtimeClient, err := containerdruntime.New(socket, orchruntime.Options{
 		ClusterID: credentials.Config.ClusterID, NodeID: credentials.Config.NodeID,
@@ -154,12 +193,39 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fmt.Fprintf(stdout, "Agent %s connecting to %s\n", credentials.Config.NodeName, credentials.Config.Server)
 	if err := agentctl.Serve(ctx, agentctl.ServeOptions{
 		DataDir: dataDir, Snapshotter: snapshotter, Runtime: runtimeClient,
-		Discovery: dnsServer, Ingress: caddy,
+		Discovery: dnsServer, Ingress: caddy, SystemReservedCPUMillis: reservedCPU,
+		SystemReservedMemoryBytes: reservedMemory,
 	}); err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+func parseReservedCPU(value string) (uint64, error) {
+	if !strings.HasSuffix(value, "m") {
+		return 0, errors.New("must use positive millicores with an m suffix")
+	}
+	amount, err := strconv.ParseUint(strings.TrimSuffix(value, "m"), 10, 64)
+	if err != nil || amount == 0 {
+		return 0, errors.New("must use positive millicores with an m suffix")
+	}
+	return amount, nil
+}
+
+func parseReservedMemory(value string) (uint64, error) {
+	units := map[string]uint64{"Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30, "Ti": 1 << 40}
+	for suffix, multiplier := range units {
+		if !strings.HasSuffix(value, suffix) {
+			continue
+		}
+		amount, err := strconv.ParseUint(strings.TrimSuffix(value, suffix), 10, 64)
+		if err != nil || amount == 0 || amount > math.MaxUint64/multiplier {
+			return 0, errors.New("must use a positive binary unit such as 512Mi")
+		}
+		return amount * multiplier, nil
+	}
+	return 0, errors.New("must use a positive binary unit such as 512Mi")
 }
 
 func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -199,14 +265,34 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if node.GetLastSeenAt() != nil && node.GetLastSeenAt().CheckValid() == nil {
 			lastSeen = node.GetLastSeenAt().AsTime().Format(time.RFC3339Nano)
 		}
-		fmt.Fprintf(stdout, "%s  %s  %s/%s  assignment %d (acked %d)  last seen %s\n",
-			node.GetName(), node.GetConnectionStatus().String(), node.GetOperatingSystem(), node.GetArchitecture(),
+		fmt.Fprintf(stdout, "%s  %s/%s  %s/%s  assignment %d (acked %d)  last seen %s\n",
+			node.GetName(), node.GetLifecycle().String(), node.GetConnectionStatus().String(), node.GetOperatingSystem(), node.GetArchitecture(),
 			node.GetAssignmentGeneration(), node.GetAcknowledgedGeneration(), lastSeen)
-		fmt.Fprintf(stdout, "  network=%s reason=%s subnet=%s cni=%s plugins=%s nftables=%t dns-capable=%t dns=%s caddy=%s ingress=%s draining=%d\n",
-			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
-			node.GetDnsAvailable(), node.GetDnsState(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
+		fmt.Fprintf(stdout, "  capacity=%dm/%dB allocatable=%dm/%dB assigned=%dm/%dB labels=%s\n",
+			node.GetTotalCpuMillis(), node.GetTotalMemoryBytes(), node.GetAllocatableCpuMillis(), node.GetAllocatableMemoryBytes(),
+			node.GetAssignedCpuMillis(), node.GetAssignedMemoryBytes(), formatNodeLabels(node.GetLabels()))
+		fmt.Fprintf(stdout, "  network=%s reason=%s subnet=%s mesh=%s:%d key=%t cni=%s plugins=%s nftables=%t dns-capable=%t dns=%s ingress-role=%t caddy=%s ingress=%s draining=%d\n",
+			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetAdvertiseAddress(), node.GetWireguardListenPort(), node.GetWireguardPublicKey() != "", node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
+			node.GetDnsAvailable(), node.GetDnsState(), node.GetIngress(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
+		fmt.Fprintf(stdout, "  drain-blockers=%s\n", statusValue(strings.Join(node.GetDrainBlockers(), ",")))
 	}
 	return ExitOK
+}
+
+func formatNodeLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, len(keys))
+	for _, key := range keys {
+		values = append(values, key+"="+labels[key])
+	}
+	return strings.Join(values, ",")
 }
 
 func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -645,11 +731,13 @@ func validateExecCommand(command []string) error {
 }
 
 func printAgentHelp(output io.Writer) {
-	fmt.Fprintln(output, `orch agent manages the single execution agent.
+	fmt.Fprintln(output, `orch agent manages an execution agent.
 
 Usage:
   orch agent init --name NAME --context FILE --data-dir DIR [--json]
 	  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME \
+	    --advertise-address PRIVATE_IPV4 [--wireguard-port PORT] \
+	    [--system-reserved-cpu CPU] [--system-reserved-memory MEMORY] \
 	    [--cni-bin-dir DIR] [--caddy-binary PATH] [--ingress-user USER] \
 	    [--ingress-data-dir DIR]`)
 }

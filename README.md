@@ -6,12 +6,9 @@ self-healing, encrypted networking, service discovery, and safe deployments,
 without exposing the Kubernetes or Docker Swarm APIs.
 
 > [!IMPORTANT]
-> The repository currently contains a networked single-node execution slice.
-> One administrator-enrolled Linux agent runs digest-pinned OCI
-> workloads through containerd 2.3.4/runc, attaches isolated CNI networks,
-> publishes `svc.internal` DNS, gates traffic on readiness, and manages Caddy
-> ingress. Encrypted application secrets and exact-host private-registry
-> credentials are supported. Multi-node scheduling remains unavailable.
+> The repository contains the 1–20 node placement and managed WireGuard slice.
+> The first enrolled node is ingress-enabled for upgrade compatibility;
+> additional nodes start compute-only until explicitly enabled.
 
 ## The contract
 
@@ -21,15 +18,18 @@ without exposing the Kubernetes or Docker Swarm APIs.
 - Defaults are resolved before hashing or planning.
 - Plans compare resolved application values rather than source layout.
 - Secret values never belong in the manifest.
-- Local volumes are explicit and may only be used by one-replica services.
+- Local volumes are explicit, may only be used by one-replica services, and
+  remain pinned to the node that first hosts them.
+- Node constraints are exact label matches. CPU and memory requests are hard
+  placement reservations as well as runtime limits.
 
 The runtime uses OCI images with containerd/runc and isolated network
-namespaces. The single node owns an RFC1918 workload subnet, nftables rules,
-local service DNS, and a pinned external Caddy process. The controller is not
-in the application data path. A later multi-node slice may connect node
-subnets with WireGuard without changing the application contract.
+namespaces. Each node owns an RFC1918 workload `/24`, nftables rules, and local
+service DNS. A managed WireGuard full mesh connects those node subnets, while
+ingress-enabled nodes proxy HTTP/HTTPS and raw TCP directly to ready local or
+remote allocations. The controller is not in the application data path.
 
-## Try the single-node runtime
+## Try the runtime
 
 Install the pinned Go and Pkl toolchain and build the CLI:
 
@@ -62,8 +62,8 @@ bin/orch controller serve \
   --listen 127.0.0.1:9443
 ~~~
 
-On the Linux execution host, enroll the one supported agent while the
-controller is running:
+On the first Linux execution host, enroll an agent while the controller is
+running:
 
 ~~~console
 bin/orch agent init \
@@ -79,6 +79,10 @@ bin/orch network configure \
 
 sudo bin/orch agent serve \
   --data-dir /var/lib/orch-agent \
+  --advertise-address 10.0.0.11 \
+  --wireguard-port 51820 \
+  --system-reserved-cpu 500m \
+  --system-reserved-memory 512Mi \
   --containerd-socket /run/containerd/containerd.sock \
   --snapshotter overlayfs \
   --cni-bin-dir /opt/cni/bin \
@@ -89,12 +93,28 @@ sudo bin/orch agent serve \
 
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
 2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
-the official CNI plugins 1.9.1, and Caddy 2.11.3. Caddy runs as the dedicated
-non-root user and its root-owned binary must carry
-`cap_net_bind_service=+ep`. The agent needs root-equivalent permission for
-containerd, network namespaces, and its uniquely named nftables table. See
+the official CNI plugins 1.9.1, and kernel WireGuard support. Ingress-enabled
+nodes additionally run Caddy 2.11.3 as a dedicated non-root user; its
+root-owned binary must carry `cap_net_bind_service=+ep`. The agent needs
+root-equivalent permission for containerd, network namespaces, and its
+uniquely named nftables table. See
 [docs/networking.md](docs/networking.md) for network and ingress operations and
 [docs/runtime.md](docs/runtime.md) for the exact support boundary.
+
+For multiple nodes, repeat `agent init` with a unique name and data directory
+on each host. Their advertised private IPv4 addresses must be mutually
+reachable, and host/provider firewalls must permit the configured WireGuard
+UDP port (51820 by default). Manage placement and ingress explicitly:
+
+~~~console
+bin/orch node label node-1 region=eu-west storage=fast --context "$PWD/.orch-client/context.json"
+bin/orch node cordon node-1 --context "$PWD/.orch-client/context.json"
+bin/orch node drain node-1 --context "$PWD/.orch-client/context.json"
+bin/orch node ingress node-2 --enable --context "$PWD/.orch-client/context.json"
+~~~
+
+See [docs/operations.md](docs/operations.md) before draining or removing a node;
+local-volume and cron workloads deliberately have stricter handoff rules.
 
 Use the generated mTLS context from another terminal:
 
@@ -178,6 +198,7 @@ services {
 The runtime examples demonstrate a preserved local volume and a readiness-gated
 private HTTP service. See [examples/runtime/orch.pkl](examples/runtime/orch.pkl),
 [examples/http/orch.pkl](examples/http/orch.pkl),
+[examples/multinode/orch.pkl](examples/multinode/orch.pkl),
 [examples/tcp-cron/orch.pkl](examples/tcp-cron/orch.pkl),
 [examples/secrets/orch.pkl](examples/secrets/orch.pkl),
 [docs/configuration.md](docs/configuration.md), and
@@ -211,7 +232,7 @@ slices:
 1. Configuration and CLI contract.
 2. Secure single-node controller/agent/runtime.
 3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
-4. Multi-node scheduling and WireGuard routing (next).
+4. Multi-node scheduling and WireGuard routing (implemented by Plan #9).
 5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 

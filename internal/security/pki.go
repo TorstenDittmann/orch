@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -417,6 +418,25 @@ func VerifyAgentPeerIdentity(certificate *x509.Certificate, clusterID, nodeID st
 		return fmt.Errorf("agent certificate does not contain identity %s", expectedURI)
 	}
 	return nil
+}
+
+// AgentNodeID extracts the exact node identity from the single URI SAN. It is
+// used only to select the enrolled record; VerifyAgentPeerIdentity still
+// performs the full role and certificate constraint validation afterwards.
+func AgentNodeID(certificate *x509.Certificate, clusterID string) (string, error) {
+	if certificate == nil || len(certificate.URIs) != 1 {
+		return "", fmt.Errorf("agent certificate does not contain exactly one identity")
+	}
+	uri := certificate.URIs[0]
+	prefix := "/cluster/" + clusterID + "/agent/"
+	if uri.Scheme != "spiffe" || uri.Host != "orch" || !strings.HasPrefix(uri.Path, prefix) {
+		return "", fmt.Errorf("agent certificate does not contain an identity for this cluster")
+	}
+	nodeID := strings.TrimPrefix(uri.Path, prefix)
+	if nodeID == "" || strings.Contains(nodeID, "/") {
+		return "", fmt.Errorf("agent certificate contains an invalid node identity")
+	}
+	return nodeID, nil
 }
 
 // CertificatePublicKeyHash returns the same fingerprint used by enrollment.

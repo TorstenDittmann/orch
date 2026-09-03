@@ -85,7 +85,11 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 		Snapshotter: hello.GetSnapshotter(), CgroupsV2: hello.GetCgroupsV2(),
 		CNIVersion: hello.GetCniVersion(), Nftables: hello.GetNftables(),
 		CNIPluginsVersion: hello.GetCniPluginsVersion(), DNSAvailable: hello.GetDnsAvailable(),
-		CaddyVersion: hello.GetCaddyVersion(), SeenAt: s.now().UTC(),
+		CaddyVersion: hello.GetCaddyVersion(), TotalCPUMillis: hello.GetTotalCpuMillis(),
+		TotalMemoryBytes: hello.GetTotalMemoryBytes(), AllocatableCPUMillis: hello.GetAllocatableCpuMillis(),
+		AllocatableMemoryBytes: hello.GetAllocatableMemoryBytes(), AdvertiseAddress: hello.GetAdvertiseAddress(),
+		WireGuardPublicKey: hello.GetWireguardPublicKey(), WireGuardListenPort: hello.GetWireguardListenPort(),
+		SeenAt: s.now().UTC(),
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("record agent capabilities"))
 	}
@@ -262,6 +266,9 @@ func validateHello(hello *orchv1alpha1.AgentHello, nodeID string) error {
 	if hello.GetCachedAssignmentDigest() != "" && !validSHA256Digest(hello.GetCachedAssignmentDigest()) {
 		return errors.New("cached assignment digest is invalid")
 	}
+	if err := model.ValidateMeshIdentity(hello.GetAdvertiseAddress(), hello.GetWireguardPublicKey(), hello.GetWireguardListenPort()); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -305,7 +312,8 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 			return model.AgentReport{}, err
 		}
 		if status.GetUpdatedAt() == nil || status.GetUpdatedAt().CheckValid() != nil ||
-			len(status.GetReason()) > 128 || len(status.GetMessage()) > 1024 {
+			len(status.GetReason()) > 128 || len(status.GetMessage()) > 1024 || status.GetNodeId() != "" ||
+			status.GetNodeName() != "" || status.GetPlacementReason() != "" {
 			return model.AgentReport{}, fmt.Errorf("allocation %q has an invalid update time", status.GetId())
 		}
 		if len(result.Allocations) != 0 && !allocationObservationAfter(
@@ -346,6 +354,7 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 		}
 		if route.GetUpdatedAt() == nil || route.GetUpdatedAt().CheckValid() != nil ||
 			len(route.GetReason()) > 128 || len(route.GetMessage()) > 1024 ||
+			route.GetNodeId() != "" || route.GetNodeName() != "" ||
 			(previousDomain != "" && route.GetDomain() <= previousDomain) {
 			return model.AgentReport{}, fmt.Errorf("route observations are not in strict canonical order or contain invalid data")
 		}
@@ -364,7 +373,8 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 			return model.AgentReport{}, err
 		}
 		if route.GetUpdatedAt() == nil || route.GetUpdatedAt().CheckValid() != nil || route.GetPublicPort() == 0 ||
-			(previousPort != 0 && route.GetPublicPort() <= previousPort) || len(route.GetReason()) > 128 || len(route.GetMessage()) > 1024 {
+			(previousPort != 0 && route.GetPublicPort() <= previousPort) || len(route.GetReason()) > 128 || len(route.GetMessage()) > 1024 ||
+			route.GetNodeId() != "" || route.GetNodeName() != "" {
 			return model.AgentReport{}, errors.New("TCP route observations are not in strict canonical order or contain invalid data")
 		}
 		result.TCPRoutes = append(result.TCPRoutes, model.TCPRouteStatus{Application: route.GetApplication(), Service: route.GetService(),

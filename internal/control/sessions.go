@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	agentProtocolVersion  = "v1alpha1-workloads-3"
+	agentProtocolVersion  = "v1alpha1-workloads-4"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
 )
@@ -82,6 +82,18 @@ func (m *sessionManager) unregister(session *agentSession) {
 		return
 	}
 	delete(m.sessions, session.nodeID)
+	m.disconnectLocked(session)
+}
+
+func (m *sessionManager) Disconnect(nodeID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[nodeID]
+	if session == nil {
+		return
+	}
+	delete(m.sessions, nodeID)
+	session.cancel()
 	m.disconnectLocked(session)
 }
 
@@ -275,7 +287,21 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		message.Network = &orchv1alpha1.NetworkConfig{
 			Generation: assignment.Network.Generation, ClusterCidr: assignment.Network.ClusterCIDR,
 			NodeSubnet: assignment.Network.NodeSubnet, Gateway: assignment.Network.Gateway,
-			DnsZone: assignment.Network.DNSZone,
+			DnsZone: assignment.Network.DNSZone, IngressEnabled: assignment.Network.IngressEnabled,
+			WireguardListenPort: uint32(assignment.Network.WireGuardListenPort),
+		}
+		for _, peer := range assignment.Network.Peers {
+			message.Network.Peers = append(message.Network.Peers, &orchv1alpha1.WireGuardPeer{
+				NodeId: peer.NodeID, PublicKey: peer.PublicKey, Endpoint: peer.Endpoint, AllowedSubnet: peer.AllowedSubnet,
+			})
+		}
+		for _, endpoint := range assignment.Network.Endpoints {
+			message.Network.Endpoints = append(message.Network.Endpoints, &orchv1alpha1.ServiceEndpoint{
+				AllocationId: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
+				Address: endpoint.Address, Port: endpoint.Port, NodeId: endpoint.NodeID,
+				Domains: append([]string(nil), endpoint.Domains...), Https: endpoint.HTTPS,
+				TcpPublicPort: endpoint.TCPPublicPort,
+			})
 		}
 	}
 	for _, allocation := range assignment.Allocations {

@@ -20,14 +20,16 @@ import (
 )
 
 type ServeOptions struct {
-	DataDir     string
-	Snapshotter string
-	Runtime     orchruntime.Runtime
-	Discovery   discovery.Controller
-	Ingress     ingress.Controller
-	TCPIngress  TCPIngressController
-	Now         func() time.Time
-	Random      io.Reader
+	DataDir                   string
+	Snapshotter               string
+	Runtime                   orchruntime.Runtime
+	Discovery                 discovery.Controller
+	Ingress                   ingress.Controller
+	TCPIngress                TCPIngressController
+	Now                       func() time.Time
+	Random                    io.Reader
+	SystemReservedCPUMillis   uint64
+	SystemReservedMemoryBytes uint64
 }
 
 func Serve(ctx context.Context, options ServeOptions) error {
@@ -75,6 +77,14 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	}
 	if options.Snapshotter == "" || capabilities.Snapshotter != options.Snapshotter {
 		return fmt.Errorf("configured snapshotter %q is unavailable (runtime reports %q)", options.Snapshotter, capabilities.Snapshotter)
+	}
+	if options.SystemReservedCPUMillis != 0 || options.SystemReservedMemoryBytes != 0 {
+		if options.SystemReservedCPUMillis >= capabilities.TotalCPUMillis ||
+			options.SystemReservedMemoryBytes >= capabilities.TotalMemoryBytes {
+			return fmt.Errorf("system reservations must leave positive allocatable CPU and memory")
+		}
+		capabilities.AllocatableCPUMillis = capabilities.TotalCPUMillis - options.SystemReservedCPUMillis
+		capabilities.AllocatableMemoryBytes = capabilities.TotalMemoryBytes - options.SystemReservedMemoryBytes
 	}
 	ingressController := options.Ingress
 	if options.Ingress != nil {

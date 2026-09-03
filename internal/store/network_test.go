@@ -64,6 +64,13 @@ func TestValidateNetworkObservationRequiresKnownSubsystemStates(t *testing.T) {
 	if err := validateNetworkObservation(valid, desired); err != nil {
 		t.Fatalf("valid observation: %v", err)
 	}
+	computeOnly := desired
+	computeOnly.IngressEnabled = false
+	computeObservation := valid
+	computeObservation.IngressState = model.SubsystemNotConfigured
+	if err := validateNetworkObservation(computeObservation, computeOnly); err != nil {
+		t.Fatalf("valid compute-only observation: %v", err)
+	}
 
 	for name, mutate := range map[string]func(*model.NetworkStatus){
 		"unknown DNS state":     func(status *model.NetworkStatus) { status.DNSState = "unknown" },

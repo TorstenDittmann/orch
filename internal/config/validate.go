@@ -20,7 +20,7 @@ const (
 	maxCronJobs              = 100
 	maxDependencies          = 64
 	maxVolumes               = 100
-	maxTotalReplicas         = 1000
+	maxTotalReplicas         = 200
 	maxDomainsPerService     = 100
 	maxTotalDomains          = 1000
 	maxEnvironmentEntries    = 256
@@ -139,16 +139,7 @@ func Validate(manifest *Manifest) error {
 				add(base+".secret_env."+key, "duplicates a plain environment variable")
 			}
 		}
-		if len(service.Constraints) > maxConstraintEntries {
-			add(base+".constraints", fmt.Sprintf("must not contain more than %d entries", maxConstraintEntries))
-		}
-		for key, value := range service.Constraints {
-			if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" || len(key) > 256 || len(value) > maxManifestStringBytes ||
-				strings.ContainsRune(key, 0) || strings.ContainsRune(value, 0) {
-				add(base+".constraints", "keys and values must be nonempty, bounded, and contain no NUL bytes")
-				break
-			}
-		}
+		validateConstraints(base+".constraints", service.Constraints, add)
 
 		if service.HTTP != nil {
 			if service.HTTP.Port < 1 || service.HTTP.Port > 65535 {
@@ -275,6 +266,7 @@ func Validate(manifest *Manifest) error {
 				add(base+".secret_env."+key, "duplicates a plain environment variable")
 			}
 		}
+		validateConstraints(base+".constraints", job.Constraints, add)
 		if len(job.SecretFiles) > maxSecretFilesPerService {
 			add(base+".secret_files", fmt.Sprintf("must not contain more than %d entries", maxSecretFilesPerService))
 		}
@@ -438,6 +430,20 @@ func validateEnvironment(field string, values map[string]string, secrets bool, a
 			if !dnsLabelPattern.MatchString(value) {
 				add(field+"."+key, "must reference a secret by lowercase DNS label")
 			}
+		}
+	}
+}
+
+func validateConstraints(field string, constraints map[string]string, add func(string, string)) {
+	if len(constraints) > maxConstraintEntries {
+		add(field, fmt.Sprintf("must not contain more than %d entries", maxConstraintEntries))
+	}
+	for _, key := range sortedKeys(constraints) {
+		value := constraints[key]
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" || len(key) > 256 || len(value) > maxManifestStringBytes ||
+			strings.ContainsRune(key, 0) || strings.ContainsRune(value, 0) {
+			add(field, "keys and values must be nonempty, bounded, and contain no NUL bytes")
+			return
 		}
 	}
 }
