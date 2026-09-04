@@ -585,7 +585,11 @@ func (m *Model) renderPalette(t theme, width int) string {
 func (m *Model) renderSearch(t theme, width int) string {
 	scope := "events"
 	if m.view == ViewLogs {
-		scope = "logs"
+		if m.runtimeFocus == 0 {
+			scope = "runtimes"
+		} else {
+			scope = "logs"
+		}
 	}
 	content := heading(t, "Filter "+scope) + "\n\n" + m.searchInput.View() + "\n\n" + muted(t, "enter apply · esc close · empty clears")
 	return panel(t, content, width, 7)
