@@ -102,6 +102,7 @@ func Validate(manifest *Manifest) error {
 	volumeOwners := make(map[string]string)
 	totalReplicas := 0
 	totalDomains := 0
+	publicHTTPService := ""
 	serviceNames := sortedKeys(manifest.Services)
 	for _, serviceName := range serviceNames {
 		service := manifest.Services[serviceName]
@@ -166,8 +167,15 @@ func Validate(manifest *Manifest) error {
 					domainOwners[normalized] = serviceName
 				}
 			}
-			if len(service.HTTP.Domains) > 0 && service.HTTP.HealthPath == "" {
-				add(base+".http.health_path", "is required when domains are configured")
+			if service.HTTP.Public {
+				if publicHTTPService != "" {
+					add(base+".http.public", fmt.Sprintf("duplicates the public HTTP listener already declared by service %q", publicHTTPService))
+				} else {
+					publicHTTPService = serviceName
+				}
+			}
+			if (service.HTTP.Public || len(service.HTTP.Domains) > 0) && service.HTTP.HealthPath == "" {
+				add(base+".http.health_path", "is required when public HTTP ingress or domains are configured")
 			}
 			if service.HTTP.HealthPath != "" && (!strings.HasPrefix(service.HTTP.HealthPath, "/") ||
 				len(service.HTTP.HealthPath) > 2048 || strings.ContainsAny(service.HTTP.HealthPath, "\x00\r\n")) {

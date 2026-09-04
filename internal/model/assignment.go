@@ -47,6 +47,9 @@ const (
 	JobRunFailed    = "FAILED"
 	JobRunTimedOut  = "TIMED_OUT"
 	JobRunSkipped   = "SKIPPED"
+
+	// PublicHTTPRoute is the stable route-status key for the catch-all port-80 listener.
+	PublicHTTPRoute = "*"
 )
 
 type VolumeMount struct {
@@ -57,6 +60,7 @@ type VolumeMount struct {
 
 type HTTPDesired struct {
 	Port       uint32   `json:"port"`
+	Public     bool     `json:"public,omitempty"`
 	Domains    []string `json:"domains,omitempty"`
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
@@ -146,6 +150,7 @@ type ServiceEndpoint struct {
 	Port          uint32   `json:"port"`
 	NodeID        string   `json:"node_id"`
 	Domains       []string `json:"domains,omitempty"`
+	HTTPPublic    bool     `json:"http_public,omitempty"`
 	HTTPS         bool     `json:"https,omitempty"`
 	TCPPublicPort uint32   `json:"tcp_public_port,omitempty"`
 }

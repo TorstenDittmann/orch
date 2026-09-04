@@ -859,7 +859,15 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ne
 	allowed := false
 	activeContract := false
 	for _, endpoint := range network.Endpoints {
-		if endpoint.Application != route.Application || endpoint.Service != route.Service || endpoint.HTTPS != route.HTTPS {
+		if endpoint.Application != route.Application || endpoint.Service != route.Service {
+			continue
+		}
+		if route.Domain == model.PublicHTTPRoute && endpoint.HTTPPublic && !route.HTTPS {
+			allowed = true
+			activeContract = true
+			continue
+		}
+		if endpoint.HTTPS != route.HTTPS {
 			continue
 		}
 		for _, domain := range endpoint.Domains {
@@ -913,7 +921,13 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ne
 }
 
 func routeMatchesHTTPIntent(route model.RouteStatus, intent *model.HTTPDesired) bool {
-	if intent == nil || intent.HTTPS != route.HTTPS {
+	if intent == nil {
+		return false
+	}
+	if route.Domain == model.PublicHTTPRoute {
+		return intent.Public && !route.HTTPS
+	}
+	if intent.HTTPS != route.HTTPS {
 		return false
 	}
 	for _, domain := range intent.Domains {
@@ -994,6 +1008,7 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(
 			CASE WHEN replica = 1 AND json_type(spec, '$.http.domains') = 'array'
 			THEN json_array_length(spec, '$.http.domains') ELSE 0 END), 0) +
+			COALESCE(sum(CASE WHEN replica = 1 AND json_extract(spec, '$.http.public') = 1 THEN 1 ELSE 0 END), 0) +
 			COALESCE(sum(CASE WHEN replica = 1 AND json_extract(spec, '$.tcp.public_port') > 0 THEN 1 ELSE 0 END), 0)
 			FROM desired_allocations WHERE application_name = ?`, application.name).Scan(&requiredRoutes); err != nil {
 			return fmt.Errorf("summarize desired application routes: %w", err)

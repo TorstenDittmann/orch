@@ -74,6 +74,7 @@ message HTTPDesired {
   repeated string domains = 2;
   string health_path = 3;
   bool https = 4;
+  bool public = 5;
 }
 
 message TCPDesired {
@@ -160,6 +161,7 @@ message ServiceEndpoint {
   repeated string domains = 7;
   bool https = 8;
   uint32 tcp_public_port = 9;
+  bool http_public = 10;
 }
 
 message AllocationDesired {

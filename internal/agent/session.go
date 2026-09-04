@@ -756,7 +756,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			assignment.Network.Endpoints = append(assignment.Network.Endpoints, model.ServiceEndpoint{
 				AllocationID: endpoint.GetAllocationId(), Application: endpoint.GetApplication(), Service: endpoint.GetService(),
 				Address: endpoint.GetAddress(), Port: endpoint.GetPort(), NodeID: endpoint.GetNodeId(),
-				Domains: append([]string(nil), endpoint.GetDomains()...), HTTPS: endpoint.GetHttps(),
+				Domains: append([]string(nil), endpoint.GetDomains()...), HTTPS: endpoint.GetHttps(), HTTPPublic: endpoint.GetHttpPublic(),
 				TCPPublicPort: endpoint.GetTcpPublicPort(),
 			})
 		}
@@ -798,7 +798,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
 		allocation.RegistryCredential = registryCredentialModel(item.GetRegistryCredential())
 		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
-			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
+			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Public: desiredHTTP.GetPublic(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
 		}
 		if desiredTCP := item.GetTcp(); desiredTCP != nil {
 			allocation.TCP = &model.TCPDesired{Port: desiredTCP.GetPort(), PublicPort: desiredTCP.GetPublicPort()}
@@ -820,7 +820,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())
 			allocation.Rollback.RegistryCredential = registryCredentialModel(rollback.GetRegistryCredential())
 			if rollback.GetHttp() != nil {
-				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
+				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Public: rollback.GetHttp().GetPublic(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
 			}
 			if rollback.GetTcp() != nil {
 				allocation.Rollback.TCP = &model.TCPDesired{Port: rollback.GetTcp().GetPort(), PublicPort: rollback.GetTcp().GetPublicPort()}

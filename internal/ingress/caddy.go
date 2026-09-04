@@ -578,7 +578,11 @@ func probeRoute(ctx context.Context, route Route) error {
 	}
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+route.Domain+"/", nil)
+	host := route.Domain
+	if host == model.PublicHTTPRoute {
+		host = "127.0.0.1"
+	}
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+"/", nil)
 	response, err := client.Do(request)
 	if err != nil {
 		return err

@@ -33,6 +33,7 @@ type pklResources struct {
 
 type pklHTTP struct {
 	Port       int      `pkl:"port"`
+	Public     bool     `pkl:"public"`
 	Domains    []string `pkl:"domains"`
 	HealthPath string   `pkl:"healthPath"`
 	HTTPS      bool     `pkl:"https"`
@@ -99,6 +100,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 		if input.HTTP != nil {
 			httpConfig = &HTTP{
 				Port:       input.HTTP.Port,
+				Public:     input.HTTP.Public,
 				Domains:    append([]string(nil), input.HTTP.Domains...),
 				HealthPath: input.HTTP.HealthPath,
 				HTTPS:      input.HTTP.HTTPS,

@@ -312,6 +312,35 @@ func TestTCPPublicPortOwnershipBlocksLaterApplication(t *testing.T) {
 	}
 }
 
+func TestPublicHTTPOwnershipBlocksLaterApplication(t *testing.T) {
+	publicService := func() config.Service {
+		return config.Service{Image: executableImage, HTTP: &config.HTTP{Port: 8080, Public: true, HealthPath: "/healthz"}}
+	}
+	firstManifest := newTestManifest("first", map[string]config.Service{"web": publicService()})
+	secondManifest := newTestManifest("second", map[string]config.Service{"web": publicService()})
+	applications := []model.Application{
+		{Name: "second", Generation: 1, RevisionID: "revision-two", CanonicalManifest: mustCanonicalManifest(t, secondManifest), CreatedAt: reconcilerTestTime.Add(time.Second)},
+		{Name: "first", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, firstManifest), CreatedAt: reconcilerTestTime},
+	}
+	owners, err := desiredDomainOwners(applications)
+	if err != nil || owners[model.PublicHTTPRoute] != "first/web" {
+		t.Fatalf("owners = %#v, %v", owners, err)
+	}
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion: ingress.RequiredCaddyVersion, NetworkGeneration: 1, NodeSubnet: networkConfig.NodeSubnet,
+		NetworkState: model.NetworkReady, DNSState: model.SubsystemReady}
+	_, blocked, err := planApplicationBundleForNetwork("cluster-one", node, applications[0], networkConfig, true, owners, nil, nil)
+	if err != nil || blocked == nil || blocked.reason != "http_public_conflict" {
+		t.Fatalf("blocked = %#v, %v", blocked, err)
+	}
+}
+
 func TestReconcilerPlansDeterministicAllocationsAndPreservesUnaffectedSpecs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

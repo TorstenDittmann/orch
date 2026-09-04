@@ -68,6 +68,9 @@ class Resources {
 class Http {
   port: Port
 
+  /// Expose this service as the catch-all plaintext listener on ingress port 80.
+  public: Boolean = false
+
   domains: Listing<String>(length <= 100, isDistinct) = new {}
 
   healthPath: String(length <= 2048) = ""

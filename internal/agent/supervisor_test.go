@@ -955,6 +955,29 @@ func TestDesiredRoutesUseEachServingRevisionPort(t *testing.T) {
 	}
 }
 
+func TestDesiredRoutesPublishesPublicHTTPForLocalAndRemoteEndpoints(t *testing.T) {
+	t.Parallel()
+	local := supervisorHTTPAllocation(t, "alloc-local", "sha256:"+strings.Repeat("b", 64), 1)
+	local.HTTP = &model.HTTPDesired{Port: 8080, Public: true, HealthPath: "/healthz"}
+	local.SpecDigest = mustAllocationDigest(t, local)
+	routes, pending := desiredRoutes([]model.AllocationDesired{local}, nil,
+		map[string]string{local.ID: "10.88.0.2"}, map[string]string{local.ID: local.SpecDigest}, supervisorTestTime)
+	if len(pending) != 0 || len(routes) != 1 || routes[0].Domain != model.PublicHTTPRoute || routes[0].HTTPS ||
+		!reflect.DeepEqual(routes[0].Upstreams, []string{"10.88.0.2:8080"}) {
+		t.Fatalf("local public routes = %#v, pending = %#v", routes, pending)
+	}
+
+	endpoint := model.ServiceEndpoint{AllocationID: "alloc-remote", Application: "hello", Service: "web",
+		NodeID: "node-two", Address: "10.88.1.2", Port: 8080, HTTPPublic: true}
+	assignment := model.Assignment{Network: model.NetworkConfig{Generation: 1, Endpoints: []model.ServiceEndpoint{endpoint}}}
+	allocations, serving, specs := remoteServingView(assignment, nil, nil)
+	routes, pending = desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+	if len(pending) != 0 || len(routes) != 1 || routes[0].Domain != model.PublicHTTPRoute ||
+		!reflect.DeepEqual(routes[0].Upstreams, []string{"10.88.1.2:8080"}) {
+		t.Fatalf("remote public routes = %#v, pending = %#v", routes, pending)
+	}
+}
+
 func TestRemoteEndpointCatalogFeedsDNSHTTPAndTCP(t *testing.T) {
 	t.Parallel()
 	endpoint := model.ServiceEndpoint{

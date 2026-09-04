@@ -50,7 +50,7 @@ module and remains present in rendered JSON.
 | `restart` | `"always"` | `"always"`, `"on-failure"`, or `"never"`. |
 | `resources.cpu` | `"100m"` | Whole CPUs or positive millicpu, such as `"500m"`. |
 | `resources.memory` | `"128Mi"` | Positive `Ki`, `Mi`, `Gi`, or `Ti` value. |
-| `http` | absent | Internal HTTP endpoint and optional public domains. |
+| `http` | absent | Internal HTTP endpoint with optional IP or domain ingress. |
 | `tcp` | absent | Internal TCP endpoint and optional raw public listener. |
 | `dependsOn` | empty | Services that must be available before this service starts. |
 | `env` | empty | Plain environment variables. |
@@ -59,13 +59,16 @@ module and remains present in rendered JSON.
 | `constraints` | empty | Required node label/value pairs. |
 | `mounts` | empty | Named-volume mounts. |
 
-An HTTP object requires `port`. Configuring any domains also requires
-`healthPath`. `https` defaults to true. Wildcards are not supported by
-v1alpha1.
+An HTTP object requires `port`. Setting `public = true` exposes a plaintext
+catch-all listener on port 80, so every ingress node is reachable directly by
+its IP address. Public HTTP and configured domains require `healthPath`.
+`https` defaults to true and applies to domain routes; direct IP ingress stays
+plaintext. Wildcards are not supported by v1alpha1.
 
 ~~~pkl
 http = new Http {
   port = 8080
+  public = true
   domains {
     "www.example.com"
   }
@@ -73,6 +76,9 @@ http = new Http {
   https = true
 }
 ~~~
+
+Only one service in the cluster can own the public IP listener. Exact domain
+routes take precedence over that catch-all when both are configured.
 
 `http` and `tcp` are mutually exclusive. A TCP endpoint always receives a TCP
 readiness probe. `publicPort` additionally exposes a byte-transparent IPv4

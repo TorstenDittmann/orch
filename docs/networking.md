@@ -146,8 +146,8 @@ gateway and using the application service zone as its search suffix.
 Process phase and health are separate. For an HTTP service with `healthPath`,
 the agent sends a direct GET to the allocation IP and declared port, sets Host
 to `service.application.svc.internal`, rejects redirects, and accepts status
-200 through 399. An HTTP service without a path and without public domains uses
-a TCP connect. Attempts time out after one second and run every two seconds.
+200 through 399. An HTTP service without a path and without public ingress or
+domains uses a TCP connect. Attempts time out after one second and run every two seconds.
 Two successes make the allocation READY; three failures make it UNHEALTHY.
 
 Only serving addresses enter DNS and Caddy. A stateless update keeps the old
@@ -178,6 +178,13 @@ before the permissioned Unix admin API atomically loads it. The agent probes eve
 route and every HTTPS route with its configured SNI before accepting the new
 fingerprint. Validation, load, or probe failure retains the last accepted
 configuration.
+
+`public = true` on an HTTP endpoint adds one plaintext catch-all route on port
+80, allowing clients to use an ingress node's IP address directly. The
+earliest-created application owns this cluster-wide listener; a later claimant
+is `BLOCKED` with `http_public_conflict`. Exact domain routes are evaluated
+before the catch-all, so domain-based HTTP and HTTPS continue to work alongside
+IP ingress.
 
 `https = true` is the default and uses Caddy automatic certificate management
 plus an HTTP-to-HTTPS redirect. `https = false` creates an explicit port-80

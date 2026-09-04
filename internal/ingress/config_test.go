@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"change.codes/torsten/better-swarm/internal/model"
 )
 
 func TestRenderIsDeterministicAndRoutesOnlyPrivateUpstreams(t *testing.T) {
@@ -42,6 +45,24 @@ func TestRenderIsDeterministicAndRoutesOnlyPrivateUpstreams(t *testing.T) {
 	}
 }
 
+func TestRenderPlacesNamedHostsBeforePublicIPCatchAll(t *testing.T) {
+	configuration, _, err := Render([]Route{
+		{Application: "app", Service: "public", Domain: model.PublicHTTPRoute, Upstreams: []string{"10.88.0.4:8080"}},
+		{Application: "app", Service: "named", Domain: "app.example.com", Upstreams: []string{"10.88.0.5:8080"}},
+	}, "/run/orch/caddy.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded caddyConfig
+	if err := json.Unmarshal(configuration, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	routes := decoded.Apps.HTTP.Servers["http"].Routes
+	if len(routes) != 2 || len(routes[0].Match) != 1 || !bytes.Equal([]byte(routes[0].Match[0].Host[0]), []byte("app.example.com")) || len(routes[1].Match) != 0 {
+		t.Fatalf("HTTP route order = %#v, want exact host followed by catch-all", routes)
+	}
+}
+
 func TestRenderRejectsUnsafeDomainsAndDuplicateUpstreams(t *testing.T) {
 	for _, test := range []Route{
 		{Domain: "svc.internal", Upstreams: []string{"10.88.0.3:80"}},
@@ -53,6 +74,17 @@ func TestRenderRejectsUnsafeDomainsAndDuplicateUpstreams(t *testing.T) {
 	} {
 		if _, _, err := Render([]Route{test}, "/run/orch/caddy.sock"); err == nil {
 			t.Fatalf("Render(%#v) succeeded", test)
+		}
+	}
+}
+
+func TestRenderRejectsInvalidPublicIPRoutes(t *testing.T) {
+	for _, routes := range [][]Route{
+		{{Domain: model.PublicHTTPRoute, HTTPS: true, Upstreams: []string{"10.88.0.3:80"}}},
+		{{Domain: model.PublicHTTPRoute, Upstreams: []string{"10.88.0.3:80"}}, {Domain: model.PublicHTTPRoute, Upstreams: []string{"10.88.0.4:80"}}},
+	} {
+		if _, _, err := Render(routes, "/run/orch/caddy.sock"); err == nil {
+			t.Fatalf("Render(%#v) accepted an invalid public route", routes)
 		}
 	}
 }

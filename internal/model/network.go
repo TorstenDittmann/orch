@@ -249,6 +249,9 @@ func ValidateServiceEndpoints(configuration NetworkConfig) error {
 		if previous != "" && endpoint.AllocationID < previous {
 			return fmt.Errorf("service endpoints must be in canonical allocation order")
 		}
+		if endpoint.HTTPPublic && endpoint.Port == 0 {
+			return fmt.Errorf("service endpoint %q public HTTP route has no port", endpoint.AllocationID)
+		}
 		if _, exists := seen[endpoint.AllocationID]; exists {
 			return fmt.Errorf("service endpoint allocation %q is duplicated", endpoint.AllocationID)
 		}

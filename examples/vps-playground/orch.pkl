@@ -27,9 +27,9 @@ services {
     command { "/bin/sh" }
     args { "-c"; "mkdir -p /www; echo ok >/www/healthz; exec httpd -f -p 8080 -h /www" }
     dependsOn { "gitd"; "redis" }
-    // Add domains { "app.example.com" } after its DNS points at the VPS.
     http = new Http {
       port = 8080
+      public = true
       healthPath = "/healthz"
     }
   }

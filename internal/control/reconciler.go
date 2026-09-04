@@ -296,6 +296,12 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				}
 			}
 		}
+		if service.HTTP != nil && service.HTTP.Public {
+			owner := application.Name + "/" + name
+			if domainOwners != nil && domainOwners[model.PublicHTTPRoute] != owner {
+				return plannedApplication{}, &blockReason{reason: "http_public_conflict", message: base + ".http public listener is already owned by an earlier application"}, nil
+			}
+		}
 		if service.TCP != nil && service.TCP.PublicPort != nil {
 			port := uint32(*service.TCP.PublicPort)
 			owner := application.Name + "/" + name
@@ -370,7 +376,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			}
 			if service.HTTP != nil {
 				allocation.HTTP = &model.HTTPDesired{
-					Port: uint32(service.HTTP.Port), Domains: append([]string(nil), service.HTTP.Domains...),
+					Port: uint32(service.HTTP.Port), Public: service.HTTP.Public, Domains: append([]string(nil), service.HTTP.Domains...),
 					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS,
 				}
 			}
@@ -789,6 +795,9 @@ func desiredDomainOwners(applications []model.Application) (map[string]string, e
 		for serviceName, service := range manifest.Services {
 			if service.HTTP == nil {
 				continue
+			}
+			if service.HTTP.Public {
+				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, model.PublicHTTPRoute})
 			}
 			for _, domain := range service.HTTP.Domains {
 				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, domain})

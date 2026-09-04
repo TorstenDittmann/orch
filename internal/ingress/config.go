@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/model"
 )
 
 type caddyConfig struct {
@@ -96,7 +97,7 @@ type caddyAutomaticHTTPS struct {
 }
 
 type caddyRoute struct {
-	Match    []caddyMatcher `json:"match"`
+	Match    []caddyMatcher `json:"match,omitempty"`
 	Handle   []any          `json:"handle"`
 	Terminal bool           `json:"terminal"`
 }
@@ -132,19 +133,30 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		return nil, "", err
 	}
 	routes = cloneRoutes(routes)
-	sort.Slice(routes, func(i, j int) bool { return routes[i].Domain < routes[j].Domain })
-	previous := ""
+	sort.Slice(routes, func(i, j int) bool {
+		leftPublic := routes[i].Domain == model.PublicHTTPRoute
+		rightPublic := routes[j].Domain == model.PublicHTTPRoute
+		if leftPublic != rightPublic {
+			return !leftPublic
+		}
+		return routes[i].Domain < routes[j].Domain
+	})
+	seen := make(map[string]struct{}, len(routes))
 	httpRoutes := make([]caddyRoute, 0, len(routes))
 	httpsRoutes := make([]caddyRoute, 0, len(routes))
 	httpsSubjects := make([]string, 0, len(routes))
 	for _, route := range routes {
-		if err := config.ValidateDomain(route.Domain); err != nil {
+		if route.Domain == model.PublicHTTPRoute {
+			if route.HTTPS {
+				return nil, "", fmt.Errorf("public IP ingress cannot enable HTTPS")
+			}
+		} else if err := config.ValidateDomain(route.Domain); err != nil {
 			return nil, "", fmt.Errorf("invalid ingress domain %q: %w", route.Domain, err)
 		}
-		if route.Domain <= previous {
+		if _, exists := seen[route.Domain]; exists {
 			return nil, "", fmt.Errorf("ingress domains must be unique")
 		}
-		previous = route.Domain
+		seen[route.Domain] = struct{}{}
 		sort.Strings(route.Upstreams)
 		upstreams := make([]caddyUpstream, 0, len(route.Upstreams))
 		lastUpstream := ""
@@ -163,9 +175,11 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 			return nil, "", fmt.Errorf("ingress route %q has no ready upstream", route.Domain)
 		}
 		reverse := caddyRoute{
-			Match:    []caddyMatcher{{Host: []string{route.Domain}}},
 			Handle:   []any{reverseProxyHandler{Handler: "reverse_proxy", Upstreams: upstreams}},
 			Terminal: true,
+		}
+		if route.Domain != model.PublicHTTPRoute {
+			reverse.Match = []caddyMatcher{{Host: []string{route.Domain}}}
 		}
 		if route.HTTPS {
 			httpsRoutes = append(httpsRoutes, reverse)

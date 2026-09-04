@@ -150,6 +150,26 @@ func TestNumericDomainLabelIsAccepted(t *testing.T) {
 	loadManifest(t, input)
 }
 
+func TestPublicHTTPIngressIsTypedAndRequiresHealth(t *testing.T) {
+	input := strings.Replace(validManifest, "      port = 8080\n", "      port = 8080\n      public = true\n", 1)
+	manifest := loadManifest(t, input)
+	if !manifest.Services["web"].HTTP.Public {
+		t.Fatal("public HTTP ingress was not resolved")
+	}
+
+	withoutDomains := strings.Replace(input, `      domains {
+        "api.example.com"
+        "www.example.com"
+      }
+`, "", 1)
+	withoutHealth := strings.Replace(withoutDomains, "      healthPath = \"/healthz\"\n", "", 1)
+	_, err := loadManifestError(t, withoutHealth)
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.http.health_path") {
+		t.Fatalf("Load() error = %v, want public ingress health-path problem", err)
+	}
+}
+
 func TestExamplesValidate(t *testing.T) {
 	for _, filename := range []string{"../../examples/hello/orch.pkl", "../../examples/runtime/orch.pkl", "../../examples/stateful/orch.pkl", "../../examples/http/orch.pkl"} {
 		t.Run(filename, func(t *testing.T) {
@@ -226,6 +246,18 @@ services {
 	}
 	if !hasProblem(validation, "services.web.http.domains[0]") {
 		t.Fatalf("problems = %#v, want duplicate route problem", validation.Problems)
+	}
+}
+
+func TestDuplicatePublicHTTPIngressAcrossServicesIsRejected(t *testing.T) {
+	manifest := loadManifest(t, validManifest)
+	service := manifest.Services["web"]
+	service.HTTP.Domains = nil
+	service.HTTP.Public = true
+	manifest.Services = map[string]Service{"api": service, "web": service}
+	var validation *ValidationError
+	if !errors.As(Validate(manifest), &validation) || !hasProblem(validation, "services.web.http.public") {
+		t.Fatalf("Validate() = %v, want duplicate public ingress problem", validation)
 	}
 }
 

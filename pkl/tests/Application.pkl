@@ -12,6 +12,10 @@ local tcp = new app.Tcp {
   port = 9418
 }
 
+local http = new app.Http {
+  port = 8080
+}
+
 local cronJob = new app.CronJob {
   image = "example/backup:1"
   schedule = "*/2 * * * *"
@@ -31,6 +35,11 @@ facts {
   ["TCP defaults"] {
     tcp.port == 9418
     tcp.publicPort == null
+  }
+  ["HTTP defaults"] {
+    !http.public
+    http.domains.isEmpty
+    http.https
   }
   ["cron defaults"] {
     cronJob.resources.cpu == "100m"

@@ -1939,8 +1939,8 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 			ID: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
 			SpecDigest: "remote", NetworkGeneration: assignment.Network.Generation,
 		}
-		if len(endpoint.Domains) != 0 {
-			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
+		if endpoint.HTTPPublic || len(endpoint.Domains) != 0 {
+			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
 		}
 		if endpoint.TCPPublicPort != 0 {
 			allocation.TCP = &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort}
@@ -2132,6 +2132,9 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 			services[key] = current
 		}
 		if allocation.HTTP != nil {
+			if allocation.HTTP.Public {
+				desiredOwners[model.PublicHTTPRoute] = key
+			}
 			for _, domain := range allocation.HTTP.Domains {
 				desiredOwners[domain] = key
 			}
@@ -2172,6 +2175,12 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 		upstreams = compactStrings(upstreams)
 		if len(upstreams) == 0 {
 			continue
+		}
+		if contract.Public {
+			candidates[model.PublicHTTPRoute] = append(candidates[model.PublicHTTPRoute], routeCandidate{owner: key, route: ingress.Route{
+				Application: key.application, Service: key.service, Domain: model.PublicHTTPRoute,
+				Upstreams: append([]string(nil), upstreams...),
+			}})
 		}
 		for _, domain := range contract.Domains {
 			candidates[domain] = append(candidates[domain], routeCandidate{owner: key, route: ingress.Route{
@@ -2220,8 +2229,10 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 	for _, domain := range desiredDomains {
 		owner := desiredOwners[domain]
 		https := false
-		if service := services[owner]; service != nil && service.desired != nil {
-			https = service.desired.HTTPS
+		if domain != model.PublicHTTPRoute {
+			if service := services[owner]; service != nil && service.desired != nil {
+				https = service.desired.HTTPS
+			}
 		}
 		pending = append(pending, model.RouteStatus{
 			Application: owner.application, Service: owner.service, Domain: domain, HTTPS: https,

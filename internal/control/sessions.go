@@ -299,7 +299,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			message.Network.Endpoints = append(message.Network.Endpoints, &orchv1alpha1.ServiceEndpoint{
 				AllocationId: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
 				Address: endpoint.Address, Port: endpoint.Port, NodeId: endpoint.NodeID,
-				Domains: append([]string(nil), endpoint.Domains...), Https: endpoint.HTTPS,
+				Domains: append([]string(nil), endpoint.Domains...), Https: endpoint.HTTPS, HttpPublic: endpoint.HTTPPublic,
 				TcpPublicPort: endpoint.TCPPublicPort,
 			})
 		}
@@ -384,7 +384,7 @@ func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
 	if http == nil {
 		return nil
 	}
-	return &orchv1alpha1.HTTPDesired{Port: http.Port, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS}
+	return &orchv1alpha1.HTTPDesired{Port: http.Port, Public: http.Public, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS}
 }
 
 func tcpDesiredMessage(tcp *model.TCPDesired) *orchv1alpha1.TCPDesired {
