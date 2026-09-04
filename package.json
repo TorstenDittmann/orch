@@ -1,7 +1,0 @@
-{
-	"name": "better-swarm-ci",
-	"private": true,
-	"devDependencies": {
-		"@change.codes/ci": "0.2.0"
-	}
-}

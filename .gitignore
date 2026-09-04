@@ -1,6 +1,5 @@
 /bin/
 /dist/
-/node_modules/
 *.cover
 coverage.out
 .DS_Store
