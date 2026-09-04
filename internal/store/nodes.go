@@ -407,13 +407,15 @@ func (s *Store) UpdateAgentCapabilities(ctx context.Context, capabilities model.
 	if err := model.ValidateMeshIdentity(capabilities.AdvertiseAddress, capabilities.WireGuardPublicKey, capabilities.WireGuardListenPort); err != nil {
 		return err
 	}
+	// Report sequence numbers are scoped to the exclusive authenticated agent
+	// session and restart at one when its process reconnects. The caller
+	// registers that session before recording this Hello.
 	result, err := s.db.ExecContext(ctx, `UPDATE nodes SET
 		last_seen_at = ?, operating_system = ?, architecture = ?, runtime_version = ?,
 		snapshotter = ?, cgroups_v2 = ?, cni_version = ?, cni_plugins_version = ?, nftables = ?, dns_available = ?, caddy_version = ?,
 		total_cpu_millis = ?, total_memory_bytes = ?, allocatable_cpu_millis = ?, allocatable_memory_bytes = ?,
 		advertise_address = ?, wireguard_public_key = ?, wireguard_listen_port = ?,
-		last_report_sequence = CASE
-			WHEN last_boot_id = ? THEN last_report_sequence ELSE 0 END,
+		last_report_sequence = 0,
 		last_boot_id = ? WHERE id = ? AND lifecycle != 'REMOVED'`, capabilities.SeenAt.UTC().Format(time.RFC3339Nano),
 		capabilities.OperatingSystem, capabilities.Architecture, capabilities.RuntimeVersion,
 		capabilities.Snapshotter, boolInt(capabilities.CgroupsV2), capabilities.CNIVersion,
@@ -421,7 +423,6 @@ func (s *Store) UpdateAgentCapabilities(ctx context.Context, capabilities model.
 		capabilities.CaddyVersion, capabilities.TotalCPUMillis, capabilities.TotalMemoryBytes,
 		capabilities.AllocatableCPUMillis, capabilities.AllocatableMemoryBytes,
 		capabilities.AdvertiseAddress, capabilities.WireGuardPublicKey, capabilities.WireGuardListenPort,
-		capabilities.BootID,
 		capabilities.BootID, capabilities.NodeID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: nodes.advertise_address") ||

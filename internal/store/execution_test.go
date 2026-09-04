@@ -122,6 +122,21 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 	if err != nil || node.AcknowledgedGeneration != 1 || node.LastReportSequence != 1 || node.LastBootID != "boot-one" {
 		t.Fatalf("node cursor = %#v, %v", node, err)
 	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64",
+		RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		SeenAt: testCreatedAt.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	restarted := report
+	restarted.ReportedAt = testCreatedAt.Add(5 * time.Minute)
+	restarted.Allocations = append([]model.AllocationStatus(nil), report.Allocations...)
+	restarted.Allocations[0].UpdatedAt = restarted.ReportedAt
+	accepted, err = state.RecordAgentReport(ctx, restarted)
+	if err != nil || !accepted {
+		t.Fatalf("first report from restarted same-boot session = %v, %v", accepted, err)
+	}
 
 	for name, mutate := range map[string]func(*model.AgentReport){
 		"wrong boot":                func(value *model.AgentReport) { value.BootID = "boot-old" },
