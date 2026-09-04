@@ -120,6 +120,8 @@ func (b *bridgeManager) prepare(config model.NetworkConfig) error {
 	return nil
 }
 
+// bridgeHardwareAddress keeps the bridge identity stable as veth members join
+// while avoiding collision with globally assigned hardware addresses.
 func bridgeHardwareAddress(identity string) net.HardwareAddr {
 	digest := sha256.Sum256([]byte(identity))
 	address := net.HardwareAddr(append([]byte(nil), digest[:6]...))
