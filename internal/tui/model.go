@@ -429,7 +429,7 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.runtimeFocus = 0
 		}
 	case "right", "l":
-		if m.view == ViewLogs && m.logSource.application != "" {
+		if m.view == ViewLogs {
 			m.runtimeFocus = 1
 		}
 	case "g":

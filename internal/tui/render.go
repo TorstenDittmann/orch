@@ -327,6 +327,9 @@ func (m *Model) renderLogs(t theme, width, height int) string {
 		if m.runtimeFocus == 0 {
 			return m.renderRuntimeList(t, width, height, runtimes)
 		}
+		if runtimeLogSource(selected) != m.logSource && !m.logsLoading {
+			return m.renderRuntimeDetail(t, width, height, selected)
+		}
 		return m.renderRuntimeLogPane(t, width, height, selected)
 	}
 	listWidth := width * 38 / 100
@@ -337,9 +340,11 @@ func (m *Model) renderLogs(t theme, width, height int) string {
 			m.renderRuntimeDetail(t, detailWidth, height, selected),
 			m.renderRuntimeLogPane(t, width-listWidth-detailWidth, height, selected))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		m.renderRuntimeList(t, listWidth, height, runtimes),
-		m.renderRuntimeLogPane(t, width-listWidth, height, selected))
+	right := m.renderRuntimeLogPane(t, width-listWidth, height, selected)
+	if runtimeLogSource(selected) != m.logSource && !m.logsLoading {
+		right = m.renderRuntimeDetail(t, width-listWidth, height, selected)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, m.renderRuntimeList(t, listWidth, height, runtimes), right)
 }
 
 func (m *Model) renderRuntimeList(t theme, width, height int, runtimes []*orchv1alpha1.RuntimeSummary) string {
@@ -467,6 +472,9 @@ func (m *Model) renderRuntimeLogPane(t theme, width, height int, runtime *orchv1
 		state = "exited"
 	}
 	header := heading(t, "Logs"+focus) + "  " + muted(t, fmt.Sprintf("%s · %s · wrap %t", m.logStream, state, m.logWrap))
+	if m.logsLoading && !selectedSource {
+		return panel(t, header+"\n\n"+muted(t, "Opening "+source.application+"/"+source.resource+runtimeSuffix(runtime)+" logs…"), width, height)
+	}
 	if !selectedSource {
 		return panel(t, header+"\n\n"+muted(t, "Press enter to open "+source.application+"/"+source.resource+runtimeSuffix(runtime)+" logs."), width, height)
 	}
