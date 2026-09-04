@@ -74,6 +74,15 @@ func TestValidateAllocationFailsClosedAtRuntimeBoundary(t *testing.T) {
 	}
 }
 
+func TestContainerdRuntimeVersionIsCanonical(t *testing.T) {
+	t.Parallel()
+	for _, version := range []string{"2.3.4", "v2.3.4"} {
+		if got := containerdRuntimeVersion(version); got != "containerd 2.3.4" {
+			t.Fatalf("containerdRuntimeVersion(%q) = %q", version, got)
+		}
+	}
+}
+
 func TestValidateAllocationAcceptsDigestPinnedPrivateRegistry(t *testing.T) {
 	t.Parallel()
 	allocation := runtimeTestAllocation(t)

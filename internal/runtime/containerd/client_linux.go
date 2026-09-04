@@ -101,7 +101,8 @@ func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities
 	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
 		return orchruntime.Capabilities{}, fmt.Errorf("cgroups v2 is unavailable: %w", err)
 	}
-	if normalized := strings.TrimPrefix(version.Version, "v"); normalized != "2.3.4" {
+	normalizedVersion := strings.TrimPrefix(version.Version, "v")
+	if normalizedVersion != "2.3.4" {
 		return orchruntime.Capabilities{}, fmt.Errorf("containerd 2.3.4 is required, found %q: %w", version.Version, orchruntime.ErrUnsupported)
 	}
 	for _, executable := range []string{"containerd-shim-runc-v2", "runc"} {
@@ -114,7 +115,7 @@ func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities
 	}
 	capabilities := orchruntime.Capabilities{
 		OperatingSystem: "linux", Architecture: runtime.GOARCH,
-		RuntimeVersion: "containerd " + version.Version, Snapshotter: c.options.Snapshotter, CgroupsV2: true,
+		RuntimeVersion: containerdRuntimeVersion(version.Version), Snapshotter: c.options.Snapshotter, CgroupsV2: true,
 		TotalCPUMillis: uint64(runtime.NumCPU()) * 1000,
 	}
 	var system unix.Sysinfo_t
