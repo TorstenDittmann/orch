@@ -1,0 +1,54 @@
+amends "orch:/v1alpha1/Application.pkl"
+
+name = "vps-playground"
+
+services {
+  ["redis"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command { "/bin/sh" }
+    args { "-c"; "exec nc -lk -p 6379 -e cat" }
+    tcp = new Tcp { port = 6379 }
+  }
+  ["gitd"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command { "/bin/sh" }
+    args { "-c"; "exec nc -lk -p 9418 -e cat" }
+    dependsOn { "redis" }
+    tcp = new Tcp {
+      port = 9418
+      publicPort = 9418
+    }
+  }
+  ["web"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    command { "/bin/sh" }
+    args { "-c"; "mkdir -p /www; echo ok >/www/healthz; exec httpd -f -p 8080 -h /www" }
+    dependsOn { "gitd"; "redis" }
+    // Add domains { "app.example.com" } after its DNS points at the VPS.
+    http = new Http {
+      port = 8080
+      healthPath = "/healthz"
+    }
+  }
+}
+
+cronJobs {
+  ["backup-monitor"] {
+    image =
+      "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    schedule = "*/2 * * * *"
+    command { "/bin/sh" }
+    args { "-c"; "echo backup monitor ran" }
+    dependsOn { "gitd" }
+    startDeadline = "30s"
+    timeout = "2m"
+  }
+}
+
+deploy {
+  // Leave room for the first image pull on a small, cold VPS.
+  healthDeadline = "5m"
+}
