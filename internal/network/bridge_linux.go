@@ -4,10 +4,12 @@ package network
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -88,13 +90,20 @@ func (b *bridgeManager) prepare(config model.NetworkConfig) error {
 		}
 	}
 
-	if owner != want {
+	wantedHardwareAddress := bridgeHardwareAddress(b.alias)
+	addressChanged := !bytes.Equal(link.Attrs().HardwareAddr, wantedHardwareAddress)
+	if owner != want || addressChanged {
 		attached, err := bridgeHasAttachedLinks(link.Attrs().Index)
 		if err != nil {
 			return err
 		}
 		if attached {
-			return fmt.Errorf("refusing to reconfigure workload bridge with attached interfaces: %w", ErrOwnershipMismatch)
+			return fmt.Errorf("refusing to reconfigure workload bridge identity with attached interfaces: %w", ErrOwnershipMismatch)
+		}
+	}
+	if addressChanged {
+		if err := netlink.LinkSetHardwareAddr(link, wantedHardwareAddress); err != nil {
+			return fmt.Errorf("set stable workload bridge MAC: %w", err)
 		}
 	}
 	if err := configureBridgeAddress(link, owner, want); err != nil {
@@ -109,6 +118,13 @@ func (b *bridgeManager) prepare(config model.NetworkConfig) error {
 		}
 	}
 	return nil
+}
+
+func bridgeHardwareAddress(identity string) net.HardwareAddr {
+	digest := sha256.Sum256([]byte(identity))
+	address := net.HardwareAddr(append([]byte(nil), digest[:6]...))
+	address[0] = address[0]&0xfe | 0x02
+	return address
 }
 
 func bridgeHasAttachedLinks(bridgeIndex int) (bool, error) {
