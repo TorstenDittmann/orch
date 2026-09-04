@@ -7,14 +7,14 @@ services {
     image =
       "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
     command { "/bin/sh" }
-    args { "-c"; "exec nc -lk -p 6379 -e cat" }
+    args { "-c"; "echo 'redis listening on tcp/6379' >&2; exec nc -v -lk -p 6379 -e cat" }
     tcp = new Tcp { port = 6379 }
   }
   ["gitd"] {
     image =
       "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
     command { "/bin/sh" }
-    args { "-c"; "exec nc -lk -p 9418 -e cat" }
+    args { "-c"; "echo 'gitd listening on tcp/9418' >&2; exec nc -v -lk -p 9418 -e cat" }
     dependsOn { "redis" }
     tcp = new Tcp {
       port = 9418
@@ -25,7 +25,10 @@ services {
     image =
       "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
     command { "/bin/sh" }
-    args { "-c"; "mkdir -p /www; echo ok >/www/healthz; exec httpd -f -p 8080 -h /www" }
+    args {
+      "-c"
+      "mkdir -p /www; echo ok >/www/healthz; echo 'web listening on http/8080' >&2; exec httpd -f -vv -p 8080 -h /www"
+    }
     dependsOn { "gitd"; "redis" }
     http = new Http {
       port = 8080

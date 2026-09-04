@@ -491,7 +491,7 @@ func (m *Model) renderRuntimeLogPane(t theme, width, height int, runtime *orchv1
 		rows = append(rows, colorize(t, t.warning, "! "+m.logNotice))
 	}
 	if len(lines) == 0 {
-		rows = append(rows, "", muted(t, "No log output yet."))
+		rows = append(rows, "", muted(t, "Connected · this process has not written to stdout or stderr yet."))
 		return panel(t, strings.Join(rows, "\n"), width, height)
 	}
 	position := min(m.selected[ViewLogs], len(lines)-1)
