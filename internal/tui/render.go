@@ -351,7 +351,7 @@ func (m *Model) renderRuntimeList(t theme, width, height int, runtimes []*orchv1
 	if m.runtimeFilter != "" {
 		filter = " · /" + m.runtimeFilter
 	}
-	rows := []string{heading(t, "Managed runtimes"+focus) + muted(t, fmt.Sprintf("  by %s%s", m.runtimeGroup, filter))}
+	rows := []string{heading(t, "Managed runtimes"+focus), muted(t, fmt.Sprintf("by %s%s", m.runtimeGroup, filter))}
 	var entries []string
 	selectedRow := 0
 	lastGroup := ""
@@ -374,18 +374,28 @@ func (m *Model) renderRuntimeList(t theme, width, height int, runtimes []*orchv1
 		identity := runtime.GetResource()
 		if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
 			identity += fmt.Sprintf(" #%d", runtime.GetReplica())
-		} else {
-			identity += " " + shortID(runtime.GetRunId())
 		}
 		if index == m.runtimeSelected {
 			selectedRow = len(entries)
 		}
-		entries = append(entries, truncate(fmt.Sprintf("%s  %-18s %s", marker, sanitize(identity), statusStyle(t, runtimeState(runtime))), width-2))
+		if width < 38 {
+			secondary := runtime.GetNodeName()
+			if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_CRON_RUN {
+				secondary = compactID(runtime.GetRunId())
+			}
+			entries = append(entries,
+				truncate(marker+"  "+sanitize(identity), width-2),
+				truncate("    "+muted(t, secondary+" · ")+statusStyle(t, runtimeState(runtime)), width-2))
+		} else {
+			state := runtimeState(runtime)
+			identity = truncate(identity, max(8, width-lipgloss.Width(state)-8))
+			entries = append(entries, truncate(fmt.Sprintf("%s  %s  %s", marker, sanitize(identity), statusStyle(t, state)), width-2))
+		}
 	}
 	if m.snapshot.RuntimesTruncated {
 		entries = append(entries, muted(t, "inventory truncated at 2,000 entries"))
 	}
-	visible := max(2, height-3)
+	visible := max(2, height-4)
 	start := windowStart(selectedRow, visible, len(entries))
 	rows = append(rows, entries[start:min(len(entries), start+visible)]...)
 	return panel(t, strings.Join(rows, "\n"), width, height)
@@ -499,6 +509,13 @@ func runtimeSuffix(runtime *orchv1alpha1.RuntimeSummary) string {
 		return fmt.Sprintf(" #%d", runtime.GetReplica())
 	}
 	return " " + shortID(runtime.GetRunId())
+}
+
+func compactID(value string) string {
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:7] + "…"
 }
 
 func logBytes(lines []LogLine) int {
