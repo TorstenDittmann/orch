@@ -339,6 +339,11 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 			return nil, fmt.Errorf("count draining runtime objects: %w", err)
 		}
 		for _, object := range remainingOwned {
+			// Completed cron objects are retained for bounded log history. They
+			// are not endpoint drains and must not make the node unschedulable.
+			if strings.HasPrefix(object.AllocationID, "job_") {
+				continue
+			}
 			if _, stillDesired := desired[object.AllocationID]; !stillDesired {
 				networkStatus.DrainingObjects++
 			}

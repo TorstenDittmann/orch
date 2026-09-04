@@ -171,6 +171,10 @@ func TestSupervisorSchedulesOneShotCronRunAndRecordsCompletion(t *testing.T) {
 	if len(runs) != 1 || runs[0].State != model.JobRunSucceeded {
 		t.Fatalf("completed cron observations = %#v", runs)
 	}
+	_, networkStatus := supervisor.Observations()
+	if networkStatus.DrainingObjects != 0 {
+		t.Fatalf("retained cron history counted as %d draining objects", networkStatus.DrainingObjects)
+	}
 	frames, err := supervisor.TailCronLogs(ctx, runs[0].ID, 20)
 	if err != nil || len(frames) != 1 || string(frames[0].Data) != "backup complete\n" {
 		t.Fatalf("retained cron logs = %#v, %v", frames, err)
