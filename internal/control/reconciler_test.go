@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -100,6 +101,75 @@ func TestDistributedRolloutAdmitsOneReplacementUntilItIsReady(t *testing.T) {
 	second := gateDistributedRollout(application, []model.AllocationDesired{newOne, newTwo}, map[string]model.AllocationDesired{"one": newOne, "two": oldTwo})
 	if second[0].ApplicationGeneration != 2 || second[1].ApplicationGeneration != 2 {
 		t.Fatalf("second rollout admission = %#v", second)
+	}
+}
+
+func TestDistributedReconcilerAdvancesRolloutFromStoredObservation(t *testing.T) {
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	if err := state.UpdateNodeLabels(ctx, "node-one", map[string]string{"region": "eu"}); err != nil {
+		t.Fatal(err)
+	}
+	now := reconcilerTestTime.Add(100 * time.Second)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return now }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+
+	service := func(environment string) config.Service {
+		return config.Service{Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"},
+			Env: map[string]string{"VERSION": environment}, Constraints: map[string]string{"region": "eu"}}
+	}
+	firstManifest := newTestManifest("rollout", map[string]config.Service{"api": service("one"), "web": service("one")})
+	applyManifest(t, state, firstManifest, "revision-one", "application-key-one", now)
+	now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordReadyAssignment(t, state, first, 2, now)
+
+	secondManifest := newTestManifest("rollout", map[string]config.Service{"api": service("two"), "web": service("two")})
+	now = now.Add(time.Second)
+	applyManifest(t, state, secondManifest, "revision-two", "application-key-two", now)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	partial, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated int
+	for _, allocation := range partial.Allocations {
+		if allocation.ApplicationGeneration == 2 {
+			updated++
+		}
+	}
+	if updated != 1 {
+		t.Fatalf("first rollout step updated %d allocations, want 1: %#v", updated, partial.Allocations)
+	}
+	now = now.Add(time.Second)
+	recordReadyAssignment(t, state, partial, 3, now)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	complete, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, allocation := range complete.Allocations {
+		if allocation.ApplicationGeneration != 2 {
+			t.Fatalf("ready first step did not admit the next allocation: %#v", complete.Allocations)
+		}
 	}
 }
 
@@ -879,6 +949,47 @@ func freezeReconcilerNetwork(t *testing.T, state *store.Store, assignment model.
 	cluster, err := state.Cluster(ctx)
 	if err != nil || cluster.NetworkFrozenAt == nil {
 		t.Fatalf("frozen cluster = %#v, %v", cluster, err)
+	}
+}
+
+func recordReadyAssignment(t *testing.T, state *store.Store, assignment model.Assignment, sequence uint64, at time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	statuses := make([]model.AllocationStatus, 0, len(assignment.Allocations))
+	gateway, err := netip.ParseAddr(assignment.Network.Gateway)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := gateway.Next()
+	for _, allocation := range assignment.Allocations {
+		statuses = append(statuses, model.AllocationStatus{
+			ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+			Replica: allocation.Replica, ApplicationGeneration: allocation.ApplicationGeneration,
+			SpecDigest: allocation.SpecDigest, Phase: model.AllocationRunning,
+			Reason: "process_running", Message: "running", UpdatedAt: at,
+			HealthStatus: model.HealthNotConfigured, ActiveSpecDigest: allocation.SpecDigest,
+			ActiveGeneration: allocation.ApplicationGeneration, ActiveRevisionID: allocation.RevisionID,
+			Address: address.String(),
+		})
+		address = address.Next()
+	}
+	recorded, err := state.RecordAgentReport(ctx, model.AgentReport{
+		NodeID: "node-one", BootID: "boot-one", Sequence: sequence,
+		AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+		Allocations: statuses,
+		Network: model.NetworkStatus{
+			Generation: assignment.Network.Generation, State: model.NetworkReady,
+			ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+			Gateway: assignment.Network.Gateway, DNSState: model.SubsystemReady,
+			IngressState: model.SubsystemReady,
+		},
+		ReportedAt: at,
+	})
+	if err != nil || !recorded {
+		t.Fatalf("record ready assignment = %t, %v", recorded, err)
 	}
 }
 

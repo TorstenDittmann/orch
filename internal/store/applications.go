@@ -445,6 +445,16 @@ func (s *Store) applicationObservations(ctx context.Context, name string) ([]mod
 	return result, nil
 }
 
+// ApplicationAllocationObservations returns the authenticated allocation
+// observations used by distributed rollout admission without loading the
+// application's routes, cron history, or other operator-facing detail.
+func (s *Store) ApplicationAllocationObservations(ctx context.Context, name string) ([]model.AllocationStatus, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("application name is required")
+	}
+	return s.applicationObservations(ctx, name)
+}
+
 func (s *Store) CronRunNode(ctx context.Context, application, job, runID string) (model.Node, error) {
 	var nodeID string
 	err := s.db.QueryRowContext(ctx, `SELECT node_id FROM cron_run_observations

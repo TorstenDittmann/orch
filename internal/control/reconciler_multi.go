@@ -51,6 +51,16 @@ type distributedCron struct {
 }
 
 func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Cluster, applications []model.Application, nodes []model.Node, now time.Time) error {
+	for index := range applications {
+		if applications[index].DeletedAt != nil {
+			continue
+		}
+		observations, err := r.state.ApplicationAllocationObservations(ctx, applications[index].Name)
+		if err != nil {
+			return fmt.Errorf("read rollout observations for application %q: %w", applications[index].Name, err)
+		}
+		applications[index].Execution.Allocations = observations
+	}
 	networks := make(map[string]model.NetworkConfig, len(nodes))
 	for _, node := range nodes {
 		configuration, err := model.NodeNetwork(cluster.WorkloadCIDR, node.Ordinal, cluster.NetworkGeneration)
