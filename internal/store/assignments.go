@@ -1188,6 +1188,48 @@ func (s *Store) DesiredAllocation(ctx context.Context, application, service stri
 	return allocation, err
 }
 
+func (s *Store) DesiredAllocationPlacements(ctx context.Context) ([]model.AllocationPlacement, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT spec, node_id FROM desired_allocations
+		ORDER BY application_name, service_name, replica`)
+	if err != nil {
+		return nil, fmt.Errorf("read desired allocation inventory: %w", err)
+	}
+	type placementRow struct {
+		allocation model.AllocationDesired
+		nodeID     string
+	}
+	var pending []placementRow
+	for rows.Next() {
+		var encoded, nodeID string
+		if err := rows.Scan(&encoded, &nodeID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan desired allocation inventory: %w", err)
+		}
+		var allocation model.AllocationDesired
+		if err := json.Unmarshal([]byte(encoded), &allocation); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("decode desired allocation: %w", err)
+		}
+		pending = append(pending, placementRow{allocation: allocation, nodeID: nodeID})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate desired allocation inventory: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	result := make([]model.AllocationPlacement, 0, len(pending))
+	for _, item := range pending {
+		node, err := s.NodeByID(ctx, item.nodeID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, model.AllocationPlacement{Allocation: item.allocation, Node: node})
+	}
+	return result, nil
+}
+
 func (s *Store) DesiredAllocationNode(ctx context.Context, application, service string, replica uint32) (model.AllocationDesired, model.Node, error) {
 	var encoded string
 	var nodeID string

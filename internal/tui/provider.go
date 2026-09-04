@@ -15,18 +15,26 @@ const maxLogBytes = 512 << 10
 type Provider interface {
 	GetCluster(context.Context) (*orchv1alpha1.Cluster, error)
 	ListApplications(context.Context) ([]*orchv1alpha1.ApplicationSummary, error)
+	ListRuntimes(context.Context, uint32) (*orchv1alpha1.ListRuntimesResponse, error)
 	GetApplication(context.Context, string) (*orchv1alpha1.Application, error)
 	ListNodes(context.Context) ([]*orchv1alpha1.Node, error)
 	ListEvents(context.Context, uint64, uint32) (*orchv1alpha1.ListEventsResponse, error)
 	ListRecentEvents(context.Context, uint32) (*orchv1alpha1.ListRecentEventsResponse, error)
 	UpdateNode(context.Context, *orchv1alpha1.UpdateNodeRequest) (*orchv1alpha1.UpdateNodeResponse, error)
-	LoadLogs(context.Context, string, string, uint32, uint32) ([]LogLine, error)
-	LoadCronLogs(context.Context, string, string, uint32) ([]LogLine, error)
+	LoadLogs(context.Context, string, string, uint32, uint32, string) (LogBatch, error)
+	LoadCronLogs(context.Context, string, string, string, uint32, string) (LogBatch, error)
 }
 
 type LogLine struct {
 	Stream string
 	Text   string
+}
+
+type LogBatch struct {
+	Lines       []LogLine
+	NextCursor  string
+	CursorReset bool
+	Exited      bool
 }
 
 type ClientProvider struct{ Client *controlclient.Client }
@@ -37,6 +45,10 @@ func (p ClientProvider) GetCluster(ctx context.Context) (*orchv1alpha1.Cluster, 
 
 func (p ClientProvider) ListApplications(ctx context.Context) ([]*orchv1alpha1.ApplicationSummary, error) {
 	return p.Client.ListApplications(ctx)
+}
+
+func (p ClientProvider) ListRuntimes(ctx context.Context, limit uint32) (*orchv1alpha1.ListRuntimesResponse, error) {
+	return p.Client.ListRuntimes(ctx, limit)
 }
 
 func (p ClientProvider) GetApplication(ctx context.Context, name string) (*orchv1alpha1.Application, error) {
@@ -59,47 +71,45 @@ func (p ClientProvider) UpdateNode(ctx context.Context, request *orchv1alpha1.Up
 	return p.Client.UpdateNode(ctx, request)
 }
 
-func (p ClientProvider) LoadLogs(ctx context.Context, application, service string, replica, tail uint32) ([]LogLine, error) {
-	stream, err := p.Client.TailLogs(ctx, application, service, replica, tail)
+func (p ClientProvider) LoadLogs(ctx context.Context, application, service string, replica, tail uint32, cursor string) (LogBatch, error) {
+	stream, err := p.Client.TailLogsAfter(ctx, application, service, replica, tail, cursor)
 	if err != nil {
-		return nil, err
+		return LogBatch{}, err
 	}
-	return collectLogs(stream.Receive, func() ([]byte, string) {
+	return collectLogs(stream.Receive, func() ([]byte, string, string, bool, bool) {
 		message := stream.Msg()
 		if message == nil {
-			return nil, ""
+			return nil, "", "", false, false
 		}
-		return message.GetData(), enumLabel(message.GetStream().String())
+		return message.GetData(), enumLabel(message.GetStream().String()), message.GetNextCursor(), message.GetCursorReset(), message.GetRuntimeExited()
 	}, stream.Err, stream.Close)
 }
 
-func (p ClientProvider) LoadCronLogs(ctx context.Context, application, job string, tail uint32) ([]LogLine, error) {
-	runs, err := p.Client.ListCronRuns(ctx, application, job, 1)
+func (p ClientProvider) LoadCronLogs(ctx context.Context, application, job, runID string, tail uint32, cursor string) (LogBatch, error) {
+	stream, err := p.Client.TailCronLogsAfter(ctx, application, job, runID, tail, cursor)
 	if err != nil {
-		return nil, err
+		return LogBatch{}, err
 	}
-	if len(runs) == 0 {
-		return []LogLine{}, nil
-	}
-	stream, err := p.Client.TailCronLogs(ctx, application, job, runs[0].GetId(), tail)
-	if err != nil {
-		return nil, err
-	}
-	return collectLogs(stream.Receive, func() ([]byte, string) {
+	return collectLogs(stream.Receive, func() ([]byte, string, string, bool, bool) {
 		message := stream.Msg()
 		if message == nil {
-			return nil, ""
+			return nil, "", "", false, false
 		}
-		return message.GetData(), enumLabel(message.GetStream().String())
+		return message.GetData(), enumLabel(message.GetStream().String()), message.GetNextCursor(), message.GetCursorReset(), message.GetRuntimeExited()
 	}, stream.Err, stream.Close)
 }
 
-func collectLogs(receive func() bool, message func() ([]byte, string), streamErr func() error, closeStream func() error) ([]LogLine, error) {
+func collectLogs(receive func() bool, message func() ([]byte, string, string, bool, bool), streamErr func() error, closeStream func() error) (LogBatch, error) {
 	defer closeStream()
-	var result []LogLine
+	var result LogBatch
 	retained := 0
 	for receive() {
-		data, stream := message()
+		data, stream, cursor, reset, exited := message()
+		if cursor != "" {
+			result.NextCursor = cursor
+		}
+		result.CursorReset = result.CursorReset || reset
+		result.Exited = result.Exited || exited
 		if len(data) == 0 {
 			continue
 		}
@@ -111,11 +121,11 @@ func collectLogs(receive func() bool, message func() ([]byte, string), streamErr
 			data = data[:remaining]
 		}
 		data = bytes.ToValidUTF8(data, []byte(string(utf8.RuneError)))
-		result = append(result, LogLine{Stream: stream, Text: sanitize(string(data))})
+		result.Lines = append(result.Lines, LogLine{Stream: stream, Text: sanitize(string(data))})
 		retained += len(data)
 	}
 	if err := streamErr(); err != nil {
-		return nil, fmt.Errorf("read workload logs: %w", err)
+		return LogBatch{}, fmt.Errorf("read workload logs: %w", err)
 	}
 	return result, nil
 }

@@ -1239,28 +1239,38 @@ func (s *Supervisor) stopAndRemove(ctx context.Context, object orchruntime.Objec
 }
 
 func (s *Supervisor) TailLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32) ([]orchruntime.LogFrame, error) {
+	batch, err := s.ReadLogs(ctx, allocation, lines, "")
+	return batch.Frames, err
+}
+
+func (s *Supervisor) ReadLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32, cursor string) (orchruntime.LogBatch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	object, err := s.activeRuntimeObject(ctx, allocation)
 	if err != nil {
-		return nil, orchruntime.ErrNotFound
+		return orchruntime.LogBatch{}, orchruntime.ErrNotFound
 	}
-	return s.runtime.TailLogs(ctx, object.ID, lines)
+	return s.runtime.ReadLogs(ctx, object.ID, lines, cursor)
 }
 
 func (s *Supervisor) TailCronLogs(ctx context.Context, runID string, lines uint32) ([]orchruntime.LogFrame, error) {
+	batch, err := s.ReadCronLogs(ctx, runID, lines, "")
+	return batch.Frames, err
+}
+
+func (s *Supervisor) ReadCronLogs(ctx context.Context, runID string, lines uint32, cursor string) (orchruntime.LogBatch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	runs, err := s.state.CronRunStates(ctx)
 	if err != nil {
-		return nil, err
+		return orchruntime.LogBatch{}, err
 	}
 	for _, run := range runs {
 		if run.ID == runID && run.ObjectID != "" {
-			return s.runtime.TailLogs(ctx, run.ObjectID, lines)
+			return s.runtime.ReadLogs(ctx, run.ObjectID, lines, cursor)
 		}
 	}
-	return nil, orchruntime.ErrNotFound
+	return orchruntime.LogBatch{}, orchruntime.ErrNotFound
 }
 
 func (s *Supervisor) Exec(ctx context.Context, allocation model.AllocationDesired, command []string) (<-chan orchruntime.ExecFrame, error) {

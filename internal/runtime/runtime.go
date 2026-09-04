@@ -66,6 +66,13 @@ type LogFrame struct {
 	Truncated bool
 }
 
+type LogBatch struct {
+	Frames      []LogFrame
+	NextCursor  string
+	CursorReset bool
+	Exited      bool
+}
+
 type ExecFrame struct {
 	Stream   string
 	Data     []byte
@@ -85,6 +92,7 @@ type Runtime interface {
 	Stop(context.Context, string, time.Duration) error
 	Remove(context.Context, string) error
 	TailLogs(context.Context, string, uint32) ([]LogFrame, error)
+	ReadLogs(context.Context, string, uint32, string) (LogBatch, error)
 	Exec(context.Context, string, []string) (<-chan ExecFrame, error)
 	Close() error
 }

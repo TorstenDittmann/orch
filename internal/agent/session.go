@@ -504,13 +504,13 @@ func (r *sessionRunner) runTailLogs(ctx context.Context, command *orchv1alpha1.T
 		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "allocation is not in the cached assignment")
 		return
 	}
-	frames, err := r.supervisor.TailLogs(ctx, allocation, command.GetTailLines())
+	batch, err := r.supervisor.ReadLogs(ctx, allocation, command.GetTailLines(), command.GetCursor())
 	if err != nil {
 		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "running allocation logs are unavailable")
 		return
 	}
 	var finalOffset uint64
-	for _, frame := range frames {
+	for _, frame := range batch.Frames {
 		if frame.Offset > finalOffset {
 			finalOffset = frame.Offset
 		}
@@ -531,18 +531,18 @@ func (r *sessionRunner) runTailLogs(ctx context.Context, command *orchv1alpha1.T
 	}
 	select {
 	case <-ctx.Done():
-	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true}}):
+	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true, NextCursor: batch.NextCursor, CursorReset: batch.CursorReset, RuntimeExited: batch.Exited}}):
 	}
 }
 
 func (r *sessionRunner) runTailCronLogs(ctx context.Context, command *orchv1alpha1.TailCronLogsCommand, outbound chan<- *orchv1alpha1.ConnectRequest) {
-	frames, err := r.supervisor.TailCronLogs(ctx, command.GetRunId(), command.GetTailLines())
+	batch, err := r.supervisor.ReadCronLogs(ctx, command.GetRunId(), command.GetTailLines(), command.GetCursor())
 	if err != nil {
 		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "cron run logs are unavailable")
 		return
 	}
 	var finalOffset uint64
-	for _, frame := range frames {
+	for _, frame := range batch.Frames {
 		if frame.Offset > finalOffset {
 			finalOffset = frame.Offset
 		}
@@ -562,7 +562,7 @@ func (r *sessionRunner) runTailCronLogs(ctx context.Context, command *orchv1alph
 	}
 	select {
 	case <-ctx.Done():
-	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true}}):
+	case outbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{RequestId: command.GetRequestId(), Offset: finalOffset, Complete: true, NextCursor: batch.NextCursor, CursorReset: batch.CursorReset, RuntimeExited: batch.Exited}}):
 	}
 }
 

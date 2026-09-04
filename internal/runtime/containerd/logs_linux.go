@@ -4,6 +4,9 @@ package containerd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -34,22 +37,48 @@ func ensureLogFiles(directory, id string) (string, error) {
 }
 
 func tailObjectLogs(directory, id string, lines uint32) ([]orchruntime.LogFrame, error) {
+	batch, err := readObjectLogs(directory, id, lines, "")
+	return batch.Frames, err
+}
+
+type logCursor struct {
+	Version int               `json:"v"`
+	Object  []byte            `json:"o"`
+	Offsets map[string]uint64 `json:"p"`
+}
+
+func readObjectLogs(directory, id string, lines uint32, encodedCursor string) (orchruntime.LogBatch, error) {
 	if lines == 0 {
 		lines = 100
 	}
-	var result []orchruntime.LogFrame
+	identity := sha256.Sum256([]byte(id))
+	cursor := logCursor{Version: 1, Object: identity[:], Offsets: map[string]uint64{}}
+	reset := false
+	continuation := encodedCursor != ""
+	if continuation {
+		decoded, err := base64.RawURLEncoding.DecodeString(encodedCursor)
+		if err != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.Version != 1 || !bytes.Equal(cursor.Object, identity[:]) || cursor.Offsets == nil {
+			cursor = logCursor{Version: 1, Object: identity[:], Offsets: map[string]uint64{}}
+			continuation, reset = false, true
+		}
+	}
+	result := orchruntime.LogBatch{CursorReset: reset}
 	for _, stream := range []string{"stdout", "stderr"} {
-		base := filepath.Join(directory, id+"."+stream+".log")
-		var combined []byte
-		for _, path := range []string{base + ".1", base} {
-			contents, err := readPrivateLog(path)
-			if errors.Is(err, os.ErrNotExist) {
-				continue
+		combined, err := combinedLog(directory, id, stream)
+		if err != nil {
+			return orchruntime.LogBatch{}, err
+		}
+		start := cursor.Offsets[stream]
+		streamReset := continuation && start > uint64(len(combined))
+		if streamReset {
+			start, result.CursorReset = 0, true
+		}
+		if continuation && !streamReset {
+			if start < uint64(len(combined)) {
+				result.Frames = append(result.Frames, orchruntime.LogFrame{Stream: stream, Data: append([]byte(nil), combined[start:]...), Offset: uint64(len(combined))})
 			}
-			if err != nil {
-				return nil, err
-			}
-			combined = append(combined, contents...)
+			cursor.Offsets[stream] = uint64(len(combined))
+			continue
 		}
 		parts := bytes.Split(combined, []byte{'\n'})
 		if len(parts) != 0 && len(parts[len(parts)-1]) == 0 {
@@ -60,13 +89,36 @@ func tailObjectLogs(directory, id string, lines uint32) ([]orchruntime.LogFrame,
 			parts = parts[len(parts)-int(lines):]
 		}
 		if len(parts) == 0 {
+			cursor.Offsets[stream] = uint64(len(combined))
 			continue
 		}
 		data := bytes.Join(parts, []byte{'\n'})
 		data = append(data, '\n')
-		result = append(result, orchruntime.LogFrame{Stream: stream, Data: data, Offset: uint64(len(combined)), Truncated: truncated})
+		result.Frames = append(result.Frames, orchruntime.LogFrame{Stream: stream, Data: data, Offset: uint64(len(combined)), Truncated: truncated || streamReset})
+		cursor.Offsets[stream] = uint64(len(combined))
 	}
+	encoded, err := json.Marshal(cursor)
+	if err != nil {
+		return orchruntime.LogBatch{}, err
+	}
+	result.NextCursor = base64.RawURLEncoding.EncodeToString(encoded)
 	return result, nil
+}
+
+func combinedLog(directory, id, stream string) ([]byte, error) {
+	base := filepath.Join(directory, id+"."+stream+".log")
+	var combined []byte
+	for _, path := range []string{base + ".1", base} {
+		contents, err := readPrivateLog(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		combined = append(combined, contents...)
+	}
+	return combined, nil
 }
 
 func readPrivateLog(path string) ([]byte, error) {

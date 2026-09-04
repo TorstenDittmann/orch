@@ -3264,6 +3264,7 @@ type TailLogsCommand struct {
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	AllocationId  string                 `protobuf:"bytes,2,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
 	TailLines     uint32                 `protobuf:"varint,3,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
+	Cursor        string                 `protobuf:"bytes,4,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3319,11 +3320,19 @@ func (x *TailLogsCommand) GetTailLines() uint32 {
 	return 0
 }
 
+func (x *TailLogsCommand) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
 type TailCronLogsCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	TailLines     uint32                 `protobuf:"varint,3,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
+	Cursor        string                 `protobuf:"bytes,4,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3377,6 +3386,13 @@ func (x *TailCronLogsCommand) GetTailLines() uint32 {
 		return x.TailLines
 	}
 	return 0
+}
+
+func (x *TailCronLogsCommand) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
 }
 
 type ExecCommand struct {
@@ -3499,6 +3515,9 @@ type TailLogsResponse struct {
 	Offset        uint64                 `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
 	Truncated     bool                   `protobuf:"varint,5,opt,name=truncated,proto3" json:"truncated,omitempty"`
 	Complete      bool                   `protobuf:"varint,6,opt,name=complete,proto3" json:"complete,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,7,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	CursorReset   bool                   `protobuf:"varint,8,opt,name=cursor_reset,json=cursorReset,proto3" json:"cursor_reset,omitempty"`
+	RuntimeExited bool                   `protobuf:"varint,9,opt,name=runtime_exited,json=runtimeExited,proto3" json:"runtime_exited,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3571,6 +3590,27 @@ func (x *TailLogsResponse) GetTruncated() bool {
 func (x *TailLogsResponse) GetComplete() bool {
 	if x != nil {
 		return x.Complete
+	}
+	return false
+}
+
+func (x *TailLogsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+func (x *TailLogsResponse) GetCursorReset() bool {
+	if x != nil {
+		return x.CursorReset
+	}
+	return false
+}
+
+func (x *TailLogsResponse) GetRuntimeExited() bool {
+	if x != nil {
+		return x.RuntimeExited
 	}
 	return false
 }
@@ -4424,19 +4464,21 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	" \x03(\v2\x1b.orch.v1alpha1.JobRunStatusR\ajobRuns\"w\n" +
 	"\x0eAgentHeartbeat\x12\x17\n" +
 	"\aboot_id\x18\x01 \x01(\tR\x06bootId\x12L\n" +
-	"\"acknowledged_assignment_generation\x18\x02 \x01(\x04R acknowledgedAssignmentGeneration\"t\n" +
+	"\"acknowledged_assignment_generation\x18\x02 \x01(\x04R acknowledgedAssignmentGeneration\"\x8c\x01\n" +
 	"\x0fTailLogsCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
 	"\rallocation_id\x18\x02 \x01(\tR\fallocationId\x12\x1d\n" +
 	"\n" +
-	"tail_lines\x18\x03 \x01(\rR\ttailLines\"j\n" +
+	"tail_lines\x18\x03 \x01(\rR\ttailLines\x12\x16\n" +
+	"\x06cursor\x18\x04 \x01(\tR\x06cursor\"\x82\x01\n" +
 	"\x13TailCronLogsCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
-	"tail_lines\x18\x03 \x01(\rR\ttailLines\"\x94\x01\n" +
+	"tail_lines\x18\x03 \x01(\rR\ttailLines\x12\x16\n" +
+	"\x06cursor\x18\x04 \x01(\tR\x06cursor\"\x94\x01\n" +
 	"\vExecCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -4445,7 +4487,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\rR\x0etimeoutSeconds\"0\n" +
 	"\x0fCancelOperation\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xc9\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xb4\x02\n" +
 	"\x10TailLogsResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x120\n" +
@@ -4453,7 +4495,11 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x04 \x01(\x04R\x06offset\x12\x1c\n" +
 	"\ttruncated\x18\x05 \x01(\bR\ttruncated\x12\x1a\n" +
-	"\bcomplete\x18\x06 \x01(\bR\bcomplete\"\xa8\x01\n" +
+	"\bcomplete\x18\x06 \x01(\bR\bcomplete\x12\x1f\n" +
+	"\vnext_cursor\x18\a \x01(\tR\n" +
+	"nextCursor\x12!\n" +
+	"\fcursor_reset\x18\b \x01(\bR\vcursorReset\x12%\n" +
+	"\x0eruntime_exited\x18\t \x01(\bR\rruntimeExited\"\xa8\x01\n" +
 	"\fExecResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x120\n" +

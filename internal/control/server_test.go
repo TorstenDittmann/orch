@@ -240,6 +240,14 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	if len(applications) != 1 || applications[0].GetName() != "hello" || applications[0].GetGeneration() != 1 || applications[0].GetRevisionId() != first.GetRevisionId() {
 		t.Fatalf("application summaries = %#v", applications)
 	}
+	runtimes, err := remote.ListRuntimes(context.Background(), 0)
+	if err != nil || len(runtimes.GetRuntimes()) != 0 || runtimes.GetTruncated() {
+		t.Fatalf("unplaced runtime inventory = %#v, %v", runtimes, err)
+	}
+	_, err = unknownClient.ListRuntimes(context.Background(), connect.NewRequest(&orchv1alpha1.ListRuntimesRequest{Limit: maxRuntimeLimit + 1}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("oversized runtime inventory = %v, want invalid argument", err)
+	}
 	recent, err := remote.ListRecentEvents(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)

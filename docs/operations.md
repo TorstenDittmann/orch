@@ -92,12 +92,13 @@ administrator key from a server.
 
 Inside the TUI, `ctrl+p` opens the command palette and fuzzy resource switcher,
 `tab` changes view, `?` shows contextual help, and `q` exits. In the event and
-log views, `/` filters locally. Logs support next/prior matches, stream
-selection, wrapping, pause, and snapshot reload; workload allocations and the
-latest retained cron run are available through the palette after application
-detail is loaded. Node cordon, uncordon, drain, and ingress changes require
-confirmation. The TUI keeps the last good snapshot visibly marked degraded
-during connection loss.
+runtime views, `/` filters the focused pane locally. The runtime workspace lists
+all current service replicas and retained cron runs without preloading
+application detail. Use `g` to group by application or node, Enter to open the
+exact selected runtime's logs, `h/l` to move between the tree and logs, `s` to
+select stdout/stderr/all, and `G` to resume live output after scrolling. Node
+cordon, uncordon, drain, and ingress changes require confirmation. The TUI
+keeps the last good snapshot visibly marked degraded during connection loss.
 
 The first controller start also creates `/var/lib/orch/controller.lock`. The
 file remains as harmless ownership metadata after a clean stop; the advisory
@@ -413,9 +414,12 @@ applications reach `HEALTHY` only after readiness and all requested routes are
 active; `ROLLED_BACK` identifies the still-active previous generation. See
 [runtime.md](runtime.md) for every status and runtime limit.
 
-Logs are a finite tail, not follow mode. Stdout and stderr remain separate and
-are streamed through the controller without being persisted there. Exec has no
-stdin or TTY, is never retried, accepts at most 64 arguments/8 KiB, and has a
+The non-interactive `orch logs` command remains a finite tail. The TUI builds a
+bounded incremental follow session from authenticated continuation reads;
+stdout and stderr remain separate and are streamed through the controller
+without being persisted there. Rotation, truncation, runtime replacement,
+exit, or disconnection are shown explicitly and reset continuation safely.
+Exec has no stdin or TTY, is never retried, accepts at most 64 arguments/8 KiB, and has a
 maximum five-minute timeout. Both operations resolve the current placement and
 require its exact node to be connected. Stale attempt IDs fail closed rather
 than reaching an old process.

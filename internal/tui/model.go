@@ -28,15 +28,17 @@ const (
 	ViewHelp
 )
 
-var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Logs", "Help"}
+var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtimes", "Help"}
 
 type Snapshot struct {
-	Cluster      *orchv1alpha1.Cluster
-	Applications []*orchv1alpha1.ApplicationSummary
-	Nodes        []*orchv1alpha1.Node
-	Events       []*orchv1alpha1.Event
-	EventCursor  uint64
-	RefreshedAt  time.Time
+	Cluster           *orchv1alpha1.Cluster
+	Applications      []*orchv1alpha1.ApplicationSummary
+	Runtimes          []*orchv1alpha1.RuntimeSummary
+	RuntimesTruncated bool
+	Nodes             []*orchv1alpha1.Node
+	Events            []*orchv1alpha1.Event
+	EventCursor       uint64
+	RefreshedAt       time.Time
 }
 
 type refreshMsg struct {
@@ -52,11 +54,13 @@ type detailMsg struct {
 }
 
 type logsMsg struct {
+	generation  uint64
 	application string
 	resource    string
 	kind        string
 	replica     uint32
-	lines       []LogLine
+	runID       string
+	batch       LogBatch
 	err         error
 }
 
@@ -75,12 +79,13 @@ type paletteItem struct {
 	application string
 	resource    string
 	replica     uint32
+	runID       string
 	view        ViewID
 }
 
 type logSource struct {
-	kind, application, resource string
-	replica                     uint32
+	kind, application, resource, runID string
+	replica                            uint32
 }
 
 type displayLogLine struct {
@@ -97,40 +102,50 @@ type confirmation struct {
 }
 
 type Model struct {
-	ctx       context.Context
-	provider  Provider
-	target    string
-	transport string
-	refresh   time.Duration
-	cancel    context.CancelFunc
+	ctx           context.Context
+	provider      Provider
+	target        string
+	transport     string
+	refresh       time.Duration
+	cancel        context.CancelFunc
+	logCancel     context.CancelFunc
+	logGeneration uint64
 
-	width, height int
-	view          ViewID
-	previousView  ViewID
-	selected      map[ViewID]int
-	snapshot      Snapshot
-	details       map[string]*orchv1alpha1.Application
-	loading       bool
-	generation    uint64
-	lastError     string
-	palette       bool
-	paletteInput  textinput.Model
-	paletteIndex  int
-	search        bool
-	searchInput   textinput.Model
-	help          bool
-	confirm       *confirmation
-	mutationBusy  bool
-	toast         string
-	toastUntil    time.Time
-	logs          []LogLine
-	logsLoading   bool
-	logSource     logSource
-	logWrap       bool
-	logFilter     string
-	logStream     string
-	logPaused     bool
-	eventFilter   string
+	width, height   int
+	view            ViewID
+	previousView    ViewID
+	selected        map[ViewID]int
+	snapshot        Snapshot
+	details         map[string]*orchv1alpha1.Application
+	loading         bool
+	generation      uint64
+	lastError       string
+	palette         bool
+	paletteInput    textinput.Model
+	paletteIndex    int
+	search          bool
+	searchInput     textinput.Model
+	help            bool
+	confirm         *confirmation
+	mutationBusy    bool
+	toast           string
+	toastUntil      time.Time
+	logs            []LogLine
+	logsLoading     bool
+	logSource       logSource
+	logWrap         bool
+	logFilter       string
+	logStream       string
+	logPaused       bool
+	logCursor       string
+	logExited       bool
+	logNotice       string
+	logUnseen       int
+	runtimeFilter   string
+	runtimeGroup    string
+	runtimeFocus    int
+	runtimeSelected int
+	eventFilter     string
 }
 
 func New(ctx context.Context, provider Provider, targetName, transport string, refresh time.Duration) *Model {
@@ -146,7 +161,7 @@ func New(ctx context.Context, provider Provider, targetName, transport string, r
 		ctx: ctx, provider: provider, target: targetName, transport: transport, refresh: refresh,
 		view: ViewOverview, previousView: ViewOverview, selected: make(map[ViewID]int),
 		details: make(map[string]*orchv1alpha1.Application), paletteInput: input, searchInput: search,
-		logWrap: true, logStream: "all",
+		logWrap: true, logStream: "all", runtimeGroup: "application",
 	}
 }
 
@@ -194,6 +209,14 @@ func (m *Model) beginRefresh() tea.Cmd {
 			return labeledError("applications", err)
 		})
 		run(func() error {
+			value, err := m.provider.ListRuntimes(ctx, 2000)
+			if value != nil {
+				snapshot.Runtimes = value.GetRuntimes()
+				snapshot.RuntimesTruncated = value.GetTruncated()
+			}
+			return labeledError("runtimes", err)
+		})
+		run(func() error {
 			value, err := m.provider.ListNodes(ctx)
 			snapshot.Nodes = value
 			return labeledError("nodes", err)
@@ -231,7 +254,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastUntil = time.Time{}
 		}
 		commands := []tea.Cmd{m.beginRefresh(), m.tick()}
-		if m.view == ViewLogs && !m.logPaused && m.logSource.application != "" && !m.logsLoading {
+		if m.view == ViewLogs && !m.logPaused && !m.logExited && m.logSource.application != "" && !m.logsLoading {
 			m.logsLoading = true
 			commands = append(commands, m.reloadLogs())
 		}
@@ -251,19 +274,47 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case logsMsg:
+		if message.generation != m.logGeneration {
+			return m, nil
+		}
 		m.logsLoading = false
 		if message.err != nil {
 			m.setToast("Logs: " + safeError(message.err))
 			return m, nil
 		}
-		source := logSource{kind: message.kind, application: message.application, resource: message.resource, replica: message.replica}
+		source := logSource{kind: message.kind, application: message.application, resource: message.resource, replica: message.replica, runID: message.runID}
 		changed := source != m.logSource
-		m.logs = message.lines
-		m.logSource = source
-		if changed {
-			m.selected[ViewLogs] = 0
-			m.previousView, m.view = m.view, ViewLogs
+		wasAtBottom := m.selected[ViewLogs] >= max(0, len(m.displayLogs())-1)
+		if changed || message.batch.CursorReset || m.logCursor == "" {
+			m.logs = message.batch.Lines
+			m.logUnseen = 0
 		} else {
+			m.logs = append(m.logs, message.batch.Lines...)
+			if m.logPaused || !wasAtBottom {
+				m.logUnseen += countLogLines(message.batch.Lines)
+			}
+		}
+		m.trimLogs()
+		m.logSource = source
+		m.logCursor = message.batch.NextCursor
+		m.logExited = message.batch.Exited
+		if changed {
+			m.logNotice = ""
+		}
+		if message.batch.CursorReset {
+			m.logNotice = "log history rotated · cursor reset"
+		}
+		if message.batch.Exited {
+			m.logNotice = "runtime exited"
+		}
+		if changed {
+			m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
+			m.previousView, m.view = m.view, ViewLogs
+			m.runtimeFocus = 1
+		} else {
+			if !m.logPaused && m.logUnseen == 0 {
+				m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
+			}
 			m.clampSelection()
 		}
 		return m, nil
@@ -328,6 +379,9 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cancel != nil {
 			m.cancel()
 		}
+		if m.logCancel != nil {
+			m.logCancel()
+		}
 		return m, tea.Quit
 	case "?":
 		m.help = true
@@ -354,13 +408,50 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.beginRefresh()
 	case "up", "k":
 		m.move(-1)
+		if m.view == ViewLogs && m.runtimeFocus == 1 {
+			m.logPaused = true
+		}
 	case "down", "j":
 		m.move(1)
+		if m.view == ViewLogs && m.runtimeFocus == 1 && m.selected[ViewLogs] < len(m.displayLogs())-1 {
+			m.logPaused = true
+		}
 	case "enter":
 		return m, m.openSelected()
 	case "esc":
+		if m.view == ViewLogs && m.runtimeFocus == 1 {
+			m.runtimeFocus = 0
+		} else if m.view == ViewLogs {
+			m.setView(m.previousView)
+		}
+	case "left", "h":
 		if m.view == ViewLogs {
-			m.view = m.previousView
+			m.runtimeFocus = 0
+		}
+	case "right", "l":
+		if m.view == ViewLogs && m.logSource.application != "" {
+			m.runtimeFocus = 1
+		}
+	case "g":
+		if m.view == ViewLogs {
+			selected := m.selectedRuntimeID()
+			if m.runtimeGroup == "application" {
+				m.runtimeGroup = "node"
+			} else {
+				m.runtimeGroup = "application"
+			}
+			m.selectRuntimeID(selected)
+		}
+	case "home":
+		if m.view == ViewLogs && m.runtimeFocus == 1 {
+			m.selected[ViewLogs] = 0
+			m.logPaused = true
+		}
+	case "end", "G":
+		if m.view == ViewLogs && m.runtimeFocus == 1 {
+			m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
+			m.logPaused = false
+			m.logUnseen = 0
 		}
 	case "c", "u", "d", "i":
 		if m.view == ViewNodes {
@@ -385,13 +476,17 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		if m.view == ViewLogs {
 			m.logPaused = !m.logPaused
+			if !m.logPaused {
+				m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
+				m.logUnseen = 0
+			}
 		}
 	case "n":
-		if m.view == ViewLogs && m.logFilter != "" {
+		if m.view == ViewLogs && m.runtimeFocus == 1 && m.logFilter != "" {
 			m.move(1)
 		}
 	case "N":
-		if m.view == ViewLogs && m.logFilter != "" {
+		if m.view == ViewLogs && m.runtimeFocus == 1 && m.logFilter != "" {
 			m.move(-1)
 		}
 	case "x":
@@ -399,9 +494,14 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.eventFilter = ""
 			m.selected[ViewEvents] = 0
 		} else if m.view == ViewLogs {
-			m.logFilter = ""
-			m.logStream = "all"
-			m.selected[ViewLogs] = 0
+			if m.runtimeFocus == 0 {
+				m.runtimeFilter = ""
+				m.runtimeSelected = 0
+			} else {
+				m.logFilter = ""
+				m.logStream = "all"
+				m.selected[ViewLogs] = 0
+			}
 		}
 	}
 	return m, nil
@@ -411,7 +511,11 @@ func (m *Model) openSearch() tea.Cmd {
 	m.search = true
 	value := m.eventFilter
 	if m.view == ViewLogs {
-		value = m.logFilter
+		if m.runtimeFocus == 0 {
+			value = m.runtimeFilter
+		} else {
+			value = m.logFilter
+		}
 	}
 	m.searchInput.SetValue(value)
 	m.searchInput.CursorEnd()
@@ -439,8 +543,13 @@ func (m *Model) handleSearch(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applySearch(value string) {
 	value = strings.TrimSpace(value)
 	if m.view == ViewLogs {
-		m.logFilter = value
-		m.selected[ViewLogs] = 0
+		if m.runtimeFocus == 0 {
+			m.runtimeFilter = value
+			m.runtimeSelected = 0
+		} else {
+			m.logFilter = value
+			m.selected[ViewLogs] = 0
+		}
 	} else {
 		m.eventFilter = value
 		m.selected[ViewEvents] = 0
@@ -457,11 +566,16 @@ func (m *Model) applyRefresh(message refreshMsg) {
 	if index := m.selected[ViewNodes]; index >= 0 && index < len(m.snapshot.Nodes) {
 		selectedNode = m.snapshot.Nodes[index].GetName()
 	}
+	selectedRuntime := m.selectedRuntimeID()
 	if message.snapshot.Cluster != nil {
 		m.snapshot.Cluster = message.snapshot.Cluster
 	}
 	if message.snapshot.Applications != nil {
 		m.snapshot.Applications = message.snapshot.Applications
+	}
+	if message.snapshot.Runtimes != nil {
+		m.snapshot.Runtimes = message.snapshot.Runtimes
+		m.snapshot.RuntimesTruncated = message.snapshot.RuntimesTruncated
 	}
 	if message.snapshot.Nodes != nil {
 		m.snapshot.Nodes = message.snapshot.Nodes
@@ -497,6 +611,7 @@ func (m *Model) applyRefresh(message refreshMsg) {
 	if selectedNode != "" {
 		m.selectNamedNode(selectedNode)
 	}
+	m.selectRuntimeID(selectedRuntime)
 }
 
 func (m *Model) openPalette(value string) {
@@ -536,10 +651,12 @@ func (m *Model) handlePalette(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.selectNamedNode(item.name)
 			}
 			if item.kind == "workload-log" || item.kind == "cron-log" {
+				m.runtimeFilter = ""
+				m.selectRuntimeID(item.name)
 				m.palette = false
 				m.paletteInput.Blur()
 				m.logsLoading = true
-				return m, m.loadLogSource(logSource{kind: item.kind, application: item.application, resource: item.resource, replica: item.replica})
+				return m, m.loadLogSource(logSource{kind: item.kind, application: item.application, resource: item.resource, replica: item.replica, runID: item.runID})
 			}
 			if item.kind == "node-action" {
 				m.prepareNodeAction(item.resource)
@@ -586,17 +703,16 @@ func (m *Model) paletteItems() []paletteItem {
 			paletteItem{label: "Action toggle ingress on selected node", kind: "node-action", resource: "i", view: ViewNodes},
 		)
 	}
-	for application, detail := range m.details {
-		for _, allocation := range detail.GetAllocations() {
+	for _, runtime := range m.snapshot.Runtimes {
+		if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
 			items = append(items, paletteItem{
-				label: "Logs " + application + "/" + allocation.GetService() + fmt.Sprintf(" #%d", allocation.GetReplica()),
-				kind:  "workload-log", application: application, resource: allocation.GetService(), replica: allocation.GetReplica(), view: ViewLogs,
+				label: "Runtime " + runtime.GetApplication() + "/" + runtime.GetResource() + fmt.Sprintf(" #%d", runtime.GetReplica()),
+				kind:  "workload-log", name: runtime.GetId(), application: runtime.GetApplication(), resource: runtime.GetResource(), replica: runtime.GetReplica(), view: ViewLogs,
 			})
-		}
-		for _, job := range detail.GetCronJobs() {
+		} else {
 			items = append(items, paletteItem{
-				label: "Cron logs " + application + "/" + job.GetJob() + " latest",
-				kind:  "cron-log", application: application, resource: job.GetJob(), view: ViewLogs,
+				label: "Cron run " + runtime.GetApplication() + "/" + runtime.GetResource() + " " + shortID(runtime.GetRunId()),
+				kind:  "cron-log", name: runtime.GetId(), application: runtime.GetApplication(), resource: runtime.GetResource(), runID: runtime.GetRunId(), view: ViewLogs,
 			})
 		}
 	}
@@ -632,11 +748,23 @@ func fuzzyMatch(value, query string) bool {
 
 func (m *Model) setView(view ViewID) {
 	if view != m.view {
+		if m.view == ViewLogs && view != ViewLogs && m.logCancel != nil {
+			m.logCancel()
+			m.logCancel = nil
+			m.logGeneration++
+		}
 		m.previousView, m.view = m.view, view
 	}
 }
 
 func (m *Model) move(delta int) {
+	if m.view == ViewLogs && m.runtimeFocus == 0 {
+		count := len(m.filteredRuntimes())
+		if count != 0 {
+			m.runtimeSelected = ((m.runtimeSelected+delta)%count + count) % count
+		}
+		return
+	}
 	count := m.itemCount()
 	if count == 0 {
 		return
@@ -654,6 +782,9 @@ func (m *Model) itemCount() int {
 	case ViewEvents:
 		return len(m.filteredEvents())
 	case ViewLogs:
+		if m.runtimeFocus == 0 {
+			return len(m.filteredRuntimes())
+		}
 		return len(m.displayLogs())
 	default:
 		return 0
@@ -679,19 +810,41 @@ func (m *Model) clampSelection() {
 			m.selected[view] = count - 1
 		}
 	}
+	if count := len(m.filteredRuntimes()); count == 0 {
+		m.runtimeSelected = 0
+	} else if m.runtimeSelected >= count {
+		m.runtimeSelected = count - 1
+	}
 }
 
 func (m *Model) openSelected() tea.Cmd {
-	if m.view != ViewApplications || len(m.snapshot.Applications) == 0 {
+	if m.view == ViewLogs {
+		runtime := m.selectedRuntime()
+		if runtime == nil {
+			return nil
+		}
+		source := runtimeLogSource(runtime)
+		m.logCursor, m.logExited, m.logNotice, m.logUnseen = "", false, "", 0
+		m.logsLoading = true
+		return m.loadLogSource(source)
+	}
+	if m.view == ViewApplications && len(m.snapshot.Applications) != 0 {
+		name := m.snapshot.Applications[m.selected[ViewApplications]].GetName()
+		m.runtimeFilter = ""
+		m.selectRuntime(func(runtime *orchv1alpha1.RuntimeSummary) bool { return runtime.GetApplication() == name })
+		m.setView(ViewLogs)
+		m.runtimeFocus = 0
 		return nil
 	}
-	name := m.snapshot.Applications[m.selected[ViewApplications]].GetName()
-	if detail := m.details[name]; detail != nil && len(detail.GetAllocations()) != 0 {
-		allocation := detail.GetAllocations()[0]
-		m.logsLoading = true
-		return m.loadLogSource(logSource{kind: "workload-log", application: name, resource: allocation.GetService(), replica: allocation.GetReplica()})
+	if m.view == ViewNodes && len(m.snapshot.Nodes) != 0 {
+		name := m.snapshot.Nodes[m.selected[ViewNodes]].GetName()
+		m.runtimeFilter = ""
+		m.runtimeGroup = "node"
+		m.selectRuntime(func(runtime *orchv1alpha1.RuntimeSummary) bool { return runtime.GetNodeName() == name })
+		m.setView(ViewLogs)
+		m.runtimeFocus = 0
 	}
-	return m.loadApplication(name)
+	return nil
 }
 
 func (m *Model) loadApplication(name string) tea.Cmd {
@@ -704,17 +857,28 @@ func (m *Model) loadApplication(name string) tea.Cmd {
 }
 
 func (m *Model) loadLogSource(source logSource) tea.Cmd {
+	if m.logCancel != nil {
+		m.logCancel()
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+	m.logCancel = cancel
+	m.logGeneration++
+	generation := m.logGeneration
+	cursor := ""
+	if source == m.logSource {
+		cursor = m.logCursor
+	}
+	provider := m.provider
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
 		defer cancel()
-		var lines []LogLine
+		var batch LogBatch
 		var err error
 		if source.kind == "cron-log" {
-			lines, err = m.provider.LoadCronLogs(ctx, source.application, source.resource, 500)
+			batch, err = provider.LoadCronLogs(ctx, source.application, source.resource, source.runID, 500, cursor)
 		} else {
-			lines, err = m.provider.LoadLogs(ctx, source.application, source.resource, source.replica, 500)
+			batch, err = provider.LoadLogs(ctx, source.application, source.resource, source.replica, 500, cursor)
 		}
-		return logsMsg{kind: source.kind, application: source.application, resource: source.resource, replica: source.replica, lines: lines, err: err}
+		return logsMsg{generation: generation, kind: source.kind, application: source.application, resource: source.resource, replica: source.replica, runID: source.runID, batch: batch, err: err}
 	}
 }
 
@@ -835,6 +999,126 @@ func (m *Model) selectNamedNode(name string) {
 		if node.GetName() == name {
 			m.selected[ViewNodes] = index
 			return
+		}
+	}
+}
+
+func (m *Model) filteredRuntimes() []*orchv1alpha1.RuntimeSummary {
+	query := strings.ToLower(strings.TrimSpace(m.runtimeFilter))
+	result := make([]*orchv1alpha1.RuntimeSummary, 0, len(m.snapshot.Runtimes))
+	for _, runtime := range m.snapshot.Runtimes {
+		haystack := strings.ToLower(strings.Join([]string{runtime.GetApplication(), runtime.GetResource(), runtime.GetNodeName(), runtime.GetId(), runtimeState(runtime)}, " "))
+		if query == "" || strings.Contains(haystack, query) {
+			result = append(result, runtime)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		left, right := result[i], result[j]
+		if m.runtimeGroup == "node" {
+			if left.GetNodeName() != right.GetNodeName() {
+				return left.GetNodeName() < right.GetNodeName()
+			}
+		}
+		if left.GetApplication() != right.GetApplication() {
+			return left.GetApplication() < right.GetApplication()
+		}
+		if left.GetResource() != right.GetResource() {
+			return left.GetResource() < right.GetResource()
+		}
+		if left.GetKind() != right.GetKind() {
+			return left.GetKind() < right.GetKind()
+		}
+		if left.GetReplica() != right.GetReplica() {
+			return left.GetReplica() < right.GetReplica()
+		}
+		return left.GetScheduledAt().AsTime().After(right.GetScheduledAt().AsTime())
+	})
+	return result
+}
+
+func (m *Model) selectedRuntime() *orchv1alpha1.RuntimeSummary {
+	runtimes := m.filteredRuntimes()
+	if len(runtimes) == 0 {
+		return nil
+	}
+	return runtimes[min(m.runtimeSelected, len(runtimes)-1)]
+}
+
+func (m *Model) selectedRuntimeID() string {
+	if runtime := m.selectedRuntime(); runtime != nil {
+		return runtime.GetId()
+	}
+	return ""
+}
+
+func (m *Model) selectRuntimeID(id string) {
+	if id == "" {
+		return
+	}
+	for index, runtime := range m.filteredRuntimes() {
+		if runtime.GetId() == id {
+			m.runtimeSelected = index
+			return
+		}
+	}
+}
+
+func (m *Model) selectRuntime(matches func(*orchv1alpha1.RuntimeSummary) bool) {
+	for index, runtime := range m.filteredRuntimes() {
+		if matches(runtime) {
+			m.runtimeSelected = index
+			return
+		}
+	}
+}
+
+func runtimeLogSource(runtime *orchv1alpha1.RuntimeSummary) logSource {
+	kind := "workload-log"
+	if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_CRON_RUN {
+		kind = "cron-log"
+	}
+	return logSource{kind: kind, application: runtime.GetApplication(), resource: runtime.GetResource(), replica: runtime.GetReplica(), runID: runtime.GetRunId()}
+}
+
+func runtimeState(runtime *orchv1alpha1.RuntimeSummary) string {
+	if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_CRON_RUN {
+		return enumLabel(runtime.GetJobRunState().String())
+	}
+	phase := enumLabel(runtime.GetAllocationPhase().String())
+	if runtime.GetHealthStatus() != orchv1alpha1.HealthStatus_HEALTH_STATUS_UNSPECIFIED {
+		phase += "/" + enumLabel(runtime.GetHealthStatus().String())
+	}
+	return phase
+}
+
+func shortID(value string) string {
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12] + "…"
+}
+
+func countLogLines(lines []LogLine) int {
+	count := 0
+	for _, chunk := range lines {
+		count += strings.Count(chunk.Text, "\n")
+		if chunk.Text != "" && !strings.HasSuffix(chunk.Text, "\n") {
+			count++
+		}
+	}
+	return count
+}
+
+func (m *Model) trimLogs() {
+	size := 0
+	for _, line := range m.logs {
+		size += len(line.Text)
+	}
+	for size > maxLogBytes && len(m.logs) != 0 {
+		size -= len(m.logs[0].Text)
+		m.logs = m.logs[1:]
+		if m.selected[ViewLogs] > 0 {
+			m.selected[ViewLogs]--
 		}
 	}
 }

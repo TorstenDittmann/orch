@@ -388,12 +388,14 @@ message TailLogsCommand {
   string request_id = 1;
   string allocation_id = 2;
   uint32 tail_lines = 3;
+  string cursor = 4;
 }
 
 message TailCronLogsCommand {
   string request_id = 1;
   string run_id = 2;
   uint32 tail_lines = 3;
+  string cursor = 4;
 }
 
 message ExecCommand {
@@ -414,6 +416,9 @@ message TailLogsResponse {
   uint64 offset = 4;
   bool truncated = 5;
   bool complete = 6;
+  string next_cursor = 7;
+  bool cursor_reset = 8;
+  bool runtime_exited = 9;
 }
 
 message ExecResponse {

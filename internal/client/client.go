@@ -318,9 +318,21 @@ func (client *Client) RemoveApplication(ctx context.Context, name, idempotencyKe
 }
 
 func (client *Client) TailLogs(ctx context.Context, application, service string, replica, tailLines uint32) (*connect.ServerStreamForClient[orchv1alpha1.TailLogsResponse], error) {
+	return client.TailLogsAfter(ctx, application, service, replica, tailLines, "")
+}
+
+func (client *Client) TailLogsAfter(ctx context.Context, application, service string, replica, tailLines uint32, cursor string) (*connect.ServerStreamForClient[orchv1alpha1.TailLogsResponse], error) {
 	return client.service.TailLogs(ctx, connect.NewRequest(&orchv1alpha1.TailLogsRequest{
-		Application: application, Service: service, Replica: replica, TailLines: tailLines,
+		Application: application, Service: service, Replica: replica, TailLines: tailLines, Cursor: cursor,
 	}))
+}
+
+func (client *Client) ListRuntimes(ctx context.Context, limit uint32) (*orchv1alpha1.ListRuntimesResponse, error) {
+	response, err := client.service.ListRuntimes(ctx, connect.NewRequest(&orchv1alpha1.ListRuntimesRequest{Limit: limit}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
 }
 
 func (client *Client) Exec(ctx context.Context, application, service string, replica uint32, command []string, timeoutSeconds uint32) (*connect.ServerStreamForClient[orchv1alpha1.ExecResponse], error) {
@@ -339,8 +351,12 @@ func (client *Client) ListCronRuns(ctx context.Context, application, job string,
 }
 
 func (client *Client) TailCronLogs(ctx context.Context, application, job, runID string, tailLines uint32) (*connect.ServerStreamForClient[orchv1alpha1.TailCronLogsResponse], error) {
+	return client.TailCronLogsAfter(ctx, application, job, runID, tailLines, "")
+}
+
+func (client *Client) TailCronLogsAfter(ctx context.Context, application, job, runID string, tailLines uint32, cursor string) (*connect.ServerStreamForClient[orchv1alpha1.TailCronLogsResponse], error) {
 	return client.service.TailCronLogs(ctx, connect.NewRequest(&orchv1alpha1.TailCronLogsRequest{
-		Application: application, Job: job, RunId: runID, TailLines: tailLines,
+		Application: application, Job: job, RunId: runID, TailLines: tailLines, Cursor: cursor,
 	}))
 }
 

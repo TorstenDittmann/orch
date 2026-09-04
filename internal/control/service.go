@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,14 +26,16 @@ import (
 )
 
 const (
-	maxManifestBytes  = 1 << 20
-	maxCSRBytes       = 16 << 10
-	defaultEventLimit = 50
-	maxEventLimit     = 200
-	defaultTailLines  = 100
-	maxTailLines      = 10_000
-	defaultExecTime   = 30 * time.Second
-	maxExecTime       = 5 * time.Minute
+	maxManifestBytes    = 1 << 20
+	maxCSRBytes         = 16 << 10
+	defaultEventLimit   = 50
+	maxEventLimit       = 200
+	defaultTailLines    = 100
+	maxTailLines        = 10_000
+	defaultRuntimeLimit = 500
+	maxRuntimeLimit     = 2_000
+	defaultExecTime     = 30 * time.Second
+	maxExecTime         = 5 * time.Minute
 )
 
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
@@ -152,6 +155,128 @@ func (s *service) ListApplications(ctx context.Context, request *connect.Request
 		response.Applications = append(response.Applications, applicationSummaryMessage(application))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (s *service) ListRuntimes(ctx context.Context, request *connect.Request[orchv1alpha1.ListRuntimesRequest]) (*connect.Response[orchv1alpha1.ListRuntimesResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(request.Msg); err != nil {
+		return nil, err
+	}
+	limit := request.Msg.GetLimit()
+	if limit == 0 {
+		limit = defaultRuntimeLimit
+	}
+	if limit > maxRuntimeLimit {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("limit must not exceed %d", maxRuntimeLimit))
+	}
+	applications, err := s.state.Applications(ctx, false)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read applications for runtime inventory"))
+	}
+	observations := make(map[string]model.AllocationStatus)
+	var runs []model.JobRunStatus
+	for _, summary := range applications {
+		application, err := s.state.Application(ctx, summary.Name)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("read runtime inventory"))
+		}
+		for _, status := range application.Execution.Allocations {
+			observations[status.ID] = status
+		}
+		runs = append(runs, application.Execution.JobRuns...)
+	}
+	placements, err := s.state.DesiredAllocationPlacements(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read desired runtime placements"))
+	}
+	runtimes := make([]*orchv1alpha1.RuntimeSummary, 0, len(placements)+len(runs))
+	for _, placement := range placements {
+		placement.Node = s.decorateNodeConnection(placement.Node)
+		status, ok := observations[placement.Allocation.ID]
+		if ok {
+			runtimes = append(runtimes, serviceRuntimeSummary(placement, &status))
+		} else {
+			runtimes = append(runtimes, serviceRuntimeSummary(placement, nil))
+		}
+	}
+	for _, run := range runs {
+		item := &orchv1alpha1.RuntimeSummary{
+			Id: run.ID, RunId: run.ID, Kind: orchv1alpha1.RuntimeKind_RUNTIME_KIND_CRON_RUN,
+			Application: run.Application, Resource: run.Job, JobRunState: jobRunStateMessage(run.State),
+			SpecDigest: run.SpecDigest, Reason: run.Reason, Message: run.Message,
+			ScheduledAt: timestamppb.New(run.ScheduledAt), UpdatedAt: timestamppb.New(run.UpdatedAt),
+		}
+		if run.ExitCode != nil {
+			item.HasExitCode, item.ExitCode = true, *run.ExitCode
+		}
+		if run.StartedAt != nil {
+			item.StartedAt = timestamppb.New(*run.StartedAt)
+		}
+		if run.FinishedAt != nil {
+			item.FinishedAt = timestamppb.New(*run.FinishedAt)
+		}
+		if node, nodeErr := s.state.CronRunNode(ctx, run.Application, run.Job, run.ID); nodeErr == nil {
+			node = s.decorateNodeConnection(node)
+			item.NodeId, item.NodeName = node.ID, node.Name
+			item.NodeConnection = nodeMessage(node).GetConnectionStatus()
+		}
+		runtimes = append(runtimes, item)
+	}
+	sort.Slice(runtimes, func(i, j int) bool {
+		left, right := runtimes[i], runtimes[j]
+		if left.GetApplication() != right.GetApplication() {
+			return left.GetApplication() < right.GetApplication()
+		}
+		if left.GetKind() != right.GetKind() {
+			return left.GetKind() < right.GetKind()
+		}
+		if left.GetResource() != right.GetResource() {
+			return left.GetResource() < right.GetResource()
+		}
+		if left.GetReplica() != right.GetReplica() {
+			return left.GetReplica() < right.GetReplica()
+		}
+		return left.GetScheduledAt().AsTime().After(right.GetScheduledAt().AsTime())
+	})
+	truncated := len(runtimes) > int(limit)
+	if truncated {
+		runtimes = runtimes[:limit]
+	}
+	return connect.NewResponse(&orchv1alpha1.ListRuntimesResponse{Runtimes: runtimes, Truncated: truncated}), nil
+}
+
+func serviceRuntimeSummary(placement model.AllocationPlacement, status *model.AllocationStatus) *orchv1alpha1.RuntimeSummary {
+	desired, node := placement.Allocation, placement.Node
+	item := &orchv1alpha1.RuntimeSummary{
+		Id: desired.ID, Kind: orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE,
+		Application: desired.Application, Resource: desired.Service, Replica: desired.Replica,
+		NodeId: node.ID, NodeName: node.Name, NodeConnection: nodeMessage(node).GetConnectionStatus(),
+		AllocationPhase:       orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_PENDING,
+		ApplicationGeneration: desired.ApplicationGeneration, RevisionId: desired.RevisionID,
+		SpecDigest: desired.SpecDigest, CpuMillis: desired.CPUMillis, MemoryBytes: desired.MemoryBytes,
+		Reason: "awaiting_observation", Message: "the assigned agent has not reported this runtime yet",
+	}
+	if status == nil {
+		return item
+	}
+	item.AllocationPhase, item.HealthStatus = allocationPhaseMessage(status.Phase), healthStatusMessage(status.HealthStatus)
+	item.RestartCount, item.Address, item.DeclaredPort = status.RestartCount, status.Address, status.DeclaredPort
+	item.Reason, item.Message, item.UpdatedAt = status.Reason, status.Message, timestamppb.New(status.UpdatedAt)
+	if status.ActiveSpecDigest != "" {
+		item.SpecDigest = status.ActiveSpecDigest
+	}
+	if status.ActiveRevisionID != "" {
+		item.RevisionId = status.ActiveRevisionID
+	}
+	if status.ExitCode != nil {
+		item.HasExitCode, item.ExitCode = true, *status.ExitCode
+	}
+	if status.ReadyAt != nil {
+		item.ReadyAt = timestamppb.New(*status.ReadyAt)
+	}
+	return item
 }
 
 func (s *service) ListEvents(ctx context.Context, request *connect.Request[orchv1alpha1.ListEventsRequest]) (*connect.Response[orchv1alpha1.ListEventsResponse], error) {
@@ -363,16 +488,21 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read node drain blockers"))
 		}
-		if s.sessions != nil && s.sessions.Connected(node.ID) {
-			node.ConnectionStatus = model.NodeConnected
-		} else if node.LastSeenAt != nil && s.now().Sub(*node.LastSeenAt) >= agentHeartbeatTimeout {
-			node.ConnectionStatus = model.NodeUnreachable
-		} else if node.LastSeenAt != nil {
-			node.ConnectionStatus = model.NodeDisconnected
-		}
+		node = s.decorateNodeConnection(node)
 		response.Nodes = append(response.Nodes, nodeMessage(node))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (s *service) decorateNodeConnection(node model.Node) model.Node {
+	if s.sessions != nil && s.sessions.Connected(node.ID) {
+		node.ConnectionStatus = model.NodeConnected
+	} else if node.LastSeenAt != nil && s.now().Sub(*node.LastSeenAt) >= agentHeartbeatTimeout {
+		node.ConnectionStatus = model.NodeUnreachable
+	} else if node.LastSeenAt != nil {
+		node.ConnectionStatus = model.NodeDisconnected
+	}
+	return node
 }
 
 func (s *service) CreateJoinToken(ctx context.Context, request *connect.Request[orchv1alpha1.CreateJoinTokenRequest]) (*connect.Response[orchv1alpha1.CreateJoinTokenResponse], error) {
@@ -649,11 +779,14 @@ func (s *service) TailLogs(ctx context.Context, request *connect.Request[orchv1a
 	if tailLines > maxTailLines {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("tail_lines must not exceed %d", maxTailLines))
 	}
+	if len(request.Msg.GetCursor()) > 4096 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("cursor must not exceed 4096 bytes"))
+	}
 	operationContext, cancelContext := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelContext()
 	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailLogs{TailLogs: &orchv1alpha1.TailLogsCommand{
-			RequestId: requestID, AllocationId: allocation.ID, TailLines: tailLines,
+			RequestId: requestID, AllocationId: allocation.ID, TailLines: tailLines, Cursor: request.Msg.GetCursor(),
 		}}}
 	})
 	if err != nil {
@@ -968,10 +1101,13 @@ func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orc
 	if tailLines > maxTailLines {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("tail_lines must not exceed %d", maxTailLines))
 	}
+	if len(request.Msg.GetCursor()) > 4096 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("cursor must not exceed 4096 bytes"))
+	}
 	operationContext, cancelContext := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelContext()
 	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
-		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailCronLogs{TailCronLogs: &orchv1alpha1.TailCronLogsCommand{RequestId: requestID, RunId: request.Msg.GetRunId(), TailLines: tailLines}}}
+		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailCronLogs{TailCronLogs: &orchv1alpha1.TailCronLogsCommand{RequestId: requestID, RunId: request.Msg.GetRunId(), TailLines: tailLines, Cursor: request.Msg.GetCursor()}}}
 	})
 	if err != nil {
 		return operationConnectError(err)
@@ -996,7 +1132,8 @@ func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orc
 				}
 				terminal = value.Log.GetComplete()
 				if err := stream.Send(&orchv1alpha1.TailCronLogsResponse{Stream: value.Log.GetStream(), Data: value.Log.GetData(),
-					Offset: value.Log.GetOffset(), Truncated: value.Log.GetTruncated(), Complete: value.Log.GetComplete()}); err != nil {
+					Offset: value.Log.GetOffset(), Truncated: value.Log.GetTruncated(), Complete: value.Log.GetComplete(),
+					NextCursor: value.Log.GetNextCursor(), CursorReset: value.Log.GetCursorReset(), RuntimeExited: value.Log.GetRuntimeExited()}); err != nil {
 					return err
 				}
 			case *orchv1alpha1.AgentOperationResult_Error:

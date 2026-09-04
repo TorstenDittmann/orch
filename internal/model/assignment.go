@@ -193,6 +193,14 @@ type AllocationDesired struct {
 	RuntimeRegistrySecrets map[string][]byte `json:"-"`
 }
 
+// AllocationPlacement is the controller-owned runtime identity and its
+// assigned node. It contains desired metadata only; observations are joined by
+// the control read model.
+type AllocationPlacement struct {
+	Allocation AllocationDesired
+	Node       Node
+}
+
 // CronJobDesired is an immutable one-shot workload template distributed to
 // the agent. Occurrence IDs are derived and claimed by the agent scheduler.
 type CronJobDesired struct {

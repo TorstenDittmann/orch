@@ -42,6 +42,9 @@ const (
 	// ControlServiceListApplicationsProcedure is the fully-qualified name of the ControlService's
 	// ListApplications RPC.
 	ControlServiceListApplicationsProcedure = "/orch.v1alpha1.ControlService/ListApplications"
+	// ControlServiceListRuntimesProcedure is the fully-qualified name of the ControlService's
+	// ListRuntimes RPC.
+	ControlServiceListRuntimesProcedure = "/orch.v1alpha1.ControlService/ListRuntimes"
 	// ControlServiceListEventsProcedure is the fully-qualified name of the ControlService's ListEvents
 	// RPC.
 	ControlServiceListEventsProcedure = "/orch.v1alpha1.ControlService/ListEvents"
@@ -113,6 +116,7 @@ type ControlServiceClient interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
+	ListRuntimes(context.Context, *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ListRecentEvents(context.Context, *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
@@ -165,6 +169,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceListApplicationsProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("ListApplications")),
+			connect.WithClientOptions(opts...),
+		),
+		listRuntimes: connect.NewClient[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse](
+			httpClient,
+			baseURL+ControlServiceListRuntimesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListRuntimes")),
 			connect.WithClientOptions(opts...),
 		),
 		listEvents: connect.NewClient[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse](
@@ -307,6 +317,7 @@ type controlServiceClient struct {
 	getCluster        *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
 	getApplication    *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
 	listApplications  *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
+	listRuntimes      *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
 	listEvents        *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
 	listRecentEvents  *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
 	applyApplication  *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
@@ -344,6 +355,11 @@ func (c *controlServiceClient) GetApplication(ctx context.Context, req *connect.
 // ListApplications calls orch.v1alpha1.ControlService.ListApplications.
 func (c *controlServiceClient) ListApplications(ctx context.Context, req *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error) {
 	return c.listApplications.CallUnary(ctx, req)
+}
+
+// ListRuntimes calls orch.v1alpha1.ControlService.ListRuntimes.
+func (c *controlServiceClient) ListRuntimes(ctx context.Context, req *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error) {
+	return c.listRuntimes.CallUnary(ctx, req)
 }
 
 // ListEvents calls orch.v1alpha1.ControlService.ListEvents.
@@ -463,6 +479,7 @@ type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
+	ListRuntimes(context.Context, *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
 	ListRecentEvents(context.Context, *connect.Request[v1alpha1.ListRecentEventsRequest]) (*connect.Response[v1alpha1.ListRecentEventsResponse], error)
 	ApplyApplication(context.Context, *connect.Request[v1alpha1.ApplyApplicationRequest]) (*connect.Response[v1alpha1.ApplyApplicationResponse], error)
@@ -511,6 +528,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceListApplicationsProcedure,
 		svc.ListApplications,
 		connect.WithSchema(controlServiceMethods.ByName("ListApplications")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListRuntimesHandler := connect.NewUnaryHandler(
+		ControlServiceListRuntimesProcedure,
+		svc.ListRuntimes,
+		connect.WithSchema(controlServiceMethods.ByName("ListRuntimes")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceListEventsHandler := connect.NewUnaryHandler(
@@ -653,6 +676,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceGetApplicationHandler.ServeHTTP(w, r)
 		case ControlServiceListApplicationsProcedure:
 			controlServiceListApplicationsHandler.ServeHTTP(w, r)
+		case ControlServiceListRuntimesProcedure:
+			controlServiceListRuntimesHandler.ServeHTTP(w, r)
 		case ControlServiceListEventsProcedure:
 			controlServiceListEventsHandler.ServeHTTP(w, r)
 		case ControlServiceListRecentEventsProcedure:
@@ -716,6 +741,10 @@ func (UnimplementedControlServiceHandler) GetApplication(context.Context, *conne
 
 func (UnimplementedControlServiceHandler) ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListApplications is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListRuntimes(context.Context, *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListRuntimes is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error) {

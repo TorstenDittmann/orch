@@ -106,7 +106,7 @@ func (m *Model) renderFooter(t theme, width int) string {
 	} else if m.view == ViewEvents {
 		left = " ↑↓/jk inspect   / filter   x clear   ctrl+p commands   ? help"
 	} else if m.view == ViewLogs {
-		left = " ↑↓/jk scroll   / search   n/N match   s stream   w wrap   p pause   r reload"
+		left = " ↑↓/jk navigate   enter logs   h/l pane   / search   g group   s stream   p follow   G live"
 	}
 	right := ""
 	if m.loading {
@@ -245,10 +245,10 @@ func (m *Model) renderApplicationDetail(t theme, summary *orchv1alpha1.Applicati
 			lines = append(lines, fmt.Sprintf("CRON %s  %s  next %s", sanitize(job.GetJob()), enumLabel(job.GetLastState().String()), relativeTime(job.GetNextRunAt().AsTime())))
 		}
 		if len(detail.GetAllocations())+len(detail.GetCronJobs()) > 0 {
-			lines = append(lines, "", muted(t, "enter opens first workload · ctrl+p selects any log"))
+			lines = append(lines, "", muted(t, "enter opens this application's runtimes"))
 		}
 	} else {
-		lines = append(lines, "", muted(t, "enter loads runtime detail"))
+		lines = append(lines, "", muted(t, "enter opens this application's runtimes"))
 	}
 	return panel(t, strings.Join(lines, "\n"), width, height)
 }
@@ -318,38 +318,195 @@ func (m *Model) renderEvents(t theme, width, height int) string {
 }
 
 func (m *Model) renderLogs(t theme, width, height int) string {
-	if m.logsLoading {
-		return centerText(t, width, height, "Loading bounded logs…")
+	runtimes := m.filteredRuntimes()
+	if len(runtimes) == 0 {
+		return empty(t, "No managed runtimes", "Deploy a service or wait for a cron run. Press / to clear or change the runtime filter.")
 	}
-	if len(m.logs) == 0 {
-		return empty(t, "No logs loaded", "Open an application, load its detail, then press enter on it again.")
+	selected := runtimes[min(m.runtimeSelected, len(runtimes)-1)]
+	if width < 78 {
+		if m.runtimeFocus == 0 {
+			return m.renderRuntimeList(t, width, height, runtimes)
+		}
+		return m.renderRuntimeLogPane(t, width, height, selected)
 	}
-	lines := m.displayLogs()
-	if len(lines) == 0 {
-		return empty(t, "No matching log lines", "Press / to change search, s to change stream, or x to clear filters.")
+	listWidth := width * 38 / 100
+	if width >= 112 {
+		detailWidth := width * 27 / 100
+		return lipgloss.JoinHorizontal(lipgloss.Top,
+			m.renderRuntimeList(t, listWidth, height, runtimes),
+			m.renderRuntimeDetail(t, detailWidth, height, selected),
+			m.renderRuntimeLogPane(t, width-listWidth-detailWidth, height, selected))
 	}
-	position := min(m.selected[ViewLogs], len(lines)-1)
-	state := "auto-refresh"
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		m.renderRuntimeList(t, listWidth, height, runtimes),
+		m.renderRuntimeLogPane(t, width-listWidth, height, selected))
+}
+
+func (m *Model) renderRuntimeList(t theme, width, height int, runtimes []*orchv1alpha1.RuntimeSummary) string {
+	focus := ""
+	if m.runtimeFocus == 0 {
+		focus = " ●"
+	}
+	filter := ""
+	if m.runtimeFilter != "" {
+		filter = " · /" + m.runtimeFilter
+	}
+	rows := []string{heading(t, "Managed runtimes"+focus) + muted(t, fmt.Sprintf("  by %s%s", m.runtimeGroup, filter))}
+	var entries []string
+	selectedRow := 0
+	lastGroup := ""
+	for index, runtime := range runtimes {
+		marker := "  "
+		if index == m.runtimeSelected {
+			marker = colorize(t, t.primary, "› ")
+		}
+		group := runtime.GetApplication()
+		if m.runtimeGroup == "node" {
+			group = runtime.GetNodeName()
+			if group == "" {
+				group = "unplaced"
+			}
+		}
+		if group != lastGroup {
+			entries = append(entries, "  "+heading(t, group))
+			lastGroup = group
+		}
+		identity := runtime.GetResource()
+		if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
+			identity += fmt.Sprintf(" #%d", runtime.GetReplica())
+		} else {
+			identity += " " + shortID(runtime.GetRunId())
+		}
+		if index == m.runtimeSelected {
+			selectedRow = len(entries)
+		}
+		entries = append(entries, truncate(fmt.Sprintf("%s  %-18s %s", marker, sanitize(identity), statusStyle(t, runtimeState(runtime))), width-2))
+	}
+	if m.snapshot.RuntimesTruncated {
+		entries = append(entries, muted(t, "inventory truncated at 2,000 entries"))
+	}
+	visible := max(2, height-3)
+	start := windowStart(selectedRow, visible, len(entries))
+	rows = append(rows, entries[start:min(len(entries), start+visible)]...)
+	return panel(t, strings.Join(rows, "\n"), width, height)
+}
+
+func (m *Model) renderRuntimeDetail(t theme, width, height int, runtime *orchv1alpha1.RuntimeSummary) string {
+	identity := runtime.GetApplication() + "/" + runtime.GetResource()
+	if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
+		identity += fmt.Sprintf(" #%d", runtime.GetReplica())
+	} else {
+		identity += " · " + shortID(runtime.GetRunId())
+	}
+	lines := []string{heading(t, identity), statusStyle(t, runtimeState(runtime)), "",
+		labelValue(t, "Node", runtime.GetNodeName()), labelValue(t, "Connection", enumLabel(runtime.GetNodeConnection().String()))}
+	if runtime.GetAddress() != "" {
+		lines = append(lines, labelValue(t, "Address", runtime.GetAddress()))
+	}
+	if runtime.GetDeclaredPort() != 0 {
+		lines = append(lines, labelValue(t, "Port", fmt.Sprint(runtime.GetDeclaredPort())))
+	}
+	if runtime.GetRevisionId() != "" {
+		lines = append(lines, labelValue(t, "Revision", shortID(runtime.GetRevisionId())))
+	}
+	if runtime.GetSpecDigest() != "" {
+		lines = append(lines, labelValue(t, "Spec", shortID(runtime.GetSpecDigest())))
+	}
+	if runtime.GetCpuMillis() != 0 || runtime.GetMemoryBytes() != 0 {
+		lines = append(lines, labelValue(t, "Resources", fmt.Sprintf("%dm · %s", runtime.GetCpuMillis(), bytesLabel(runtime.GetMemoryBytes()))))
+	}
+	if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
+		lines = append(lines, labelValue(t, "Restarts", fmt.Sprint(runtime.GetRestartCount())))
+	}
+	if runtime.GetScheduledAt() != nil {
+		lines = append(lines, labelValue(t, "Scheduled", relativeTime(runtime.GetScheduledAt().AsTime())))
+	}
+	if runtime.GetStartedAt() != nil {
+		lines = append(lines, labelValue(t, "Started", relativeTime(runtime.GetStartedAt().AsTime())))
+	}
+	if runtime.GetFinishedAt() != nil {
+		lines = append(lines, labelValue(t, "Finished", relativeTime(runtime.GetFinishedAt().AsTime())))
+	}
+	if runtime.GetUpdatedAt() != nil {
+		lines = append(lines, labelValue(t, "Updated", relativeTime(runtime.GetUpdatedAt().AsTime())))
+	}
+	if runtime.GetReason() != "" {
+		lines = append(lines, labelValue(t, "Reason", runtime.GetReason()))
+	}
+	if runtime.GetHasExitCode() {
+		lines = append(lines, labelValue(t, "Exit", fmt.Sprint(runtime.GetExitCode())))
+	}
+	if runtime.GetMessage() != "" {
+		lines = append(lines, "", muted(t, runtime.GetMessage()))
+	}
+	return panel(t, strings.Join(lines, "\n"), width, height)
+}
+
+func (m *Model) renderRuntimeLogPane(t theme, width, height int, runtime *orchv1alpha1.RuntimeSummary) string {
+	source := runtimeLogSource(runtime)
+	selectedSource := source == m.logSource
+	focus := ""
+	if m.runtimeFocus == 1 {
+		focus = " ●"
+	}
+	state := "follow"
 	if m.logPaused {
 		state = "paused"
 	}
-	source := m.logSource.application + "/" + m.logSource.resource
-	rows := []string{heading(t, "Logs · "+source) + "  " + muted(t, fmt.Sprintf("%s · %s · wrap %t · %d/%d", m.logStream, state, m.logWrap, position+1, len(lines)))}
-	visible := max(2, height-3)
+	if m.logExited {
+		state = "exited"
+	}
+	header := heading(t, "Logs"+focus) + "  " + muted(t, fmt.Sprintf("%s · %s · wrap %t", m.logStream, state, m.logWrap))
+	if !selectedSource {
+		return panel(t, header+"\n\n"+muted(t, "Press enter to open "+source.application+"/"+source.resource+runtimeSuffix(runtime)+" logs."), width, height)
+	}
+	if m.logsLoading && len(m.logs) == 0 {
+		return panel(t, header+"\n\n"+muted(t, "Loading bounded logs…"), width, height)
+	}
+	lines := m.displayLogs()
+	meta := fmt.Sprintf("%d lines · %.0f KiB", len(lines), float64(logBytes(m.logs))/1024)
+	if m.logUnseen > 0 {
+		meta += fmt.Sprintf(" · %d unseen", m.logUnseen)
+	}
+	rows := []string{header, muted(t, source.application+"/"+source.resource+runtimeSuffix(runtime)+" · "+meta)}
+	if m.logNotice != "" {
+		rows = append(rows, colorize(t, t.warning, "! "+m.logNotice))
+	}
+	if len(lines) == 0 {
+		rows = append(rows, "", muted(t, "No log output yet."))
+		return panel(t, strings.Join(rows, "\n"), width, height)
+	}
+	position := min(m.selected[ViewLogs], len(lines)-1)
+	visible := max(2, height-len(rows)-2)
 	start := windowStart(position, visible, len(lines))
 	for index := start; index < min(len(lines), start+visible); index++ {
 		line := lines[index]
 		marker := " "
-		if index == position {
+		if index == position && m.runtimeFocus == 1 {
 			marker = colorize(t, t.primary, "›")
 		}
-		text := line.text
+		value := line.text
 		if !m.logWrap {
-			text = truncate(text, max(8, width-lipgloss.Width(line.stream)-6))
+			value = truncate(value, max(8, width-lipgloss.Width(line.stream)-6))
 		}
-		rows = append(rows, marker+muted(t, line.stream+" ")+text)
+		rows = append(rows, marker+muted(t, line.stream+" ")+value)
 	}
 	return panel(t, strings.Join(rows, "\n"), width, height)
+}
+
+func runtimeSuffix(runtime *orchv1alpha1.RuntimeSummary) string {
+	if runtime.GetKind() == orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE {
+		return fmt.Sprintf(" #%d", runtime.GetReplica())
+	}
+	return " " + shortID(runtime.GetRunId())
+}
+
+func logBytes(lines []LogLine) int {
+	total := 0
+	for _, line := range lines {
+		total += len(line.Text)
+	}
+	return total
 }
 
 func (m *Model) renderHelp(t theme, width int) string {
@@ -362,14 +519,16 @@ Navigation                 Discovery
   enter      open            r           refresh now
   esc        back            q           quit
 
-Node actions               Logs
+Node actions               Runtime workspace
   c           cordon          /           search text
   u           uncordon        n / N       next / prior match
   d           drain
   i           toggle ingress  s           stdout/stderr/all
                               w           toggle wrapping
-                              p           pause auto-refresh
-                              r           reload snapshot
+                              p           pause/resume follow
+                              g           group app/node
+                              h / l       tree/log pane
+                              G           jump to live output
 
 Events
   /           filter kind or payload

@@ -615,10 +615,21 @@ func (c *runtimeClient) removeSecretProjection(objectID string) error {
 }
 
 func (c *runtimeClient) TailLogs(ctx context.Context, id string, lines uint32) ([]orchruntime.LogFrame, error) {
-	if _, err := c.Inspect(ctx, id); err != nil {
-		return nil, err
+	batch, err := c.ReadLogs(ctx, id, lines, "")
+	return batch.Frames, err
+}
+
+func (c *runtimeClient) ReadLogs(ctx context.Context, id string, lines uint32, cursor string) (orchruntime.LogBatch, error) {
+	object, err := c.Inspect(ctx, id)
+	if err != nil {
+		return orchruntime.LogBatch{}, err
 	}
-	return tailObjectLogs(c.options.LogsDir, id, lines)
+	batch, err := readObjectLogs(c.options.LogsDir, id, lines, cursor)
+	if err != nil {
+		return orchruntime.LogBatch{}, err
+	}
+	batch.Exited = !object.Running
+	return batch, nil
 }
 
 func (c *runtimeClient) Exec(ctx context.Context, id string, command []string) (<-chan orchruntime.ExecFrame, error) {

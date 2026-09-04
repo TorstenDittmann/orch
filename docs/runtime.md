@@ -67,6 +67,22 @@ content remains subject to containerd's normal references and garbage
 collection. Retired objects' bounded log files are removed; declared local
 volume directories are not.
 
+## Runtime inventory and logs
+
+The public runtime inventory is an allowlisted view of current desired service
+allocations plus retained cron runs. It exposes logical identity, placement,
+health/lifecycle state, resource reservations, revision/spec identity, exit and
+restart state, and non-secret timestamps/reasons. It does not enumerate the
+host containerd namespace or expose containerd object IDs, environment values,
+registry credentials, or secret projection paths.
+
+Log access resolves a service replica or exact cron run through controller
+state and the assigned authenticated agent. The CLI receives a finite bounded
+tail. The TUI retains at most 512 KiB and follows with an opaque cursor bound to
+the active owned object and separate stdout/stderr offsets. Rotation, shrinkage,
+replacement, and malformed or stale cursors produce a visible reset instead of
+silently crossing runtime identities. Leaving a source cancels its operation.
+
 ## OCI isolation
 
 Each workload receives new PID, mount, IPC, UTS, cgroup, and network

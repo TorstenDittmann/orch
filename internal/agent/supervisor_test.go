@@ -573,6 +573,10 @@ func TestSupervisorRoutesLogsAndExecOnlyToExactRunningObject(t *testing.T) {
 	if err != nil || len(logs) != 2 || string(logs[0].Data) != "hello\n" || string(logs[1].Data) != "warning\n" {
 		t.Fatalf("TailLogs() = %#v, %v", logs, err)
 	}
+	continued, err := supervisor.ReadLogs(ctx, allocation, 10, "cursor")
+	if err != nil || len(continued.Frames) != 0 || continued.NextCursor != "fake:"+id || continued.Exited {
+		t.Fatalf("ReadLogs() = %#v, %v", continued, err)
+	}
 	runtime.SetExecFrames(id, "/bin/echo", []orchruntime.ExecFrame{{Stream: "stdout", Data: []byte("ok\n")}, {Exited: true, ExitCode: 0}})
 	frames, err := supervisor.Exec(ctx, allocation, []string{"/bin/echo", "ok"})
 	if err != nil {

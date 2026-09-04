@@ -161,6 +161,30 @@ func TestAssignmentAckReportAndExecutionAreMonotonic(t *testing.T) {
 	}
 }
 
+func TestDesiredAllocationPlacementsAreSortedAndIncludeNodeIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := executionStore(t)
+	second := storeTestAllocation(t)
+	second.ID, second.Service, second.Replica = "alloc-two", "web", 2
+	var err error
+	second.SpecDigest, err = model.AllocationSpecDigest(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := storeTestAllocation(t)
+	if _, _, err := state.PublishAssignment(ctx, storeTestPublish(t, first, second)); err != nil {
+		t.Fatal(err)
+	}
+	placements, err := state.DesiredAllocationPlacements(ctx)
+	if err != nil || len(placements) != 2 {
+		t.Fatalf("placements = %#v, %v", placements, err)
+	}
+	if placements[0].Allocation.ID != "alloc-two" || placements[1].Allocation.ID != "alloc-one" || placements[0].Node.ID != "node-one" {
+		t.Fatalf("placements = %#v", placements)
+	}
+}
+
 func TestTCPReadinessAndRouteProduceHealthyExecution(t *testing.T) {
 	ctx := context.Background()
 	state := executionStore(t)

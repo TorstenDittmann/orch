@@ -202,6 +202,20 @@ func (f *Fake) TailLogs(_ context.Context, id string, _ uint32) ([]LogFrame, err
 	return frames, nil
 }
 
+func (f *Fake) ReadLogs(ctx context.Context, id string, lines uint32, cursor string) (LogBatch, error) {
+	frames, err := f.TailLogs(ctx, id, lines)
+	if err != nil {
+		return LogBatch{}, err
+	}
+	f.mu.Lock()
+	exited := !f.Objects[id].Running
+	f.mu.Unlock()
+	if cursor != "" {
+		frames = nil
+	}
+	return LogBatch{Frames: frames, NextCursor: "fake:" + id, Exited: exited}, nil
+}
+
 func (f *Fake) Exec(ctx context.Context, id string, command []string) (<-chan ExecFrame, error) {
 	f.mu.Lock()
 	object, ok := f.Objects[id]

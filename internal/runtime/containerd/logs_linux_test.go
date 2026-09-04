@@ -4,6 +4,7 @@ package containerd
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"net/url"
 	"os"
@@ -57,6 +58,53 @@ func TestRotatingLogBoundsFilesAndTailKeepsStreamsSeparate(t *testing.T) {
 	}
 	if frames[0].Stream != "stdout" || frames[1].Stream != "stderr" || string(frames[1].Data) != "warning\n" || frames[0].Offset == 0 {
 		t.Fatalf("tail frames = %#v", frames)
+	}
+}
+
+func TestReadObjectLogsContinuesWithoutDuplicatesAndResetsAfterShrink(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prefix, err := ensureLogFiles(directory, "object-follow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prefix+".stdout.log", []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := readObjectLogs(directory, "object-follow", 1, "")
+	if err != nil || len(initial.Frames) != 1 || string(initial.Frames[0].Data) != "two\n" || initial.NextCursor == "" {
+		t.Fatalf("initial read = %#v, %v", initial, err)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(initial.NextCursor)
+	if err != nil || bytes.Contains(decoded, []byte("object-follow")) {
+		t.Fatalf("cursor exposes runtime object identity: %q, %v", decoded, err)
+	}
+	file, err := os.OpenFile(prefix+".stdout.log", os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString("three\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("append = %v, close = %v", writeErr, closeErr)
+	}
+	next, err := readObjectLogs(directory, "object-follow", 1, initial.NextCursor)
+	if err != nil || next.CursorReset || len(next.Frames) != 1 || string(next.Frames[0].Data) != "three\n" {
+		t.Fatalf("continuation = %#v, %v", next, err)
+	}
+	if err := os.WriteFile(prefix+".stdout.log", []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reset, err := readObjectLogs(directory, "object-follow", 10, next.NextCursor)
+	if err != nil || !reset.CursorReset || len(reset.Frames) != 1 || string(reset.Frames[0].Data) != "new\n" {
+		t.Fatalf("reset read = %#v, %v", reset, err)
+	}
+	malformed, err := readObjectLogs(directory, "object-follow", 10, "not-a-cursor")
+	if err != nil || !malformed.CursorReset {
+		t.Fatalf("malformed cursor = %#v, %v", malformed, err)
 	}
 }
 

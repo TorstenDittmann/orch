@@ -11,6 +11,7 @@ service ControlService {
   rpc GetCluster(GetClusterRequest) returns (GetClusterResponse);
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
   rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
+  rpc ListRuntimes(ListRuntimesRequest) returns (ListRuntimesResponse);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
   rpc ListRecentEvents(ListRecentEventsRequest) returns (ListRecentEventsResponse);
   rpc ApplyApplication(ApplyApplicationRequest) returns (ApplyApplicationResponse);
@@ -184,6 +185,56 @@ message ListApplicationsResponse {
   repeated ApplicationSummary applications = 1;
 }
 
+enum RuntimeKind {
+  RUNTIME_KIND_UNSPECIFIED = 0;
+  RUNTIME_KIND_SERVICE = 1;
+  RUNTIME_KIND_CRON_RUN = 2;
+}
+
+// RuntimeSummary is an allowlisted control-plane view of one Orch-owned
+// workload. It deliberately does not expose containerd object identifiers or
+// desired environment/secret material.
+message RuntimeSummary {
+  string id = 1;
+  RuntimeKind kind = 2;
+  string application = 3;
+  string resource = 4;
+  uint32 replica = 5;
+  string run_id = 6;
+  string node_id = 7;
+  string node_name = 8;
+  NodeConnectionStatus node_connection = 9;
+  AllocationPhase allocation_phase = 10;
+  JobRunState job_run_state = 11;
+  HealthStatus health_status = 12;
+  uint64 application_generation = 13;
+  string revision_id = 14;
+  string spec_digest = 15;
+  uint32 restart_count = 16;
+  int32 exit_code = 17;
+  bool has_exit_code = 18;
+  string address = 19;
+  uint32 declared_port = 20;
+  uint64 cpu_millis = 21;
+  uint64 memory_bytes = 22;
+  string reason = 23;
+  string message = 24;
+  google.protobuf.Timestamp scheduled_at = 25;
+  google.protobuf.Timestamp started_at = 26;
+  google.protobuf.Timestamp ready_at = 27;
+  google.protobuf.Timestamp finished_at = 28;
+  google.protobuf.Timestamp updated_at = 29;
+}
+
+message ListRuntimesRequest {
+  uint32 limit = 1;
+}
+
+message ListRuntimesResponse {
+  repeated RuntimeSummary runtimes = 1;
+  bool truncated = 2;
+}
+
 message ListEventsRequest {
   uint64 after_sequence = 1;
   uint32 limit = 2;
@@ -332,6 +383,7 @@ message TailLogsRequest {
   string service = 2;
   uint32 replica = 3;
   uint32 tail_lines = 4;
+  string cursor = 5;
 }
 
 message ExecRequest {
@@ -357,6 +409,7 @@ message TailCronLogsRequest {
   string job = 2;
   string run_id = 3;
   uint32 tail_lines = 4;
+  string cursor = 5;
 }
 
 message TailCronLogsResponse {
@@ -365,6 +418,9 @@ message TailCronLogsResponse {
   uint64 offset = 3;
   bool truncated = 4;
   bool complete = 5;
+  string next_cursor = 6;
+  bool cursor_reset = 7;
+  bool runtime_exited = 8;
 }
 
 message SecretMetadata {

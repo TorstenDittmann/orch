@@ -161,6 +161,13 @@ bin/orch cluster backup \
   --secret-key-output "$PWD/offline-keys/lab-secret.key"
 ~~~
 
+The TUI includes a runtime workspace for every current service replica and
+retained cron run. Browse it by application or node, inspect exact placement
+and lifecycle state, and press Enter on a runtime to follow its bounded
+stdout/stderr logs. Scrolling away from the bottom pauses visual following;
+`G` returns to live output. The same workspace works over direct, WireGuard,
+and SSH targets.
+
 For an existing cluster, import its context once and stop passing the path on
 every command:
 
