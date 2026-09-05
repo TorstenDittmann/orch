@@ -3,54 +3,31 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="orch is an opinionated application orchestrator for 1–20 Linux nodes.">
-    <meta property="og:title" content="orch — orchestration for small Linux clusters">
-    <meta property="og:description" content="Typed configuration, scheduling, networking, ingress, cron jobs, and operations without Kubernetes or Docker Swarm.">
-    <meta property="og:type" content="website">
-    <title>orch — orchestration for small Linux clusters</title>
+    <meta name="description" content="orch is an application orchestrator for small Linux clusters.">
+    <title>orch</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <header>
-      <a class="wordmark" href="#top" aria-label="orch home"><span aria-hidden="true">///</span> orch</a>
-      <nav aria-label="Main navigation">
-        <a href="#configuration">Configuration</a>
-        <a href="#runtime">Runtime</a>
-        <a href="https://change.codes/torsten/better-swarm">Source ↗</a>
-      </nav>
+      <strong>orch</strong>
+      <a href="https://change.codes/torsten/better-swarm">source</a>
     </header>
 
-    <main id="top">
-      <section class="intro">
-        <p class="status"><span></span> Work in progress</p>
-        <h1>Orchestration for small Linux clusters.</h1>
-        <p class="lead">
-          orch runs applications across 1–20 nodes. It provides typed configuration,
-          scheduling, health checks, service discovery, private networking, HTTP and
-          TCP ingress, cron jobs, and safe rollouts—without exposing the Kubernetes or
-          Docker Swarm APIs.
-        </p>
-        <div class="quickstart" aria-label="Example deploy command">
-          <span>$</span><code>orch deploy -f orch.pkl --target production</code>
-        </div>
-        <p class="links">
-          <a href="https://change.codes/torsten/better-swarm">Browse the source →</a>
-          <a href="#configuration">See a configuration →</a>
-        </p>
-      </section>
+    <main>
+      <h1>Application orchestration for small Linux clusters.</h1>
+      <p class="intro">
+        orch runs applications across 1–20 Linux nodes. It provides typed
+        configuration, scheduling, health checks, service discovery, private
+        networking, ingress, cron jobs, and safe rollouts without exposing the
+        Kubernetes or Docker Swarm APIs.
+      </p>
 
-      <section class="configuration" id="configuration">
-        <div class="section-copy">
-          <p class="label">Configuration</p>
-          <h2>One typed Pkl module.</h2>
-          <p>
-            Unknown fields are errors. Defaults resolve before planning. Local and
-            HTTPS modules compose without sending source code to the cluster.
-          </p>
-        </div>
-        <div class="code">
-          <div class="code-header"><span>orch.pkl</span><span>PKL</span></div>
-          <pre><code>amends "orch:/v1alpha1/Application.pkl"
+      <pre class="command"><code>$ orch deploy -f orch.pkl --target production</code></pre>
+
+      <section>
+        <h2>Configuration</h2>
+        <p>Applications are typed Pkl modules. Unknown fields are errors and defaults resolve before planning.</p>
+        <pre><code>amends "orch:/v1alpha1/Application.pkl"
 
 name = "api"
 
@@ -76,46 +53,43 @@ deploy {
   maxSurge = 1
   autoRollback = true
 }</code></pre>
-        </div>
       </section>
 
-      <section class="runtime" id="runtime">
-        <div class="section-copy">
-          <p class="label">Runtime</p>
-          <h2>Small surface area.<br>Useful primitives.</h2>
-        </div>
-        <dl class="capabilities">
-          <div><dt>Workloads</dt><dd>OCI images on containerd and runc</dd></div>
-          <div><dt>Placement</dt><dd>Resources, labels, dependencies, and local volumes</dd></div>
-          <div><dt>Network</dt><dd>Service DNS and a managed WireGuard mesh</dd></div>
-          <div><dt>Ingress</dt><dd>Readiness-aware HTTP, HTTPS, and raw TCP routes</dd></div>
-          <div><dt>Operations</dt><dd>CLI and keyboard-first TUI over direct, WireGuard, or SSH targets</dd></div>
-          <div><dt>Observability</dt><dd>Runtime inventory, events, and live stdout/stderr logs</dd></div>
-        </dl>
+      <section>
+        <h2>Included</h2>
+        <ul>
+          <li><strong>Runtime:</strong> OCI images on containerd and runc.</li>
+          <li><strong>Placement:</strong> resource requests, labels, dependencies, and local volumes.</li>
+          <li><strong>Network:</strong> service DNS and a managed WireGuard mesh.</li>
+          <li><strong>Ingress:</strong> readiness-aware HTTP, HTTPS, and raw TCP routes.</li>
+          <li><strong>Jobs:</strong> scheduled cron jobs with retained run history.</li>
+          <li><strong>Operations:</strong> CLI and TUI over direct, WireGuard, or SSH targets.</li>
+          <li><strong>Visibility:</strong> runtime inventory, events, and live stdout/stderr logs.</li>
+        </ul>
       </section>
 
-      <section class="model">
-        <p class="label">Model</p>
-        <div class="steps">
-          <article><span>01</span><h3>Describe</h3><p>Validate and plan the resolved application locally.</p></article>
-          <article><span>02</span><h3>Deploy</h3><p>The controller places work and coordinates health-gated rollouts.</p></article>
-          <article><span>03</span><h3>Operate</h3><p>Agents keep workloads running when the controller is unavailable.</p></article>
-        </div>
-      </section>
-
-      <section class="scope">
-        <p class="label">Scope</p>
+      <section>
+        <h2>Architecture</h2>
         <p>
-          Built for small engineering teams operating a handful of mutually reachable
-          Linux VMs. Not intended to be a Kubernetes-compatible API, a general-purpose
-          platform, or a hosted control plane.
+          A controller stores desired state and computes placement. Agents reconcile
+          workloads on each node and keep running during controller outages. The
+          controller is not in the application data path.
+        </p>
+      </section>
+
+      <section>
+        <h2>Scope</h2>
+        <p>
+          orch is in early development. It targets small teams operating a handful
+          of mutually reachable Linux VMs. It is not a Kubernetes-compatible API,
+          a general-purpose platform, or a hosted control plane.
         </p>
       </section>
     </main>
 
     <footer>
-      <span><b>orch</b> / early development</span>
-      <a href="https://change.codes/torsten/better-swarm">change.codes/torsten/better-swarm ↗</a>
+      <span>orch / early development</span>
+      <a href="https://change.codes/torsten/better-swarm">change.codes/torsten/better-swarm</a>
     </footer>
   </body>
 </html>

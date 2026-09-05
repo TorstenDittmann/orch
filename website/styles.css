@@ -1,75 +1,31 @@
 :root {
   color-scheme: light;
-  --bg: #f6f6f1;
-  --ink: #171a16;
-  --muted: #62695f;
-  --line: #ced2ca;
-  --soft: #e9ebe5;
-  --accent: #a7ca3a;
-  --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #202124;
+  background: #fff;
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
-a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 4px; }
-header, main, footer { width: min(960px, calc(100% - 40px)); margin-inline: auto; }
+body { width: min(760px, calc(100% - 32px)); margin: 0 auto; font-size: 15px; line-height: 1.6; }
+a { color: #0969da; text-underline-offset: 3px; }
+header, footer { display: flex; justify-content: space-between; gap: 24px; padding: 20px 0; font-size: 14px; }
+header { border-bottom: 1px solid #d8dee4; }
+header strong { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+main { padding: 64px 0; }
+h1 { max-width: 620px; margin: 0 0 20px; font-size: 36px; line-height: 1.2; letter-spacing: -.02em; }
+h2 { margin: 0 0 12px; font-size: 20px; }
+p { margin: 0 0 16px; }
+.intro { max-width: 690px; color: #57606a; font-size: 17px; }
+section { padding: 36px 0; border-top: 1px solid #d8dee4; }
+pre { margin: 20px 0 0; padding: 18px; overflow-x: auto; border: 1px solid #d8dee4; border-radius: 4px; background: #f6f8fa; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.command { display: inline-block; max-width: 100%; margin: 12px 0 56px; padding: 10px 13px; white-space: nowrap; }
+ul { margin: 0; padding-left: 22px; }
+li { margin: 7px 0; }
+footer { align-items: center; border-top: 1px solid #d8dee4; color: #57606a; }
 
-header { height: 72px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
-.wordmark { text-decoration: none; font-weight: 700; letter-spacing: -.03em; }
-.wordmark span { margin-right: 8px; color: #789615; font: 700 12px/1 var(--mono); letter-spacing: -2px; }
-nav { display: flex; gap: 24px; color: var(--muted); font-size: 13px; }
-nav a { text-decoration: none; }
-nav a:hover { color: var(--ink); }
-
-.intro { padding: 100px 0 112px; max-width: 830px; }
-.status, .label { color: var(--muted); font: 600 11px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
-.status { display: flex; align-items: center; gap: 9px; }
-.status span { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-h1 { max-width: 800px; margin: 28px 0 30px; font-size: clamp(52px, 8.7vw, 88px); line-height: .98; letter-spacing: -.065em; font-weight: 640; }
-.lead { max-width: 760px; margin: 0; color: var(--muted); font-size: 18px; line-height: 1.7; }
-.quickstart { display: flex; gap: 13px; width: fit-content; max-width: 100%; margin-top: 34px; padding: 13px 16px; overflow-x: auto; border: 1px solid var(--line); background: white; border-radius: 6px; font: 13px/1.4 var(--mono); white-space: nowrap; }
-.quickstart span { color: #789615; }
-.links { display: flex; gap: 28px; margin: 34px 0 0; font-size: 14px; }
-
-.configuration, .runtime { display: grid; grid-template-columns: 1fr 1.45fr; gap: 80px; padding: 96px 0; border-top: 1px solid var(--line); }
-.section-copy h2 { margin: 20px 0 18px; font-size: clamp(32px, 4.5vw, 48px); line-height: 1.05; letter-spacing: -.045em; font-weight: 620; }
-.section-copy > p:last-child { color: var(--muted); font-size: 14px; line-height: 1.65; }
-.code { overflow: hidden; border: 1px solid #2d322b; border-radius: 7px; background: #191c18; color: #dce1d8; }
-.code-header { height: 42px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #363b33; color: #8d9689; font: 10px/1 var(--mono); }
-.code-header span:last-child { color: #b9dc4b; }
-pre { margin: 0; padding: 22px; overflow-x: auto; font: 12px/1.62 var(--mono); tab-size: 2; }
-
-.capabilities { margin: 0; border-top: 1px solid var(--line); }
-.capabilities div { display: grid; grid-template-columns: 125px 1fr; gap: 24px; padding: 18px 0; border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.55; }
-.capabilities dt { font: 600 11px/1.55 var(--mono); text-transform: uppercase; }
-.capabilities dd { margin: 0; color: var(--muted); }
-
-.model { padding: 96px 0; border-top: 1px solid var(--line); }
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 32px; border: 1px solid var(--line); background: var(--line); }
-.steps article { min-height: 210px; padding: 25px; background: var(--bg); }
-.steps span { color: #789615; font: 600 11px/1 var(--mono); }
-.steps h3 { margin: 50px 0 11px; font-size: 18px; }
-.steps p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
-
-.scope { display: grid; grid-template-columns: 1fr 2.45fr; gap: 80px; padding: 80px 0 104px; border-top: 1px solid var(--line); }
-.scope > p:last-child { max-width: 680px; margin: 0; font-size: clamp(22px, 3.2vw, 31px); line-height: 1.35; letter-spacing: -.025em; }
-footer { min-height: 100px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); color: var(--muted); font: 11px/1.5 var(--mono); }
-
-@media (max-width: 720px) {
-  header, main, footer { width: min(100% - 28px, 960px); }
-  nav a:not(:last-child) { display: none; }
-  .intro { padding: 72px 0 82px; }
-  h1 { font-size: clamp(49px, 15vw, 68px); }
-  .lead { font-size: 16px; }
-  .links { flex-direction: column; gap: 14px; }
-  .configuration, .runtime { grid-template-columns: 1fr; gap: 38px; padding: 72px 0; }
-  .steps { grid-template-columns: 1fr; }
-  .steps article { min-height: 160px; }
-  .steps h3 { margin-top: 34px; }
-  .scope { grid-template-columns: 1fr; gap: 28px; padding: 65px 0 78px; }
-  footer { align-items: flex-start; flex-direction: column; justify-content: center; gap: 10px; }
+@media (max-width: 560px) {
+  main { padding: 44px 0; }
+  h1 { font-size: 30px; }
+  .intro { font-size: 16px; }
+  footer { align-items: flex-start; flex-direction: column; }
 }
-
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
