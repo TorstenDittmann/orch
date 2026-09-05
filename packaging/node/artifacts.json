@@ -1,0 +1,53 @@
+[
+  {
+    "name": "containerd-static-2.3.4-linux-amd64.tar.gz",
+    "version": "v2.3.4",
+    "url": "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-static-2.3.4-linux-amd64.tar.gz",
+    "sha256": "1d0eccd52471ab75e8d4645b538f73dc635f905cd2be776366eb1036a0089595",
+    "archive": "tar.gz",
+    "files": {
+      "bin/containerd": "bin/containerd",
+      "bin/containerd-shim-runc-v2": "bin/containerd-shim-runc-v2"
+    },
+    "license": "Apache-2.0",
+    "source": "https://github.com/containerd/containerd/releases/tag/v2.3.4"
+  },
+  {
+    "name": "runc.amd64",
+    "version": "v1.4.3",
+    "url": "https://github.com/opencontainers/runc/releases/download/v1.4.3/runc.amd64",
+    "sha256": "f6ae8efc0fa40079e1475e97cbe9d1bd3f106a28d6af78a11d9f1bd565515e60",
+    "archive": "raw",
+    "files": {
+      "runc.amd64": "bin/runc"
+    },
+    "license": "Apache-2.0",
+    "source": "https://github.com/opencontainers/runc/releases/tag/v1.4.3"
+  },
+  {
+    "name": "cni-plugins-linux-amd64-v1.9.1.tgz",
+    "version": "v1.9.1",
+    "url": "https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz",
+    "sha256": "b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303",
+    "archive": "tar.gz",
+    "files": {
+      "loopback": "cni/loopback",
+      "bridge": "cni/bridge",
+      "host-local": "cni/host-local"
+    },
+    "license": "Apache-2.0",
+    "source": "https://github.com/containernetworking/plugins/releases/tag/v1.9.1"
+  },
+  {
+    "name": "caddy_2.11.3_linux_amd64.tar.gz",
+    "version": "v2.11.3",
+    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.3/caddy_2.11.3_linux_amd64.tar.gz",
+    "sha256": "3894577b14657feab3624d782f64175050211e52a228a6f57b4f24f4b0d970f3",
+    "archive": "tar.gz",
+    "files": {
+      "caddy": "bin/caddy"
+    },
+    "license": "Apache-2.0",
+    "source": "https://github.com/caddyserver/caddy/releases/tag/v2.11.3"
+  }
+]

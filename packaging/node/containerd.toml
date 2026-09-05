@@ -1,0 +1,8 @@
+version = 3
+root = "/var/lib/orch-containerd"
+state = "/run/orch-containerd"
+disabled_plugins = ["io.containerd.cri.v1.images", "io.containerd.cri.v1.runtime"]
+[grpc]
+  address = "/run/orch-containerd/containerd.sock"
+  uid = 0
+  gid = 0

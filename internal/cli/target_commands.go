@@ -306,7 +306,7 @@ func isRemoteCommand(args []string) bool {
 	case "network":
 		return len(args) > 1 && args[1] == "configure"
 	case "node":
-		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
+		return len(args) > 1 && args[1] != "install" && args[1] != "doctor" && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	default:
 		return false
 	}

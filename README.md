@@ -100,6 +100,11 @@ sudo bin/orch agent serve \
   --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
+For a fresh **Ubuntu 24.04 LTS amd64** or **Fedora Server 44 amd64** node,
+[guided installation](docs/installation.md) supplies the pinned dependencies,
+systemd services and enrollment with `orch node install`. Use `orch node doctor`
+or `install --dry-run` first to inspect prerequisites and planned actions.
+
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
 2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
 the official CNI plugins 1.9.1, and kernel WireGuard support. Ingress-enabled

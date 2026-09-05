@@ -874,6 +874,8 @@ Usage:
   orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE [--target NAME]
   orch node join create NODE --ttl 15m --output FILE [--target NAME]
   orch node join list|revoke [--target NAME]
+  orch node doctor --advertise-address PRIVATE_IP [--json]
+  orch node install --advertise-address PRIVATE_IP [--join-file FILE|-] [--dry-run] [--json]
   orch app status NAME [--target NAME] [--json]
   orch app history APP [--limit N] [--before-generation N] [--target NAME] [--json]
   orch app diff APP REVISION [--against REVISION] [--target NAME] [--json]

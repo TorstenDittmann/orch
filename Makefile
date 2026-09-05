@@ -24,11 +24,11 @@ generate-check:
 		(echo "Generated protobuf files are stale; run make generate" && exit 1)
 
 fmt:
-	$(GOFMT) -w $$(find cmd internal pkl test -name '*.go' -type f)
+	$(GOFMT) -w $$(find cmd internal packaging pkl test -name '*.go' -type f)
 	$(PKL) format -w pkl examples
 
 fmt-check:
-	@test -z "$$($(GOFMT) -l $$(find cmd internal pkl test -name '*.go' -type f))" || \
+	@test -z "$$($(GOFMT) -l $$(find cmd internal packaging pkl test -name '*.go' -type f))" || \
 		(echo "Go files need formatting; run make fmt" && exit 1)
 	$(PKL) format --diff-name-only pkl examples
 

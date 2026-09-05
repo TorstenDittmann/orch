@@ -551,7 +551,13 @@ func TestNodeJoinCLIEnrollsWithoutAdministratorContextOnWorker(t *testing.T) {
 
 	joinPath := filepath.Join(root, "node-1.join")
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"node", "join", "create", "node-1", "--ttl", "15m", "--output", joinPath, "--context", contextPath, "--json"}, &stdout, &stderr); code != ExitOK {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "targets"))
+	if code := Run([]string{"target", "import", "join-test", contextPath, "--use"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("target import: %s", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"node", "join", "create", "node-1", "--ttl", "15m", "--output", joinPath, "--json"}, &stdout, &stderr); code != ExitOK {
 		t.Fatalf("join create code = %d, stderr = %s", code, stderr.String())
 	}
 	info, err := os.Stat(joinPath)

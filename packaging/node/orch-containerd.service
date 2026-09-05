@@ -1,0 +1,20 @@
+[Unit]
+Description=orch dedicated containerd
+After=network.target
+
+[Service]
+ExecStart=/opt/orch/bin/containerd --config /opt/orch/containerd.toml
+Environment=PATH=/opt/orch/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+TasksMax=infinity
+OOMScoreAdjust=-999
+RuntimeDirectory=orch-containerd
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

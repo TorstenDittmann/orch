@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
@@ -20,6 +21,7 @@ import (
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
+	"change.codes/torsten/better-swarm/internal/target"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -72,7 +74,21 @@ func runNodeJoinCreate(ctx context.Context, args []string, stdout, stderr io.Wri
 		writeError(stderr, fmt.Errorf("refuse join artifact output %s: %w", output, err), jsonOutput)
 		return ExitInvalid
 	}
-	credentials, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now())
+	credentialPath := contextPath
+	if target.IsReference(contextPath) {
+		store, err := target.Default()
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		resolved, err := store.Get(strings.TrimPrefix(contextPath, target.ReferencePrefix))
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		credentialPath = resolved.ContextPath
+	}
+	credentials, err := clusterctl.LoadAdministratorCredentials(credentialPath, time.Now())
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime

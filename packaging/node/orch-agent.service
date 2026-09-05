@@ -1,0 +1,19 @@
+[Unit]
+Description=orch execution agent
+Requires=orch-containerd.service
+After=orch-containerd.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/orch/bin/orch agent serve --data-dir /var/lib/orch-agent --advertise-address {{ADDRESS}} --wireguard-port 51820 --system-reserved-cpu 500m --system-reserved-memory 512Mi --containerd-socket /run/orch-containerd/containerd.sock --snapshotter overlayfs --cni-bin-dir /opt/orch/cni --caddy-binary /opt/orch/bin/caddy --ingress-user orch-ingress --ingress-data-dir /var/lib/orch-ingress
+Environment=PATH=/opt/orch/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Restart=on-failure
+RestartSec=5
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+TasksMax=infinity
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

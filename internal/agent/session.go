@@ -32,17 +32,18 @@ const (
 )
 
 type sessionRunner struct {
-	credentials    Credentials
-	cache          *state.Store
-	supervisor     *Supervisor
-	capabilities   orchruntime.Capabilities
-	bootID         string
-	now            func() time.Time
-	random         io.Reader
-	reportSeq      uint64
-	dataDir        string
-	renewalRetryAt time.Time
-	renewalBackoff time.Duration
+	credentials        Credentials
+	cache              *state.Store
+	supervisor         *Supervisor
+	capabilities       orchruntime.Capabilities
+	bootID             string
+	now                func() time.Time
+	random             io.Reader
+	reportSeq          uint64
+	assignmentReceived bool
+	dataDir            string
+	renewalRetryAt     time.Time
+	renewalBackoff     time.Duration
 }
 
 type controllerMessage struct {
@@ -205,6 +206,11 @@ func reconnectJitter(source io.Reader, maximum time.Duration) (time.Duration, er
 }
 
 func (r *sessionRunner) connect(ctx context.Context) error {
+	r.assignmentReceived = false
+	if err := r.writeLocalStatus(nil); err != nil {
+		return err
+	}
+	defer func() { r.assignmentReceived = false; _ = r.writeLocalStatus(nil) }()
 	tlsConfig := r.agentTLSConfig()
 	transport := &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
@@ -274,6 +280,11 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 			if err := stream.Send(request); err != nil {
 				return err
 			}
+			if report := request.GetAllocationReport(); report != nil {
+				if err := r.writeLocalStatus(report); err != nil {
+					return err
+				}
+			}
 		case item := <-received:
 			if item.err != nil {
 				return item.err
@@ -332,6 +343,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		if err != nil {
 			return fmt.Errorf("reconcile assignment: %w", err)
 		}
+		r.assignmentReceived = true
 		// Acknowledge only after the durable assignment has actually converged.
 		// This makes a final empty-assignment ACK a reliable removal fence.
 		if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
