@@ -25,8 +25,8 @@ const (
 	firstAgentMessageTimeout = 10 * time.Second
 	maxReportedAllocations   = 1000
 	maxReportedRoutes        = 1000
-	maxReportedCronJobs      = 100
-	maxReportedJobRuns       = 2000
+	maxReportedCronJobs      = 132
+	maxReportedJobRuns       = 2640
 )
 
 type agentService struct {

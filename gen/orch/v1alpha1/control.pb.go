@@ -5352,6 +5352,642 @@ func (x *RollbackApplicationResponse) GetDeployment() *ApplyApplicationResponse 
 	return nil
 }
 
+type OneOffJob struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Application     string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	Service         string                 `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
+	RevisionId      string                 `protobuf:"bytes,4,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	Image           string                 `protobuf:"bytes,5,opt,name=image,proto3" json:"image,omitempty"`
+	Kind            string                 `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`
+	NodeId          string                 `protobuf:"bytes,7,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	RetryOf         string                 `protobuf:"bytes,8,opt,name=retry_of,json=retryOf,proto3" json:"retry_of,omitempty"`
+	CancelRequested bool                   `protobuf:"varint,9,opt,name=cancel_requested,json=cancelRequested,proto3" json:"cancel_requested,omitempty"`
+	Status          *JobRunStatus          `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *OneOffJob) Reset() {
+	*x = OneOffJob{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OneOffJob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OneOffJob) ProtoMessage() {}
+
+func (x *OneOffJob) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OneOffJob.ProtoReflect.Descriptor instead.
+func (*OneOffJob) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *OneOffJob) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetRevisionId() string {
+	if x != nil {
+		return x.RevisionId
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetRetryOf() string {
+	if x != nil {
+		return x.RetryOf
+	}
+	return ""
+}
+
+func (x *OneOffJob) GetCancelRequested() bool {
+	if x != nil {
+		return x.CancelRequested
+	}
+	return false
+}
+
+func (x *OneOffJob) GetStatus() *JobRunStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+type RunJobRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Application        string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Service            string                 `protobuf:"bytes,2,opt,name=service,proto3" json:"service,omitempty"`
+	ExpectedRevisionId string                 `protobuf:"bytes,3,opt,name=expected_revision_id,json=expectedRevisionId,proto3" json:"expected_revision_id,omitempty"`
+	Command            []string               `protobuf:"bytes,4,rep,name=command,proto3" json:"command,omitempty"`
+	Args               []string               `protobuf:"bytes,5,rep,name=args,proto3" json:"args,omitempty"`
+	TimeoutSeconds     uint32                 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	IdempotencyKey     string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RunJobRequest) Reset() {
+	*x = RunJobRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunJobRequest) ProtoMessage() {}
+
+func (x *RunJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunJobRequest.ProtoReflect.Descriptor instead.
+func (*RunJobRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *RunJobRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *RunJobRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *RunJobRequest) GetExpectedRevisionId() string {
+	if x != nil {
+		return x.ExpectedRevisionId
+	}
+	return ""
+}
+
+func (x *RunJobRequest) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *RunJobRequest) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+func (x *RunJobRequest) GetTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.TimeoutSeconds
+	}
+	return 0
+}
+
+func (x *RunJobRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type RunJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *OneOffJob             `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunJobResponse) Reset() {
+	*x = RunJobResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunJobResponse) ProtoMessage() {}
+
+func (x *RunJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunJobResponse.ProtoReflect.Descriptor instead.
+func (*RunJobResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *RunJobResponse) GetJob() *OneOffJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type GetJobRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobRequest) Reset() {
+	*x = GetJobRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobRequest) ProtoMessage() {}
+
+func (x *GetJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobRequest.ProtoReflect.Descriptor instead.
+func (*GetJobRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *GetJobRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *OneOffJob             `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobResponse) Reset() {
+	*x = GetJobResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobResponse) ProtoMessage() {}
+
+func (x *GetJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobResponse.ProtoReflect.Descriptor instead.
+func (*GetJobResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *GetJobResponse) GetJob() *OneOffJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type ListJobsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Application   string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	Limit         uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	BeforeId      string                 `protobuf:"bytes,3,opt,name=before_id,json=beforeId,proto3" json:"before_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListJobsRequest) Reset() {
+	*x = ListJobsRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListJobsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListJobsRequest) ProtoMessage() {}
+
+func (x *ListJobsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListJobsRequest.ProtoReflect.Descriptor instead.
+func (*ListJobsRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *ListJobsRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *ListJobsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListJobsRequest) GetBeforeId() string {
+	if x != nil {
+		return x.BeforeId
+	}
+	return ""
+}
+
+type ListJobsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Jobs          []*OneOffJob           `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	NextBeforeId  string                 `protobuf:"bytes,2,opt,name=next_before_id,json=nextBeforeId,proto3" json:"next_before_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListJobsResponse) Reset() {
+	*x = ListJobsResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListJobsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListJobsResponse) ProtoMessage() {}
+
+func (x *ListJobsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListJobsResponse.ProtoReflect.Descriptor instead.
+func (*ListJobsResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *ListJobsResponse) GetJobs() []*OneOffJob {
+	if x != nil {
+		return x.Jobs
+	}
+	return nil
+}
+
+func (x *ListJobsResponse) GetNextBeforeId() string {
+	if x != nil {
+		return x.NextBeforeId
+	}
+	return ""
+}
+
+type CancelJobRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelJobRequest) Reset() {
+	*x = CancelJobRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelJobRequest) ProtoMessage() {}
+
+func (x *CancelJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelJobRequest.ProtoReflect.Descriptor instead.
+func (*CancelJobRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{77}
+}
+
+func (x *CancelJobRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type CancelJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *OneOffJob             `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelJobResponse) Reset() {
+	*x = CancelJobResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelJobResponse) ProtoMessage() {}
+
+func (x *CancelJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelJobResponse.ProtoReflect.Descriptor instead.
+func (*CancelJobResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *CancelJobResponse) GetJob() *OneOffJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type RetryJobRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RetryJobRequest) Reset() {
+	*x = RetryJobRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetryJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetryJobRequest) ProtoMessage() {}
+
+func (x *RetryJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetryJobRequest.ProtoReflect.Descriptor instead.
+func (*RetryJobRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{79}
+}
+
+func (x *RetryJobRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RetryJobRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type RetryJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *OneOffJob             `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetryJobResponse) Reset() {
+	*x = RetryJobResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[80]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetryJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetryJobResponse) ProtoMessage() {}
+
+func (x *RetryJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[80]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetryJobResponse.ProtoReflect.Descriptor instead.
+func (*RetryJobResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{80}
+}
+
+func (x *RetryJobResponse) GetJob() *OneOffJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
 var File_orch_v1alpha1_control_proto protoreflect.FileDescriptor
 
 const file_orch_v1alpha1_control_proto_rawDesc = "" +
@@ -5832,7 +6468,50 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x1bRollbackApplicationResponse\x12G\n" +
 	"\n" +
 	"deployment\x18\x01 \x01(\v2'.orch.v1alpha1.ApplyApplicationResponseR\n" +
-	"deployment*\xe5\x02\n" +
+	"deployment\"\xb6\x02\n" +
+	"\tOneOffJob\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
+	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
+	"\aservice\x18\x03 \x01(\tR\aservice\x12\x1f\n" +
+	"\vrevision_id\x18\x04 \x01(\tR\n" +
+	"revisionId\x12\x14\n" +
+	"\x05image\x18\x05 \x01(\tR\x05image\x12\x12\n" +
+	"\x04kind\x18\x06 \x01(\tR\x04kind\x12\x17\n" +
+	"\anode_id\x18\a \x01(\tR\x06nodeId\x12\x19\n" +
+	"\bretry_of\x18\b \x01(\tR\aretryOf\x12)\n" +
+	"\x10cancel_requested\x18\t \x01(\bR\x0fcancelRequested\x123\n" +
+	"\x06status\x18\n" +
+	" \x01(\v2\x1b.orch.v1alpha1.JobRunStatusR\x06status\"\xfd\x01\n" +
+	"\rRunJobRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x18\n" +
+	"\aservice\x18\x02 \x01(\tR\aservice\x120\n" +
+	"\x14expected_revision_id\x18\x03 \x01(\tR\x12expectedRevisionId\x12\x18\n" +
+	"\acommand\x18\x04 \x03(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\x05 \x03(\tR\x04args\x12'\n" +
+	"\x0ftimeout_seconds\x18\x06 \x01(\rR\x0etimeoutSeconds\x12'\n" +
+	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\"<\n" +
+	"\x0eRunJobResponse\x12*\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\x1f\n" +
+	"\rGetJobRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"<\n" +
+	"\x0eGetJobResponse\x12*\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"f\n" +
+	"\x0fListJobsRequest\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tbefore_id\x18\x03 \x01(\tR\bbeforeId\"f\n" +
+	"\x10ListJobsResponse\x12,\n" +
+	"\x04jobs\x18\x01 \x03(\v2\x18.orch.v1alpha1.OneOffJobR\x04jobs\x12$\n" +
+	"\x0enext_before_id\x18\x02 \x01(\tR\fnextBeforeId\"\"\n" +
+	"\x10CancelJobRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"?\n" +
+	"\x11CancelJobResponse\x12*\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"J\n" +
+	"\x0fRetryJobRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
+	"\x10RetryJobResponse\x12*\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job*\xe5\x02\n" +
 	"\x0fExecutionStatus\x12 \n" +
 	"\x1cEXECUTION_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EXECUTION_STATUS_PENDING\x10\x01\x12\x1c\n" +
@@ -5861,8 +6540,13 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RUNTIME_KIND_SERVICE\x10\x01\x12\x19\n" +
-	"\x15RUNTIME_KIND_CRON_RUN\x10\x022\xd4\x15\n" +
-	"\x0eControlService\x12Q\n" +
+	"\x15RUNTIME_KIND_CRON_RUN\x10\x022\xcc\x18\n" +
+	"\x0eControlService\x12E\n" +
+	"\x06RunJob\x12\x1c.orch.v1alpha1.RunJobRequest\x1a\x1d.orch.v1alpha1.RunJobResponse\x12E\n" +
+	"\x06GetJob\x12\x1c.orch.v1alpha1.GetJobRequest\x1a\x1d.orch.v1alpha1.GetJobResponse\x12K\n" +
+	"\bListJobs\x12\x1e.orch.v1alpha1.ListJobsRequest\x1a\x1f.orch.v1alpha1.ListJobsResponse\x12N\n" +
+	"\tCancelJob\x12\x1f.orch.v1alpha1.CancelJobRequest\x1a .orch.v1alpha1.CancelJobResponse\x12K\n" +
+	"\bRetryJob\x12\x1e.orch.v1alpha1.RetryJobRequest\x1a\x1f.orch.v1alpha1.RetryJobResponse\x12Q\n" +
 	"\n" +
 	"GetCluster\x12 .orch.v1alpha1.GetClusterRequest\x1a!.orch.v1alpha1.GetClusterResponse\x12]\n" +
 	"\x0eGetApplication\x12$.orch.v1alpha1.GetApplicationRequest\x1a%.orch.v1alpha1.GetApplicationResponse\x12`\n" +
@@ -5911,7 +6595,7 @@ func file_orch_v1alpha1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
+var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 83)
 var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(ExecutionStatus)(0),                // 0: orch.v1alpha1.ExecutionStatus
 	(NodeConnectionStatus)(0),           // 1: orch.v1alpha1.NodeConnectionStatus
@@ -5987,91 +6671,102 @@ var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(*CompareDeploymentsResponse)(nil),  // 71: orch.v1alpha1.CompareDeploymentsResponse
 	(*RollbackApplicationRequest)(nil),  // 72: orch.v1alpha1.RollbackApplicationRequest
 	(*RollbackApplicationResponse)(nil), // 73: orch.v1alpha1.RollbackApplicationResponse
-	nil,                                 // 74: orch.v1alpha1.Node.LabelsEntry
-	nil,                                 // 75: orch.v1alpha1.UpdateNodeRequest.LabelsEntry
-	(*timestamppb.Timestamp)(nil),       // 76: google.protobuf.Timestamp
-	(*AllocationStatus)(nil),            // 77: orch.v1alpha1.AllocationStatus
-	(*RouteStatus)(nil),                 // 78: orch.v1alpha1.RouteStatus
-	(*TCPRouteStatus)(nil),              // 79: orch.v1alpha1.TCPRouteStatus
-	(*CronJobStatus)(nil),               // 80: orch.v1alpha1.CronJobStatus
-	(AllocationPhase)(0),                // 81: orch.v1alpha1.AllocationPhase
-	(JobRunState)(0),                    // 82: orch.v1alpha1.JobRunState
-	(HealthStatus)(0),                   // 83: orch.v1alpha1.HealthStatus
-	(*JobRunStatus)(nil),                // 84: orch.v1alpha1.JobRunStatus
-	(LogStream)(0),                      // 85: orch.v1alpha1.LogStream
-	(*TailLogsResponse)(nil),            // 86: orch.v1alpha1.TailLogsResponse
-	(*ExecResponse)(nil),                // 87: orch.v1alpha1.ExecResponse
+	(*OneOffJob)(nil),                   // 74: orch.v1alpha1.OneOffJob
+	(*RunJobRequest)(nil),               // 75: orch.v1alpha1.RunJobRequest
+	(*RunJobResponse)(nil),              // 76: orch.v1alpha1.RunJobResponse
+	(*GetJobRequest)(nil),               // 77: orch.v1alpha1.GetJobRequest
+	(*GetJobResponse)(nil),              // 78: orch.v1alpha1.GetJobResponse
+	(*ListJobsRequest)(nil),             // 79: orch.v1alpha1.ListJobsRequest
+	(*ListJobsResponse)(nil),            // 80: orch.v1alpha1.ListJobsResponse
+	(*CancelJobRequest)(nil),            // 81: orch.v1alpha1.CancelJobRequest
+	(*CancelJobResponse)(nil),           // 82: orch.v1alpha1.CancelJobResponse
+	(*RetryJobRequest)(nil),             // 83: orch.v1alpha1.RetryJobRequest
+	(*RetryJobResponse)(nil),            // 84: orch.v1alpha1.RetryJobResponse
+	nil,                                 // 85: orch.v1alpha1.Node.LabelsEntry
+	nil,                                 // 86: orch.v1alpha1.UpdateNodeRequest.LabelsEntry
+	(*timestamppb.Timestamp)(nil),       // 87: google.protobuf.Timestamp
+	(*AllocationStatus)(nil),            // 88: orch.v1alpha1.AllocationStatus
+	(*RouteStatus)(nil),                 // 89: orch.v1alpha1.RouteStatus
+	(*TCPRouteStatus)(nil),              // 90: orch.v1alpha1.TCPRouteStatus
+	(*CronJobStatus)(nil),               // 91: orch.v1alpha1.CronJobStatus
+	(AllocationPhase)(0),                // 92: orch.v1alpha1.AllocationPhase
+	(JobRunState)(0),                    // 93: orch.v1alpha1.JobRunState
+	(HealthStatus)(0),                   // 94: orch.v1alpha1.HealthStatus
+	(*JobRunStatus)(nil),                // 95: orch.v1alpha1.JobRunStatus
+	(LogStream)(0),                      // 96: orch.v1alpha1.LogStream
+	(*TailLogsResponse)(nil),            // 97: orch.v1alpha1.TailLogsResponse
+	(*ExecResponse)(nil),                // 98: orch.v1alpha1.ExecResponse
 }
 var file_orch_v1alpha1_control_proto_depIdxs = []int32{
-	76,  // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 1: orch.v1alpha1.Application.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	76,  // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
-	77,  // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	78,  // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
-	79,  // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	80,  // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	87,  // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
+	88,  // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	89,  // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
+	90,  // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	91,  // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
 	1,   // 9: orch.v1alpha1.Node.connection_status:type_name -> orch.v1alpha1.NodeConnectionStatus
-	76,  // 10: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 11: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
+	87,  // 10: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 11: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
 	2,   // 12: orch.v1alpha1.Node.lifecycle:type_name -> orch.v1alpha1.NodeLifecycle
-	74,  // 13: orch.v1alpha1.Node.labels:type_name -> orch.v1alpha1.Node.LabelsEntry
-	76,  // 14: orch.v1alpha1.Node.certificate_not_after:type_name -> google.protobuf.Timestamp
-	76,  // 15: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
+	85,  // 13: orch.v1alpha1.Node.labels:type_name -> orch.v1alpha1.Node.LabelsEntry
+	87,  // 14: orch.v1alpha1.Node.certificate_not_after:type_name -> google.protobuf.Timestamp
+	87,  // 15: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
 	4,   // 16: orch.v1alpha1.GetClusterResponse.cluster:type_name -> orch.v1alpha1.Cluster
 	5,   // 17: orch.v1alpha1.GetApplicationResponse.application:type_name -> orch.v1alpha1.Application
 	0,   // 18: orch.v1alpha1.ApplicationSummary.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	76,  // 19: orch.v1alpha1.ApplicationSummary.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 20: orch.v1alpha1.ApplicationSummary.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 21: orch.v1alpha1.ApplicationSummary.execution_updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 19: orch.v1alpha1.ApplicationSummary.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 20: orch.v1alpha1.ApplicationSummary.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 21: orch.v1alpha1.ApplicationSummary.execution_updated_at:type_name -> google.protobuf.Timestamp
 	12,  // 22: orch.v1alpha1.ListApplicationsResponse.applications:type_name -> orch.v1alpha1.ApplicationSummary
 	3,   // 23: orch.v1alpha1.RuntimeSummary.kind:type_name -> orch.v1alpha1.RuntimeKind
 	1,   // 24: orch.v1alpha1.RuntimeSummary.node_connection:type_name -> orch.v1alpha1.NodeConnectionStatus
-	81,  // 25: orch.v1alpha1.RuntimeSummary.allocation_phase:type_name -> orch.v1alpha1.AllocationPhase
-	82,  // 26: orch.v1alpha1.RuntimeSummary.job_run_state:type_name -> orch.v1alpha1.JobRunState
-	83,  // 27: orch.v1alpha1.RuntimeSummary.health_status:type_name -> orch.v1alpha1.HealthStatus
-	76,  // 28: orch.v1alpha1.RuntimeSummary.scheduled_at:type_name -> google.protobuf.Timestamp
-	76,  // 29: orch.v1alpha1.RuntimeSummary.started_at:type_name -> google.protobuf.Timestamp
-	76,  // 30: orch.v1alpha1.RuntimeSummary.ready_at:type_name -> google.protobuf.Timestamp
-	76,  // 31: orch.v1alpha1.RuntimeSummary.finished_at:type_name -> google.protobuf.Timestamp
-	76,  // 32: orch.v1alpha1.RuntimeSummary.updated_at:type_name -> google.protobuf.Timestamp
+	92,  // 25: orch.v1alpha1.RuntimeSummary.allocation_phase:type_name -> orch.v1alpha1.AllocationPhase
+	93,  // 26: orch.v1alpha1.RuntimeSummary.job_run_state:type_name -> orch.v1alpha1.JobRunState
+	94,  // 27: orch.v1alpha1.RuntimeSummary.health_status:type_name -> orch.v1alpha1.HealthStatus
+	87,  // 28: orch.v1alpha1.RuntimeSummary.scheduled_at:type_name -> google.protobuf.Timestamp
+	87,  // 29: orch.v1alpha1.RuntimeSummary.started_at:type_name -> google.protobuf.Timestamp
+	87,  // 30: orch.v1alpha1.RuntimeSummary.ready_at:type_name -> google.protobuf.Timestamp
+	87,  // 31: orch.v1alpha1.RuntimeSummary.finished_at:type_name -> google.protobuf.Timestamp
+	87,  // 32: orch.v1alpha1.RuntimeSummary.updated_at:type_name -> google.protobuf.Timestamp
 	15,  // 33: orch.v1alpha1.ListRuntimesResponse.runtimes:type_name -> orch.v1alpha1.RuntimeSummary
 	7,   // 34: orch.v1alpha1.ListEventsResponse.events:type_name -> orch.v1alpha1.Event
 	7,   // 35: orch.v1alpha1.ListRecentEventsResponse.events:type_name -> orch.v1alpha1.Event
 	0,   // 36: orch.v1alpha1.ApplyApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	76,  // 37: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 38: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 39: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	87,  // 37: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 38: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 39: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
 	6,   // 40: orch.v1alpha1.ListNodesResponse.nodes:type_name -> orch.v1alpha1.Node
-	75,  // 41: orch.v1alpha1.UpdateNodeRequest.labels:type_name -> orch.v1alpha1.UpdateNodeRequest.LabelsEntry
+	86,  // 41: orch.v1alpha1.UpdateNodeRequest.labels:type_name -> orch.v1alpha1.UpdateNodeRequest.LabelsEntry
 	2,   // 42: orch.v1alpha1.UpdateNodeRequest.lifecycle:type_name -> orch.v1alpha1.NodeLifecycle
 	6,   // 43: orch.v1alpha1.UpdateNodeResponse.node:type_name -> orch.v1alpha1.Node
-	76,  // 44: orch.v1alpha1.JoinTokenMetadata.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 45: orch.v1alpha1.JoinTokenMetadata.expires_at:type_name -> google.protobuf.Timestamp
-	76,  // 46: orch.v1alpha1.CreateJoinTokenRequest.expires_at:type_name -> google.protobuf.Timestamp
+	87,  // 44: orch.v1alpha1.JoinTokenMetadata.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 45: orch.v1alpha1.JoinTokenMetadata.expires_at:type_name -> google.protobuf.Timestamp
+	87,  // 46: orch.v1alpha1.CreateJoinTokenRequest.expires_at:type_name -> google.protobuf.Timestamp
 	32,  // 47: orch.v1alpha1.CreateJoinTokenResponse.token:type_name -> orch.v1alpha1.JoinTokenMetadata
 	32,  // 48: orch.v1alpha1.ListJoinTokensResponse.tokens:type_name -> orch.v1alpha1.JoinTokenMetadata
 	32,  // 49: orch.v1alpha1.RevokeJoinTokenResponse.token:type_name -> orch.v1alpha1.JoinTokenMetadata
 	0,   // 50: orch.v1alpha1.RemoveApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	76,  // 51: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	84,  // 52: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
-	85,  // 53: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	76,  // 54: orch.v1alpha1.SecretMetadata.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 55: orch.v1alpha1.SecretMetadata.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 56: orch.v1alpha1.SetSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 51: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	95,  // 52: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
+	96,  // 53: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	87,  // 54: orch.v1alpha1.SecretMetadata.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 55: orch.v1alpha1.SecretMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 56: orch.v1alpha1.SetSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
 	47,  // 57: orch.v1alpha1.ListSecretsResponse.secrets:type_name -> orch.v1alpha1.SecretMetadata
-	76,  // 58: orch.v1alpha1.DeleteSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 59: orch.v1alpha1.RegistryCredentialMetadata.created_at:type_name -> google.protobuf.Timestamp
-	76,  // 60: orch.v1alpha1.RegistryCredentialMetadata.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 61: orch.v1alpha1.LoginRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 58: orch.v1alpha1.DeleteSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 59: orch.v1alpha1.RegistryCredentialMetadata.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 60: orch.v1alpha1.RegistryCredentialMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 61: orch.v1alpha1.LoginRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
 	54,  // 62: orch.v1alpha1.ListRegistriesResponse.registries:type_name -> orch.v1alpha1.RegistryCredentialMetadata
-	76,  // 63: orch.v1alpha1.LogoutRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 64: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 65: orch.v1alpha1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	87,  // 63: orch.v1alpha1.LogoutRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 64: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 65: orch.v1alpha1.Deployment.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 66: orch.v1alpha1.Deployment.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	76,  // 67: orch.v1alpha1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
-	76,  // 68: orch.v1alpha1.Deployment.finished_at:type_name -> google.protobuf.Timestamp
+	87,  // 67: orch.v1alpha1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	87,  // 68: orch.v1alpha1.Deployment.finished_at:type_name -> google.protobuf.Timestamp
 	64,  // 69: orch.v1alpha1.Deployment.images:type_name -> orch.v1alpha1.DeploymentImage
 	63,  // 70: orch.v1alpha1.ListDeploymentsResponse.deployments:type_name -> orch.v1alpha1.Deployment
 	63,  // 71: orch.v1alpha1.GetDeploymentResponse.deployment:type_name -> orch.v1alpha1.Deployment
@@ -6079,71 +6774,87 @@ var file_orch_v1alpha1_control_proto_depIdxs = []int32{
 	63,  // 73: orch.v1alpha1.CompareDeploymentsResponse.to:type_name -> orch.v1alpha1.Deployment
 	70,  // 74: orch.v1alpha1.CompareDeploymentsResponse.changes:type_name -> orch.v1alpha1.DeploymentChange
 	23,  // 75: orch.v1alpha1.RollbackApplicationResponse.deployment:type_name -> orch.v1alpha1.ApplyApplicationResponse
-	8,   // 76: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
-	10,  // 77: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
-	65,  // 78: orch.v1alpha1.ControlService.ListDeployments:input_type -> orch.v1alpha1.ListDeploymentsRequest
-	67,  // 79: orch.v1alpha1.ControlService.GetDeployment:input_type -> orch.v1alpha1.GetDeploymentRequest
-	69,  // 80: orch.v1alpha1.ControlService.CompareDeployments:input_type -> orch.v1alpha1.CompareDeploymentsRequest
-	72,  // 81: orch.v1alpha1.ControlService.RollbackApplication:input_type -> orch.v1alpha1.RollbackApplicationRequest
-	13,  // 82: orch.v1alpha1.ControlService.ListApplications:input_type -> orch.v1alpha1.ListApplicationsRequest
-	16,  // 83: orch.v1alpha1.ControlService.ListRuntimes:input_type -> orch.v1alpha1.ListRuntimesRequest
-	18,  // 84: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
-	20,  // 85: orch.v1alpha1.ControlService.ListRecentEvents:input_type -> orch.v1alpha1.ListRecentEventsRequest
-	22,  // 86: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
-	24,  // 87: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
-	26,  // 88: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
-	39,  // 89: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
-	41,  // 90: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
-	42,  // 91: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
-	61,  // 92: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
-	43,  // 93: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
-	45,  // 94: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
-	48,  // 95: orch.v1alpha1.ControlService.SetSecret:input_type -> orch.v1alpha1.SetSecretRequest
-	50,  // 96: orch.v1alpha1.ControlService.ListSecrets:input_type -> orch.v1alpha1.ListSecretsRequest
-	52,  // 97: orch.v1alpha1.ControlService.DeleteSecret:input_type -> orch.v1alpha1.DeleteSecretRequest
-	55,  // 98: orch.v1alpha1.ControlService.LoginRegistry:input_type -> orch.v1alpha1.LoginRegistryRequest
-	57,  // 99: orch.v1alpha1.ControlService.ListRegistries:input_type -> orch.v1alpha1.ListRegistriesRequest
-	59,  // 100: orch.v1alpha1.ControlService.LogoutRegistry:input_type -> orch.v1alpha1.LogoutRegistryRequest
-	28,  // 101: orch.v1alpha1.ControlService.UpdateNode:input_type -> orch.v1alpha1.UpdateNodeRequest
-	30,  // 102: orch.v1alpha1.ControlService.RemoveNode:input_type -> orch.v1alpha1.RemoveNodeRequest
-	33,  // 103: orch.v1alpha1.ControlService.CreateJoinToken:input_type -> orch.v1alpha1.CreateJoinTokenRequest
-	35,  // 104: orch.v1alpha1.ControlService.ListJoinTokens:input_type -> orch.v1alpha1.ListJoinTokensRequest
-	37,  // 105: orch.v1alpha1.ControlService.RevokeJoinToken:input_type -> orch.v1alpha1.RevokeJoinTokenRequest
-	9,   // 106: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
-	11,  // 107: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
-	66,  // 108: orch.v1alpha1.ControlService.ListDeployments:output_type -> orch.v1alpha1.ListDeploymentsResponse
-	68,  // 109: orch.v1alpha1.ControlService.GetDeployment:output_type -> orch.v1alpha1.GetDeploymentResponse
-	71,  // 110: orch.v1alpha1.ControlService.CompareDeployments:output_type -> orch.v1alpha1.CompareDeploymentsResponse
-	73,  // 111: orch.v1alpha1.ControlService.RollbackApplication:output_type -> orch.v1alpha1.RollbackApplicationResponse
-	14,  // 112: orch.v1alpha1.ControlService.ListApplications:output_type -> orch.v1alpha1.ListApplicationsResponse
-	17,  // 113: orch.v1alpha1.ControlService.ListRuntimes:output_type -> orch.v1alpha1.ListRuntimesResponse
-	19,  // 114: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
-	21,  // 115: orch.v1alpha1.ControlService.ListRecentEvents:output_type -> orch.v1alpha1.ListRecentEventsResponse
-	23,  // 116: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
-	25,  // 117: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
-	27,  // 118: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
-	40,  // 119: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
-	86,  // 120: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
-	87,  // 121: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
-	62,  // 122: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
-	44,  // 123: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
-	46,  // 124: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
-	49,  // 125: orch.v1alpha1.ControlService.SetSecret:output_type -> orch.v1alpha1.SetSecretResponse
-	51,  // 126: orch.v1alpha1.ControlService.ListSecrets:output_type -> orch.v1alpha1.ListSecretsResponse
-	53,  // 127: orch.v1alpha1.ControlService.DeleteSecret:output_type -> orch.v1alpha1.DeleteSecretResponse
-	56,  // 128: orch.v1alpha1.ControlService.LoginRegistry:output_type -> orch.v1alpha1.LoginRegistryResponse
-	58,  // 129: orch.v1alpha1.ControlService.ListRegistries:output_type -> orch.v1alpha1.ListRegistriesResponse
-	60,  // 130: orch.v1alpha1.ControlService.LogoutRegistry:output_type -> orch.v1alpha1.LogoutRegistryResponse
-	29,  // 131: orch.v1alpha1.ControlService.UpdateNode:output_type -> orch.v1alpha1.UpdateNodeResponse
-	31,  // 132: orch.v1alpha1.ControlService.RemoveNode:output_type -> orch.v1alpha1.RemoveNodeResponse
-	34,  // 133: orch.v1alpha1.ControlService.CreateJoinToken:output_type -> orch.v1alpha1.CreateJoinTokenResponse
-	36,  // 134: orch.v1alpha1.ControlService.ListJoinTokens:output_type -> orch.v1alpha1.ListJoinTokensResponse
-	38,  // 135: orch.v1alpha1.ControlService.RevokeJoinToken:output_type -> orch.v1alpha1.RevokeJoinTokenResponse
-	106, // [106:136] is the sub-list for method output_type
-	76,  // [76:106] is the sub-list for method input_type
-	76,  // [76:76] is the sub-list for extension type_name
-	76,  // [76:76] is the sub-list for extension extendee
-	0,   // [0:76] is the sub-list for field type_name
+	95,  // 76: orch.v1alpha1.OneOffJob.status:type_name -> orch.v1alpha1.JobRunStatus
+	74,  // 77: orch.v1alpha1.RunJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
+	74,  // 78: orch.v1alpha1.GetJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
+	74,  // 79: orch.v1alpha1.ListJobsResponse.jobs:type_name -> orch.v1alpha1.OneOffJob
+	74,  // 80: orch.v1alpha1.CancelJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
+	74,  // 81: orch.v1alpha1.RetryJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
+	75,  // 82: orch.v1alpha1.ControlService.RunJob:input_type -> orch.v1alpha1.RunJobRequest
+	77,  // 83: orch.v1alpha1.ControlService.GetJob:input_type -> orch.v1alpha1.GetJobRequest
+	79,  // 84: orch.v1alpha1.ControlService.ListJobs:input_type -> orch.v1alpha1.ListJobsRequest
+	81,  // 85: orch.v1alpha1.ControlService.CancelJob:input_type -> orch.v1alpha1.CancelJobRequest
+	83,  // 86: orch.v1alpha1.ControlService.RetryJob:input_type -> orch.v1alpha1.RetryJobRequest
+	8,   // 87: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
+	10,  // 88: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
+	65,  // 89: orch.v1alpha1.ControlService.ListDeployments:input_type -> orch.v1alpha1.ListDeploymentsRequest
+	67,  // 90: orch.v1alpha1.ControlService.GetDeployment:input_type -> orch.v1alpha1.GetDeploymentRequest
+	69,  // 91: orch.v1alpha1.ControlService.CompareDeployments:input_type -> orch.v1alpha1.CompareDeploymentsRequest
+	72,  // 92: orch.v1alpha1.ControlService.RollbackApplication:input_type -> orch.v1alpha1.RollbackApplicationRequest
+	13,  // 93: orch.v1alpha1.ControlService.ListApplications:input_type -> orch.v1alpha1.ListApplicationsRequest
+	16,  // 94: orch.v1alpha1.ControlService.ListRuntimes:input_type -> orch.v1alpha1.ListRuntimesRequest
+	18,  // 95: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
+	20,  // 96: orch.v1alpha1.ControlService.ListRecentEvents:input_type -> orch.v1alpha1.ListRecentEventsRequest
+	22,  // 97: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
+	24,  // 98: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
+	26,  // 99: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
+	39,  // 100: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
+	41,  // 101: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
+	42,  // 102: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
+	61,  // 103: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
+	43,  // 104: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
+	45,  // 105: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
+	48,  // 106: orch.v1alpha1.ControlService.SetSecret:input_type -> orch.v1alpha1.SetSecretRequest
+	50,  // 107: orch.v1alpha1.ControlService.ListSecrets:input_type -> orch.v1alpha1.ListSecretsRequest
+	52,  // 108: orch.v1alpha1.ControlService.DeleteSecret:input_type -> orch.v1alpha1.DeleteSecretRequest
+	55,  // 109: orch.v1alpha1.ControlService.LoginRegistry:input_type -> orch.v1alpha1.LoginRegistryRequest
+	57,  // 110: orch.v1alpha1.ControlService.ListRegistries:input_type -> orch.v1alpha1.ListRegistriesRequest
+	59,  // 111: orch.v1alpha1.ControlService.LogoutRegistry:input_type -> orch.v1alpha1.LogoutRegistryRequest
+	28,  // 112: orch.v1alpha1.ControlService.UpdateNode:input_type -> orch.v1alpha1.UpdateNodeRequest
+	30,  // 113: orch.v1alpha1.ControlService.RemoveNode:input_type -> orch.v1alpha1.RemoveNodeRequest
+	33,  // 114: orch.v1alpha1.ControlService.CreateJoinToken:input_type -> orch.v1alpha1.CreateJoinTokenRequest
+	35,  // 115: orch.v1alpha1.ControlService.ListJoinTokens:input_type -> orch.v1alpha1.ListJoinTokensRequest
+	37,  // 116: orch.v1alpha1.ControlService.RevokeJoinToken:input_type -> orch.v1alpha1.RevokeJoinTokenRequest
+	76,  // 117: orch.v1alpha1.ControlService.RunJob:output_type -> orch.v1alpha1.RunJobResponse
+	78,  // 118: orch.v1alpha1.ControlService.GetJob:output_type -> orch.v1alpha1.GetJobResponse
+	80,  // 119: orch.v1alpha1.ControlService.ListJobs:output_type -> orch.v1alpha1.ListJobsResponse
+	82,  // 120: orch.v1alpha1.ControlService.CancelJob:output_type -> orch.v1alpha1.CancelJobResponse
+	84,  // 121: orch.v1alpha1.ControlService.RetryJob:output_type -> orch.v1alpha1.RetryJobResponse
+	9,   // 122: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
+	11,  // 123: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
+	66,  // 124: orch.v1alpha1.ControlService.ListDeployments:output_type -> orch.v1alpha1.ListDeploymentsResponse
+	68,  // 125: orch.v1alpha1.ControlService.GetDeployment:output_type -> orch.v1alpha1.GetDeploymentResponse
+	71,  // 126: orch.v1alpha1.ControlService.CompareDeployments:output_type -> orch.v1alpha1.CompareDeploymentsResponse
+	73,  // 127: orch.v1alpha1.ControlService.RollbackApplication:output_type -> orch.v1alpha1.RollbackApplicationResponse
+	14,  // 128: orch.v1alpha1.ControlService.ListApplications:output_type -> orch.v1alpha1.ListApplicationsResponse
+	17,  // 129: orch.v1alpha1.ControlService.ListRuntimes:output_type -> orch.v1alpha1.ListRuntimesResponse
+	19,  // 130: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
+	21,  // 131: orch.v1alpha1.ControlService.ListRecentEvents:output_type -> orch.v1alpha1.ListRecentEventsResponse
+	23,  // 132: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
+	25,  // 133: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
+	27,  // 134: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
+	40,  // 135: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
+	97,  // 136: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
+	98,  // 137: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
+	62,  // 138: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
+	44,  // 139: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
+	46,  // 140: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
+	49,  // 141: orch.v1alpha1.ControlService.SetSecret:output_type -> orch.v1alpha1.SetSecretResponse
+	51,  // 142: orch.v1alpha1.ControlService.ListSecrets:output_type -> orch.v1alpha1.ListSecretsResponse
+	53,  // 143: orch.v1alpha1.ControlService.DeleteSecret:output_type -> orch.v1alpha1.DeleteSecretResponse
+	56,  // 144: orch.v1alpha1.ControlService.LoginRegistry:output_type -> orch.v1alpha1.LoginRegistryResponse
+	58,  // 145: orch.v1alpha1.ControlService.ListRegistries:output_type -> orch.v1alpha1.ListRegistriesResponse
+	60,  // 146: orch.v1alpha1.ControlService.LogoutRegistry:output_type -> orch.v1alpha1.LogoutRegistryResponse
+	29,  // 147: orch.v1alpha1.ControlService.UpdateNode:output_type -> orch.v1alpha1.UpdateNodeResponse
+	31,  // 148: orch.v1alpha1.ControlService.RemoveNode:output_type -> orch.v1alpha1.RemoveNodeResponse
+	34,  // 149: orch.v1alpha1.ControlService.CreateJoinToken:output_type -> orch.v1alpha1.CreateJoinTokenResponse
+	36,  // 150: orch.v1alpha1.ControlService.ListJoinTokens:output_type -> orch.v1alpha1.ListJoinTokensResponse
+	38,  // 151: orch.v1alpha1.ControlService.RevokeJoinToken:output_type -> orch.v1alpha1.RevokeJoinTokenResponse
+	117, // [117:152] is the sub-list for method output_type
+	82,  // [82:117] is the sub-list for method input_type
+	82,  // [82:82] is the sub-list for extension type_name
+	82,  // [82:82] is the sub-list for extension extendee
+	0,   // [0:82] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_control_proto_init() }
@@ -6158,7 +6869,7 @@ func file_orch_v1alpha1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_control_proto_rawDesc), len(file_orch_v1alpha1_control_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   72,
+			NumMessages:   83,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

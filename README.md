@@ -13,7 +13,9 @@ without exposing the Kubernetes or Docker Swarm APIs.
 
 Services and cron jobs accept image tags or digests. The controller resolves tags
 once per deployment and records immutable digests; history shows the requested
-reference, and retries and rollback reuse the recorded images.
+reference, and retries and rollback reuse the recorded images. One-off jobs run
+maintenance commands using service images and secrets; optional pre-deploy hooks
+gate updates on successful migrations while current services keep serving.
 
 ## The contract
 

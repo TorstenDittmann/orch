@@ -642,3 +642,64 @@ until external fencing is explicitly confirmed; exactly-once execution is not
 claimed. Use
 `orch cron runs APP JOB` for the latest 20 outcomes and
 `orch cron logs APP JOB RUN_ID` for a retained run's logs.
+
+## One-off jobs and migration hooks
+
+Run a maintenance command using a deployed service's pinned image and settings:
+
+~~~console
+orch job run shop api --wait --timeout 5m --wait-timeout 10m -- ./migrate up
+orch job list shop
+orch job show JOB_ID --json
+orch job logs JOB_ID --tail 200
+orch job cancel JOB_ID
+orch job retry JOB_ID --idempotency-key maintenance-retry-001 --wait
+orch job wait JOB_ID --timeout 10m
+~~~
+
+These commands use the selected target and accept `--target` or `--context`.
+`job run` prints its idempotency key before sending the request. Reuse that key
+and the same command/options after an uncertain response; the original run is
+returned even if the application has since changed. `--revision REVISION_ID`
+optionally guards creation against a concurrent deployment. An explicit retry
+creates a new run using the original image, command and secret versions, records
+`retry_of`, and requires the application still to have that revision. Successful
+runs cannot be retried; use a new manual run if deliberate repetition is needed.
+
+`--timeout` controls the job process budget (`15m` by default, `10s`–`24h`).
+For `run --wait` and `retry --wait`, `--wait-timeout` controls how long the CLI
+waits (`20m` by default). A wait timeout or interrupted CLI does not cancel the
+job. Successful waits exit 0; unsuccessful runs exit 1 and report the actual
+process exit code in text/JSON. Cancellation remains requested until the owning
+agent stops the process and reports a terminal result.
+
+History defaults to 20 entries, supports `--limit 1..100`, and uses an exclusive
+`--before JOB_ID` cursor. It retains revision, image, node, kind, exit code,
+timestamps and retry provenance. Run metadata survives controller restarts.
+Logs use the existing agent-local transport and require the owning node to be
+reachable. The agent retains runtime/log objects for the newest 100 completed
+one-off runs no longer assigned to it; older metadata remains, but logs expire.
+
+At most 32 one-off runs may be active cluster-wide. Placement checks service
+constraints and available resources, including existing runs. Once accepted, a
+run stays on its owning node; drain or disconnection does not move it or start it
+again. Restore an unavailable owner to confirm termination before retrying.
+After an agent restart, an uncertain start is inspected and never automatically
+repeated. Application removal requests cancellation of its unfinished jobs.
+
+In the TUI, press `8` for Jobs, or `o` from Applications for that application's
+runs. Select a run and press Enter for live logs, `c` to request cancellation,
+or `x` to retry a finished unsuccessful run. Cancellation and retry require a
+confirmation naming the exact run; uncertain retries retain their request key.
+Use `n` for older runs and `N` for the latest page.
+
+Pre-deploy hooks appear in the same history with kind `pre_deploy`. Their failure
+keeps existing services assigned and causes `deploy --wait` to fail. Retry the
+failed hook to resume that revision, or deploy a corrected configuration. An
+unacknowledged cancellation of an older hook blocks a newer hook, avoiding
+concurrent migrations for the same application. Rollback restores configuration,
+not database contents; a rollback configuration with a hook runs that hook again.
+
+This feature uses agent protocol `v1alpha1-workloads-5`. Upgrade controllers and
+agents together; older agents are rejected before receiving the new run controls.
+Existing processes retain the normal controller-outage behavior during upgrade.

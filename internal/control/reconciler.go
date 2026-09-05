@@ -61,6 +61,9 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("list execution nodes: %w", err)
 	}
 	now := r.now().UTC()
+	if err := r.state.CancelObsoleteJobs(ctx); err != nil {
+		return err
+	}
 	if len(nodes) == 0 {
 		states := make(map[string]model.ApplicationExecution)
 		for _, application := range applications {
@@ -72,7 +75,18 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		}
 		return r.state.UpdateApplicationExecutions(ctx, states)
 	}
-	if usesDistributedScheduler(nodes, applications) {
+	jobs, err := r.state.Jobs(ctx, "", "", 100, true)
+	if err != nil {
+		return err
+	}
+	hasHooks := false
+	for _, app := range applications {
+		var manifest config.Manifest
+		if json.Unmarshal(app.CanonicalManifest, &manifest) == nil && manifest.Deploy.PreDeploy != nil {
+			hasHooks = true
+		}
+	}
+	if len(jobs) > 0 || hasHooks || usesDistributedScheduler(nodes, applications) {
 		return r.reconcileDistributed(ctx, cluster, applications, nodes, now)
 	}
 	return r.reconcileLegacy(ctx, cluster, applications, nodes, now)
@@ -99,6 +113,9 @@ func (r *Reconciler) reconcileLegacy(ctx context.Context, cluster model.Cluster,
 			previousByID[allocation.ID] = allocation
 		}
 		for _, job := range previous.CronJobs {
+			if job.RunID != "" {
+				continue
+			}
 			previousCronByApplication[job.Application] = append(previousCronByApplication[job.Application], job)
 		}
 	} else if !errors.Is(previousErr, store.ErrAssignmentNotFound) {

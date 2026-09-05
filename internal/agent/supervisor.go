@@ -1562,6 +1562,22 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 	for _, job := range desired {
 		key := job.Application + "\x00" + job.Job
 		keys[key] = struct{}{}
+		if job.RunID != "" {
+			run, err := s.reconcileOneOff(ctx, job, runByID[job.RunID], allocations, endpoints, now)
+			if err != nil {
+				return err
+			}
+			runByID[run.ID] = run
+			active := ""
+			if run.FinishedAt == nil {
+				active = run.ID
+			}
+			if err := s.state.SaveCronJobState(ctx, state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, ActiveRunID: active, LastScheduledAt: job.RunAt, UpdatedAt: now}); err != nil {
+				return err
+			}
+			statuses = append(statuses, model.CronJobStatus{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, ActiveRunID: active, LastRunID: run.ID, LastState: run.State, Reason: run.Reason, Message: run.Message, UpdatedAt: now})
+			continue
+		}
 		jobState := stateByKey[key]
 		if jobState.SpecDigest != job.SpecDigest || jobState.NextRunAt == nil {
 			active := runByID[jobState.ActiveRunID]
@@ -1742,6 +1758,9 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 	}
 	allRuns, err := s.state.CronRunStates(ctx)
 	if err != nil {
+		return err
+	}
+	if err := s.pruneOneOffLogs(ctx, allRuns, desired); err != nil {
 		return err
 	}
 	s.cronJobs = statuses

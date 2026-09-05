@@ -204,6 +204,9 @@ type AllocationPlacement struct {
 // CronJobDesired is an immutable one-shot workload template distributed to
 // the agent. Occurrence IDs are derived and claimed by the agent scheduler.
 type CronJobDesired struct {
+	RunID                  string                       `json:"run_id,omitempty"`
+	RunAt                  *time.Time                   `json:"run_at,omitempty"`
+	CancelRequested        bool                         `json:"cancel_requested,omitempty"`
 	Application            string                       `json:"application"`
 	Job                    string                       `json:"job"`
 	ApplicationGeneration  uint64                       `json:"application_generation"`
@@ -422,6 +425,8 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 
 func CronJobSpecDigest(job CronJobDesired) (string, error) {
 	spec := struct {
+		RunID                string                     `json:"run_id,omitempty"`
+		RunAt                *time.Time                 `json:"run_at,omitempty"`
 		Image                string                     `json:"image"`
 		Schedule             string                     `json:"schedule"`
 		Command              []string                   `json:"command,omitempty"`
@@ -435,7 +440,7 @@ func CronJobSpecDigest(job CronJobDesired) (string, error) {
 		StartDeadlineSeconds uint32                     `json:"start_deadline_seconds"`
 		TimeoutSeconds       uint32                     `json:"timeout_seconds"`
 		NetworkGeneration    uint64                     `json:"network_generation"`
-	}{job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
+	}{job.RunID, job.RunAt, job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
 		job.MemoryBytes, job.DependsOn, job.SecretEnvironment, job.SecretFiles,
 		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration}
 	encoded, err := json.Marshal(spec)

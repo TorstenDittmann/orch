@@ -33,6 +33,17 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ControlServiceRunJobProcedure is the fully-qualified name of the ControlService's RunJob RPC.
+	ControlServiceRunJobProcedure = "/orch.v1alpha1.ControlService/RunJob"
+	// ControlServiceGetJobProcedure is the fully-qualified name of the ControlService's GetJob RPC.
+	ControlServiceGetJobProcedure = "/orch.v1alpha1.ControlService/GetJob"
+	// ControlServiceListJobsProcedure is the fully-qualified name of the ControlService's ListJobs RPC.
+	ControlServiceListJobsProcedure = "/orch.v1alpha1.ControlService/ListJobs"
+	// ControlServiceCancelJobProcedure is the fully-qualified name of the ControlService's CancelJob
+	// RPC.
+	ControlServiceCancelJobProcedure = "/orch.v1alpha1.ControlService/CancelJob"
+	// ControlServiceRetryJobProcedure is the fully-qualified name of the ControlService's RetryJob RPC.
+	ControlServiceRetryJobProcedure = "/orch.v1alpha1.ControlService/RetryJob"
 	// ControlServiceGetClusterProcedure is the fully-qualified name of the ControlService's GetCluster
 	// RPC.
 	ControlServiceGetClusterProcedure = "/orch.v1alpha1.ControlService/GetCluster"
@@ -125,6 +136,11 @@ const (
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
 type ControlServiceClient interface {
+	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
+	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
+	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
+	RetryJob(context.Context, *connect.Request[v1alpha1.RetryJobRequest]) (*connect.Response[v1alpha1.RetryJobResponse], error)
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListDeployments(context.Context, *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error)
@@ -169,6 +185,36 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 	baseURL = strings.TrimRight(baseURL, "/")
 	controlServiceMethods := v1alpha1.File_orch_v1alpha1_control_proto.Services().ByName("ControlService").Methods()
 	return &controlServiceClient{
+		runJob: connect.NewClient[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse](
+			httpClient,
+			baseURL+ControlServiceRunJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+			connect.WithClientOptions(opts...),
+		),
+		getJob: connect.NewClient[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse](
+			httpClient,
+			baseURL+ControlServiceGetJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetJob")),
+			connect.WithClientOptions(opts...),
+		),
+		listJobs: connect.NewClient[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse](
+			httpClient,
+			baseURL+ControlServiceListJobsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListJobs")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelJob: connect.NewClient[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse](
+			httpClient,
+			baseURL+ControlServiceCancelJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("CancelJob")),
+			connect.WithClientOptions(opts...),
+		),
+		retryJob: connect.NewClient[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse](
+			httpClient,
+			baseURL+ControlServiceRetryJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RetryJob")),
+			connect.WithClientOptions(opts...),
+		),
 		getCluster: connect.NewClient[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse](
 			httpClient,
 			baseURL+ControlServiceGetClusterProcedure,
@@ -354,6 +400,11 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
+	runJob              *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
+	getJob              *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
+	listJobs            *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
+	cancelJob           *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
+	retryJob            *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
 	getCluster          *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
 	getApplication      *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
 	listDeployments     *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
@@ -384,6 +435,31 @@ type controlServiceClient struct {
 	createJoinToken     *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
 	listJoinTokens      *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
 	revokeJoinToken     *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+}
+
+// RunJob calls orch.v1alpha1.ControlService.RunJob.
+func (c *controlServiceClient) RunJob(ctx context.Context, req *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
+	return c.runJob.CallUnary(ctx, req)
+}
+
+// GetJob calls orch.v1alpha1.ControlService.GetJob.
+func (c *controlServiceClient) GetJob(ctx context.Context, req *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error) {
+	return c.getJob.CallUnary(ctx, req)
+}
+
+// ListJobs calls orch.v1alpha1.ControlService.ListJobs.
+func (c *controlServiceClient) ListJobs(ctx context.Context, req *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error) {
+	return c.listJobs.CallUnary(ctx, req)
+}
+
+// CancelJob calls orch.v1alpha1.ControlService.CancelJob.
+func (c *controlServiceClient) CancelJob(ctx context.Context, req *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error) {
+	return c.cancelJob.CallUnary(ctx, req)
+}
+
+// RetryJob calls orch.v1alpha1.ControlService.RetryJob.
+func (c *controlServiceClient) RetryJob(ctx context.Context, req *connect.Request[v1alpha1.RetryJobRequest]) (*connect.Response[v1alpha1.RetryJobResponse], error) {
+	return c.retryJob.CallUnary(ctx, req)
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -540,6 +616,11 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
+	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
+	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
+	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
+	RetryJob(context.Context, *connect.Request[v1alpha1.RetryJobRequest]) (*connect.Response[v1alpha1.RetryJobResponse], error)
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
 	ListDeployments(context.Context, *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error)
@@ -580,6 +661,36 @@ type ControlServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	controlServiceMethods := v1alpha1.File_orch_v1alpha1_control_proto.Services().ByName("ControlService").Methods()
+	controlServiceRunJobHandler := connect.NewUnaryHandler(
+		ControlServiceRunJobProcedure,
+		svc.RunJob,
+		connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetJobHandler := connect.NewUnaryHandler(
+		ControlServiceGetJobProcedure,
+		svc.GetJob,
+		connect.WithSchema(controlServiceMethods.ByName("GetJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListJobsHandler := connect.NewUnaryHandler(
+		ControlServiceListJobsProcedure,
+		svc.ListJobs,
+		connect.WithSchema(controlServiceMethods.ByName("ListJobs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceCancelJobHandler := connect.NewUnaryHandler(
+		ControlServiceCancelJobProcedure,
+		svc.CancelJob,
+		connect.WithSchema(controlServiceMethods.ByName("CancelJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRetryJobHandler := connect.NewUnaryHandler(
+		ControlServiceRetryJobProcedure,
+		svc.RetryJob,
+		connect.WithSchema(controlServiceMethods.ByName("RetryJob")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceGetClusterHandler := connect.NewUnaryHandler(
 		ControlServiceGetClusterProcedure,
 		svc.GetCluster,
@@ -762,6 +873,16 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ControlServiceRunJobProcedure:
+			controlServiceRunJobHandler.ServeHTTP(w, r)
+		case ControlServiceGetJobProcedure:
+			controlServiceGetJobHandler.ServeHTTP(w, r)
+		case ControlServiceListJobsProcedure:
+			controlServiceListJobsHandler.ServeHTTP(w, r)
+		case ControlServiceCancelJobProcedure:
+			controlServiceCancelJobHandler.ServeHTTP(w, r)
+		case ControlServiceRetryJobProcedure:
+			controlServiceRetryJobHandler.ServeHTTP(w, r)
 		case ControlServiceGetClusterProcedure:
 			controlServiceGetClusterHandler.ServeHTTP(w, r)
 		case ControlServiceGetApplicationProcedure:
@@ -830,6 +951,26 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 
 // UnimplementedControlServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedControlServiceHandler struct{}
+
+func (UnimplementedControlServiceHandler) RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RunJob is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetJob is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListJobs is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.CancelJob is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RetryJob(context.Context, *connect.Request[v1alpha1.RetryJobRequest]) (*connect.Response[v1alpha1.RetryJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RetryJob is not implemented"))
+}
 
 func (UnimplementedControlServiceHandler) GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetCluster is not implemented"))

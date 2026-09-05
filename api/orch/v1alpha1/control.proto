@@ -8,6 +8,11 @@ import "orch/v1alpha1/agent.proto";
 option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1";
 
 service ControlService {
+  rpc RunJob(RunJobRequest) returns (RunJobResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse);
   rpc GetCluster(GetClusterRequest) returns (GetClusterResponse);
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
@@ -610,4 +615,57 @@ message RollbackApplicationRequest {
 
 message RollbackApplicationResponse {
   ApplyApplicationResponse deployment = 1;
+}
+
+message OneOffJob {
+  string id = 1;
+  string application = 2;
+  string service = 3;
+  string revision_id = 4;
+  string image = 5;
+  string kind = 6;
+  string node_id = 7;
+  string retry_of = 8;
+  bool cancel_requested = 9;
+  JobRunStatus status = 10;
+}
+message RunJobRequest {
+  string application = 1;
+  string service = 2;
+  string expected_revision_id = 3;
+  repeated string command = 4;
+  repeated string args = 5;
+  uint32 timeout_seconds = 6;
+  string idempotency_key = 7;
+}
+message RunJobResponse {
+  OneOffJob job = 1;
+}
+message GetJobRequest {
+  string id = 1;
+}
+message GetJobResponse {
+  OneOffJob job = 1;
+}
+message ListJobsRequest {
+  string application = 1;
+  uint32 limit = 2;
+  string before_id = 3;
+}
+message ListJobsResponse {
+  repeated OneOffJob jobs = 1;
+  string next_before_id = 2;
+}
+message CancelJobRequest {
+  string id = 1;
+}
+message CancelJobResponse {
+  OneOffJob job = 1;
+}
+message RetryJobRequest {
+  string id = 1;
+  string idempotency_key = 2;
+}
+message RetryJobResponse {
+  OneOffJob job = 1;
 }

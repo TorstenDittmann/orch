@@ -27,7 +27,7 @@ const (
 	heartbeatInterval      = 10 * time.Second
 	maxOperationChunk      = 64 << 10
 	maxAssignedAllocations = 1000
-	maxAssignedCronJobs    = 100
+	maxAssignedCronJobs    = 132
 	maxSecretBundleBytes   = 16 << 20
 )
 
@@ -222,7 +222,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		return fmt.Errorf("read cached assignment: %w", cachedErr)
 	}
 	hello := &orchv1alpha1.AgentHello{
-		ProtocolVersion: "v1alpha1-workloads-4", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
+		ProtocolVersion: "v1alpha1-workloads-5", NodeId: r.credentials.Config.NodeID, BootId: r.bootID,
 		OperatingSystem: r.capabilities.OperatingSystem, Architecture: r.capabilities.Architecture,
 		RuntimeVersion: r.capabilities.RuntimeVersion, Snapshotter: r.capabilities.Snapshotter,
 		CgroupsV2: r.capabilities.CgroupsV2, CniVersion: r.capabilities.CNIVersion,
@@ -858,6 +858,14 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			TimeoutSeconds: item.GetTimeoutSeconds(), NetworkGeneration: item.GetNetworkGeneration(),
 			SecretEnvironment: secretEnvironmentModel(item.GetSecretEnvironment()),
 			SecretFiles:       secretFilesModel(item.GetSecretFiles()), RegistryCredential: registryCredentialModel(item.GetRegistryCredential())}
+		job.RunID, job.CancelRequested = item.GetRunId(), item.GetCancelRequested()
+		if item.GetRunAt() != nil {
+			if item.GetRunAt().CheckValid() != nil || len(item.GetRunAt().ProtoReflect().GetUnknown()) != 0 {
+				return model.Assignment{}, errors.New("invalid one-off run time")
+			}
+			at := item.GetRunAt().AsTime()
+			job.RunAt = &at
+		}
 		if err := orchruntime.ValidateCronJob(job); err != nil || job.NetworkGeneration != assignment.Network.Generation {
 			return model.Assignment{}, fmt.Errorf("assignment cron job %q is invalid", key)
 		}

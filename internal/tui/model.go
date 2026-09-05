@@ -27,9 +27,10 @@ const (
 	ViewLogs
 	ViewHelp
 	ViewDeployments
+	ViewJobs
 )
 
-var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtimes", "Help", "Deployments"}
+var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtimes", "Help", "Deployments", "Jobs"}
 
 type Snapshot struct {
 	Cluster           *orchv1alpha1.Cluster
@@ -106,6 +107,7 @@ type confirmation struct {
 
 type Model struct {
 	deploymentWorkspace
+	jobsWorkspace
 	ctx           context.Context
 	provider      Provider
 	target        string
@@ -249,6 +251,11 @@ func (m *Model) beginRefresh() tea.Cmd {
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case jobsMsg:
+		m.receiveJobs(message)
+		return m, nil
+	case jobMutationMsg:
+		return m, m.receiveJobMutation(message)
 	case deploymentsMsg:
 		return m, m.receiveDeployments(message)
 	case deploymentDiffMsg:
@@ -265,6 +272,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastUntil = time.Time{}
 		}
 		commands := []tea.Cmd{m.beginRefresh(), m.tick()}
+		if m.view == ViewJobs && !m.jobsLoading {
+			commands = append(commands, m.refreshJobs())
+		}
 		if m.view == ViewLogs && !m.logPaused && !m.logExited && m.logSource.application != "" && !m.logsLoading {
 			m.logsLoading = true
 			commands = append(commands, m.reloadLogs())
@@ -398,6 +408,11 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.view == ViewJobs {
+		if handled, cmd := m.handleJobKey(stroke); handled {
+			return m, cmd
+		}
+	}
 	if m.view == ViewDeployments {
 		if handled, cmd := m.handleDeploymentKey(stroke); handled {
 			return m, cmd
@@ -428,7 +443,7 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setView(ViewID((int(m.view) + 1) % len(viewNames)))
 	case "shift+tab":
 		m.setView(ViewID((int(m.view) + len(viewNames) - 1) % len(viewNames)))
-	case "1", "2", "3", "4", "5", "6", "7":
+	case "1", "2", "3", "4", "5", "6", "7", "8":
 		m.setView(ViewID(int(stroke[0] - '1')))
 	case "r":
 		if m.view == ViewLogs && m.logSource.application != "" {
@@ -483,6 +498,10 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.logPaused = false
 			m.logUnseen = 0
 		}
+	case "o":
+		if m.view == ViewApplications && len(m.snapshot.Applications) > 0 {
+			return m, m.openJobs(m.snapshot.Applications[m.selected[ViewApplications]].GetName())
+		}
 	case "c", "u", "d", "i":
 		if m.view == ViewNodes {
 			m.prepareNodeAction(stroke)
@@ -535,6 +554,9 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.selected[ViewLogs] = 0
 			}
 		}
+	}
+	if m.view == ViewJobs && m.jobs == nil && !m.jobsLoading {
+		return m, m.refreshJobs()
 	}
 	if m.view == ViewDeployments && m.deploymentApp != "" && m.deploymentHistory == nil && !m.deploymentLoading {
 		return m, m.refreshDeployments()
@@ -787,6 +809,9 @@ func fuzzyMatch(value, query string) bool {
 
 func (m *Model) setView(view ViewID) {
 	if view != m.view {
+		if m.view == ViewJobs {
+			m.cancelJobs()
+		}
 		if m.view == ViewDeployments {
 			m.cancelDeployments()
 		}

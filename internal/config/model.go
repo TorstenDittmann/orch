@@ -86,9 +86,17 @@ type Volume struct {
 	Driver string `json:"driver"`
 }
 
+type PreDeployHook struct {
+	Service string   `json:"service"`
+	Command []string `json:"command"`
+	Args    []string `json:"args,omitempty"`
+	Timeout string   `json:"timeout"`
+}
+
 type Deployment struct {
-	MaxSurge       int    `json:"max_surge"`
-	MaxUnavailable int    `json:"max_unavailable"`
-	HealthDeadline string `json:"health_deadline"`
-	AutoRollback   bool   `json:"auto_rollback"`
+	PreDeploy      *PreDeployHook `json:"pre_deploy,omitempty"`
+	MaxSurge       int            `json:"max_surge"`
+	MaxUnavailable int            `json:"max_unavailable"`
+	HealthDeadline string         `json:"health_deadline"`
+	AutoRollback   bool           `json:"auto_rollback"`
 }

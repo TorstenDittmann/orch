@@ -392,3 +392,42 @@ TOML tables become typed object amendments, maps become Pkl mappings with
 `["key"] = value`, and arrays of objects become listings containing
 `new ClassName { ... }`. No automated converter or dual-format window is
 provided.
+
+## Pre-deploy hooks
+
+A hook runs a command using a service from the new resolved revision before
+any of that revision's services are updated:
+
+~~~pkl
+deploy {
+  preDeploy = new PreDeployHook {
+    service = "api"
+    command { "./migrate" }
+    args { "up" }
+    timeout = "5m"
+  }
+}
+~~~
+
+`service` must exist, `command` is required, and `timeout` defaults to `15m`
+(allowed range `10s`–`24h`). The hook inherits the service's pinned image,
+resources, constraints, environment, secret bindings and dependencies. It uses
+the application network, without the service's ports or volume mounts. Secrets
+are resolved to versions when the job is accepted; explicit retries retain those
+versions. Plain environment values and command arguments are omitted from job
+read responses.
+
+The previous service assignment remains in place while the hook waits or runs.
+A zero exit code releases the new revision. Failure, timeout, cancellation, or
+an uncertain start blocks the rollout and makes the deployment fail; inspect the
+job and explicitly retry it. Hooks are never automatically retried. Each new
+revision, including a manual rollback to a configuration with a hook, has its own
+hook. A no-op deploy does not rerun one. A newer deployment cancels an obsolete
+hook and waits for it to finish before starting the next hook.
+
+Dependencies must already be available before the hook can run. On an initial
+deployment, provision databases or other required services separately; the hook
+cannot depend on services that it is preventing from starting. The agent allows
+one minute from job acceptance to start the command, including dependency wait.
+Migration commands should tolerate explicit retries: process identity is durable,
+but the orchestrator cannot make database side effects transactional.

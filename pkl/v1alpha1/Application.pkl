@@ -129,7 +129,16 @@ class Volume {
   driver: "local" = "local"
 }
 
+class PreDeployHook {
+  service: DnsLabel
+  command: Listing<ManifestString(!isEmpty)>(length.isBetween(1, 256))
+  args: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+  timeout: String = "15m"
+}
+
 class Deployment {
+  preDeploy: PreDeployHook? = null
+
   maxSurge: Int(isBetween(0, 100)) = 1
 
   maxUnavailable: Int(isBetween(0, 100)) = 0

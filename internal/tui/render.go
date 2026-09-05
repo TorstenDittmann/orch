@@ -105,10 +105,12 @@ func (m *Model) renderTabs(t theme, width int) string {
 
 func (m *Model) renderFooter(t theme, width int) string {
 	left := " ↑↓/jk navigate   enter open   ctrl+p commands   ? help   q quit"
-	if m.view == ViewDeployments {
+	if m.view == ViewJobs {
+		left = " ↑↓ select  enter logs  c cancel  x retry  n older  N latest"
+	} else if m.view == ViewDeployments {
 		left = " ↑↓ scroll  enter compare  b rollback  n older  N latest  esc back"
 	} else if m.view == ViewApplications {
-		left = " ↑↓ select  enter runtimes  d deployments  ctrl+p commands"
+		left = " ↑↓ select  enter runtimes  d deployments  o jobs  ctrl+p commands"
 	} else if m.view == ViewNodes {
 		left = " c cordon   u uncordon   d drain   i ingress   ctrl+p commands   ? help"
 	} else if m.view == ViewEvents {
@@ -145,6 +147,8 @@ func (m *Model) renderBody(t theme, width, height int) string {
 		body = m.renderEvents(t, width, height)
 	case ViewLogs:
 		body = m.renderLogs(t, width, height)
+	case ViewJobs:
+		body = m.renderJobs(t, width, height)
 	case ViewDeployments:
 		body = m.renderDeployments(t, width, height)
 	case ViewHelp:

@@ -297,7 +297,7 @@ func prepareConnectionArgs(args []string) ([]string, error) {
 
 func isRemoteCommand(args []string) bool {
 	switch args[0] {
-	case "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "remove", "secret", "registry", "tui":
+	case "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "remove", "secret", "registry", "tui":
 		return true
 	case "app":
 		return len(args) > 1 && (args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")

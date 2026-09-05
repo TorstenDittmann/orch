@@ -503,6 +503,9 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 		if !ok || run.SpecDigest != desired.SpecDigest || run.ID == "" || run.ScheduledAt.IsZero() || run.UpdatedAt.IsZero() || !validJobRunState(run.State) {
 			return false, fmt.Errorf("cron run %q is not authorized", run.ID)
 		}
+		if err := observeOneOffTx(ctx, tx, report.NodeID, desired, run); err != nil {
+			return false, err
+		}
 		var exit, started, finished any
 		if run.ExitCode != nil {
 			exit = *run.ExitCode
@@ -1057,6 +1060,13 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			}
 			continue
 		}
+		var hookPending bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM one_off_jobs j JOIN application_revisions r ON r.id=j.revision_id WHERE j.application_name=? AND r.generation=? AND j.kind='pre_deploy' AND j.rowid=(SELECT max(k.rowid) FROM one_off_jobs k WHERE k.revision_id=j.revision_id AND k.kind='pre_deploy') AND json_extract(j.status,'$.state')!='SUCCEEDED')`, application.name, application.generation).Scan(&hookPending); err != nil {
+			return err
+		}
+		if hookPending {
+			continue
+		}
 		if application.status == model.ExecutionBlocked {
 			continue
 		}
@@ -1081,7 +1091,8 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 				JOIN cron_job_observations o ON o.node_id = d.node_id AND o.application_name = d.application_name
 				AND o.job_name = d.job_name AND o.spec_digest = d.spec_digest
 				WHERE d.application_name = ? AND d.application_generation = ? AND d.revision_id = ?
-				AND n.acknowledged_generation = n.assignment_generation AND n.acknowledged_generation >= d.assignment_generation`,
+				AND json_extract(d.spec, '$.run_id') IS NULL
+ AND n.acknowledged_generation = n.assignment_generation AND n.acknowledged_generation >= d.assignment_generation`,
 				application.name, application.generation, desiredRevision).Scan(&readyCron); err != nil {
 				return fmt.Errorf("summarize cron rollout readiness: %w", err)
 			}

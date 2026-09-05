@@ -166,6 +166,15 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
 			return fmt.Errorf("decode stored manifest %q: %w", application.Name, err)
 		}
+		gate, err := r.hookGate(ctx, application, manifest, now)
+		if err != nil {
+			return err
+		}
+		if gate != nil {
+			preserveDistributedApplication(application.Name, currentByNode, preservedAllocations, preservedCron)
+			states[application.Name] = *gate
+			continue
+		}
 		resolved, secretBlocked, err := r.resolveApplicationIntent(ctx, application)
 		if err != nil {
 			return fmt.Errorf("resolve application %q secrets: %w", application.Name, err)
@@ -206,10 +215,13 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		for _, job := range bundle.cronJobs {
 			plannedCron = append(plannedCron, distributedCron{job: job, constraints: manifest.CronJobs[job.Job].Constraints})
 		}
-		if application.Execution.ObservedGeneration != application.Generation {
+		if application.Execution.ObservedGeneration != application.Generation || strings.HasPrefix(application.Execution.Reason, "pre_deploy_") {
 			states[application.Name] = executionState(model.ExecutionPending, application.Generation,
 				"placement_pending", "desired state is waiting for durable multi-node assignment receipt", now)
 		}
+	}
+	if err := r.appendOneOffAssignments(ctx, preservedCron); err != nil {
+		return err
 	}
 	cronOwnerships, err := r.state.CronOwnerships(ctx)
 	if err != nil {
@@ -607,7 +619,7 @@ func preserveDistributedApplication(application string, current map[string]model
 			}
 		}
 		for _, job := range assignment.CronJobs {
-			if job.Application == application {
+			if job.Application == application && job.RunID == "" {
 				cron[nodeID] = append(cron[nodeID], job)
 			}
 		}
@@ -693,6 +705,9 @@ func (r *Reconciler) publishDistributed(ctx context.Context, nodes []model.Node,
 	current map[string]model.Assignment, allocations map[string][]model.AllocationDesired,
 	cron map[string][]model.CronJobDesired, states map[string]model.ApplicationExecution, now time.Time,
 ) error {
+	if err := r.appendOneOffAssignments(ctx, cron); err != nil {
+		return err
+	}
 	ordered := append([]model.Node(nil), nodes...)
 	sort.Slice(ordered, func(i, j int) bool {
 		leftRemoved := removedPlacementCount(current[ordered[i].ID], allocations[ordered[i].ID], cron[ordered[i].ID])

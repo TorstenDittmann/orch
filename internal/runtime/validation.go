@@ -158,8 +158,17 @@ func ValidateCronJob(job model.CronJobDesired) error {
 		job.TimeoutSeconds < 10 || job.TimeoutSeconds > 24*60*60 || job.NetworkGeneration == 0 {
 		return fmt.Errorf("runtime cron job identity, resources, or deadlines are invalid")
 	}
-	if _, err := schedule.Parse(job.Schedule); err != nil {
-		return err
+	if job.RunID != "" {
+		if !validOpaqueID(job.RunID) || job.RunAt == nil || job.RunAt.IsZero() || job.Schedule != "" {
+			return fmt.Errorf("one-off run identity is invalid")
+		}
+	} else {
+		if job.RunAt != nil || job.CancelRequested {
+			return fmt.Errorf("cron job cannot carry one-off controls")
+		}
+		if _, err := schedule.Parse(job.Schedule); err != nil {
+			return err
+		}
 	}
 	named, err := reference.ParseNormalizedNamed(job.Image)
 	if err != nil {

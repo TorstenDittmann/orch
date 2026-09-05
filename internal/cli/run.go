@@ -70,6 +70,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runLogs(ctx, args[1:], stdout, stderr)
 	case "exec":
 		return runExec(ctx, args[1:], stdout, stderr)
+	case "job":
+		return runJob(ctx, args[1:], stdout, stderr)
 	case "cron":
 		return runCron(ctx, args[1:], stdout, stderr)
 	case "secret":
@@ -872,6 +874,9 @@ Usage:
   orch rollback APP REVISION [--expected-generation N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch logs APP SERVICE --replica N --tail N [--target NAME]
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
+  orch job run APP SERVICE [--target NAME] [--wait] -- COMMAND [ARG...]
+  orch job list [APP] [--target NAME] [--limit N] [--before ID] [--json]
+  orch job show|logs|cancel|retry|wait ID [--target NAME]
   orch cron runs APP JOB [--target NAME] [--limit N] [--json]
   orch cron logs APP JOB RUN_ID [--target NAME] [--tail N]
   orch secret set APP NAME --from-stdin [--target NAME] [--json]

@@ -215,6 +215,9 @@ message CronJobDesired {
   map<string, SecretReference> secret_environment = 17;
   repeated SecretFileDesired secret_files = 18;
   RegistryCredentialReference registry_credential = 19;
+  string run_id = 20;
+  google.protobuf.Timestamp run_at = 21;
+  bool cancel_requested = 22;
 }
 
 message AssignmentSnapshot {

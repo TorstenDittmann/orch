@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	agentProtocolVersion  = "v1alpha1-workloads-4"
+	agentProtocolVersion  = "v1alpha1-workloads-5"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
 )
@@ -336,6 +336,10 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			Environment: cloneEnvironment(job.Environment), CpuMillis: job.CPUMillis, MemoryBytes: job.MemoryBytes,
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: job.StartDeadlineSeconds,
 			TimeoutSeconds: job.TimeoutSeconds, NetworkGeneration: job.NetworkGeneration,
+		}
+		item.RunId, item.CancelRequested = job.RunID, job.CancelRequested
+		if job.RunAt != nil {
+			item.RunAt = timestamppb.New(*job.RunAt)
 		}
 		item.SecretEnvironment = secretEnvironmentMessage(job.SecretEnvironment)
 		item.SecretFiles = secretFilesMessage(job.SecretFiles)

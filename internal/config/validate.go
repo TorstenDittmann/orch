@@ -84,6 +84,23 @@ func Validate(manifest *Manifest) error {
 	if len(manifest.CronJobs) > maxCronJobs {
 		add("cron_jobs", fmt.Sprintf("must not define more than %d jobs", maxCronJobs))
 	}
+	if hook := manifest.Deploy.PreDeploy; hook != nil {
+		if _, ok := manifest.Services[hook.Service]; !ok {
+			add("deploy.pre_deploy.service", "must name an existing service")
+		}
+		if len(hook.Command) == 0 || len(hook.Command) > 256 || len(hook.Args) > 256 {
+			add("deploy.pre_deploy.command", "must contain 1-256 command entries and at most 256 arguments")
+		}
+		for _, value := range append(append([]string(nil), hook.Command...), hook.Args...) {
+			if value == "" || len(value) > 4096 || strings.ContainsRune(value, 0) {
+				add("deploy.pre_deploy.command", "contains an invalid command or argument")
+				break
+			}
+		}
+		if d, err := time.ParseDuration(hook.Timeout); err != nil || d < 10*time.Second || d > 24*time.Hour {
+			add("deploy.pre_deploy.timeout", "must be between 10s and 24h")
+		}
+	}
 	if manifest.Deploy.MaxSurge < 0 || manifest.Deploy.MaxSurge > 100 {
 		add("deploy.max_surge", "must be between 0 and 100")
 	}

@@ -74,11 +74,19 @@ type pklVolume struct {
 	Driver string `pkl:"driver"`
 }
 
+type pklPreDeployHook struct {
+	Service string   `pkl:"service"`
+	Command []string `pkl:"command"`
+	Args    []string `pkl:"args"`
+	Timeout string   `pkl:"timeout"`
+}
+
 type pklDeployment struct {
-	MaxSurge       int    `pkl:"maxSurge"`
-	MaxUnavailable int    `pkl:"maxUnavailable"`
-	HealthDeadline string `pkl:"healthDeadline"`
-	AutoRollback   bool   `pkl:"autoRollback"`
+	PreDeploy      *pklPreDeployHook `pkl:"preDeploy"`
+	MaxSurge       int               `pkl:"maxSurge"`
+	MaxUnavailable int               `pkl:"maxUnavailable"`
+	HealthDeadline string            `pkl:"healthDeadline"`
+	AutoRollback   bool              `pkl:"autoRollback"`
 }
 
 func resolvePkl(doc pklDocument) *Manifest {
@@ -94,6 +102,9 @@ func resolvePkl(doc pklDocument) *Manifest {
 			HealthDeadline: doc.Deploy.HealthDeadline,
 			AutoRollback:   doc.Deploy.AutoRollback,
 		},
+	}
+	if hook := doc.Deploy.PreDeploy; hook != nil {
+		manifest.Deploy.PreDeploy = &PreDeployHook{Service: hook.Service, Command: hook.Command, Args: hook.Args, Timeout: hook.Timeout}
 	}
 	for name, input := range doc.Services {
 		var httpConfig *HTTP
