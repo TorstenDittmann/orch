@@ -11,5 +11,6 @@ export default job({
 			'Verify generated website contract',
 			'test -f website/dist/index.html && test -f website/dist/quick-start/index.html && test -f website/dist/404.html && test -f website/dist/sitemap.xml && test -f website/dist/robots.txt && test -f website/dist/llms.txt && test -f website/dist/server/index.js',
 		),
+		run('Publish website preview', 'cd website && mise exec -- bunx yeet ./dist'),
 	],
 });
