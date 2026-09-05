@@ -1,39 +1,14 @@
 # Summary
 
-- [Introduction](README.md)
-- Getting started
-  - [Installation](installation.md)
-  - [First HTTPS deployment](quick-start.md)
-  - [Application configuration](configuration.md)
-- Understand orch
-  - [Runtime and deployments](runtime.md)
-  - [Networking and ingress](networking.md)
-  - [Product scope](product.md)
-- Operate
-  - [Cluster operations](operations.md)
-  - [Security and recovery](security.md)
-  - [Comparison](comparison.md)
-- Architecture decisions
-  - [Product boundary](adr/0001-product-boundary.md)
-  - [Go and one command](adr/0002-go-and-one-command.md)
-  - [Strict versioned configuration](adr/0003-strict-toml.md)
-  - [Containerd runtime](adr/0004-containerd-runtime.md)
-  - [Single SQLite controller](adr/0005-single-controller-sqlite.md)
-  - [WireGuard routes and DNS](adr/0006-direct-wireguard-network.md)
-  - [Caddy ingress](adr/0007-caddy-ingress.md)
-  - [Pkl application configuration](adr/0008-pkl-application-configuration.md)
-  - [HTTPS Pkl modules](adr/0009-https-pkl-modules.md)
-  - [Raw TCP ingress](adr/0010-raw-tcp-ingress.md)
-  - [Cron and startup dependencies](adr/0011-cron-and-startup-dependencies.md)
-  - [Encrypted secrets and registries](adr/0012-encrypted-secrets-and-registry-credentials.md)
-  - [Multi-node placement](adr/0013-multi-node-placement-and-wireguard.md)
-  - [Secure joins and renewal](adr/0014-secure-join-and-agent-certificate-renewal.md)
-  - [Targets and operator TUI](adr/0015-local-targets-and-operator-tui.md)
-  - [Runtime explorer and logs](adr/0016-runtime-explorer-and-live-logs.md)
-  - [Deployment history and rollback](adr/0017-deployment-history-and-rollback.md)
-  - [Immutable image resolution](adr/018-image-tag-resolution.md)
-  - [One-off jobs and deploy hooks](adr/019-one-off-jobs-and-deploy-hooks.md)
-  - [Controller recovery](adr/020-controller-recovery.md)
-  - [Guided node installation](adr/021-guided-node-installation.md)
-  - [Guided controller installation](adr/022-guided-controller-installation.md)
-  - [Guided managed upgrades](adr/023-guided-managed-upgrades.md)
+- [Overview](README.md)
+- Get started
+  - [Install orch](installation.md)
+  - [Deploy your first application](quick-start.md)
+- Deploy applications
+  - [Configure an application](configuration.md)
+  - [Deploy, update, and roll back](runtime.md)
+  - [Expose services](networking.md)
+- Operate a cluster
+  - [Manage applications and nodes](operations.md)
+  - [Security, backups, and recovery](security.md)
+  - [Limits and expectations](product.md)

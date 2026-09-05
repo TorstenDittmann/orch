@@ -39,7 +39,7 @@ deploy {
 
 ```console
 $ orch validate
-$ orch plan --target production
+$ orch plan
 $ orch deploy --wait --target production
 ```
 

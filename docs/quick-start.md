@@ -84,7 +84,7 @@ The image must listen on port 8080 and return success from `/healthz`.
 
 ```console
 orch validate
-orch plan --target production
+orch plan
 orch deploy --wait --target production
 orch app status hello --target production
 ```
