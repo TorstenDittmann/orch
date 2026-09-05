@@ -1,6 +1,7 @@
 [tools]
 go = "1.26.3"
 pkl = "0.32.1"
+bun = "1.4.0"
 buf = "1.72.0"
 protoc-gen-go = "1.36.12"
 protoc-gen-connect-go = "1.19.2"

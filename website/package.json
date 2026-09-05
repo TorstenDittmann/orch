@@ -1,0 +1,13 @@
+{
+  "name": "orch-website",
+  "private": true,
+  "scripts": {
+    "check": "docia check --config docia.config.ts",
+    "dev": "docia dev --config docia.config.ts",
+    "build": "./build.sh",
+    "build:docs": "docia build --config docia.config.ts"
+  },
+  "devDependencies": {
+    "docia": "github:TorstenDittmann/docia#b7febe3b3e90f92797bcc7c68a1e820b1a009526"
+  }
+}

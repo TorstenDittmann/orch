@@ -1,12 +1,16 @@
 # orch website
 
-A dependency-free static landing page for developers. It contains no client-side
-JavaScript; the small worker only serves the static files in production.
+The public product and documentation site is generated from the repository's
+Markdown with [Docia](https://docia.xyz/). Dependencies are pinned by
+`package.json` and `bun.lock`.
 
-Serve this directory with any static file server, for example:
+From this directory:
 
 ```bash
-python3 -m http.server 3000 --directory website
+bun install --frozen-lockfile
+bun run check
+bun run dev
 ```
 
-Run `./website/build.sh` before packaging a production deployment.
+`./build.sh` checks links and navigation, builds production assets into `dist`,
+and adds the Sites worker. Generated output is ignored and must not be edited.
