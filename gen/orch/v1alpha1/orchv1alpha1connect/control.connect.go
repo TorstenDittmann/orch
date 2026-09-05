@@ -39,6 +39,18 @@ const (
 	// ControlServiceGetApplicationProcedure is the fully-qualified name of the ControlService's
 	// GetApplication RPC.
 	ControlServiceGetApplicationProcedure = "/orch.v1alpha1.ControlService/GetApplication"
+	// ControlServiceListDeploymentsProcedure is the fully-qualified name of the ControlService's
+	// ListDeployments RPC.
+	ControlServiceListDeploymentsProcedure = "/orch.v1alpha1.ControlService/ListDeployments"
+	// ControlServiceGetDeploymentProcedure is the fully-qualified name of the ControlService's
+	// GetDeployment RPC.
+	ControlServiceGetDeploymentProcedure = "/orch.v1alpha1.ControlService/GetDeployment"
+	// ControlServiceCompareDeploymentsProcedure is the fully-qualified name of the ControlService's
+	// CompareDeployments RPC.
+	ControlServiceCompareDeploymentsProcedure = "/orch.v1alpha1.ControlService/CompareDeployments"
+	// ControlServiceRollbackApplicationProcedure is the fully-qualified name of the ControlService's
+	// RollbackApplication RPC.
+	ControlServiceRollbackApplicationProcedure = "/orch.v1alpha1.ControlService/RollbackApplication"
 	// ControlServiceListApplicationsProcedure is the fully-qualified name of the ControlService's
 	// ListApplications RPC.
 	ControlServiceListApplicationsProcedure = "/orch.v1alpha1.ControlService/ListApplications"
@@ -115,6 +127,10 @@ const (
 type ControlServiceClient interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
+	ListDeployments(context.Context, *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error)
+	GetDeployment(context.Context, *connect.Request[v1alpha1.GetDeploymentRequest]) (*connect.Response[v1alpha1.GetDeploymentResponse], error)
+	CompareDeployments(context.Context, *connect.Request[v1alpha1.CompareDeploymentsRequest]) (*connect.Response[v1alpha1.CompareDeploymentsResponse], error)
+	RollbackApplication(context.Context, *connect.Request[v1alpha1.RollbackApplicationRequest]) (*connect.Response[v1alpha1.RollbackApplicationResponse], error)
 	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
 	ListRuntimes(context.Context, *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
@@ -163,6 +179,30 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceGetApplicationProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("GetApplication")),
+			connect.WithClientOptions(opts...),
+		),
+		listDeployments: connect.NewClient[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse](
+			httpClient,
+			baseURL+ControlServiceListDeploymentsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListDeployments")),
+			connect.WithClientOptions(opts...),
+		),
+		getDeployment: connect.NewClient[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse](
+			httpClient,
+			baseURL+ControlServiceGetDeploymentProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetDeployment")),
+			connect.WithClientOptions(opts...),
+		),
+		compareDeployments: connect.NewClient[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse](
+			httpClient,
+			baseURL+ControlServiceCompareDeploymentsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("CompareDeployments")),
+			connect.WithClientOptions(opts...),
+		),
+		rollbackApplication: connect.NewClient[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse](
+			httpClient,
+			baseURL+ControlServiceRollbackApplicationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RollbackApplication")),
 			connect.WithClientOptions(opts...),
 		),
 		listApplications: connect.NewClient[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse](
@@ -314,32 +354,36 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	getCluster        *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
-	getApplication    *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
-	listApplications  *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
-	listRuntimes      *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
-	listEvents        *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
-	listRecentEvents  *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
-	applyApplication  *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
-	enrollAgent       *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
-	listNodes         *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
-	removeApplication *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
-	tailLogs          *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
-	exec              *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	configureNetwork  *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
-	listCronRuns      *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
-	tailCronLogs      *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
-	setSecret         *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
-	listSecrets       *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
-	deleteSecret      *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
-	loginRegistry     *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
-	listRegistries    *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
-	logoutRegistry    *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
-	updateNode        *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
-	removeNode        *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
-	createJoinToken   *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
-	listJoinTokens    *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
-	revokeJoinToken   *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+	getCluster          *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
+	getApplication      *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listDeployments     *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
+	getDeployment       *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
+	compareDeployments  *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
+	rollbackApplication *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
+	listApplications    *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
+	listRuntimes        *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
+	listEvents          *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	listRecentEvents    *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
+	applyApplication    *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	enrollAgent         *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
+	listNodes           *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	removeApplication   *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
+	tailLogs            *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
+	exec                *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	configureNetwork    *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
+	listCronRuns        *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
+	tailCronLogs        *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
+	setSecret           *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
+	listSecrets         *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
+	deleteSecret        *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
+	loginRegistry       *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
+	listRegistries      *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
+	logoutRegistry      *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	updateNode          *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
+	removeNode          *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	createJoinToken     *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
+	listJoinTokens      *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
+	revokeJoinToken     *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
 }
 
 // GetCluster calls orch.v1alpha1.ControlService.GetCluster.
@@ -350,6 +394,26 @@ func (c *controlServiceClient) GetCluster(ctx context.Context, req *connect.Requ
 // GetApplication calls orch.v1alpha1.ControlService.GetApplication.
 func (c *controlServiceClient) GetApplication(ctx context.Context, req *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error) {
 	return c.getApplication.CallUnary(ctx, req)
+}
+
+// ListDeployments calls orch.v1alpha1.ControlService.ListDeployments.
+func (c *controlServiceClient) ListDeployments(ctx context.Context, req *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error) {
+	return c.listDeployments.CallUnary(ctx, req)
+}
+
+// GetDeployment calls orch.v1alpha1.ControlService.GetDeployment.
+func (c *controlServiceClient) GetDeployment(ctx context.Context, req *connect.Request[v1alpha1.GetDeploymentRequest]) (*connect.Response[v1alpha1.GetDeploymentResponse], error) {
+	return c.getDeployment.CallUnary(ctx, req)
+}
+
+// CompareDeployments calls orch.v1alpha1.ControlService.CompareDeployments.
+func (c *controlServiceClient) CompareDeployments(ctx context.Context, req *connect.Request[v1alpha1.CompareDeploymentsRequest]) (*connect.Response[v1alpha1.CompareDeploymentsResponse], error) {
+	return c.compareDeployments.CallUnary(ctx, req)
+}
+
+// RollbackApplication calls orch.v1alpha1.ControlService.RollbackApplication.
+func (c *controlServiceClient) RollbackApplication(ctx context.Context, req *connect.Request[v1alpha1.RollbackApplicationRequest]) (*connect.Response[v1alpha1.RollbackApplicationResponse], error) {
+	return c.rollbackApplication.CallUnary(ctx, req)
 }
 
 // ListApplications calls orch.v1alpha1.ControlService.ListApplications.
@@ -478,6 +542,10 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 type ControlServiceHandler interface {
 	GetCluster(context.Context, *connect.Request[v1alpha1.GetClusterRequest]) (*connect.Response[v1alpha1.GetClusterResponse], error)
 	GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error)
+	ListDeployments(context.Context, *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error)
+	GetDeployment(context.Context, *connect.Request[v1alpha1.GetDeploymentRequest]) (*connect.Response[v1alpha1.GetDeploymentResponse], error)
+	CompareDeployments(context.Context, *connect.Request[v1alpha1.CompareDeploymentsRequest]) (*connect.Response[v1alpha1.CompareDeploymentsResponse], error)
+	RollbackApplication(context.Context, *connect.Request[v1alpha1.RollbackApplicationRequest]) (*connect.Response[v1alpha1.RollbackApplicationResponse], error)
 	ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error)
 	ListRuntimes(context.Context, *connect.Request[v1alpha1.ListRuntimesRequest]) (*connect.Response[v1alpha1.ListRuntimesResponse], error)
 	ListEvents(context.Context, *connect.Request[v1alpha1.ListEventsRequest]) (*connect.Response[v1alpha1.ListEventsResponse], error)
@@ -522,6 +590,30 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceGetApplicationProcedure,
 		svc.GetApplication,
 		connect.WithSchema(controlServiceMethods.ByName("GetApplication")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListDeploymentsHandler := connect.NewUnaryHandler(
+		ControlServiceListDeploymentsProcedure,
+		svc.ListDeployments,
+		connect.WithSchema(controlServiceMethods.ByName("ListDeployments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetDeploymentHandler := connect.NewUnaryHandler(
+		ControlServiceGetDeploymentProcedure,
+		svc.GetDeployment,
+		connect.WithSchema(controlServiceMethods.ByName("GetDeployment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceCompareDeploymentsHandler := connect.NewUnaryHandler(
+		ControlServiceCompareDeploymentsProcedure,
+		svc.CompareDeployments,
+		connect.WithSchema(controlServiceMethods.ByName("CompareDeployments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRollbackApplicationHandler := connect.NewUnaryHandler(
+		ControlServiceRollbackApplicationProcedure,
+		svc.RollbackApplication,
+		connect.WithSchema(controlServiceMethods.ByName("RollbackApplication")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceListApplicationsHandler := connect.NewUnaryHandler(
@@ -674,6 +766,14 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceGetClusterHandler.ServeHTTP(w, r)
 		case ControlServiceGetApplicationProcedure:
 			controlServiceGetApplicationHandler.ServeHTTP(w, r)
+		case ControlServiceListDeploymentsProcedure:
+			controlServiceListDeploymentsHandler.ServeHTTP(w, r)
+		case ControlServiceGetDeploymentProcedure:
+			controlServiceGetDeploymentHandler.ServeHTTP(w, r)
+		case ControlServiceCompareDeploymentsProcedure:
+			controlServiceCompareDeploymentsHandler.ServeHTTP(w, r)
+		case ControlServiceRollbackApplicationProcedure:
+			controlServiceRollbackApplicationHandler.ServeHTTP(w, r)
 		case ControlServiceListApplicationsProcedure:
 			controlServiceListApplicationsHandler.ServeHTTP(w, r)
 		case ControlServiceListRuntimesProcedure:
@@ -737,6 +837,22 @@ func (UnimplementedControlServiceHandler) GetCluster(context.Context, *connect.R
 
 func (UnimplementedControlServiceHandler) GetApplication(context.Context, *connect.Request[v1alpha1.GetApplicationRequest]) (*connect.Response[v1alpha1.GetApplicationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetApplication is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListDeployments(context.Context, *connect.Request[v1alpha1.ListDeploymentsRequest]) (*connect.Response[v1alpha1.ListDeploymentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListDeployments is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetDeployment(context.Context, *connect.Request[v1alpha1.GetDeploymentRequest]) (*connect.Response[v1alpha1.GetDeploymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetDeployment is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) CompareDeployments(context.Context, *connect.Request[v1alpha1.CompareDeploymentsRequest]) (*connect.Response[v1alpha1.CompareDeploymentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.CompareDeployments is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RollbackApplication(context.Context, *connect.Request[v1alpha1.RollbackApplicationRequest]) (*connect.Response[v1alpha1.RollbackApplicationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RollbackApplication is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ListApplications(context.Context, *connect.Request[v1alpha1.ListApplicationsRequest]) (*connect.Response[v1alpha1.ListApplicationsResponse], error) {

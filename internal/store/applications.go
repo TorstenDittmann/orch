@@ -115,13 +115,23 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		return model.ApplyApplicationResult{}, fmt.Errorf("application digest does not match canonical manifest")
 	}
 
+	operation := applyApplicationOperation
+	if input.RollbackFromRevisionID != "" {
+		if input.ExpectedGeneration == 0 {
+			return model.ApplyApplicationResult{}, ErrGenerationConflict
+		}
+		operation = "application.rollback"
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s", input.Name, input.RollbackFromRevisionID, input.ExpectedGeneration, input.Digest)))
+		requestHash = hex.EncodeToString(sum[:])
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.ApplyApplicationResult{}, fmt.Errorf("begin application apply: %w", err)
 	}
 	defer tx.Rollback()
 
-	replayed, found, err := replayApplication(ctx, tx, input.IdempotencyKey, requestHash)
+	replayed, found, err := replayApplication(ctx, tx, input.IdempotencyKey, operation, requestHash)
 	if err != nil {
 		return model.ApplyApplicationResult{}, err
 	}
@@ -132,6 +142,24 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 	current, err := applicationInTransaction(ctx, tx, input.Name)
 	if err != nil && !errors.Is(err, ErrApplicationNotFound) {
 		return model.ApplyApplicationResult{}, err
+	}
+	if input.RollbackFromRevisionID != "" {
+		if errors.Is(err, ErrApplicationNotFound) || current.DeletedAt != nil {
+			return model.ApplyApplicationResult{}, ErrApplicationNotFound
+		}
+		if current.Generation != input.ExpectedGeneration {
+			return model.ApplyApplicationResult{}, ErrGenerationConflict
+		}
+		var sourceDigest string
+		var sourceGeneration uint64
+		if err := tx.QueryRowContext(ctx, `SELECT digest, generation FROM application_revisions WHERE application_name = ? AND id = ?`, input.Name, input.RollbackFromRevisionID).Scan(&sourceDigest, &sourceGeneration); errors.Is(err, sql.ErrNoRows) {
+			return model.ApplyApplicationResult{}, ErrRevisionNotFound
+		} else if err != nil {
+			return model.ApplyApplicationResult{}, err
+		}
+		if sourceDigest != input.Digest || sourceGeneration >= current.Generation {
+			return model.ApplyApplicationResult{}, ErrRollbackSource
+		}
 	}
 	stamp := input.CreatedAt.UTC()
 	stampText := stamp.Format(time.RFC3339Nano)
@@ -158,7 +186,7 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 			input.Name, result.Generation, stampText, stampText); err != nil {
 			return model.ApplyApplicationResult{}, fmt.Errorf("insert application: %w", err)
 		}
-	} else if current.Digest == input.Digest && current.DeletedAt == nil {
+	} else if current.Digest == input.Digest && current.DeletedAt == nil && input.RollbackFromRevisionID == "" {
 		result = model.ApplyApplicationResult{
 			Name: current.Name, Generation: current.Generation,
 			RevisionID: current.RevisionID, Digest: current.Digest,
@@ -187,6 +215,9 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 			VALUES (?, ?, ?, ?, ?, ?)`, input.RevisionID, input.Name, result.Generation,
 			input.Digest, string(input.CanonicalManifest), stampText); err != nil {
 			return model.ApplyApplicationResult{}, fmt.Errorf("insert application revision: %w", err)
+		}
+		if err := startDeploymentTx(ctx, tx, input, current.RevisionID, stamp); err != nil {
+			return model.ApplyApplicationResult{}, err
 		}
 		if current.Name != "" {
 			changed, err := tx.ExecContext(ctx, `UPDATE applications
@@ -225,7 +256,7 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO idempotency_keys
 		(key, operation, request_hash, response, created_at) VALUES (?, ?, ?, ?, ?)`,
-		input.IdempotencyKey, applyApplicationOperation, requestHash, string(response), stampText); err != nil {
+		input.IdempotencyKey, operation, requestHash, string(response), stampText); err != nil {
 		return model.ApplyApplicationResult{}, fmt.Errorf("record idempotency response: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -298,7 +329,7 @@ func validateApplicationInput(input model.ApplyApplication) error {
 	return nil
 }
 
-func replayApplication(ctx context.Context, tx *sql.Tx, key, requestHash string) (model.ApplyApplicationResult, bool, error) {
+func replayApplication(ctx context.Context, tx *sql.Tx, key, expectedOperation, requestHash string) (model.ApplyApplicationResult, bool, error) {
 	var operation, storedHash, response string
 	err := tx.QueryRowContext(ctx, `SELECT operation, request_hash, response
 		FROM idempotency_keys WHERE key = ?`, key).Scan(&operation, &storedHash, &response)
@@ -308,7 +339,7 @@ func replayApplication(ctx context.Context, tx *sql.Tx, key, requestHash string)
 	if err != nil {
 		return model.ApplyApplicationResult{}, false, fmt.Errorf("read idempotency response: %w", err)
 	}
-	if operation != applyApplicationOperation || storedHash != requestHash {
+	if operation != expectedOperation || storedHash != requestHash {
 		return model.ApplyApplicationResult{}, false, ErrIdempotencyConflict
 	}
 	var result model.ApplyApplicationResult

@@ -394,6 +394,115 @@ Status: PENDING — accepted for asynchronous execution; use orch app status to 
 Use `--json` for stable machine-readable status, event, and deployment output.
 Event pagination uses an exclusive sequence cursor and returns the next cursor.
 
+## Deployment history, comparison, and rollback
+
+Use the selected target for these commands, or pass `--target NAME`:
+
+~~~console
+orch app history runtime-demo
+orch app history runtime-demo --limit 20 --before-generation 21
+orch app diff runtime-demo REVISION_ID
+orch app diff runtime-demo OLD_REVISION_ID --against NEW_REVISION_ID
+orch rollback runtime-demo REVISION_ID --wait --timeout 10m
+~~~
+
+History lists immutable revisions newest first, with creation times, image
+references, desired/active markers, rollback provenance, and retained outcomes.
+`--before-generation` is exclusive, so adding a deployment does not shift older
+pages. The default page is 20 records; the maximum is 50. Response sizes are
+bounded and the returned cursor indicates more records.
+
+Outcomes are `IN_PROGRESS`, `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `SUPERSEDED`,
+`REMOVED`, or `UNKNOWN`. The first observed terminal rollout result is retained;
+subsequent health changes update the last observation without rewriting that
+result. Replacing or removing an unfinished deployment closes it as superseded
+or removed. Revisions from before deployment history was introduced have
+`UNKNOWN` outcomes unless the current execution observation can establish a
+result. History persists across controller restarts and application removal.
+
+Comparison goes **from the selected revision to the current desired revision**,
+or to the explicit `--against` revision. It compares resolved configuration,
+without reevaluating Pkl. Image, replica, resource, schedule, and deployment-policy
+values are displayed. Other values, including commands, arguments, environment,
+secret references, and added/removed composite objects, are redacted; their
+changed paths remain visible. Comparisons are bounded to 500 changes and 1 MiB,
+with an explicit truncation flag. History and comparison never fetch secret
+contents.
+
+Manual rollback restores an older revision's stored configuration as a **new
+revision and generation**, following ordinary placement and health gates. It
+records its source revision and preserves history. It does not restore volume
+contents, database state, or past secret values: secret references resolve
+through the current secret store. Removed applications cannot be reactivated
+through rollback. Missing resources or secrets can block the new deployment.
+
+Before submitting, the CLI reads the current generation (or uses an explicit
+`--expected-generation`). The controller checks that generation transactionally,
+so a concurrent deploy or removal cannot be silently overwritten. Rollback
+always creates a new revision, including when an older source has the same
+configuration digest as current desired state.
+
+For an uncertain response, retry with **both** the printed expected generation
+and idempotency key, on the same target:
+
+~~~console
+orch rollback runtime-demo REVISION_ID \
+  --expected-generation 7 \
+  --idempotency-key SAME_KEY
+~~~
+
+Replaying that exact request returns the original `PENDING` acceptance receipt,
+even after another deployment or removal. Changing its source or expected
+generation while reusing the key is a conflict.
+
+### Wait for a rollout
+
+~~~console
+orch deploy --file orch.pkl --wait --timeout 10m
+orch app watch runtime-demo --timeout 10m
+orch app watch runtime-demo --revision REVISION_ID --timeout 10m
+~~~
+
+`deploy --wait` and `rollback --wait` watch their exact accepted generation.
+`app watch` defaults to the current desired revision. Polling shows execution
+state and per-replica progress. Success requires the desired, observed, and
+active revision to agree and execution to be `HEALTHY`, or `RUNNING` for
+workloads without readiness gates. A healthy older fallback does not count as
+success. Cron-only applications become ready when their schedules are
+acknowledged and observed; no cron execution is required. Mixed applications
+also wait for their desired schedules.
+
+The default deadline is ten minutes. `FAILED`, automatic `ROLLED_BACK`,
+supersession, removal, connection failure, cancellation, or timeout returns
+exit code 1. `BLOCKED` and `DEGRADED` keep waiting until resolution or the
+deadline. Stopping the watcher never cancels an accepted deployment. Use
+`app watch --revision` to observe it again.
+
+With `--json`, waiting emits one final object containing application, generation,
+revision, status (`READY`, `FAILED`, `TIMED_OUT`, or `CANCELED`), the last execution
+status, and any error. Mutating waits also include their idempotency key. The
+existing JSON and asynchronous `PENDING` behavior of `deploy` without `--wait`
+is unchanged.
+
+### Deployment workspace in the TUI
+
+In Applications, select an application and press `d`, or choose its Deployments
+entry through `ctrl+p`. View 7 opens the most recently selected deployment
+workspace. Use arrows or `j/k` to select a revision, Enter to compare it with
+current desired state, and `b` to prepare a rollback. The confirmation names
+the target, application, source revision, and generation being replaced.
+`y` submits; `n` or Esc cancels. A changed generation invalidates an initial
+confirmation. An uncertain reply retains the same request for a safe retry.
+
+Wide terminals show history and detail side by side. Narrow terminals use
+history and detail screens with Esc to return. Detail includes images, rollout
+outcome, the latest per-replica progress, and comparison. Enter focuses detail;
+arrows scroll it, Home/End jump, `n` opens an older history page, `N` returns to
+the newest page, and `r` refreshes. Application and history polling retain the
+last good snapshot marked stale on failure, and late responses cannot replace
+another selection. All operations use the existing authenticated target client,
+including direct, WireGuard, and SSH transports.
+
 ## Inspect and operate workloads
 
 ~~~console

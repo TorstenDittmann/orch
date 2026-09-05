@@ -84,6 +84,9 @@ func (s *Store) RemoveApplication(ctx context.Context, name, idempotencyKey stri
 			name, stamp.Format(time.RFC3339Nano)); err != nil {
 			return model.RemoveApplicationResult{}, fmt.Errorf("record removal execution state: %w", err)
 		}
+		if err := finishDeploymentTx(ctx, tx, application.RevisionID, "REMOVED", stamp); err != nil {
+			return model.RemoveApplicationResult{}, err
+		}
 		payload, _ := json.Marshal(struct {
 			Name       string `json:"name"`
 			Generation uint64 `json:"generation"`

@@ -23,6 +23,16 @@ type fakeProvider struct {
 	err          error
 }
 
+func (f *fakeProvider) ListDeployments(context.Context, string, uint64, uint32) (*orchv1alpha1.ListDeploymentsResponse, error) {
+	return &orchv1alpha1.ListDeploymentsResponse{}, f.err
+}
+func (f *fakeProvider) CompareDeployments(context.Context, string, string, string) (*orchv1alpha1.CompareDeploymentsResponse, error) {
+	return &orchv1alpha1.CompareDeploymentsResponse{}, f.err
+}
+func (f *fakeProvider) RollbackApplication(context.Context, *orchv1alpha1.RollbackApplicationRequest) (*orchv1alpha1.ApplyApplicationResponse, error) {
+	return &orchv1alpha1.ApplyApplicationResponse{}, f.err
+}
+
 func (f *fakeProvider) GetCluster(context.Context) (*orchv1alpha1.Cluster, error) {
 	return f.cluster, f.err
 }

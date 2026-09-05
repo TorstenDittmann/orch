@@ -62,6 +62,9 @@ type ApplyApplication struct {
 	CanonicalManifest []byte
 	IdempotencyKey    string
 	CreatedAt         time.Time
+	// Rollback requests are guarded against concurrent desired-state changes.
+	ExpectedGeneration     uint64
+	RollbackFromRevisionID string
 }
 
 // ApplyApplicationResult is persisted as the exact idempotency response.

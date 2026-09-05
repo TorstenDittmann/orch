@@ -10,6 +10,10 @@ option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1a
 service ControlService {
   rpc GetCluster(GetClusterRequest) returns (GetClusterResponse);
   rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+  rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  rpc GetDeployment(GetDeploymentRequest) returns (GetDeploymentResponse);
+  rpc CompareDeployments(CompareDeploymentsRequest) returns (CompareDeploymentsResponse);
+  rpc RollbackApplication(RollbackApplicationRequest) returns (RollbackApplicationResponse);
   rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
   rpc ListRuntimes(ListRuntimesRequest) returns (ListRuntimesResponse);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
@@ -524,4 +528,82 @@ message ConfigureNetworkResponse {
   bool changed = 4;
   uint64 event_sequence = 5;
   google.protobuf.Timestamp updated_at = 6;
+}
+
+// History deliberately excludes canonical manifests, environment and secret values.
+message Deployment {
+  string application = 1;
+  string revision_id = 2;
+  uint64 generation = 3;
+  string digest = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string rollback_from_revision_id = 6;
+  string outcome = 7;
+  ExecutionStatus execution_status = 8;
+  string reason = 9;
+  string message = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp finished_at = 12;
+  bool current = 13;
+  bool active = 14;
+  repeated DeploymentImage images = 15;
+}
+
+message DeploymentImage {
+  string kind = 1;
+  string name = 2;
+  string image = 3;
+}
+
+message ListDeploymentsRequest {
+  string application = 1;
+  uint32 limit = 2;
+  uint64 before_generation = 3;
+}
+
+message ListDeploymentsResponse {
+  repeated Deployment deployments = 1;
+  uint64 next_before_generation = 2;
+}
+
+message GetDeploymentRequest {
+  string application = 1;
+  string revision_id = 2;
+}
+
+message GetDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+message CompareDeploymentsRequest {
+  string application = 1;
+  string from_revision_id = 2;
+  // Empty means the current desired revision, resolved once by the controller.
+  string to_revision_id = 3;
+}
+
+message DeploymentChange {
+  string kind = 1;
+  string path = 2;
+  string before = 3;
+  string after = 4;
+  bool redacted = 5;
+}
+
+message CompareDeploymentsResponse {
+  Deployment from = 1;
+  Deployment to = 2;
+  repeated DeploymentChange changes = 3;
+  bool truncated = 4;
+}
+
+message RollbackApplicationRequest {
+  string application = 1;
+  string revision_id = 2;
+  uint64 expected_generation = 3;
+  string idempotency_key = 4;
+}
+
+message RollbackApplicationResponse {
+  ApplyApplicationResponse deployment = 1;
 }

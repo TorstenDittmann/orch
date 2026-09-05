@@ -13,6 +13,9 @@ import (
 const maxLogBytes = 512 << 10
 
 type Provider interface {
+	ListDeployments(context.Context, string, uint64, uint32) (*orchv1alpha1.ListDeploymentsResponse, error)
+	CompareDeployments(context.Context, string, string, string) (*orchv1alpha1.CompareDeploymentsResponse, error)
+	RollbackApplication(context.Context, *orchv1alpha1.RollbackApplicationRequest) (*orchv1alpha1.ApplyApplicationResponse, error)
 	GetCluster(context.Context) (*orchv1alpha1.Cluster, error)
 	ListApplications(context.Context) ([]*orchv1alpha1.ApplicationSummary, error)
 	ListRuntimes(context.Context, uint32) (*orchv1alpha1.ListRuntimesResponse, error)
@@ -128,4 +131,14 @@ func collectLogs(receive func() bool, message func() ([]byte, string, string, bo
 		return LogBatch{}, fmt.Errorf("read workload logs: %w", err)
 	}
 	return result, nil
+}
+
+func (p ClientProvider) ListDeployments(ctx context.Context, app string, before uint64, limit uint32) (*orchv1alpha1.ListDeploymentsResponse, error) {
+	return p.Client.ListDeployments(ctx, app, before, limit)
+}
+func (p ClientProvider) CompareDeployments(ctx context.Context, app, from, to string) (*orchv1alpha1.CompareDeploymentsResponse, error) {
+	return p.Client.CompareDeployments(ctx, app, from, to)
+}
+func (p ClientProvider) RollbackApplication(ctx context.Context, request *orchv1alpha1.RollbackApplicationRequest) (*orchv1alpha1.ApplyApplicationResponse, error) {
+	return p.Client.RollbackApplication(ctx, request)
 }

@@ -146,6 +146,13 @@ printf '%s' "$REGISTRY_TOKEN" | bin/orch registry login registry.example \
   --username robot --password-stdin
 
 bin/orch app status runtime-demo
+bin/orch app history runtime-demo
+bin/orch app watch runtime-demo --timeout 10m
+
+# Compare an older revision with current desired state, then restore it.
+# Replace REVISION_ID with an ID from app history.
+bin/orch app diff runtime-demo REVISION_ID
+bin/orch rollback runtime-demo REVISION_ID --wait
 
 bin/orch logs runtime-demo worker --replica 1 --tail 100
 
@@ -160,6 +167,13 @@ bin/orch cluster backup \
   --output "$PWD/backups/lab.db" \
   --secret-key-output "$PWD/offline-keys/lab-secret.key"
 ~~~
+
+Deployment history retains image references, outcomes, and rollback sources.
+In the TUI, press `d` from Applications to browse history, compare revisions,
+watch replica progress, and confirm a rollback. `deploy --wait` waits for the
+accepted revision; `app watch` resumes observation. Rollback creates a new
+revision and never restores volume data or past secret values. See
+[deployment operations](docs/operations.md#deployment-history-comparison-and-rollback).
 
 The TUI includes a runtime workspace for every current service replica and
 retained cron run. Browse it by application or node, inspect exact placement
@@ -194,7 +208,8 @@ credentials. Backup publication refuses to overwrite a file. See
 disposable environment.
 
 `orch deploy` remains a durable acceptance operation. Its exact replayable
-response is `PENDING`; use `orch app status` to observe asynchronous execution.
+response is `PENDING`; use `orch app status` to observe asynchronous execution, or add `--wait` to
+watch the accepted revision until ready.
 Pass the reported idempotency key back with `--idempotency-key` when retrying
 an uncertain request. Removal follows the same retry rule and preserves local
 volume contents.

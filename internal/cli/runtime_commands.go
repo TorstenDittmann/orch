@@ -297,8 +297,11 @@ func formatNodeLabels(labels map[string]string) string {
 }
 
 func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && (args[0] == "history" || args[0] == "diff" || args[0] == "watch") {
+		return runAppDeployments(ctx, args, stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "status" {
-		fmt.Fprintln(stderr, "usage: orch app status NAME --context FILE [--json]")
+		fmt.Fprintln(stderr, "usage: orch app status|history|diff|watch ...")
 		return ExitInvalid
 	}
 	flags := flag.NewFlagSet("app status", flag.ContinueOnError)

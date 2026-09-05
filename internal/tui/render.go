@@ -96,12 +96,20 @@ func (m *Model) renderTabs(t theme, width int) string {
 		}
 		tabs = append(tabs, label)
 	}
-	return truncate(strings.Join(tabs, " "), width)
+	start := 0
+	for start < int(m.view) && lipgloss.Width(strings.Join(tabs[start:int(m.view)+1], " ")) > width {
+		start++
+	}
+	return truncate(strings.Join(tabs[start:], " "), width)
 }
 
 func (m *Model) renderFooter(t theme, width int) string {
 	left := " ↑↓/jk navigate   enter open   ctrl+p commands   ? help   q quit"
-	if m.view == ViewNodes {
+	if m.view == ViewDeployments {
+		left = " ↑↓ scroll  enter compare  b rollback  n older  N latest  esc back"
+	} else if m.view == ViewApplications {
+		left = " ↑↓ select  enter runtimes  d deployments  ctrl+p commands"
+	} else if m.view == ViewNodes {
 		left = " c cordon   u uncordon   d drain   i ingress   ctrl+p commands   ? help"
 	} else if m.view == ViewEvents {
 		left = " ↑↓/jk inspect   / filter   x clear   ctrl+p commands   ? help"
@@ -137,6 +145,8 @@ func (m *Model) renderBody(t theme, width, height int) string {
 		body = m.renderEvents(t, width, height)
 	case ViewLogs:
 		body = m.renderLogs(t, width, height)
+	case ViewDeployments:
+		body = m.renderDeployments(t, width, height)
 	case ViewHelp:
 		body = m.renderHelp(t, width-2)
 	}
@@ -245,10 +255,10 @@ func (m *Model) renderApplicationDetail(t theme, summary *orchv1alpha1.Applicati
 			lines = append(lines, fmt.Sprintf("CRON %s  %s  next %s", sanitize(job.GetJob()), enumLabel(job.GetLastState().String()), relativeTime(job.GetNextRunAt().AsTime())))
 		}
 		if len(detail.GetAllocations())+len(detail.GetCronJobs()) > 0 {
-			lines = append(lines, "", muted(t, "enter opens this application's runtimes"))
+			lines = append(lines, "", muted(t, "enter runtimes · d deployments"))
 		}
 	} else {
-		lines = append(lines, "", muted(t, "enter opens this application's runtimes"))
+		lines = append(lines, "", muted(t, "enter runtimes · d deployments"))
 	}
 	return panel(t, strings.Join(lines, "\n"), width, height)
 }
@@ -538,7 +548,7 @@ func (m *Model) renderHelp(t theme, width int) string {
 	content := heading(t, "Keyboard guide") + `
 
 Navigation                 Discovery
-  1–6        switch view     ctrl+p / :  command palette
+  1–7        switch view     ctrl+p / :  command palette
   tab        next view       /           find resource
   ↑↓ or jk   move            ?           toggle this guide
   enter      open            r           refresh now
@@ -555,11 +565,14 @@ Node actions               Runtime workspace
                               h / l       tree/log pane
                               G           jump to live output
 
+Deployments (d from Applications)
+  enter compare · b rollback · n older · N latest
+
 Events
   /           filter kind or payload
   x           clear active filters
 
-Mutations always show the exact node and consequence before submission.
+Mutations show their target and consequence before submission.
 Data remains visible and is marked degraded when a refresh fails.`
 	return panel(t, content, width, min(m.height-4, 24))
 }
@@ -596,6 +609,9 @@ func (m *Model) renderSearch(t theme, width int) string {
 }
 
 func (m *Model) renderConfirmation(t theme, width int) string {
+	if m.confirm.rollback != nil {
+		return m.renderRollbackConfirmation(t, width)
+	}
 	state := "y confirm · n/esc cancel"
 	if m.mutationBusy {
 		state = "Applying safely…"

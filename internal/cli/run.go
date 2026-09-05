@@ -86,6 +86,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runStatus(ctx, args[1:], stdout, stderr)
 	case "events":
 		return runEvents(ctx, args[1:], stdout, stderr)
+	case "rollback":
+		return runRollback(ctx, args[1:], stdout, stderr)
 	case "deploy":
 		return runDeploy(ctx, args[1:], stdout, stderr)
 	case "tui":
@@ -288,14 +290,21 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var file, root, contextPath, idempotencyKey string
-	var jsonOutput bool
+	var jsonOutput, wait bool
+	var timeout time.Duration
 	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.StringVar(&idempotencyKey, "idempotency-key", "", "stable key for safe retries")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	flags.BoolVar(&wait, "wait", false, "wait for this revision to become ready")
+	flags.DurationVar(&timeout, "timeout", 10*time.Minute, "rollout wait deadline")
 	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if timeout <= 0 {
+		writeError(stderr, errors.New("timeout must be positive"), jsonOutput)
 		return ExitInvalid
 	}
 	if flags.NArg() != 0 {
@@ -352,6 +361,9 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		writeError(stderr, errors.New("controller returned an invalid application update time"), jsonOutput)
 		return ExitRuntime
+	}
+	if wait {
+		return waitForDeployment(ctx, remote, response.GetName(), response.GetGeneration(), response.GetRevisionId(), idempotencyKey, timeout, jsonOutput, stdout, stderr)
 	}
 	const message = "desired state accepted; execution is asynchronous; use orch app status to observe it"
 	if jsonOutput {
@@ -854,6 +866,10 @@ Usage:
   orch node join create NODE --ttl 15m --output FILE [--target NAME]
   orch node join list|revoke [--target NAME]
   orch app status NAME [--target NAME] [--json]
+  orch app history APP [--limit N] [--before-generation N] [--target NAME] [--json]
+  orch app diff APP REVISION [--against REVISION] [--target NAME] [--json]
+  orch app watch APP [--revision REVISION] [--timeout 10m] [--target NAME] [--json]
+  orch rollback APP REVISION [--expected-generation N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch logs APP SERVICE --replica N --tail N [--target NAME]
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
   orch cron runs APP JOB [--target NAME] [--limit N] [--json]
@@ -867,7 +883,7 @@ Usage:
   orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
   orch status [--target NAME] [--json]
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]
-  orch deploy [-f orch.pkl] [--root DIR] [--target NAME] [--idempotency-key KEY] [--json]
+  orch deploy [-f orch.pkl] [--root DIR] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch validate [-f orch.pkl] [--root DIR] [--json]
   orch plan [-f orch.pkl] [--root DIR] [--against previous.pkl] [--json]
   orch render [-f orch.pkl] [--root DIR]

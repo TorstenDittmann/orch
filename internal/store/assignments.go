@@ -1068,8 +1068,32 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			maximumDesiredGeneration != int64(application.generation)) {
 			continue
 		}
+		var requiredCron, readyCron, requiredServices int
+		var desiredRevision string
+		if err := tx.QueryRowContext(ctx, `SELECT r.id, (SELECT count(*) FROM json_each(r.canonical_manifest, '$.cron_jobs')),
+            COALESCE((SELECT sum(json_extract(value, '$.replicas')) FROM json_each(r.canonical_manifest, '$.services')), 0)
+			FROM application_revisions r WHERE r.application_name = ? AND r.generation = ?`, application.name, application.generation).Scan(&desiredRevision, &requiredCron, &requiredServices); err != nil {
+			return fmt.Errorf("read desired cron count: %w", err)
+		}
+		if requiredCron > 0 {
+			if err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT d.job_name) FROM desired_cron_jobs d
+				JOIN nodes n ON n.id = d.node_id
+				JOIN cron_job_observations o ON o.node_id = d.node_id AND o.application_name = d.application_name
+				AND o.job_name = d.job_name AND o.spec_digest = d.spec_digest
+				WHERE d.application_name = ? AND d.application_generation = ? AND d.revision_id = ?
+				AND n.acknowledged_generation = n.assignment_generation AND n.acknowledged_generation >= d.assignment_generation`,
+				application.name, application.generation, desiredRevision).Scan(&readyCron); err != nil {
+				return fmt.Errorf("summarize cron rollout readiness: %w", err)
+			}
+		}
 		execution.ObservedGeneration = application.generation
 		switch {
+		case desired == 0 && requiredServices == 0 && requiredCron > 0 && readyCron == requiredCron:
+			execution.Status = model.ExecutionRunning
+			execution.ActiveGeneration = application.generation
+			execution.ActiveRevisionID = desiredRevision
+			execution.Reason = "cron_schedules_ready"
+			execution.Message = "all desired cron schedules are acknowledged; this does not wait for a scheduled run"
 		case desired == 0:
 			execution.Status = model.ExecutionPending
 			execution.Reason = "assignment_empty"
@@ -1082,6 +1106,14 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 			execution.Status = model.ExecutionDegraded
 			execution.Reason = "rollback_converging"
 			execution.Message = "the desired generation failed its health gate; replicas are converging on the authorized previous generation"
+		case requiredServices > 0 && desired != requiredServices:
+			execution.Status = model.ExecutionPending
+			execution.Reason = "allocations_pending"
+			execution.Message = "waiting for all desired service replicas to be assigned"
+		case readyCron != requiredCron && failed == 0:
+			execution.Status = model.ExecutionPending
+			execution.Reason = "cron_assignments_pending"
+			execution.Message = "waiting for desired cron schedules to be acknowledged and observed"
 		case observed == desired && running == desired && activeCount == desired &&
 			activeFallbacks == 0 && endpointAllocations == 0:
 			execution.Status = model.ExecutionRunning
@@ -1142,6 +1174,9 @@ func upsertExecutionTx(ctx context.Context, tx *sql.Tx, name string, execution m
 		execution.Reason, execution.Message,
 		execution.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return false, fmt.Errorf("write application execution state: %w", err)
+	}
+	if err := observeDeploymentTx(ctx, tx, name, execution); err != nil {
+		return false, err
 	}
 	if changed && recordEvent {
 		var clusterID string

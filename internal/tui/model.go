@@ -26,9 +26,10 @@ const (
 	ViewEvents
 	ViewLogs
 	ViewHelp
+	ViewDeployments
 )
 
-var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtimes", "Help"}
+var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtimes", "Help", "Deployments"}
 
 type Snapshot struct {
 	Cluster           *orchv1alpha1.Cluster
@@ -94,14 +95,17 @@ type displayLogLine struct {
 }
 
 type confirmation struct {
-	name        string
-	description string
-	request     *orchv1alpha1.UpdateNodeRequest
-	lifecycle   orchv1alpha1.NodeLifecycle
-	ingress     bool
+	rollback      *orchv1alpha1.RollbackApplicationRequest
+	rollbackRetry bool
+	name          string
+	description   string
+	request       *orchv1alpha1.UpdateNodeRequest
+	lifecycle     orchv1alpha1.NodeLifecycle
+	ingress       bool
 }
 
 type Model struct {
+	deploymentWorkspace
 	ctx           context.Context
 	provider      Provider
 	target        string
@@ -245,6 +249,13 @@ func (m *Model) beginRefresh() tea.Cmd {
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case deploymentsMsg:
+		return m, m.receiveDeployments(message)
+	case deploymentDiffMsg:
+		m.receiveDeploymentDiff(message)
+		return m, nil
+	case rollbackMsg:
+		return m, m.receiveRollback(message)
 	case tea.WindowSizeMsg:
 		m.width, m.height = message.Width, message.Height
 		return m, nil
@@ -257,6 +268,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == ViewLogs && !m.logPaused && !m.logExited && m.logSource.application != "" && !m.logsLoading {
 			m.logsLoading = true
 			commands = append(commands, m.reloadLogs())
+		}
+		if m.view == ViewDeployments && m.deploymentApp != "" && !m.deploymentLoading {
+			commands = append(commands, m.refreshDeployments())
 		}
 		return m, tea.Batch(commands...)
 	case refreshMsg:
@@ -343,6 +357,16 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	stroke := key.Keystroke()
+	if stroke == "ctrl+c" {
+		m.cancelDeployments()
+		if m.cancel != nil {
+			m.cancel()
+		}
+		if m.logCancel != nil {
+			m.logCancel()
+		}
+		return m, tea.Quit
+	}
 	if m.search {
 		return m.handleSearch(key)
 	}
@@ -358,7 +382,7 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			if !m.mutationBusy {
 				if !m.confirmationCurrent() {
-					m.setToast("Node state changed · review the action again")
+					m.setToast("State changed · review the action again")
 					m.confirm = nil
 					return m, nil
 				}
@@ -374,8 +398,14 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.view == ViewDeployments {
+		if handled, cmd := m.handleDeploymentKey(stroke); handled {
+			return m, cmd
+		}
+	}
 	switch stroke {
 	case "q", "ctrl+c":
+		m.cancelDeployments()
 		if m.cancel != nil {
 			m.cancel()
 		}
@@ -398,7 +428,7 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setView(ViewID((int(m.view) + 1) % len(viewNames)))
 	case "shift+tab":
 		m.setView(ViewID((int(m.view) + len(viewNames) - 1) % len(viewNames)))
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		m.setView(ViewID(int(stroke[0] - '1')))
 	case "r":
 		if m.view == ViewLogs && m.logSource.application != "" {
@@ -456,6 +486,8 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "c", "u", "d", "i":
 		if m.view == ViewNodes {
 			m.prepareNodeAction(stroke)
+		} else if m.view == ViewApplications && stroke == "d" && len(m.snapshot.Applications) > 0 {
+			return m, m.openDeployments(m.snapshot.Applications[m.selected[ViewApplications]].GetName())
 		}
 	case "w":
 		if m.view == ViewLogs {
@@ -503,6 +535,9 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.selected[ViewLogs] = 0
 			}
 		}
+	}
+	if m.view == ViewDeployments && m.deploymentApp != "" && m.deploymentHistory == nil && !m.deploymentLoading {
+		return m, m.refreshDeployments()
 	}
 	return m, nil
 }
@@ -641,6 +676,9 @@ func (m *Model) handlePalette(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(items) != 0 {
 			item := items[min(m.paletteIndex, len(items)-1)]
 			m.setView(item.view)
+			if item.kind == "deployment" {
+				return m, m.openDeployments(item.name)
+			}
 			if item.kind == "application" {
 				m.selectNamedApplication(item.name)
 				m.palette = false
@@ -690,6 +728,7 @@ func (m *Model) paletteItems() []paletteItem {
 		paletteItem{label: "Open keyboard guide", kind: "help", view: m.view},
 	)
 	for _, application := range m.snapshot.Applications {
+		items = append(items, paletteItem{label: "Deployments  " + application.GetName(), kind: "deployment", name: application.GetName(), view: ViewDeployments})
 		items = append(items, paletteItem{label: "App  " + application.GetName(), kind: "application", name: application.GetName(), view: ViewApplications})
 	}
 	for _, node := range m.snapshot.Nodes {
@@ -748,6 +787,12 @@ func fuzzyMatch(value, query string) bool {
 
 func (m *Model) setView(view ViewID) {
 	if view != m.view {
+		if m.view == ViewDeployments {
+			m.cancelDeployments()
+		}
+		if view == ViewDeployments && m.deploymentApp == "" && len(m.snapshot.Applications) > 0 {
+			m.deploymentApp = m.snapshot.Applications[m.selected[ViewApplications]].GetName()
+		}
 		if m.view == ViewLogs && view != ViewLogs && m.logCancel != nil {
 			m.logCancel()
 			m.logCancel = nil
@@ -758,6 +803,17 @@ func (m *Model) setView(view ViewID) {
 }
 
 func (m *Model) move(delta int) {
+	if m.view == ViewDeployments {
+		key := "down"
+		if delta < 0 {
+			key = "up"
+			delta = -delta
+		}
+		for range delta {
+			m.handleDeploymentKey(key)
+		}
+		return
+	}
 	if m.view == ViewLogs && m.runtimeFocus == 0 {
 		count := len(m.filteredRuntimes())
 		if count != 0 {
@@ -960,6 +1016,9 @@ func (m *Model) prepareNodeAction(key string) {
 }
 
 func (m *Model) confirmationCurrent() bool {
+	if m.confirm != nil && m.confirm.rollback != nil {
+		return m.rollbackConfirmationCurrent()
+	}
 	if m.confirm == nil {
 		return false
 	}
@@ -977,6 +1036,9 @@ func (m *Model) setToast(value string) {
 }
 
 func (m *Model) mutate(confirmation confirmation) tea.Cmd {
+	if confirmation.rollback != nil {
+		return m.submitRollback(confirmation.rollback)
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
 		defer cancel()
