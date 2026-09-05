@@ -191,7 +191,8 @@ both machines:
 
 ```sh
 python3 scripts/controller-install-e2e.py \
-  --linux-binary /tmp/orch-linux --linux-pkl /tmp/pkl-linux-amd64 \
+  --orch ./bin/orch --linux-binary /tmp/orch-linux \
+  --linux-pkl /tmp/pkl-linux-amd64 \
   --ssh-config /path/to/test-ssh-config \
   --ubuntu ubuntu-test 10.0.0.10 9443 \
   --fedora fedora-test 10.0.0.20 9443 \

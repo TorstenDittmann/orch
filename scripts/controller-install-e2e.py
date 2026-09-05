@@ -7,6 +7,7 @@ script stops services and reboots both hosts; never point it at persistent hosts
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -15,6 +16,7 @@ import time
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--orch", required=True, help="operator-machine orch executable")
     parser.add_argument("--linux-binary", required=True)
     parser.add_argument("--linux-pkl", required=True)
     parser.add_argument("--ssh-config", required=True)
@@ -26,8 +28,8 @@ def main():
     evidence = Path(args.evidence).resolve()
     evidence.mkdir(mode=0o700)
 
-    def run(command, check=True):
-        result = subprocess.run(command, text=True, capture_output=True, timeout=1200)
+    def run(command, check=True, env=None):
+        result = subprocess.run(command, text=True, capture_output=True, timeout=1200, env=env)
         if check and result.returncode:
             raise RuntimeError(f"command failed ({result.returncode}): {shlex.join(command)}\n{result.stderr}")
         return result
@@ -54,7 +56,12 @@ def main():
         remote(host, "test ! -e /var/lib/orch-controller-install")
         installed = json.loads(record(f"{distro}-install", remote(host, install + " --wait-timeout 5m --json")).stdout)
         assert installed["ready"]
-        run(["scp", "-r", "-F", args.ssh_config, f"{host}:/root/orch-admin", str(evidence / f"{distro}-admin")])
+        admin = evidence / f"{distro}-admin"
+        run(["scp", "-r", "-F", args.ssh_config, f"{host}:/root/orch-admin", str(admin)])
+        operator_env = os.environ.copy()
+        operator_env["XDG_CONFIG_HOME"] = str(evidence / f"{distro}-operator-config")
+        record(f"{distro}-target-import", run([args.orch, "target", "import", f"{distro}-test", str(admin / "context.json"), "--use", "--json"], env=operator_env))
+        record(f"{distro}-target-test", run([args.orch, "target", "test", "--json"], env=operator_env))
         pid = remote(host, "systemctl show orch-controller --property=MainPID --value").stdout.strip()
         rerun = json.loads(record(f"{distro}-rerun", remote(host, install + " --json")).stdout)
         assert rerun["ready"] and not rerun["changed"]
