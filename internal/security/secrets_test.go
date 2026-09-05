@@ -64,3 +64,27 @@ func TestSecretRequestHMACIsKeyed(t *testing.T) {
 		t.Fatal("request fingerprint is not keyed")
 	}
 }
+
+func TestSecretBoxRejectsInvalidNonceLengths(t *testing.T) {
+	box, err := NewSecretBox(bytes.Repeat([]byte{4}, SecretKeySize), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := box.Seal([]byte("aad"), []byte("value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wrapping := range []bool{false, true} {
+		for _, size := range []int{0, 1, 11, 13, 64} {
+			broken := encrypted
+			if wrapping {
+				broken.WrappedKeyNonce = make([]byte, size)
+			} else {
+				broken.Nonce = make([]byte, size)
+			}
+			if _, err := box.Open([]byte("aad"), broken); !errors.Is(err, ErrSecretAuthentication) {
+				t.Fatalf("invalid nonce accepted: %v", err)
+			}
+		}
+	}
+}

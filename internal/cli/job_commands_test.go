@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +20,8 @@ import (
 	"change.codes/torsten/better-swarm/internal/discovery"
 	"change.codes/torsten/better-swarm/internal/ingress"
 	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"change.codes/torsten/better-swarm/internal/security"
+	"change.codes/torsten/better-swarm/internal/store"
 )
 
 func TestJobCLIThroughControllerAndAgent(t *testing.T) {
@@ -159,5 +162,97 @@ services { ["web"] { image = "example/web@sha256:`+strings.Repeat("a", 64)+`" } 
 	output = invoke(ExitOK, "job", "list", "hello", "--json")
 	if !bytes.Contains(output, []byte(first.Id)) || !bytes.Contains(output, []byte(retried.Id)) {
 		t.Fatalf("history lost runs: %s", output)
+	}
+
+	// Recover onto a fresh controller directory while retaining the agent's
+	// cache and administrator context. The original controller stays stopped.
+	if err := server.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	remote.CloseIdleConnections()
+	state, err := store.OpenInitialized(ctx, filepath.Join(dir, clusterctl.DatabaseFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := security.LoadSecretBox(filepath.Join(dir, clusterctl.SecretKeyFilename), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.SetApplicationSecret(ctx, box, "hello", "recovery", "secv_recovery", []byte("recovered-secret"), "recovery-secret-request", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	backup, key := filepath.Join(root, "backup", "cluster.db"), filepath.Join(root, "saved-key")
+	local := func(args ...string) []byte {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		if code := RunContext(ctx, args, &out, &errOut); code != ExitOK {
+			t.Fatalf("recovery CLI: %d %s", code, errOut.String())
+		}
+		return out.Bytes()
+	}
+	local("cluster", "backup", "--data-dir", dir, "--output", backup, "--secret-key-output", key)
+	savedPKI := filepath.Join(root, "saved-pki")
+	if err := os.Mkdir(savedPKI, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ca.pem", "ca-key.pem", "controller.pem", "controller-key.pem"} {
+		contents, err := os.ReadFile(filepath.Join(dir, "pki", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(savedPKI, name), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(dir, filepath.Join(root, "failed-controller")); err != nil {
+		t.Fatal(err)
+	}
+	var inspection clusterctl.RecoveryResult
+	if err := json.Unmarshal(local("cluster", "backup", "inspect", "--backup", backup, "--pki-dir", savedPKI, "--secret-key", key, "--json"), &inspection); err != nil || !inspection.Ready || inspection.Jobs != 2 {
+		t.Fatalf("inspect recovery: %+v %v", inspection, err)
+	}
+	recovered := filepath.Join(root, "recovered")
+	local("cluster", "restore", "--backup", backup, "--pki-dir", savedPKI, "--secret-key", key, "--data-dir", recovered)
+	recoveredState, err := store.OpenInitialized(ctx, filepath.Join(recovered, clusterctl.DatabaseFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredBox, err := security.LoadSecretBox(filepath.Join(recovered, clusterctl.SecretKeyFilename), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := recoveredState.ResolveApplicationSecretVersion(ctx, recoveredBox, "hello", "recovery", "secv_recovery")
+	if err != nil || string(secret.Value) != "recovered-secret" {
+		t.Fatal("recovered secret unavailable")
+	}
+	if err := recoveredState.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := control.Start(ctx, control.Options{DataDir: recovered, Listen: address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Shutdown(context.Background())
+	// A successful routed log request proves the original agent authenticated
+	// and reconnected to the recovered controller with its existing identity.
+	wait(func() bool {
+		var out, errOut bytes.Buffer
+		return RunContext(ctx, []string{"job", "logs", first.Id, "--context", path}, &out, &errOut) == ExitOK && bytes.Contains(out.Bytes(), []byte("maintenance output"))
+	})
+	var replay orchv1alpha1.OneOffJob
+	if err := json.Unmarshal(invoke(ExitOK, "job", "run", "hello", "web", "--json", "--idempotency-key", "cli-job-request-one", "--", "/bin/maintenance", "--context", "process-argument"), &replay); err != nil || replay.Id != first.Id || replay.GetStatus().GetFinishedAt() == nil || replay.GetStatus().GetExitCode() != 37 {
+		t.Fatalf("recovery lost terminal replay: %v", err)
+	}
+	app, err := remote.GetApplication(ctx, "hello")
+	if err != nil || app == nil {
+		t.Fatalf("recovered deployment unavailable: %v", err)
+	}
+	for _, object := range runtime.SnapshotObjects() {
+		if object.AllocationID == first.Id && object.Running {
+			t.Fatal("recovery restarted completed job")
+		}
 	}
 }

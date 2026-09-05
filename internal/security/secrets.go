@@ -105,6 +105,9 @@ func (b *SecretBox) Open(aad []byte, encrypted EncryptedValue) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(encrypted.WrappedKeyNonce) != wrappingAEAD.NonceSize() {
+		return nil, ErrSecretAuthentication
+	}
 	wrappingAAD := append(append([]byte(nil), aad...), []byte("\x00data-key")...)
 	dataKey, err := wrappingAEAD.Open(nil, encrypted.WrappedKeyNonce, encrypted.WrappedKey, wrappingAAD)
 	if err != nil {
@@ -113,6 +116,9 @@ func (b *SecretBox) Open(aad []byte, encrypted EncryptedValue) ([]byte, error) {
 	defer wipe(dataKey)
 	dataAEAD, err := newGCM(dataKey)
 	if err != nil {
+		return nil, ErrSecretAuthentication
+	}
+	if len(encrypted.Nonce) != dataAEAD.NonceSize() {
 		return nil, ErrSecretAuthentication
 	}
 	plaintext, err := dataAEAD.Open(nil, encrypted.Nonce, encrypted.Ciphertext, aad)

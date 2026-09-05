@@ -2,8 +2,9 @@
 
 orch runs one durable controller and one through 20 token-enrolled
 execution agents. Agents use an externally installed containerd/runc runtime.
-Controller HA, automatic host fencing, CA/controller/administrator certificate
-rotation, and automated restore are not included.
+Controller HA, automatic host fencing, and CA/controller/administrator
+certificate rotation are not included. Controller snapshots can be inspected and restored
+into a fresh directory using separately saved identity and key material.
 
 ## Initialize a cluster
 
@@ -586,18 +587,94 @@ orch cluster backup \
 
 The output must be outside the live data directory and must not already exist.
 Before publication, orch runs SQLite integrity and foreign-key checks, syncs
-the staged file, and publishes it without clobbering another backup. When any
-encrypted secret version exists, `--secret-key-output` is required and is also
+the staged file, and publishes it without clobbering another backup. When the database records a master key (including before its first secret),
+`--secret-key-output` is required and is also
 created without clobbering. Store that key separately from the database.
 
 The database backup contains cluster state, enrolled-node public metadata,
 assignment history, observed execution state, events, and encrypted secret
 records. It does not contain the secret decryption key, CA, controller key,
 administrator key, agent private identity, agent cache, workload logs, or local
-volume contents. Preserve those files separately with
-an access-controlled system backup. Automated restore over live controller
-state is deliberately not implemented yet; stop and wait for a documented
-restore workflow rather than copying a database over a live controller.
+volume contents. Preserve those files separately with an access-controlled
+system backup. In particular, save the controller's `pki/` directory containing
+`ca.pem`, `ca-key.pem`, `controller.pem`, and `controller-key.pem`. Keep directory
+permissions `0700` and file permissions `0600`. Preserve the administrator's
+context and identity files on the machine used to operate the cluster.
+
+## Inspect and restore a controller
+
+Inspect a standalone database snapshot without modifying it:
+
+~~~console
+orch cluster backup inspect --backup /var/backups/orch/lab.db
+
+orch cluster backup inspect \
+  --backup /var/backups/orch/lab.db \
+  --pki-dir /media/offline/orch/pki \
+  --secret-key /media/offline/orch/lab.key \
+  --json
+~~~
+
+Inspection checks SQLite integrity, foreign keys and checksummed migration
+history. It tests compatible forward migrations on a private temporary copy;
+the original snapshot stays unchanged. It reports the cluster ID, original
+endpoint, schema versions, counts of nodes/applications/deployments/jobs, and
+missing recovery material. It never returns secret values or private keys.
+A successful database-only inspection can have `ready: false`: provide the
+reported missing files and inspect again before recovery. Invalid supplied
+material is an error. `ready: true` verifies the supplied controller identity
+and authenticates every encrypted secret and registry credential version,
+including retained historical versions. It does not certify that the snapshot
+is recent enough for the agents currently running.
+
+Before starting recovery, stop or externally fence the previous controller.
+Two controllers restored from the same identity must never run concurrently.
+Move the standalone database backup, saved PKI and master key to the replacement
+host, then restore:
+
+~~~console
+orch cluster restore \
+  --backup /var/backups/orch/lab.db \
+  --pki-dir /media/offline/orch/pki \
+  --secret-key /media/offline/orch/lab.key \
+  --data-dir /var/lib/orch-recovered
+
+orch controller serve \
+  --data-dir /var/lib/orch-recovered \
+  --listen 0.0.0.0:9443
+~~~
+
+The destination must not exist, even as an empty directory or symlink. Restore
+creates private directories/files, validates all material before publication,
+and publishes the database last. An interrupted restore without `control.db`
+is incomplete and cannot start a controller; use a fresh destination to retry.
+Restore never overwrites a live directory or generates replacement credentials.
+Older compatible schemas are migrated in the recovered copy. A newer schema,
+changed migration history, corrupt snapshot, wrong master key, mismatched or
+expired controller identity, or a database with SQLite sidecars is rejected.
+Use `cluster backup` to obtain a standalone snapshot; do not copy a live WAL
+database with filesystem tools.
+
+Keep the saved controller endpoint reachable at the same hostname/IP and port
+through DNS/routing before starting the controller. Restore preserves that
+endpoint, cluster ID and CA; it does not rewrite agent enrollment or operator
+targets. Existing administrator credentials remain valid until expiry. Keep
+the agents' private identities and caches intact. Jobs completed in the
+snapshot retain their outcomes and idempotency receipts, and are not scheduled
+again by restoring it. Unfinished jobs remain tied to their recorded owner;
+restore does not retry them on another node.
+
+Recovery returns to the snapshot, not the moment the host failed. Deployments,
+new enrollments, certificate renewals, secret changes and job results after the
+backup may be absent. A newer agent cache can reject stale or conflicting
+assignments; restore deliberately preserves that protection. Do not delete an
+agent cache or reset its generation to force a rewind: that can discard run
+tombstones and repeat commands. If the snapshot predates the agents' accepted
+state or certificate rotation, use a newer backup and investigate the mismatch
+before resuming mutations. This release does not reconcile divergent histories
+or recreate lost local volumes. Run a recovery drill with a recent snapshot and
+verify `orch status`, `orch nodes`, application history and job history before
+accepting new deployments.
 
 ## Failure boundaries
 

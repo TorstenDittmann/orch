@@ -74,10 +74,14 @@ func Backup(ctx context.Context, options BackupOptions) (result BackupResult, fi
 	if err != nil {
 		return BackupResult{}, err
 	}
+	fingerprint, err := state.SecretKeyFingerprint(ctx)
+	if err != nil {
+		return BackupResult{}, err
+	}
 	secretKeyOutput := ""
-	if hasEncrypted {
+	if hasEncrypted || fingerprint != "" {
 		if strings.TrimSpace(options.SecretKeyOutput) == "" {
-			return BackupResult{}, fmt.Errorf("%w: --secret-key-output is required because the database contains encrypted secrets", ErrInvalidOptions)
+			return BackupResult{}, fmt.Errorf("%w: --secret-key-output is required because the database records a secret master key or encrypted secrets", ErrInvalidOptions)
 		}
 		secretKeyOutput, err = filepath.Abs(options.SecretKeyOutput)
 		if err != nil || secretKeyOutput == output || pathWithin(secretKeyOutput, dataDir) {

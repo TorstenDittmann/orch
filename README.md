@@ -207,6 +207,12 @@ bin/orch target transport production ssh --host prod-controller
 Use `--target staging` for a one-off override or `ORCH_TARGET=staging` in a
 shell or script. `--context FILE` remains supported for compatibility.
 
+Use `orch cluster backup inspect --backup FILE` to check a snapshot and
+`orch cluster restore --backup FILE --pki-dir DIR --secret-key FILE --data-dir NEW_DIR`
+to recover with separately saved controller identity and key material. Follow the
+[controller recovery guide](docs/operations.md#inspect-and-restore-a-controller)
+to preserve endpoint continuity and account for snapshot age.
+
 Initialization is idempotent for identical inputs and never rotates existing
 credentials. Backup publication refuses to overwrite a file. See
 [docs/operations.md](docs/operations.md) and

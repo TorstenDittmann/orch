@@ -424,7 +424,12 @@ func runCluster(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "init":
 		return runClusterInit(args[1:], stdout, stderr)
+	case "restore":
+		return runClusterRecovery(args[1:], true, stdout, stderr)
 	case "backup":
+		if len(args) > 1 && args[1] == "inspect" {
+			return runClusterRecovery(args[2:], false, stdout, stderr)
+		}
 		return runClusterBackup(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printClusterHelp(stdout)
@@ -854,6 +859,8 @@ func printHelp(output io.Writer) {
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
+  orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
+  orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
   orch target import NAME CONTEXT [--use]
   orch target use NAME
   orch target transport NAME direct|wireguard|ssh [OPTIONS]
@@ -910,7 +917,9 @@ func printClusterHelp(output io.Writer) {
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
-  orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]`)
+  orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
+  orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
+  orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]`)
 }
 
 func printControllerHelp(output io.Writer) {
