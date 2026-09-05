@@ -1,4 +1,4 @@
-# Configure an application
+# Applications
 
 An application is a typed Pkl file named `orch.pkl`. It contains one or more
 services and can also define scheduled jobs, local volumes, placement rules,
@@ -54,7 +54,7 @@ Each service requires an OCI image. The most commonly used settings are:
 Use `http` for HTTP traffic and `tcp` for other TCP services. A service
 cannot define both.
 
-## Environment variables and secrets
+## Environment and secrets
 
 Plain values can live in the application:
 
@@ -138,7 +138,7 @@ volumes {
 If that worker is lost, orch reports `volume_node_lost`. It does not create an
 empty replacement volume on another worker.
 
-## Scheduled jobs
+## Schedules
 
 Schedules use five UTC cron fields:
 
@@ -161,7 +161,7 @@ orch cron logs hello cleanup RUN_ID
 
 Overlapping runs are skipped and missed runs are not replayed.
 
-## Rollout settings
+## Rollouts
 
 ```pkl
 deploy {

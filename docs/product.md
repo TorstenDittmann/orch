@@ -1,11 +1,11 @@
-# Limits and expectations
+# Limitations
 
 orch is designed for small teams running applications on **1–20 mutually
 reachable Linux servers**. It provides one application model and one operator
 workflow for deployments, networking, ingress, jobs, secrets, node maintenance,
 backups, and upgrades.
 
-## Good fits
+## Suitability
 
 orch is a good fit when:
 
@@ -16,7 +16,7 @@ orch is a good fit when:
 - a single durable controller is acceptable;
 - local persistent data can remain tied to one worker.
 
-## Current limits
+## Product limits
 
 orch does not provide:
 
@@ -36,7 +36,7 @@ Local volumes stay on the worker where they were created. orch will not start
 an empty replacement volume elsewhere after that worker is lost. Back up
 stateful applications with tools appropriate to the application.
 
-## Host responsibilities
+## Responsibilities
 
 orch installs and manages its own services, but you remain responsible for:
 

@@ -1,11 +1,11 @@
-# Deploy, update, and roll back
+# Deployments
 
 orch turns an application file into an immutable deployment revision. It
 resolves image tags to digests, places replicas on workers with enough
 capacity, waits for health checks, and switches ingress only to ready
 instances.
 
-## Deploy an application
+## Deploy
 
 Validate and inspect the proposed change:
 
@@ -23,7 +23,7 @@ orch deploy --wait --target production
 Submitting the same resolved configuration again is a no-op. Submitting an
 updated image or configuration creates a new revision.
 
-## Check a rollout
+## Status
 
 ```console
 orch app status hello --target production
@@ -58,7 +58,7 @@ http = new Http {
 
 Keep the health endpoint fast and independent of optional downstream services.
 
-## Update safely
+## Updates
 
 Change the application file, inspect the plan, and deploy it again:
 
@@ -72,7 +72,7 @@ The `deploy` block controls rollout capacity and deadline. With
 Existing instances stay available within the configured availability budget
 while replacements become ready.
 
-## Compare and roll back
+## Rollbacks
 
 List deployment history and compare revisions before restoring one:
 
@@ -85,7 +85,7 @@ orch rollback hello REVISION --wait --target production
 A rollback creates a new deployment from the selected stored revision and
 reuses its resolved image digests.
 
-## Placement and worker loss
+## Placement
 
 orch considers CPU, memory, node labels, and local-volume ownership when placing
 instances. A service remains `BLOCKED` when no eligible worker can run it.
@@ -99,7 +99,7 @@ Agents keep their assigned workloads running while the controller is
 unavailable. New deployments, scheduling decisions, and cluster changes wait
 for the controller to return.
 
-## Logs and command execution
+## Logs and exec
 
 Use the TUI for discovery, or the application commands for scripts:
 

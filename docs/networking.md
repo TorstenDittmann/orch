@@ -1,4 +1,4 @@
-# Expose services
+# Networking
 
 Every service endpoint receives a private address and a cluster DNS name:
 
@@ -8,7 +8,7 @@ SERVICE.APPLICATION.svc.internal
 
 Use HTTP endpoints for web traffic and TCP endpoints for other protocols.
 
-## Prepare the hosts
+## Requirements
 
 Workers must reach each other over their advertised private IPv4 addresses.
 Allow UDP 51820 between workers for the WireGuard mesh.
@@ -24,7 +24,7 @@ The host and provider firewall must allow forwarding between the private
 interface, WireGuard, and workload network. On Fedora, configure appropriate
 firewalld zones and policies while keeping SELinux enforcing.
 
-## Expose an HTTPS service
+## HTTPS
 
 Enable ingress on at least one worker:
 
@@ -53,7 +53,7 @@ are requested automatically. Confirm that public DNS resolves to an ingress
 node and that ports 80 and 443 are reachable so certificate issuance can
 succeed.
 
-## Expose plain HTTP by node address
+## HTTP
 
 Set `public = true` to create a catch-all listener on port 80:
 
@@ -68,7 +68,7 @@ http = new Http {
 Only one service in the cluster can own this catch-all route. Domain routes
 take precedence when both are configured.
 
-## Expose raw TCP
+## TCP
 
 ```pkl
 tcp = new Tcp {
@@ -81,7 +81,7 @@ tcp = new Tcp {
 on ingress nodes and forwards bytes without HTTP or TLS handling. Allow that
 port in host and provider firewalls.
 
-## Use private service discovery
+## Service discovery
 
 Applications can connect to another service through its cluster name. For
 example, a service called `database` in application `shop` is available at:
@@ -93,7 +93,7 @@ database.shop.svc.internal
 Only ready endpoints are returned. During a rolling update, old endpoints are
 removed after replacements become ready.
 
-## Diagnose connectivity
+## Troubleshooting
 
 Start with:
 

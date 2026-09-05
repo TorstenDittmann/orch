@@ -1,10 +1,10 @@
-# Install orch
+# Installation
 
 orch uses one controller and one or more workers. Start with fresh
 **Ubuntu 24.04 LTS amd64** or **Fedora Server 44 amd64** hosts that can reach
 each other over private IPv4 addresses.
 
-## Before you begin
+## Requirements
 
 Choose:
 
@@ -22,7 +22,7 @@ The installer does not change UFW, firewalld, cloud firewalls, DNS, routing, or
 NAT. On Fedora, keep SELinux enforcing and configure the appropriate firewalld
 zones and forwarding policy.
 
-## Install the controller
+## Controller
 
 Copy a trusted Linux amd64 `orch` binary to the controller and run the
 preflight check:
@@ -55,7 +55,7 @@ orch target import production ./orch-production-admin/context.json --use
 orch target test
 ```
 
-## Add a worker
+## Workers
 
 Create a short-lived join file on your workstation:
 
@@ -89,7 +89,7 @@ orch node ingress worker-1 --enable
 
 You can now [deploy your first application](quick-start.md).
 
-## Troubleshoot installation
+## Troubleshooting
 
 An interrupted installation can be resumed by running the same command with the
 same binary, addresses, and join file. A readiness timeout leaves the installed
@@ -113,7 +113,7 @@ sudo journalctl -u orch-containerd -u orch-agent --since '-10 min'
 On Fedora, inspect recent SELinux denials with
 `sudo ausearch -m AVC,USER_AVC -ts recent`.
 
-## Upgrade orch
+## Upgrades
 
 Upgrade the controller before workers. Copy the trusted new binary to each host
 and inspect the change before applying it:

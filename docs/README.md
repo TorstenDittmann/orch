@@ -55,7 +55,7 @@ workloads through containerd and runc, connect node networks with WireGuard,
 and route traffic directly through ingress nodes. Application traffic never
 passes through the controller.
 
-## What is included
+## Features
 
 | Area | Product behavior |
 | --- | --- |
@@ -65,7 +65,7 @@ passes through the controller.
 | Operations | Remembered targets, live logs, events, runtime inventory, and a keyboard-first TUI |
 | Recovery | Durable agent assignments, controller backups, guided host installation, and managed upgrades |
 
-## Designed for a clear boundary
+## Limits
 
 orch targets small teams operating mutually reachable Linux hosts. It does not
 provide Kubernetes APIs, multi-region control planes, distributed storage,

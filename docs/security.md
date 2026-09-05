@@ -1,10 +1,10 @@
-# Security, backups, and recovery
+# Security and recovery
 
 orch secures controller, worker, and operator traffic with mutually
 authenticated TLS. Installation creates separate credentials for the
 controller, every worker, and every administrator context.
 
-## Protect administrator access
+## Administrator access
 
 The directory produced by `orch cluster install --admin-dir ...` contains an
 administrator identity. Transfer the whole directory through a protected
@@ -19,7 +19,7 @@ orch target test
 
 Anyone with this context can administer the cluster.
 
-## Join workers safely
+## Worker enrollment
 
 Create one short-lived join file per worker:
 
@@ -31,7 +31,7 @@ Transfer it privately and keep it mode 0600. Do not place its contents in
 command arguments, environment variables, shell history, or logs. Delete
 transfer copies after the worker has joined.
 
-## Store application secrets
+## Secrets
 
 Send values through stdin:
 
@@ -48,7 +48,7 @@ provided only to the workload that references them.
 Rotate a secret by setting the same name again and deploying the application
 revision that should use it. Remove unused values with `orch secret delete`.
 
-## Back up regularly
+## Backups
 
 The recovery directory created during installation is a day-zero snapshot.
 Create newer backups after configuration changes and on a schedule:
@@ -72,7 +72,7 @@ contexts, worker identities, workload logs, or local-volume contents.
 
 A backup stored only on the controller does not protect against host loss.
 
-## Recover a controller
+## Recovery
 
 Use a fresh supported host and an off-host database backup, secret key, and PKI
 directory. Inspect the backup before restoring it:
@@ -110,7 +110,7 @@ orch status --target production
 Confirm node identity, application state, secrets, ingress, and a new backup
 before resuming changes.
 
-## Understand the boundary
+## Security model
 
 - The controller is a single administrative and scheduling authority.
 - Workers keep existing workloads running during a controller outage.

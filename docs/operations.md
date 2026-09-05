@@ -1,4 +1,4 @@
-# Manage applications and nodes
+# Cluster operations
 
 Use a named target for every cluster you operate:
 
@@ -10,7 +10,7 @@ orch target test
 
 Pass `--target production` explicitly in automation.
 
-## Inspect the cluster
+## Cluster status
 
 ```console
 orch status
@@ -22,7 +22,7 @@ orch tui
 The TUI provides a keyboard-driven view of applications, instances, workers,
 deployments, events, and live logs.
 
-## Inspect an application
+## Applications
 
 ```console
 orch app status hello
@@ -35,7 +35,7 @@ When a service is blocked, its status includes a reason such as missing
 capacity, a label mismatch, a missing secret, or a lost local-volume worker.
 Resolve that condition and orch will reconcile the desired state.
 
-## Label nodes
+## Node labels
 
 Labels let applications request specific workers:
 
@@ -48,7 +48,7 @@ orch nodes
 Use the same keys in a service's `constraints`. The `orch.*` label prefix is
 reserved.
 
-## Perform node maintenance
+## Node maintenance
 
 Cordon a worker to stop new placement:
 
@@ -69,7 +69,7 @@ moved. After maintenance:
 orch node uncordon worker-1
 ```
 
-## Run one-off work
+## One-off jobs
 
 Run a command from a service definition:
 
@@ -95,7 +95,7 @@ deploy {
 
 Migration commands should be safe to retry.
 
-## Operate scheduled jobs
+## Scheduled jobs
 
 ```console
 orch cron runs hello cleanup
@@ -105,7 +105,7 @@ orch cron logs hello cleanup RUN_ID
 Overlapping occurrences are skipped. Failed and missed occurrences are not
 automatically replayed.
 
-## Remove an application
+## Removing applications
 
 Inspect the application and its local data before removal:
 
@@ -117,7 +117,7 @@ orch remove hello
 Removing desired state stops its workloads. Treat local-volume data separately
 according to your retention policy.
 
-## Back up the controller
+## Backups
 
 Create backups regularly and copy them off the controller:
 
@@ -132,7 +132,7 @@ Protect backups like administrator credentials: they contain controller state,
 PKI, and the secret-encryption key. See [security and recovery](security.md)
 before restoring a controller.
 
-## Upgrade the cluster
+## Upgrades
 
 Upgrade the controller first, then workers:
 

@@ -1,10 +1,10 @@
-# Deploy your first HTTPS application
+# Quickstart
 
 This guide starts with a managed controller and one worker, then deploys a
 health-checked web service. Use fresh Ubuntu 24.04 LTS or Fedora Server 44 amd64
 hosts with mutually reachable private addresses.
 
-## 1. Install the controller
+## Controller
 
 Copy a trusted Linux amd64 `orch` executable to the controller host. Choose the
 HTTPS address that the worker and your workstation can reach:
@@ -26,7 +26,7 @@ orch target import production ./orch-production-admin/context.json --use
 orch target test
 ```
 
-## 2. Join a worker
+## Worker
 
 Create one expiring credential for the worker and transfer it with the trusted
 executable:
@@ -46,7 +46,7 @@ sudo ./orch node install \
 Allow UDP 51820 between workers. For public ingress, route DNS to an
 ingress-enabled node and allow TCP 80 and 443.
 
-## 3. Describe the application
+## Application
 
 Create `orch.pkl`:
 
@@ -80,7 +80,7 @@ deploy {
 
 The image must listen on port 8080 and return success from `/healthz`.
 
-## 4. Validate, inspect, and deploy
+## Deployment
 
 ```console
 orch validate
