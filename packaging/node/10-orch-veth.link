@@ -1,0 +1,8 @@
+# Managed by orch node install. CNI records the kernel-assigned veth MAC.
+# A later udev persistent-MAC rewrite invalidates CNI CHECK ownership.
+[Match]
+OriginalName=veth*
+Driver=veth
+
+[Link]
+MACAddressPolicy=none

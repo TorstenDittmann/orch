@@ -5,7 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,5 +101,45 @@ func TestOfficialArtifacts(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestExtractionRejectsWrongArchitecture(t *testing.T) {
+	data := make([]byte, 64)
+	copy(data, []byte{0x7f, 'E', 'L', 'F', 2, 1, 1})
+	binary.LittleEndian.PutUint16(data[16:], 2)
+	binary.LittleEndian.PutUint16(data[18:], 183) // EM_AARCH64
+	binary.LittleEndian.PutUint32(data[20:], 1)
+	binary.LittleEndian.PutUint16(data[52:], 64)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "arm64")
+	if err := os.WriteFile(source, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := Artifact{Archive: "raw", SHA256: digest(data), Files: map[string]string{"runtime": "bin/runtime"}}
+	if err := extract(a, source, filepath.Join(dir, "output")); err == nil || !strings.Contains(err.Error(), "amd64") {
+		t.Fatalf("wrong architecture error = %v", err)
+	}
+}
+
+func TestArtifactRedirectBounds(t *testing.T) {
+	for _, tc := range []struct {
+		url       string
+		redirects int
+		allowed   bool
+	}{
+		{"https://release-assets.githubusercontent.com/asset", 5, true},
+		{"http://release-assets.githubusercontent.com/asset", 1, false},
+		{"https://user:password@example.com/asset", 1, false},
+		{"https://release-assets.githubusercontent.com/asset", 6, false},
+	} {
+		u, err := url.Parse(tc.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = artifactRedirect(&http.Request{URL: u}, make([]*http.Request, tc.redirects))
+		if (err == nil) != tc.allowed {
+			t.Fatalf("redirect policy: count=%d allowed=%t error=%v", tc.redirects, tc.allowed, err)
+		}
 	}
 }

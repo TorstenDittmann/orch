@@ -39,6 +39,11 @@ The installer checks freshness, kernel boot ID, enrolled node ID, and systemd
 MainPID. A timeout preserves identity, state and running services for diagnosis
 and retry; an active systemd unit alone is insufficient.
 
+Fedora also receives an owned veth `.link` rule preserving CNI-assigned MAC
+addresses. Its udev persistent-MAC default otherwise races CNI ADD/CHECK. The
+rule matches virtual `veth*` devices, leaves physical interfaces alone and
+requires only a configuration reload for future links.
+
 ## Consequences
 
 Installation requires root, internet access to signed package repositories and

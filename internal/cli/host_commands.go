@@ -82,6 +82,9 @@ func runNodeHost(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		}
 	} else if result.NodeID != "" {
 		fmt.Fprintf(stdout, "Node %s: ready=%t changed=%t state=%s\n", result.NodeID, result.Ready, result.Changed, result.DataDir)
+		if result.Ingress != nil {
+			fmt.Fprintf(stdout, "Controller-assigned ingress: %t\n", *result.Ingress)
+		}
 	}
 	if err != nil {
 		writeError(stderr, err, jsonOutput)

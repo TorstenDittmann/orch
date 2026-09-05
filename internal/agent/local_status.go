@@ -33,8 +33,8 @@ func (r *sessionRunner) writeLocalStatus(report *orchv1alpha1.AllocationReport) 
 		return nil
 	}
 	boot, _ := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	status := LocalStatus{NodeID: r.credentials.Config.NodeID, ClusterID: r.credentials.Config.ClusterID, PID: os.Getpid(), BootID: strings.TrimSpace(string(boot)), UpdatedAt: currentTime(r.now), Connected: r.assignmentReceived}
-	if report != nil && r.assignmentReceived {
+	status := LocalStatus{NodeID: r.credentials.Config.NodeID, ClusterID: r.credentials.Config.ClusterID, PID: os.Getpid(), BootID: strings.TrimSpace(string(boot)), UpdatedAt: currentTime(r.now), Connected: r.assignmentAcknowledged}
+	if report != nil && r.assignmentAcknowledged {
 		status.Generation = report.AssignmentGeneration
 		n := report.Network
 		a, err := r.cache.Assignment(context.Background())

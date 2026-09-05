@@ -20,6 +20,7 @@ import (
 const Prefix = "/opt/orch"
 const StateDir = "/var/lib/orch-install"
 const AgentDir = "/var/lib/orch-agent"
+const VethLinkPath = "/etc/systemd/network/10-orch-veth.link"
 const ManifestPath = StateDir + "/manifest.json"
 
 type Artifact struct {
@@ -74,18 +75,21 @@ func address(raw string) (netip.Addr, error) {
 	return ip, nil
 }
 func Distro(data string) (string, string) {
-	values := map[string]string{}
+	return releaseValue(data, "ID"), releaseValue(data, "VERSION_ID")
+}
+func releaseValue(data, name string) string {
 	for _, line := range strings.Split(data, "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if ok {
-			values[key] = strings.Trim(value, "\"'")
+		if ok && key == name {
+			return strings.Trim(value, "\"'")
 		}
 	}
-	return values["ID"], values["VERSION_ID"]
+	return ""
 }
+
 func packages(distro string) []string {
 	if distro == "fedora" {
-		return []string{"ca-certificates", "nftables", "iproute", "libcap", "kmod", "shadow-utils", "container-selinux", "policycoreutils-python-utils"}
+		return []string{"ca-certificates", "nftables", "iproute", "libcap", "kmod", "shadow-utils", "container-selinux", "policycoreutils-python-utils", "systemd-udev"}
 	}
 	return []string{"ca-certificates", "nftables", "iproute2", "libcap2-bin", "kmod", "passwd"}
 }
@@ -105,9 +109,13 @@ func BuildPlan(ctx context.Context, raw string) (Plan, error) {
 			files = append(files, Prefix+"/"+f)
 		}
 	}
+	if report.OS == "fedora" {
+		files = append(files, VethLinkPath)
+	}
 	sort.Strings(files)
 	actions := []string{"Install listed OS utilities from signed distribution repositories (no host upgrade)", "Download and verify pinned artifacts; copy this orch executable", "Create owned service/configuration files and private state directories", "Create non-login orch-ingress account and set Caddy low-port capability", "Enable IPv4 forwarding; load overlay and WireGuard modules", "Enroll using the supplied join artifact; enable and start owned systemd services", "Wait for the authenticated agent assignment and network readiness; retain state on timeout", "Leave host/provider firewall rules unchanged; allow peer UDP 51820 and ingress TCP 80/443 as needed"}
 	if report.OS == "fedora" {
+		actions = append(actions, "Install an owned veth link policy preserving CNI MAC addresses; reload udev rules without reconfiguring existing interfaces")
 		actions = append(actions, "Install distribution container-selinux policy; label owned runtime binaries container_runtime_exec_t, runtime state container_var_lib_t/container_var_run_t and configuration container_config_t; restore labels without disabling SELinux or firewalld")
 	}
 	return Plan{Report: report, Address: ip.String(), Packages: packages(report.OS), Artifacts: artifacts, Files: files, Actions: actions}, nil

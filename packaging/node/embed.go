@@ -3,5 +3,5 @@ package node
 
 import "embed"
 
-//go:embed artifacts.json *.service *.toml
+//go:embed artifacts.json *.service *.toml *.link
 var Files embed.FS

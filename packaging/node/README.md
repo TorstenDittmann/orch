@@ -31,3 +31,11 @@ not disable enforcing mode, alter SELinux booleans, or replace firewalld rules.
 A new bundle version or executable is not an implicit upgrade: the installation
 journal rejects changed binary or artifact hashes. Upgrade and uninstall flows
 require a separate design covering live workloads and persistent state.
+
+Fedora's owned `/etc/systemd/network/10-orch-veth.link` preserves the MAC
+addresses CNI records for kernel-created `veth*` devices (driver `veth`). Without
+it, udev's persistent-MAC policy can change an address after CNI ADD and make
+CNI CHECK reject the attachment. The rule applies to future matching veth pairs,
+including those created by other software; it does not match physical NICs or
+trigger changes to existing interfaces. Installation reloads udev configuration,
+not NetworkManager or firewall rules.

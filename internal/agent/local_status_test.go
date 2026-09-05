@@ -3,6 +3,9 @@ package agent
 import (
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"change.codes/torsten/better-swarm/internal/model"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -37,5 +40,24 @@ func TestReadinessRequiresCurrentNetworkDNSAndAssignedIngress(t *testing.T) {
 	}
 	if assignmentReady(assignment, nil) {
 		t.Fatal("nil report accepted")
+	}
+}
+
+func TestLocalReceiptCannotReportReadyBeforeAssignmentACK(t *testing.T) {
+	dir := t.TempDir()
+	runner := sessionRunner{dataDir: dir}
+	if err := runner.writeLocalStatus(&orchv1alpha1.AllocationReport{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, LocalStatusFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status LocalStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Connected || status.Ready {
+		t.Fatal("unacknowledged assignment reported ready")
 	}
 }

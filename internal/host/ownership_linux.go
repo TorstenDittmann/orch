@@ -4,7 +4,9 @@ package host
 
 import (
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
+	"strings"
 	"syscall"
 )
 
@@ -18,4 +20,13 @@ func rootOwned(path string, directory bool) error {
 		return fmt.Errorf("%s must be root owned, without group/world write permission and with the expected file type", path)
 	}
 	return noSymlinks(path)
+}
+
+func securityLabel(path string) (string, error) {
+	data := make([]byte, 4096)
+	n, err := unix.Getxattr(path, "security.selinux", data)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(data[:n]), "\x00"), nil
 }

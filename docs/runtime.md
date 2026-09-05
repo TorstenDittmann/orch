@@ -5,6 +5,13 @@ node placement and WireGuard path.
 
 ## Host matrix
 
+The [guided installer](installation.md) supports fresh Ubuntu 24.04 LTS amd64
+and Fedora Server 44 amd64 VMs. It owns a dedicated containerd socket at
+`/run/orch-containerd/containerd.sock` and runtime binaries under `/opt/orch`.
+The manual runtime matrix below is broader than the automated installation
+matrix; Fedora installation retains SELinux enforcing and firewalld.
+
+
 | Component | Supported contract |
 | --- | --- |
 | Operating system | Linux only |

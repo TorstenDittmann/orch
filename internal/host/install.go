@@ -33,6 +33,7 @@ type InstallResult struct {
 	Changed bool   `json:"changed"`
 	Phase   string `json:"phase"`
 	DataDir string `json:"data_dir"`
+	Ingress *bool  `json:"ingress,omitempty"`
 }
 type manifest struct {
 	Version    int               `json:"version"`
@@ -204,6 +205,7 @@ func Install(ctx context.Context, options InstallOptions) (InstallResult, error)
 			if strings.TrimSpace(pid) == strconv.Itoa(status.PID) {
 				r := result()
 				r.Ready = true
+				r.Ingress = &status.Ingress
 				r.Phase = "ready"
 				return r, nil
 			}
@@ -218,7 +220,7 @@ func Install(ctx context.Context, options InstallOptions) (InstallResult, error)
 	}
 }
 func (i *installer) loadOrCreate(binaryHash, bundleHash, joinHash string) error {
-	for _, p := range []string{Prefix, StateDir, AgentDir, "/var/lib/orch-ingress", "/var/lib/orch-containerd", "/etc/systemd/system", "/etc/sysctl.d", "/etc/modules-load.d"} {
+	for _, p := range []string{Prefix, StateDir, AgentDir, "/var/lib/orch-ingress", "/var/lib/orch-containerd", "/etc/systemd/system", "/etc/systemd/network", "/etc/sysctl.d", "/etc/modules-load.d"} {
 		if err := noSymlinks(p); err != nil {
 			return err
 		}
@@ -502,6 +504,18 @@ func (i *installer) configure(ctx context.Context) error {
 		return err
 	}
 	if i.state.Distro == "fedora" {
+		data, err := nodebundle.Files.ReadFile("10-orch-veth.link")
+		if err != nil {
+			return err
+		}
+		if err := i.publishBytes(VethLinkPath, data); err != nil {
+			return err
+		}
+		// Only reload configuration for future devices; never trigger/reapply the
+		// host's physical links. NetworkManager's existing veth exclusion remains.
+		if _, err := i.run(ctx, "udevadm", "control", "--reload"); err != nil {
+			return err
+		}
 		if err := i.selinux(ctx); err != nil {
 			return err
 		}
@@ -514,7 +528,7 @@ func (i *installer) configure(ctx context.Context) error {
 func (i *installer) selinux(ctx context.Context) error {
 	// Prefer the distribution-maintained container runtime policy, without
 	// permissive domains or custom blanket allow rules.
-	labels := [][2]string{{Prefix + "/bin/containerd", "container_runtime_exec_t"}, {Prefix + "/bin/containerd-shim-runc-v2", "container_runtime_exec_t"}, {Prefix + "/bin/runc", "container_runtime_exec_t"}, {"/var/lib/orch-containerd(/.*)?", "container_var_lib_t"}, {"/run/orch-containerd(/.*)?", "container_var_run_t"}, {Prefix + "/containerd.toml", "container_config_t"}}
+	labels := selinuxLabels()
 	out, err := i.run(ctx, "semanage", "fcontext", "-l", "-C")
 	if err != nil {
 		return err
@@ -536,7 +550,7 @@ func (i *installer) selinux(ctx context.Context) error {
 			}
 		}
 	}
-	_, err = i.run(ctx, "restorecon", "-RF", Prefix, "/var/lib/orch-containerd", "/var/lib/orch-ingress", AgentDir)
+	_, err = i.run(ctx, "restorecon", "-RF", Prefix, "/var/lib/orch-containerd", "/var/lib/orch-ingress", AgentDir, VethLinkPath)
 	return err
 }
 func writeExclusive(path string, data []byte, mode os.FileMode) error {
@@ -586,4 +600,8 @@ func syncDir(path string) error {
 	}
 	defer f.Close()
 	return f.Sync()
+}
+
+func selinuxLabels() [][2]string {
+	return [][2]string{{Prefix + "/bin/containerd", "container_runtime_exec_t"}, {Prefix + "/bin/containerd-shim-runc-v2", "container_runtime_exec_t"}, {Prefix + "/bin/runc", "container_runtime_exec_t"}, {"/var/lib/orch-containerd(/.*)?", "container_var_lib_t"}, {"/run/orch-containerd(/.*)?", "container_var_run_t"}, {Prefix + "/containerd.toml", "container_config_t"}}
 }

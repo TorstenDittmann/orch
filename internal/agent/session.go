@@ -32,18 +32,18 @@ const (
 )
 
 type sessionRunner struct {
-	credentials        Credentials
-	cache              *state.Store
-	supervisor         *Supervisor
-	capabilities       orchruntime.Capabilities
-	bootID             string
-	now                func() time.Time
-	random             io.Reader
-	reportSeq          uint64
-	assignmentReceived bool
-	dataDir            string
-	renewalRetryAt     time.Time
-	renewalBackoff     time.Duration
+	credentials            Credentials
+	cache                  *state.Store
+	supervisor             *Supervisor
+	capabilities           orchruntime.Capabilities
+	bootID                 string
+	now                    func() time.Time
+	random                 io.Reader
+	reportSeq              uint64
+	assignmentAcknowledged bool
+	dataDir                string
+	renewalRetryAt         time.Time
+	renewalBackoff         time.Duration
 }
 
 type controllerMessage struct {
@@ -206,11 +206,11 @@ func reconnectJitter(source io.Reader, maximum time.Duration) (time.Duration, er
 }
 
 func (r *sessionRunner) connect(ctx context.Context) error {
-	r.assignmentReceived = false
+	r.assignmentAcknowledged = false
 	if err := r.writeLocalStatus(nil); err != nil {
 		return err
 	}
-	defer func() { r.assignmentReceived = false; _ = r.writeLocalStatus(nil) }()
+	defer func() { r.assignmentAcknowledged = false; _ = r.writeLocalStatus(nil) }()
 	tlsConfig := r.agentTLSConfig()
 	transport := &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
@@ -257,15 +257,9 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		_ = stream.CloseRequest()
 		_ = stream.CloseResponse()
 	}()
-	if cachedErr == nil {
-		statuses, err := r.supervisor.Reconcile(ctx, cached)
-		if err != nil {
-			return fmt.Errorf("reconcile cached assignment: %w", err)
-		}
-		if err := r.enqueueReport(outbound, cached, statuses); err != nil {
-			return err
-		}
-	}
+	// Cached state may have been committed before reconciliation failed and
+	// therefore never acknowledged. Wait for the controller's assignment and
+	// send its ACK before publishing reports on this connection.
 	heartbeat := time.NewTicker(heartbeatInterval)
 	reconcile := time.NewTicker(reconcileInterval)
 	renewal := time.NewTimer(r.certificateRenewalDelay())
@@ -279,6 +273,9 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		case request := <-outbound:
 			if err := stream.Send(request); err != nil {
 				return err
+			}
+			if request.GetAssignmentAck() != nil {
+				r.assignmentAcknowledged = true
 			}
 			if report := request.GetAllocationReport(); report != nil {
 				if err := r.writeLocalStatus(report); err != nil {
@@ -314,8 +311,10 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("reconcile cached assignment: %w", err)
 			}
-			if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
-				return err
+			if r.assignmentAcknowledged {
+				if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
+					return err
+				}
 			}
 		case <-renewal.C:
 			return errCertificateRenewalDue
@@ -343,7 +342,6 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		if err != nil {
 			return fmt.Errorf("reconcile assignment: %w", err)
 		}
-		r.assignmentReceived = true
 		// Acknowledge only after the durable assignment has actually converged.
 		// This makes a final empty-assignment ACK a reliable removal fence.
 		if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{

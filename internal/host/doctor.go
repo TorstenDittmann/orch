@@ -22,14 +22,16 @@ import (
 
 // Probe separates read-only inspection from the installer mutation interface.
 type Probe struct {
-	Read       func(string) ([]byte, error)
-	Exists     func(string) bool
-	Run        Command
-	GOOS, Arch string
-	UID        int
-	Addresses  []string
-	FreeBytes  uint64
-	Trusted    func(string) error
+	Read        func(string) ([]byte, error)
+	Exists      func(string) bool
+	Run         Command
+	GOOS, Arch  string
+	UID         int
+	Addresses   []string
+	FreeBytes   uint64
+	Trusted     func(string) error
+	OwnListener func(string, string) bool
+	Label       func(string) (string, error)
 }
 
 func Doctor(ctx context.Context, ip string) Report {
@@ -39,7 +41,7 @@ func Doctor(ctx context.Context, ip string) Report {
 			addresses = append(addresses, strings.Split(a.String(), "/")[0])
 		}
 	}
-	report := Inspect(ctx, ip, Probe{Read: os.ReadFile, Exists: func(p string) bool { _, err := os.Lstat(p); return err == nil }, Run: runCommand, GOOS: runtime.GOOS, Arch: runtime.GOARCH, UID: os.Geteuid(), Addresses: addresses, FreeBytes: freeSpace("/var/lib"), Trusted: trustedInstalledFile})
+	report := Inspect(ctx, ip, Probe{Read: os.ReadFile, Exists: func(p string) bool { _, err := os.Lstat(p); return err == nil }, Run: runCommand, GOOS: runtime.GOOS, Arch: runtime.GOARCH, UID: os.Geteuid(), Addresses: addresses, FreeBytes: freeSpace("/var/lib"), Trusted: trustedInstalledFile, OwnListener: ownedListener, Label: securityLabel})
 	if runtime.GOOS == "linux" {
 		if _, err := os.Lstat(ManifestPath); err == nil {
 			receipt, err := agentctl.ReadLocalStatus(AgentDir, time.Now())
@@ -73,7 +75,7 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 	if err == nil {
 		r.OS, r.Version = Distro(string(data))
 	}
-	if !supported(r.OS, r.Version, p.Arch) {
+	if !supported(r.OS, r.Version, p.Arch) || r.OS == "fedora" && (releaseValue(string(data), "VARIANT_ID") != "server" || p.Exists("/run/ostree-booted")) {
 		add("distribution", "fail", r.OS+" "+r.Version+" "+p.Arch, "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
@@ -129,11 +131,28 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		}
 	}
 	owned := p.Exists(ManifestPath)
+	configured := false
+	if data, err := p.Read(ManifestPath); err == nil {
+		var state manifest
+		if json.Unmarshal(data, &state) == nil {
+			configured = state.Done["configuration"]
+		}
+	}
+	if owned && p.Exists(Prefix+"/bin/caddy") {
+		out, err := timeoutCommand(p.Run, ctx, "getcap", "-n", Prefix+"/bin/caddy")
+		fields := strings.Fields(out)
+		if err != nil || len(fields) != 2 || fields[0] != Prefix+"/bin/caddy" || fields[1] != "cap_net_bind_service=ep" {
+			add("caddy_capability", "fail", "Caddy lacks its exact low-port capability", "Restore only cap_net_bind_service=ep on the owned Caddy binary", !configured)
+		} else {
+			add("caddy_capability", "pass", "Caddy has only cap_net_bind_service=ep", "", false)
+		}
+	}
+
 	if !owned {
 		if _, err := timeoutCommand(p.Run, ctx, "getent", "passwd", "orch-ingress"); err == nil {
 			add("ownership", "fail", "Unowned orch-ingress account exists", "Use a fresh host; existing accounts are not adopted", false)
 		}
-		for _, path := range []string{Prefix, StateDir, AgentDir, "/var/lib/orch-containerd", "/var/lib/orch-ingress", "/etc/systemd/system/orch-agent.service", "/etc/systemd/system/orch-containerd.service", "/etc/sysctl.d/90-orch.conf", "/etc/modules-load.d/orch.conf"} {
+		for _, path := range []string{Prefix, StateDir, AgentDir, VethLinkPath, "/var/lib/orch-containerd", "/var/lib/orch-ingress", "/etc/systemd/system/orch-agent.service", "/etc/systemd/system/orch-containerd.service", "/etc/sysctl.d/90-orch.conf", "/etc/modules-load.d/orch.conf"} {
 			if p.Exists(path) {
 				add("ownership", "fail", "Unowned installation path exists: "+path, "Use a fresh host; manual state takeover is unsupported", false)
 			}
@@ -192,13 +211,29 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		} else {
 			add("selinux", "pass", "SELinux enforcing; owned labels are installed with distribution policy", "", false)
 		}
+		if owned && configured {
+			for _, label := range selinuxLabels() {
+				path := strings.TrimSuffix(label[0], "(/.*)?")
+				if !p.Exists(path) {
+					continue
+				}
+				actual := ""
+				if p.Label != nil {
+					actual, _ = p.Label(path)
+				}
+				fields := strings.Split(actual, ":")
+				if len(fields) < 3 || fields[2] != label[1] {
+					add("selinux_context", "fail", "Unexpected SELinux context on "+path, "Restore the owned file-context mapping and run restorecon on this path", false)
+				}
+			}
+		}
 		out, _ := timeoutCommand(p.Run, ctx, "systemctl", "is-active", "firewalld")
 		add("firewalld", "warn", "firewalld state: "+strings.TrimSpace(out), "Keep existing rules; allow mesh UDP 51820 between peers and ingress TCP 80/443 as needed", false)
 	}
-	out, err := timeoutCommand(p.Run, ctx, "ss", "-H", "-lntu")
+	out, err := timeoutCommand(p.Run, ctx, "ss", "-H", "-lntup")
 	if err != nil {
 		add("ports", "unknown", "Local socket inspection unavailable", "Install iproute utilities and rerun doctor", true)
-	} else if !owned {
+	} else {
 		for _, line := range strings.Split(out, "\n") {
 			f := strings.Fields(line)
 			if len(f) < 5 {
@@ -210,6 +245,9 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 				continue
 			}
 			if port == "51820" || (port == "80" || port == "443") && (host == "0.0.0.0" || host == "*" || host == "::" || host == ip) || port == "53" && (host == "0.0.0.0" || host == "*" || host == "::") {
+				if owned && p.OwnListener != nil && p.OwnListener(port, line) {
+					continue
+				}
 				add("ports", "fail", "Conflicting listener: "+endpoint, "Resolve the existing listener before installing", false)
 			}
 		}
@@ -248,6 +286,17 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 	cmd.Stderr = &output
 	err := cmd.Run()
 	if err != nil {
+		// These fixed local utilities never receive join credentials or repository
+		// URLs. Include a short diagnostic; package-manager output may contain
+		// authenticated mirror URLs and stays in the distribution's private logs.
+		switch filepath.Base(name) {
+		case "semanage", "restorecon", "modprobe", "systemd-analyze", "setcap", "useradd", "chown", "sysctl", "udevadm":
+			detail := strings.TrimSpace(output.String())
+			if len(detail) > 1024 {
+				detail = detail[:1024] + "…"
+			}
+			return output.String(), fmt.Errorf("%s failed: %w: %s", filepath.Base(name), err, detail)
+		}
 		return output.String(), fmt.Errorf("%s failed: %w", filepath.Base(name), err)
 	}
 	return output.String(), nil

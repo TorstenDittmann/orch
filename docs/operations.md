@@ -6,6 +6,16 @@ Controller HA, automatic host fencing, and CA/controller/administrator
 certificate rotation are not included. Controller snapshots can be inspected and restored
 into a fresh directory using separately saved identity and key material.
 
+## Install a worker
+
+Use [guided node installation](installation.md) on a fresh Ubuntu 24.04 LTS
+or Fedora Server 44 amd64 VM. Run `orch node doctor --advertise-address IP`
+locally first, then `sudo orch node install --advertise-address IP --join-file FILE`.
+A completed installation can be checked or resumed without the join file.
+These commands never resolve a selected remote target. Persistent agent and
+containerd services start at boot; existing identities and workload state are
+preserved on retries. Firewall access remains an explicit operator task.
+
 ## Initialize a cluster
 
 Choose a location for controller state. The CLI creates a private, remembered

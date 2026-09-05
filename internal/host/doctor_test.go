@@ -6,12 +6,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fixtureProbe(distro string) Probe {
 	files := map[string]string{"/etc/os-release": "ID=" + distro + "\nVERSION_ID=24.04", "/proc/1/comm": "systemd\n", "/sys/fs/cgroup/cgroup.controllers": "cpuset cpu io memory pids\n", "/proc/sys/net/ipv4/ip_forward": "0\n", "/sys/fs/selinux/enforce": "1"}
 	if distro == "fedora" {
-		files["/etc/os-release"] = "ID=fedora\nVERSION_ID=44"
+		files["/etc/os-release"] = "ID=fedora\nVERSION_ID=44\nVARIANT_ID=server"
 	}
 	return Probe{GOOS: "linux", Arch: "amd64", UID: 0, Addresses: []string{"10.0.0.11"}, FreeBytes: 4 << 30,
 		Read: func(p string) ([]byte, error) {
@@ -106,5 +107,65 @@ func TestDoctorNeverExecutesUntrustedInstalledFiles(t *testing.T) {
 	}
 	if Inspect(context.Background(), "10.0.0.11", p).Installable {
 		t.Fatal("tampered installation accepted")
+	}
+}
+
+func TestDoctorUsesBoundedReadOnlyCommands(t *testing.T) {
+	p := fixtureProbe("fedora")
+	run := p.Run
+	p.Run = func(ctx context.Context, name string, args ...string) (string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 10*time.Second {
+			t.Fatalf("unbounded probe %s", name)
+		}
+		switch name {
+		case "getent", "modinfo", "ss":
+		case "systemctl":
+			if args[0] != "show" && args[0] != "is-active" {
+				t.Fatalf("mutating systemctl call: %v", args)
+			}
+		case "ip":
+			if strings.Join(args, " ") != "-4 route show" {
+				t.Fatalf("mutating ip call: %v", args)
+			}
+		default:
+			t.Fatalf("unexpected probe command %s", name)
+		}
+		return run(ctx, name, args...)
+	}
+	Inspect(context.Background(), "10.0.0.11", p)
+}
+
+func TestOwnedManifestDoesNotHideForeignListeners(t *testing.T) {
+	for _, matches := range []bool{false, true} {
+		p := fixtureProbe("ubuntu")
+		p.Exists = func(path string) bool { return path == ManifestPath }
+		run := p.Run
+		p.Run = func(ctx context.Context, name string, args ...string) (string, error) {
+			if name == "ss" {
+				return "tcp LISTEN 0 4096 0.0.0.0:80 0.0.0.0:* users:((\"caddy\",pid=123,fd=3))", nil
+			}
+			return run(ctx, name, args...)
+		}
+		p.OwnListener = func(port, line string) bool { return matches }
+		if got := Inspect(context.Background(), "10.0.0.11", p).Installable; got != matches {
+			t.Fatalf("matching owned listener=%t installable=%t", matches, got)
+		}
+	}
+}
+
+func TestFedoraAtomicAndOtherVariantsAreNotClaimedSupported(t *testing.T) {
+	for _, variant := range []string{"silverblue", "coreos", "workstation", ""} {
+		p := fixtureProbe("fedora")
+		read := p.Read
+		p.Read = func(path string) ([]byte, error) {
+			if path == "/etc/os-release" {
+				return []byte("ID=fedora\nVERSION_ID=44\nVARIANT_ID=" + variant), nil
+			}
+			return read(path)
+		}
+		if Inspect(context.Background(), "10.0.0.11", p).Installable {
+			t.Fatalf("unsupported variant %q accepted", variant)
+		}
 	}
 }

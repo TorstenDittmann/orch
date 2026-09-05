@@ -23,17 +23,12 @@ const maxArtifactBytes = int64(256 << 20)
 
 func download(ctx context.Context, a Artifact, destination string) error {
 	u, err := url.Parse(a.URL)
-	if err != nil || u.Scheme != "https" || u.Host != "github.com" {
+	if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil {
 		return errors.New("invalid pinned artifact URL")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	client := &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 5 || req.URL.Scheme != "https" || req.URL.User != nil {
-			return errors.New("unsafe artifact redirect")
-		}
-		return nil
-	}}
+	client := &http.Client{Timeout: 10 * time.Minute, CheckRedirect: artifactRedirect}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
 	if err != nil {
 		return err
@@ -222,6 +217,13 @@ func verifyHash(path, digest string) error {
 	}
 	if actual != digest {
 		return fmt.Errorf("owned file checksum mismatch: %s", path)
+	}
+	return nil
+}
+
+func artifactRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > 5 || req.URL.Scheme != "https" || req.URL.User != nil {
+		return errors.New("unsafe artifact redirect")
 	}
 	return nil
 }

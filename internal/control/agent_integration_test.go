@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -175,6 +176,19 @@ func TestLoopbackAgentRunsOperatesAdoptsAndRemovesWorkload(t *testing.T) {
 		t.Fatalf("agent shutdown changed workload: %#v", objects)
 	}
 
+	// Simulate a disconnect after durably caching the current assignment but
+	// before its ACK reaches the controller. Reconnect must ACK the snapshot
+	// before sending any cached report, or the controller rejects every stream.
+	db, err := sql.Open("sqlite", filepath.Join(controllerDir, clusterctl.DatabaseFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, resetErr := db.Exec(`UPDATE nodes SET acknowledged_generation = 0, acknowledged_digest = ''`)
+	closeErr := db.Close()
+	if resetErr != nil || closeErr != nil {
+		t.Fatalf("simulate lost assignment ACK: %v, %v", resetErr, closeErr)
+	}
+
 	secondRuntime := orchruntime.NewFake()
 	secondRuntime.InjectObject(object)
 	secondAgentContext, stopSecondAgent := context.WithCancel(context.Background())
@@ -191,6 +205,18 @@ func TestLoopbackAgentRunsOperatesAdoptsAndRemovesWorkload(t *testing.T) {
 	}()
 	waitForNodeConnection(t, remote, orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED)
 	waitForApplicationStatus(t, remote, "hello", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		nodes, err := remote.ListNodes(context.Background())
+		if err == nil && len(nodes) == 1 && nodes[0].GetAcknowledgedGeneration() != 0 &&
+			nodes[0].GetAcknowledgedGeneration() == nodes[0].GetAssignmentGeneration() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cached assignment was not acknowledged after reconnect: %v, %v", nodes, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	for _, operation := range secondRuntime.SnapshotOperations() {
 		if strings.HasPrefix(operation, "ensure:") {
 			t.Fatalf("agent restart duplicated an adopted task: %v", secondRuntime.SnapshotOperations())
