@@ -53,7 +53,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	case "target":
 		return runTarget(ctx, args[1:], stdout, stderr)
 	case "cluster":
-		return runCluster(args[1:], stdout, stderr)
+		return runCluster(ctx, args[1:], stdout, stderr)
 	case "agent":
 		return runAgent(ctx, args[1:], stdout, stderr)
 	case "controller":
@@ -416,7 +416,7 @@ func newIdempotencyKey(random io.Reader) (string, error) {
 	return "idem_" + hex.EncodeToString(value), nil
 }
 
-func runCluster(args []string, stdout, stderr io.Writer) int {
+func runCluster(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printClusterHelp(stderr)
 		return ExitInvalid
@@ -424,6 +424,8 @@ func runCluster(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "init":
 		return runClusterInit(args[1:], stdout, stderr)
+	case "doctor", "install":
+		return runClusterHost(ctx, args, stdout, stderr)
 	case "restore":
 		return runClusterRecovery(args[1:], true, stdout, stderr)
 	case "backup":
@@ -858,6 +860,8 @@ func printHelp(output io.Writer) {
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
+  orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
+  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
@@ -919,6 +923,8 @@ func printClusterHelp(output io.Writer) {
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
+  orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
+  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]`)

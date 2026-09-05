@@ -9,6 +9,14 @@ issuance, or multi-user RBAC.
 
 ## Identity hierarchy
 
+Guided controller installation writes two explicit private handoff directories.
+The administrator directory contains a client identity with full controller
+authority. The recovery set contains the cluster CA private key, controller
+identity, secret master key, and a database snapshot. Both must be transferred
+over a protected channel, stored off-host with mode-equivalent access controls,
+and excluded from source control, logs, and ordinary artifacts. The recovery
+snapshot is created at installation time and does not replace ongoing backups.
+
 Initialization creates a P-256 private cluster CA and two leaf identities.
 Each agent enrollment later signs another leaf identity:
 

@@ -1,4 +1,68 @@
-# Guided node installation
+# Guided installation
+
+## Guided controller installation
+
+On a fresh Ubuntu 24.04 LTS amd64 or Fedora Server 44 amd64 host, copy a trusted
+Linux amd64 orch executable owned by root. Choose the canonical HTTPS endpoint
+workers and operators will use and an unprivileged local listen port:
+
+~~~console
+sudo ./orch cluster doctor \
+  --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo ./orch cluster install \
+  --name production \
+  --server https://10.0.0.10:9443 \
+  --listen 0.0.0.0:9443 \
+  --admin-dir /root/orch-production-admin \
+  --recovery-dir /root/orch-production-recovery \
+  --dry-run --json
+sudo ./orch cluster install \
+  --name production \
+  --server https://10.0.0.10:9443 \
+  --listen 0.0.0.0:9443 \
+  --admin-dir /root/orch-production-admin \
+  --recovery-dir /root/orch-production-recovery
+~~~
+
+Doctor and dry-run do not create credentials, reserve paths, start services, or
+change firewall and DNS configuration. Installation creates the non-login
+`orch-controller` account, root-owned binary at
+`/opt/orch-controller/bin/orch`, private state at `/var/lib/orch-controller`,
+and `orch-controller.service`. These paths are separate from the guided worker
+bundle, so both roles can coexist on one supported host.
+
+The administrator directory contains `context.json` and its relative identity
+tree. Transfer the entire directory over a protected channel, remove the host
+copy after verifying the transfer, and import it on the operator machine:
+
+~~~console
+orch target import production /secure/orch-production-admin/context.json --use
+orch status
+~~~
+
+The recovery directory contains a verified standalone database snapshot,
+controller PKI, secret master key, and hash manifest. Transfer it off-host
+immediately and protect it like administrator credentials. It is a day-zero
+snapshot; create regular later backups with `orch cluster backup`. A copy left
+only on the controller does not protect against host loss.
+
+Matching reruns preserve the cluster identity and do not restart a healthy
+service. An interrupted run resumes its journal. Changed endpoint, listen
+address, executable, output paths, or bundle is rejected because upgrades and
+reconfiguration are separate operations. Diagnose with:
+
+~~~console
+sudo /opt/orch-controller/bin/orch cluster doctor \
+  --server https://10.0.0.10:9443 --listen 0.0.0.0:9443 --json
+sudo systemctl status orch-controller
+sudo journalctl -u orch-controller --since '-10 min'
+~~~
+
+Allow the chosen TCP port from trusted workers and operators. The installer
+does not change UFW, firewalld, provider firewalls, DNS, routing, or NAT. Fedora
+must remain SELinux enforcing and retains operator-managed firewalld rules.
+
+## Guided worker installation
 
 The guided installer supports **Ubuntu 24.04 LTS amd64** and **Fedora Server 44
 amd64** on a fresh VM with systemd, cgroups v2, overlayfs and kernel WireGuard.
@@ -116,3 +180,24 @@ CNI CHECK reject the attachment. The rule applies to future matching veth pairs,
 including those created by other software; it does not match physical NICs or
 trigger changes to existing interfaces. Installation reloads udev configuration,
 not NetworkManager or firewall rules.
+
+## Disposable controller VM acceptance drill
+
+The controller drill requires two fresh disposable amd64 VMs, root SSH aliases,
+the Linux amd64 orch and Pkl executables, and addresses assigned to the guests.
+It installs a controller and co-located worker on each host, deploys a service,
+runs a job, interrupts the controller, validates recovery material, and reboots
+both machines:
+
+```sh
+python3 scripts/controller-install-e2e.py \
+  --linux-binary /tmp/orch-linux --linux-pkl /tmp/pkl-linux-amd64 \
+  --ssh-config /path/to/test-ssh-config \
+  --ubuntu ubuntu-test 10.0.0.10 9443 \
+  --fedora fedora-test 10.0.0.20 9443 \
+  --evidence /tmp/orch-controller-evidence --reboot-disposable-vms
+```
+
+The evidence directory contains copied administrator credentials and must remain
+private. Review only non-secret results before attaching evidence, and destroy
+the disposable hosts afterward.

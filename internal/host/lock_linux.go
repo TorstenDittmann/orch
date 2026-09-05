@@ -9,7 +9,12 @@ import (
 )
 
 func installationLock() (func(), error) {
-	const path = "/run/lock/orch-install.lock"
+	return namedInstallationLock("/run/lock/orch-install.lock", "node")
+}
+func controllerInstallationLock() (func(), error) {
+	return namedInstallationLock("/run/lock/orch-controller-install.lock", "controller")
+}
+func namedInstallationLock(path, kind string) (func(), error) {
 	if err := noSymlinks(path); err != nil {
 		return nil, err
 	}
@@ -23,7 +28,7 @@ func installationLock() (func(), error) {
 	}
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another node install is running: %w", err)
+		return nil, fmt.Errorf("another %s install is running: %w", kind, err)
 	}
 	return func() { unix.Flock(int(f.Fd()), unix.LOCK_UN); f.Close() }, nil
 }

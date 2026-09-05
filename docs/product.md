@@ -102,7 +102,8 @@ exact-domain Caddy ingress with automatic HTTPS, raw TCP ingress, encrypted
 application secrets, authenticated exact-host registry pulls, deterministic
 placement, direct WireGuard routing, secure single-use worker joins, automatic
 same-key agent-certificate renewal, remembered direct/WireGuard/SSH operator
-targets, a built-in terminal dashboard, and node operations. This remains a
+targets, a built-in terminal dashboard, node operations, and guided persistent
+controller and worker installation on Ubuntu and Fedora. This remains a
 single-controller design: during a controller outage
 agents preserve their last accepted data plane, but deployments, scheduling,
 drain, and rollout progress pause. See

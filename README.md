@@ -50,8 +50,13 @@ bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
-Initialize local state for a single controller. The command installs the
-administrator identity into a private local target named `lab` and selects it:
+For a persistent controller on a fresh **Ubuntu 24.04 LTS amd64** or **Fedora
+Server 44 amd64** host, use the [guided controller installer](docs/installation.md#guided-controller-installation).
+It installs a systemd service and produces portable administrator and recovery
+directories. Copy both off the controller host before adding workers.
+
+For development, initialize controller state manually. The command installs
+the administrator identity into a private local target named `lab` and selects it:
 
 ~~~console
 bin/orch cluster init \

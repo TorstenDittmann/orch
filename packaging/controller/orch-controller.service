@@ -1,0 +1,29 @@
+[Unit]
+Description=orch controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orch-controller
+Group=orch-controller
+ExecStart=/opt/orch-controller/bin/orch controller serve --data-dir /var/lib/orch-controller --listen {{LISTEN}}
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/orch-controller
+
+[Install]
+WantedBy=multi-user.target

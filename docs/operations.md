@@ -360,6 +360,26 @@ elsewhere; it never copies or recreates local-volume data. Without confirmed
 fencing, an unreachable cron owner remains sticky to avoid an automatic
 duplicate run.
 
+## Operate an installed controller
+
+Guided controller installation owns `/opt/orch-controller`,
+`/var/lib/orch-controller`, `/var/lib/orch-controller-install`, and
+`orch-controller.service`. It runs as the dedicated `orch-controller` account.
+Use `cluster doctor` for local file, identity, process, listener, SELinux, and
+firewall-state diagnostics. An active unit alone is insufficient: installation
+waits for the exact owned process and an authenticated `GetCluster` response.
+
+Keep the portable administrator directory and recovery set off-host. The
+installer's recovery set is immutable and represents initial state only. Use
+online `cluster backup` for current databases and preserve matching PKI and
+secret-key material as described in the recovery section. Stopping or rebooting
+the controller pauses deployments, placement, and rollout progress; agents
+retain their last accepted workloads and reconnect when it returns.
+
+The installer never opens a firewall port or updates DNS. Restrict the
+controller port to operators and workers. On Fedora it neither disables SELinux
+nor modifies firewalld configuration.
+
 ## Inspect and submit desired state
 
 Every remote CLI command uses the selected target and mTLS:
