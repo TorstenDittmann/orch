@@ -1,8 +1,7 @@
 # Security and recovery
 
-orch secures controller, worker, and operator traffic with mutually
-authenticated TLS. Installation creates separate credentials for the
-controller, every worker, and every administrator context.
+Protect access to the cluster, store application secrets, and keep recoverable
+backups.
 
 ## Administrator access
 
@@ -111,6 +110,9 @@ Confirm node identity, application state, secrets, ingress, and a new backup
 before resuming changes.
 
 ## Security model
+
+Controller, worker, and operator traffic uses mutually authenticated TLS.
+Installation creates separate credentials for each role.
 
 - The controller is a single administrative and scheduling authority.
 - Workers keep existing workloads running during a controller outage.

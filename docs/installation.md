@@ -1,18 +1,18 @@
 # Installation
 
-orch uses one controller and one or more workers. Start with fresh
-**Ubuntu 24.04 LTS amd64** or **Fedora Server 44 amd64** hosts that can reach
-each other over private IPv4 addresses.
+This guide installs a controller and adds workers to the cluster.
 
 ## Requirements
 
-Choose:
+| Requirement | Supported setup |
+| --- | --- |
+| Hosts | Ubuntu 24.04 LTS or Fedora Server 44 on amd64 |
+| Network | Private IPv4 connectivity between hosts |
+| Controller | A stable HTTPS address |
+| Workstation | A machine for running the orch CLI |
 
-- a stable HTTPS address for the controller;
-- a private address for each worker;
-- a workload CIDR that does not overlap your host networks (the default is
-  `10.88.0.0/16`);
-- one workstation from which you will operate the cluster.
+The default workload network is `10.88.0.0/16`. Choose a different range if it
+overlaps an existing network.
 
 Allow the controller's TCP port from trusted workers and operators. Allow UDP
 51820 between workers. Nodes that receive public web traffic also need TCP 80

@@ -1,13 +1,10 @@
 # Run applications, without adopting a platform
 
-orch deploys ordinary OCI applications across **1–20 Linux servers**. You get
-typed configuration, health-gated releases, automatic rollback, private
-networking, service discovery, HTTPS ingress, jobs, secrets, and a focused
-operator TUI in one executable.
+orch deploys containerized applications to a small Linux cluster. Configure,
+release, and operate them from one CLI.
 
-> orch is in early development. It uses one durable controller. Agents keep
-> their assigned workloads running during a controller outage, while new
-> deployments and scheduling wait for the controller to return.
+> orch is in early development. Review the [current limits](product.md) before
+> using it in production.
 
 ```pkl
 amends "orch:/v1alpha1/Application.pkl"
@@ -45,8 +42,7 @@ $ orch deploy --wait --target production
 
 ## Start here
 
-1. [Install a controller and worker](installation.md) on Ubuntu 24.04 LTS or
-   Fedora Server 44.
+1. [Install a controller and worker](installation.md).
 2. [Deploy your first HTTPS application](quick-start.md).
 3. Learn how [rollouts, placement, and recovery](runtime.md) behave.
 

@@ -1,8 +1,7 @@
 # Quickstart
 
-This guide starts with a managed controller and one worker, then deploys a
-health-checked web service. Use fresh Ubuntu 24.04 LTS or Fedora Server 44 amd64
-hosts with mutually reachable private addresses.
+Set up a cluster and deploy a web service. Complete the
+[installation requirements](installation.md#requirements) before you begin.
 
 ## Controller
 

@@ -1,12 +1,7 @@
 # Networking
 
-Every service endpoint receives a private address and a cluster DNS name:
-
-```text
-SERVICE.APPLICATION.svc.internal
-```
-
-Use HTTP endpoints for web traffic and TCP endpoints for other protocols.
+Services can communicate inside the cluster or be exposed through HTTP, HTTPS,
+or TCP ingress.
 
 ## Requirements
 
@@ -82,6 +77,12 @@ on ingress nodes and forwards bytes without HTTP or TLS handling. Allow that
 port in host and provider firewalls.
 
 ## Service discovery
+
+Every service endpoint receives a private address and a cluster DNS name:
+
+```text
+SERVICE.APPLICATION.svc.internal
+```
 
 Applications can connect to another service through its cluster name. For
 example, a service called `database` in application `shop` is available at:

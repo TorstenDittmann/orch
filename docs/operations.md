@@ -1,6 +1,9 @@
 # Cluster operations
 
-Use a named target for every cluster you operate:
+Use the CLI or TUI to inspect applications, manage nodes, run jobs, and maintain
+the cluster.
+
+Select a target before running commands:
 
 ```console
 orch target list
@@ -15,7 +18,6 @@ Pass `--target production` explicitly in automation.
 ```console
 orch status
 orch nodes
-orch status
 orch tui
 ```
 

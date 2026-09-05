@@ -1,9 +1,6 @@
 # Limitations
 
-orch is designed for small teams running applications on **1–20 mutually
-reachable Linux servers**. It provides one application model and one operator
-workflow for deployments, networking, ingress, jobs, secrets, node maintenance,
-backups, and upgrades.
+Review these limits before choosing orch for a production workload.
 
 ## Suitability
 

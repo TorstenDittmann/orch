@@ -1,8 +1,6 @@
 # Applications
 
-An application is a typed Pkl file named `orch.pkl`. It contains one or more
-services and can also define scheduled jobs, local volumes, placement rules,
-secrets, and rollout behavior.
+Define an application in a typed Pkl file named `orch.pkl`.
 
 ```pkl
 amends "orch:/v1alpha1/Application.pkl"

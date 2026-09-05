@@ -1,9 +1,6 @@
 # Deployments
 
-orch turns an application file into an immutable deployment revision. It
-resolves image tags to digests, places replicas on workers with enough
-capacity, waits for health checks, and switches ingress only to ready
-instances.
+Use deployments to apply and track changes to an application.
 
 ## Deploy
 
