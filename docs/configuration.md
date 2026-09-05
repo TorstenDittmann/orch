@@ -172,7 +172,7 @@ secretFiles {
 Secret file targets must be clean paths below `/run/secrets`.
 
 Registry credentials are cluster-scoped and selected automatically by the
-exact host in each digest-qualified image reference:
+exact host in each image reference:
 
 ~~~console
 printf '%s' "$REGISTRY_TOKEN" | orch registry login registry.example:5443 \
@@ -280,10 +280,38 @@ mise exec -- pkl eval \
   examples/hello/orch.pkl
 ~~~
 
+## Image tags and immutable deployments
+
+Services and cron jobs accept tags such as `ghcr.io/myteam/api:v1.2` and
+explicit digests. An omitted tag means `latest`. The controller resolves each
+unique tag once per deployment request over HTTPS, using the existing exact-host
+registry credentials. Every workload in that request that uses the same tag
+receives the same digest. Agents always receive digest-qualified references.
+
+The controller preserves multi-platform index digests and checks for Linux
+amd64 or arm64 support without selecting its own architecture. Each worker
+selects its platform when pulling; a single-platform image must support the
+worker it lands on. Explicit digests bypass registry resolution and platform
+inspection at acceptance; workers still validate and pull them.
+
+A new `orch deploy` request re-resolves tags. A moved tag creates a new revision;
+unchanged requested and resolved configuration is a no-op. An accepted request
+retried with its original idempotency key returns its original receipt without
+contacting the registry. Rollback reuses stored digests, even if a tag has moved.
+Image layers must still be available in the registry or the worker cache.
+
+Resolution failures reject the entire request before changing desired state.
+Errors identify the service or cron job and distinguish missing images,
+authentication failures, unsupported platforms, invalid metadata, and registry
+connectivity failures. Resolution is bounded to 30 seconds per distinct tag and
+two minutes for the request. Plain HTTP registries are not supported.
+Historical revisions accepted before tag resolution may still contain unresolved
+tags; redeploy those manifests to create a resolved revision.
+
 ## Execution support
 
 The schema accepts the complete `v1alpha1` contract. An executable service must
-use a digest-qualified OCI image and may use
+use an OCI image tag or digest and may use
 command, args, plain environment variables, replicas, restart policy, CPU and
 memory limits, declared local volumes, HTTP or TCP endpoints, dependency gates,
 exact label constraints, and cron jobs. HTTP endpoints receive a private CNI
@@ -298,7 +326,6 @@ application as `BLOCKED` with a stable reason:
 
 | Intent or requirement | Reason |
 | --- | --- |
-| Image tag without a digest | `unsupported_image_tag` |
 | Referenced application secret is absent | `secret_missing` |
 | Secret environment value is not valid UTF-8 or contains NUL | `secret_environment_invalid` |
 | No node matches exact constraints | `constraint_mismatch` |

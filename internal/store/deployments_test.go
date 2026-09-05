@@ -260,7 +260,7 @@ func TestDeploymentMigrationPreservesOnlyKnownOutcomes(t *testing.T) {
 	if _, err := state.db.ExecContext(ctx, `DROP TABLE deployment_records`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=9`); err != nil {
+	if _, err := state.db.ExecContext(ctx, `ALTER TABLE application_revisions DROP COLUMN requested_manifest; DELETE FROM schema_migrations WHERE version >= 9`); err != nil {
 		t.Fatal(err)
 	}
 	path := state.path

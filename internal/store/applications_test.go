@@ -342,3 +342,55 @@ func TestApplyApplicationRejectsMoreThanTwoHundredClusterAllocations(t *testing.
 		t.Fatalf("two-hundred-first allocation = %v", err)
 	}
 }
+
+func TestRequestedImagesPersistAcrossRestartAndNoOp(t *testing.T) {
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	requested := []byte(`{"name":"hello","image":"example/web:latest"}`)
+	input := applicationInput(`{"name":"hello","image":"example/web@sha256:first"}`, "revision-one", "image-request-one", testCreatedAt)
+	input.RequestedManifest = requested
+	first, err := state.ApplyApplication(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(requested)
+	if first.Digest != "sha256:"+hex.EncodeToString(sum[:]) {
+		t.Fatal("receipt did not hash authored request")
+	}
+	path := state.path
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	replay, found, err := state.ReplayApplication(ctx, input.IdempotencyKey, requested)
+	if err != nil || !found || !reflect.DeepEqual(replay, first) {
+		t.Fatalf("replay after reopen: %v %v", found, err)
+	}
+	d, err := state.Deployment(ctx, "hello", first.RevisionID)
+	if err != nil || string(d.RequestedManifest) != string(requested) || string(d.CanonicalManifest) != string(input.CanonicalManifest) || d.Digest != input.Digest {
+		t.Fatalf("durable image metadata: %+v %v", d, err)
+	}
+	if _, err := state.db.ExecContext(ctx, `UPDATE application_revisions SET requested_manifest='{}' WHERE id=?`, first.RevisionID); err == nil {
+		t.Fatal("requested metadata was mutable")
+	}
+	input.IdempotencyKey = "image-request-two"
+	input.RevisionID = "revision-two"
+	noop, err := state.ApplyApplication(ctx, input)
+	if err != nil || noop.Changed || noop.Generation != 1 || noop.Digest != first.Digest {
+		t.Fatalf("same tag/digest no-op: %+v %v", noop, err)
+	}
+	input.IdempotencyKey = "image-request-three"
+	input.RevisionID = "revision-three"
+	input.RequestedManifest = []byte(`{"name":"hello","image":"example/web:stable"}`)
+	next, err := state.ApplyApplication(ctx, input)
+	if err != nil || !next.Changed || next.Generation != 2 {
+		t.Fatalf("requested reference change lost: %+v %v", next, err)
+	}
+}

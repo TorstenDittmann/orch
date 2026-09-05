@@ -377,8 +377,8 @@ controller together when moving from the former TOML transport.
 automation or an explicit retry, supply a stable 16–128 character key with
 `--idempotency-key`. Reusing a key with the same canonical manifest returns the
 original response. Reusing it for different desired state is a conflict. A new
-key applied to already-current canonical state is a no-op: it creates neither a
-generation nor an event.
+key is a no-op only when both authored and resolved canonical state remain
+current: it creates neither a generation nor an event.
 
 For this single-administrator MVP, idempotency records are retained for the
 life of the cluster. A future expiration or compaction policy must preserve a
@@ -394,6 +394,25 @@ Status: PENDING — accepted for asynchronous execution; use orch app status to 
 Use `--json` for stable machine-readable status, event, and deployment output.
 Event pagination uses an exclusive sequence cursor and returns the next cursor.
 
+## Deploying image tags
+
+Both services and cron jobs can use `image = "ghcr.io/myteam/api:v1.2"`.
+Run `orch registry login` for private registries before deploying. Resolution
+happens on the controller, so it needs HTTPS access to the registry and its
+authentication service. Failed resolution does not create a deployment.
+
+Each new deploy command resolves tags again. To recover an uncertain response,
+reuse the original idempotency key and exact manifest; an accepted request
+returns its original receipt even if the tag moved or the registry is offline.
+A request that was never accepted may resolve to a newer digest on retry.
+Do not reuse a key for a different manifest.
+
+The apply receipt's `digest` remains the hash of the submitted canonical
+manifest. Application and deployment reads expose the hash of the resolved
+manifest, which can differ. `orch app history` identifies the recorded images;
+`orch app diff` compares resolved revisions, so moving a tag shows an image
+change. Local manifest previews cannot determine a tag's digest without a deploy.
+
 ## Deployment history, comparison, and rollback
 
 Use the selected target for these commands, or pass `--target NAME`:
@@ -408,6 +427,9 @@ orch rollback runtime-demo REVISION_ID --wait --timeout 10m
 
 History lists immutable revisions newest first, with creation times, image
 references, desired/active markers, rollback provenance, and retained outcomes.
+For resolved tags, CLI and TUI history show `requested tag -> resolved digest`;
+JSON image summaries expose `requested_image` alongside the resolved `image`.
+Older records fall back to their stored image reference.
 `--before-generation` is exclusive, so adding a deployment does not shift older
 pages. The default page is 20 records; the maximum is 50. Response sizes are
 bounded and the returned cursor indicates more records.
@@ -431,7 +453,9 @@ contents.
 
 Manual rollback restores an older revision's stored configuration as a **new
 revision and generation**, following ordinary placement and health gates. It
-records its source revision and preserves history. It does not restore volume
+records its source revision and preserves history. Resolved image digests and
+the original requested references are copied without contacting the registry or
+resolving tags again. It does not restore volume
 contents, database state, or past secret values: secret references resolve
 through the current secret store. Removed applications cannot be reactivated
 through rollback. Missing resources or secrets can block the new deployment.

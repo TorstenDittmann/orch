@@ -264,6 +264,8 @@ message ApplyApplicationRequest {
   bytes canonical_manifest_json = 3;
 }
 
+// digest identifies the submitted canonical manifest. Read Deployment.digest
+// for the resolved revision digest when the request contains image tags.
 message ApplyApplicationResponse {
   string name = 1;
   uint64 generation = 2;
@@ -550,6 +552,8 @@ message Deployment {
 }
 
 message DeploymentImage {
+  // Authored reference, before immutable resolution.
+  string requested_image = 4;
   string kind = 1;
   string name = 2;
   string image = 3;

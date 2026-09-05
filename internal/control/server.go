@@ -27,9 +27,10 @@ const maxHTTPBodyBytes = maxManifestBytes + 64<<10
 const maxAgentMessageBytes = 20 << 20
 
 type Options struct {
-	DataDir string
-	Listen  string
-	Now     func() time.Time
+	DataDir       string
+	Listen        string
+	Now           func() time.Time
+	ImageResolver ImageResolver
 }
 
 type Server struct {
@@ -110,6 +111,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	}
 	sessions := newSessionManager(now)
 	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, secretBox, sessions, now)
+	implementation.imageResolver = options.ImageResolver
 	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
 	reconciler.secretBox = secretBox
 	reconciler.sessions = sessions

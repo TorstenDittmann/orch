@@ -89,7 +89,7 @@ func runAppDeployments(ctx context.Context, args []string, stdout, stderr io.Wri
 				fmt.Fprintf(stdout, "  rollback from %s\n", d.GetRollbackFromRevisionId())
 			}
 			for _, image := range d.GetImages() {
-				fmt.Fprintf(stdout, "  %s %s  %s\n", image.GetKind(), image.GetName(), image.GetImage())
+				fmt.Fprintf(stdout, "  %s %s  %s\n", image.GetKind(), image.GetName(), deploymentImageReference(image))
 			}
 		}
 		if response.GetNextBeforeGeneration() != 0 {
@@ -273,4 +273,11 @@ func waitForDeployment(ctx context.Context, reader controlclient.ApplicationRead
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+func deploymentImageReference(image *orchv1alpha1.DeploymentImage) string {
+	if image.GetRequestedImage() != "" && image.GetRequestedImage() != image.GetImage() {
+		return image.GetRequestedImage() + " -> " + image.GetImage()
+	}
+	return image.GetImage()
 }

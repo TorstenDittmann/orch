@@ -371,6 +371,9 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 	}
 	image, err = c.client.Pull(ctx, reference, pullOptions...)
 	if err != nil {
+		if strings.Contains(err.Error(), "no match for platform") {
+			return nil, fmt.Errorf("image %q does not support worker platform %s", reference, platforms.DefaultString())
+		}
 		return nil, fmt.Errorf("pull digest image %q: %w", reference, err)
 	}
 	if !imageMatchesDigest(image, reference) {

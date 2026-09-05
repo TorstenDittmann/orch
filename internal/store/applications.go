@@ -115,6 +115,15 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		return model.ApplyApplicationResult{}, fmt.Errorf("application digest does not match canonical manifest")
 	}
 
+	requested := input.RequestedManifest
+	if len(requested) == 0 {
+		requested = input.CanonicalManifest
+	}
+	if len(requested) > 1<<20 || !json.Valid(requested) {
+		return model.ApplyApplicationResult{}, fmt.Errorf("invalid requested manifest")
+	}
+	requestedSum := sha256.Sum256(requested)
+	requestHash = hex.EncodeToString(requestedSum[:])
 	operation := applyApplicationOperation
 	if input.RollbackFromRevisionID != "" {
 		if input.ExpectedGeneration == 0 {
@@ -161,6 +170,13 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 			return model.ApplyApplicationResult{}, ErrRollbackSource
 		}
 	}
+	sameIntent := current.Digest == input.Digest && current.DeletedAt == nil && input.RollbackFromRevisionID == ""
+	if sameIntent {
+		sameIntent, err = requestedManifestMatches(ctx, tx, current.RevisionID, requested)
+		if err != nil {
+			return model.ApplyApplicationResult{}, fmt.Errorf("read requested manifest: %w", err)
+		}
+	}
 	stamp := input.CreatedAt.UTC()
 	stampText := stamp.Format(time.RFC3339Nano)
 	result := model.ApplyApplicationResult{
@@ -186,7 +202,7 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 			input.Name, result.Generation, stampText, stampText); err != nil {
 			return model.ApplyApplicationResult{}, fmt.Errorf("insert application: %w", err)
 		}
-	} else if current.Digest == input.Digest && current.DeletedAt == nil && input.RollbackFromRevisionID == "" {
+	} else if sameIntent {
 		result = model.ApplyApplicationResult{
 			Name: current.Name, Generation: current.Generation,
 			RevisionID: current.RevisionID, Digest: current.Digest,
@@ -199,7 +215,7 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 	}
 
 	if result.Changed {
-		requested, err := manifestAllocationCount(input.CanonicalManifest)
+		requestedAllocations, err := manifestAllocationCount(input.CanonicalManifest)
 		if err != nil {
 			return model.ApplyApplicationResult{}, err
 		}
@@ -207,13 +223,13 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		if err != nil {
 			return model.ApplyApplicationResult{}, err
 		}
-		if requested > 200 || total > 200-requested {
+		if requestedAllocations > 200 || total > 200-requestedAllocations {
 			return model.ApplyApplicationResult{}, ErrAllocationLimit
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO application_revisions
-			(id, application_name, generation, digest, canonical_manifest, created_at)
-			VALUES (?, ?, ?, ?, ?, ?)`, input.RevisionID, input.Name, result.Generation,
-			input.Digest, string(input.CanonicalManifest), stampText); err != nil {
+			(id, application_name, generation, digest, canonical_manifest, created_at, requested_manifest)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, input.RevisionID, input.Name, result.Generation,
+			input.Digest, string(input.CanonicalManifest), stampText, string(requested)); err != nil {
 			return model.ApplyApplicationResult{}, fmt.Errorf("insert application revision: %w", err)
 		}
 		if err := startDeploymentTx(ctx, tx, input, current.RevisionID, stamp); err != nil {
@@ -250,6 +266,10 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		}
 	}
 
+	// Apply receipts identify the submitted request; revision digests identify resolved intent.
+	if operation == applyApplicationOperation {
+		result.Digest = "sha256:" + requestHash
+	}
 	response, err := json.Marshal(result)
 	if err != nil {
 		return model.ApplyApplicationResult{}, fmt.Errorf("encode idempotency response: %w", err)
@@ -329,7 +349,24 @@ func validateApplicationInput(input model.ApplyApplication) error {
 	return nil
 }
 
-func replayApplication(ctx context.Context, tx *sql.Tx, key, expectedOperation, requestHash string) (model.ApplyApplicationResult, bool, error) {
+type applicationQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// ReplayApplication checks accepted requests before any registry access. The write
+// transaction repeats this check to arbitrate concurrent requests atomically.
+func (s *Store) ReplayApplication(ctx context.Context, key string, canonical []byte) (model.ApplyApplicationResult, bool, error) {
+	sum := sha256.Sum256(canonical)
+	return replayApplication(ctx, s.db, key, applyApplicationOperation, hex.EncodeToString(sum[:]))
+}
+
+func requestedManifestMatches(ctx context.Context, tx *sql.Tx, revision string, requested []byte) (bool, error) {
+	var stored string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(requested_manifest, canonical_manifest) FROM application_revisions WHERE id = ?`, revision).Scan(&stored)
+	return stored == string(requested), err
+}
+
+func replayApplication(ctx context.Context, tx applicationQuerier, key, expectedOperation, requestHash string) (model.ApplyApplicationResult, bool, error) {
 	var operation, storedHash, response string
 	err := tx.QueryRowContext(ctx, `SELECT operation, request_hash, response
 		FROM idempotency_keys WHERE key = ?`, key).Scan(&operation, &storedHash, &response)

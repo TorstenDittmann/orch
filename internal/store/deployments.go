@@ -26,6 +26,7 @@ type Deployment struct {
 	Generation             uint64
 	Digest                 string
 	CanonicalManifest      json.RawMessage
+	RequestedManifest      json.RawMessage
 	CreatedAt              time.Time
 	RollbackFromRevisionID string
 	Outcome                string
@@ -39,7 +40,7 @@ type Deployment struct {
 }
 
 const deploymentSelect = `SELECT r.application_name, r.id, r.generation, r.digest,
- r.canonical_manifest, r.created_at, COALESCE(h.rollback_from_revision_id, ''),
+ r.canonical_manifest, COALESCE(r.requested_manifest, r.canonical_manifest), r.created_at, COALESCE(h.rollback_from_revision_id, ''),
  h.outcome, h.status, h.reason, h.message, h.updated_at, h.finished_at,
  (r.generation = a.generation AND a.deleted_at IS NULL),
  (r.id = COALESCE(x.active_revision_id, '') AND a.deleted_at IS NULL)
@@ -89,9 +90,9 @@ func (s *Store) Deployments(ctx context.Context, name string, before uint64, lim
 
 func scanDeployment(row applicationScanner) (Deployment, error) {
 	var d Deployment
-	var canonical, created, updated string
+	var canonical, requested, created, updated string
 	var finished sql.NullString
-	err := row.Scan(&d.Application, &d.RevisionID, &d.Generation, &d.Digest, &canonical, &created,
+	err := row.Scan(&d.Application, &d.RevisionID, &d.Generation, &d.Digest, &canonical, &requested, &created,
 		&d.RollbackFromRevisionID, &d.Outcome, &d.Status, &d.Reason, &d.Message, &updated, &finished, &d.Current, &d.Active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrRevisionNotFound
@@ -100,6 +101,7 @@ func scanDeployment(row applicationScanner) (Deployment, error) {
 		return d, err
 	}
 	d.CanonicalManifest = json.RawMessage(canonical)
+	d.RequestedManifest = json.RawMessage(requested)
 	if d.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
 		return d, err
 	}

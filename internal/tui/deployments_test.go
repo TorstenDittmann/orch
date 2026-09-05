@@ -148,3 +148,14 @@ func TestDeploymentResponsiveLayoutsAndConfirmation(t *testing.T) {
 		m.confirm = nil
 	}
 }
+
+func TestDeploymentImageReferenceShowsRequestedAndResolved(t *testing.T) {
+	image := &orchv1alpha1.DeploymentImage{RequestedImage: "example/web:latest", Image: "docker.io/example/web@sha256:" + strings.Repeat("a", 64)}
+	if got := deploymentImageReference(image); got != image.RequestedImage+" -> "+image.Image {
+		t.Fatalf("image display = %s", got)
+	}
+	image.RequestedImage = ""
+	if got := deploymentImageReference(image); got != image.Image {
+		t.Fatalf("legacy image display = %s", got)
+	}
+}

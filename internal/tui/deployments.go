@@ -354,7 +354,7 @@ func (m *Model) deploymentDetailLines(width int) []string {
 	}
 	lines = append(lines, "", "Images")
 	for _, image := range d.GetImages() {
-		lines = append(lines, image.GetKind()+" "+image.GetName()+": "+image.GetImage())
+		lines = append(lines, image.GetKind()+" "+image.GetName()+": "+deploymentImageReference(image))
 	}
 	lines = append(lines, "", fmt.Sprintf("Live rollout · desired %d / active %d", current.GetGeneration(), current.GetActiveGeneration()), enumLabel(current.GetExecutionStatus().String())+" · "+current.GetExecutionReason())
 	for _, a := range current.GetAllocations() {
@@ -413,4 +413,11 @@ func (m *Model) renderRollbackConfirmation(t theme, width int) string {
 	}
 	content := fmt.Sprintf("Confirm rollback\nTarget: %s\nApplication: %s\nReplace generation: %d\nSource: %s\n%s%s\n%s", truncate(m.target, width-14), req.GetApplication(), req.GetExpectedGeneration(), req.GetRevisionId(), m.confirm.description, retry, state)
 	return panel(t, ansi.Hardwrap(sanitize(content), max(1, width-4), true), width, 0)
+}
+
+func deploymentImageReference(image *orchv1alpha1.DeploymentImage) string {
+	if image.GetRequestedImage() != "" && image.GetRequestedImage() != image.GetImage() {
+		return image.GetRequestedImage() + " -> " + image.GetImage()
+	}
+	return image.GetImage()
 }

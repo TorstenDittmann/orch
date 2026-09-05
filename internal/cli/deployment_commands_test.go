@@ -60,7 +60,7 @@ func TestDeploymentCLIHistoryDiffRollbackAndWait(t *testing.T) {
 	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
 	rewriteCLIContextServer(t, path, "https://"+server.Addr().String())
 	first := writeManifest(t, cliManifest)
-	second := writeManifest(t, strings.Replace(cliManifest, "example/web:1", "example/web:2", 1))
+	second := writeManifest(t, strings.Replace(cliManifest, "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", "example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222", 1))
 	invoke := func(want int, args ...string) []byte {
 		t.Helper()
 		var out, errOut bytes.Buffer
@@ -97,4 +97,37 @@ func TestDeploymentCLIHistoryDiffRollbackAndWait(t *testing.T) {
 	}
 	invoke(ExitRuntime, "app", "watch", "hello", "--revision", accepted.RevisionID, "--timeout", "1s")
 	invoke(ExitInvalid, "rollback", "hello", accepted.RevisionID, "--idempotency-key", "idempotency-no-generation")
+}
+
+type cliImageResolver struct{}
+
+func (cliImageResolver) Resolve(_ context.Context, image, _ string, _ []byte) (string, error) {
+	return "docker.io/example/web@sha256:" + strings.Repeat("a", 64), nil
+}
+
+func TestTagDeployCLIReceiptAndHistory(t *testing.T) {
+	root := t.TempDir()
+	dir, path := filepath.Join(root, "state"), filepath.Join(root, "context.json")
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{Name: "test", Server: "https://127.0.0.1", DataDir: dir, ContextPath: path, Now: time.Now, Random: rand.Reader}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := control.Start(context.Background(), control.Options{DataDir: dir, Listen: "127.0.0.1:0", ImageResolver: cliImageResolver{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown(context.Background())
+	rewriteCLIContextServer(t, path, "https://"+server.Addr().String())
+	file := writeManifest(t, strings.Replace(cliManifest, "example/web@sha256:"+strings.Repeat("1", 64), "example/web:latest", 1))
+	var out, errOut bytes.Buffer
+	if code := Run([]string{"deploy", "-f", file, "--context", path}, &out, &errOut); code != ExitOK {
+		t.Fatalf("tag receipt rejected: %d %s", code, errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := Run([]string{"app", "history", "hello", "--context", path}, &out, &errOut); code != ExitOK {
+		t.Fatalf("history: %d %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "example/web:latest -> docker.io/example/web@sha256:"+strings.Repeat("a", 64)) {
+		t.Fatalf("missing tag resolution: %s", out.String())
+	}
 }

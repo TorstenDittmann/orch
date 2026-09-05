@@ -11,6 +11,10 @@ without exposing the Kubernetes or Docker Swarm APIs.
 > upgrade compatibility; additional nodes start compute-only until explicitly
 > enabled.
 
+Services and cron jobs accept image tags or digests. The controller resolves tags
+once per deployment and records immutable digests; history shows the requested
+reference, and retries and rollback reuse the recorded images.
+
 ## The contract
 
 - One typed, versioned Pkl module describes an application and may compose

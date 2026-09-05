@@ -1967,6 +1967,8 @@ func (x *ApplyApplicationRequest) GetCanonicalManifestJson() []byte {
 	return nil
 }
 
+// digest identifies the submitted canonical manifest. Read Deployment.digest
+// for the resolved revision digest when the request contains image tags.
 type ApplyApplicationResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -4757,12 +4759,14 @@ func (x *Deployment) GetImages() []*DeploymentImage {
 }
 
 type DeploymentImage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Image         string                 `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Authored reference, before immutable resolution.
+	RequestedImage string `protobuf:"bytes,4,opt,name=requested_image,json=requestedImage,proto3" json:"requested_image,omitempty"`
+	Kind           string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Name           string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Image          string `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DeploymentImage) Reset() {
@@ -4793,6 +4797,13 @@ func (x *DeploymentImage) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeploymentImage.ProtoReflect.Descriptor instead.
 func (*DeploymentImage) Descriptor() ([]byte, []int) {
 	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *DeploymentImage) GetRequestedImage() string {
+	if x != nil {
+		return x.RequestedImage
+	}
+	return ""
 }
 
 func (x *DeploymentImage) GetKind() string {
@@ -5776,8 +5787,9 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"finishedAt\x12\x18\n" +
 	"\acurrent\x18\r \x01(\bR\acurrent\x12\x16\n" +
 	"\x06active\x18\x0e \x01(\bR\x06active\x126\n" +
-	"\x06images\x18\x0f \x03(\v2\x1e.orch.v1alpha1.DeploymentImageR\x06images\"O\n" +
-	"\x0fDeploymentImage\x12\x12\n" +
+	"\x06images\x18\x0f \x03(\v2\x1e.orch.v1alpha1.DeploymentImageR\x06images\"x\n" +
+	"\x0fDeploymentImage\x12'\n" +
+	"\x0frequested_image\x18\x04 \x01(\tR\x0erequestedImage\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x03 \x01(\tR\x05image\"}\n" +

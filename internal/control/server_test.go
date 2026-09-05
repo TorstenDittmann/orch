@@ -196,7 +196,7 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 	}
 
 	manifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
-		"web": {Image: "example/web:1"},
+		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
 	}))
 	first, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {
@@ -220,7 +220,7 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 		t.Fatalf("no-op apply = %#v", noOp)
 	}
 	conflictingManifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
-		"web": {Image: "example/web:2"},
+		"web": {Image: "example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222"},
 	}))
 	_, err = remote.ApplyApplication(context.Background(), conflictingManifest, "idempotency-key-one")
 	if connect.CodeOf(err) != connect.CodeAlreadyExists {
@@ -342,7 +342,7 @@ func TestControllerServesAuthenticatedDurableIntentAndHealth(t *testing.T) {
 func TestControllerReconcilesStoredCanonicalStateWithoutPkl(t *testing.T) {
 	_, dataDir, contextPath, _ := bootstrapController(t)
 	manifest := newTestManifest("hello", map[string]config.Service{
-		"web": {Image: "example/web:1"},
+		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
 	})
 	canonical := mustCanonicalConfig(t, manifest)
 	digest, err := config.Digest(manifest)
@@ -477,7 +477,7 @@ func TestControllerExcludesConcurrentOwnerAndRestartsWithState(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
-		"web": {Image: "example/web:1"},
+		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
 	}))
 	firstApply, err := remote.ApplyApplication(context.Background(), manifest, "idempotency-key-one")
 	if err != nil {

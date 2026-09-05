@@ -60,6 +60,8 @@ type ApplyApplication struct {
 	RevisionID        string
 	Digest            string
 	CanonicalManifest []byte
+	// RequestedManifest retains authored image references before resolution.
+	RequestedManifest []byte
 	IdempotencyKey    string
 	CreatedAt         time.Time
 	// Rollback requests are guarded against concurrent desired-state changes.
@@ -68,6 +70,7 @@ type ApplyApplication struct {
 }
 
 // ApplyApplicationResult is persisted as the exact idempotency response.
+// Digest hashes the authored apply request, or the resolved source for rollback.
 type ApplyApplicationResult struct {
 	Name            string    `json:"name"`
 	Generation      uint64    `json:"generation"`

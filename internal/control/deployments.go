@@ -206,7 +206,7 @@ func (s *service) RollbackApplication(ctx context.Context, req *connect.Request[
 	}
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: source.Application, RevisionID: newRevisionID(s.cluster.ID, req.Msg.GetIdempotencyKey(), source.Digest),
-		Digest: source.Digest, CanonicalManifest: source.CanonicalManifest,
+		Digest: source.Digest, CanonicalManifest: source.CanonicalManifest, RequestedManifest: source.RequestedManifest,
 		IdempotencyKey: req.Msg.GetIdempotencyKey(), CreatedAt: s.now().UTC(),
 		ExpectedGeneration: req.Msg.GetExpectedGeneration(), RollbackFromRevisionID: source.RevisionID,
 	})
@@ -239,12 +239,14 @@ func deploymentMessage(d store.Deployment) *orchv1alpha1.Deployment {
 			Image string `json:"image"`
 		} `json:"cron_jobs"`
 	}
+	var requested config.Manifest
+	_ = json.Unmarshal(d.RequestedManifest, &requested)
 	if json.Unmarshal(d.CanonicalManifest, &manifest) == nil {
 		for name, service := range manifest.Services {
-			result.Images = append(result.Images, &orchv1alpha1.DeploymentImage{Kind: "service", Name: name, Image: service.Image})
+			result.Images = append(result.Images, &orchv1alpha1.DeploymentImage{Kind: "service", Name: name, Image: service.Image, RequestedImage: requested.Services[name].Image})
 		}
 		for name, job := range manifest.CronJobs {
-			result.Images = append(result.Images, &orchv1alpha1.DeploymentImage{Kind: "cron", Name: name, Image: job.Image})
+			result.Images = append(result.Images, &orchv1alpha1.DeploymentImage{Kind: "cron", Name: name, Image: job.Image, RequestedImage: requested.CronJobs[name].Image})
 		}
 		sort.Slice(result.Images, func(i, j int) bool {
 			if result.Images[i].Kind == result.Images[j].Kind {

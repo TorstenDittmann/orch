@@ -42,15 +42,16 @@ var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,1
 
 type service struct {
 	orchv1alpha1connect.UnimplementedControlServiceHandler
-	state      *store.Store
-	cluster    model.Cluster
-	now        func() time.Time
-	random     io.Reader
-	caPEM      []byte
-	caKey      []byte
-	secretBox  *security.SecretBox
-	sessions   *sessionManager
-	reconciler *Reconciler
+	state         *store.Store
+	cluster       model.Cluster
+	now           func() time.Time
+	random        io.Reader
+	caPEM         []byte
+	caKey         []byte
+	secretBox     *security.SecretBox
+	sessions      *sessionManager
+	reconciler    *Reconciler
+	imageResolver ImageResolver
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -376,11 +377,25 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	digest := config.DigestCanonicalJSON(canonical)
+	replayed, found, err := s.state.ReplayApplication(ctx, idempotencyKey, canonical)
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		return nil, connect.NewError(connect.CodeAlreadyExists, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read deployment receipt"))
+	}
+	if found {
+		return connect.NewResponse(applyApplicationMessage(replayed)), nil
+	}
+	resolved, err := s.resolveImages(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
+	digest := config.DigestCanonicalJSON(resolved)
 	revisionID := newRevisionID(s.cluster.ID, idempotencyKey, digest)
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: manifest.Name, RevisionID: revisionID, Digest: digest,
-		CanonicalManifest: canonical, IdempotencyKey: idempotencyKey,
+		CanonicalManifest: resolved, RequestedManifest: canonical, IdempotencyKey: idempotencyKey,
 		CreatedAt: s.now().UTC(),
 	})
 	if errors.Is(err, store.ErrIdempotencyConflict) {

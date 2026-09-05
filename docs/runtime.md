@@ -26,15 +26,17 @@ runc, CNI plugins, or Caddy.
 
 ## Executable application subset
 
-Supported manifests use public, digest-qualified Linux OCI image references.
+Supported manifests use public or authenticated Linux OCI image references.
+The controller resolves service and cron job tags before acceptance; agents
+receive immutable digests.
 The runtime applies image defaults plus manifest command/args overrides, plain
 environment variables, replica count, `always`/`on-failure`/`never` restart
 policy, CPU quota, memory limit, and agent-managed local volume mounts.
 
 The runnable example is [examples/runtime/orch.pkl](../examples/runtime/orch.pkl).
 Its BusyBox image is a Docker Official Image multi-platform index pinned by
-digest for amd64 and arm64. A digest is immutable; update it deliberately rather
-than changing it through a tag.
+digest for amd64 and arm64. A digest is immutable. Manifests may also use tags;
+each new deployment request resolves them once and records the resulting digest.
 
 HTTP services may declare a private port, an optional readiness path, and
 optional public domains. Exact node-label constraints and CPU/memory capacity

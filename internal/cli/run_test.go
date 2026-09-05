@@ -28,7 +28,7 @@ const cliManifest = `amends "orch:/v1alpha1/Application.pkl"
 name = "hello"
 services {
   ["web"] {
-    image = "example/web:1"
+    image = "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"
     http = new Http {
       port = 8080
       domains { "hello.example.com" }
@@ -130,13 +130,13 @@ func TestValidateJSONDecodeErrorIncludesUnknownField(t *testing.T) {
 
 func TestPlanAgainstManifest(t *testing.T) {
 	before := writeManifest(t, cliManifest)
-	after := writeManifest(t, strings.Replace(cliManifest, "image = \"example/web:1\"", "image = \"example/web:2\"", 1))
+	after := writeManifest(t, strings.Replace(cliManifest, "image = \"example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111\"", "image = \"example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222\"", 1))
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"plan", "--file", after, "--against", before}, &stdout, &stderr)
 	if code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "~ services.web.image: \"example/web:1\" -> \"example/web:2\"") {
+	if !strings.Contains(stdout.String(), "~ services.web.image: \"example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111\" -> \"example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222\"") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "1 to change") {
@@ -211,7 +211,7 @@ func TestRenderShowsResolvedDefaults(t *testing.T) {
 func TestAuthoringCommandsEvaluateEachReferencedManifestOnce(t *testing.T) {
 	logPath := installCountingPkl(t)
 	before := writeManifest(t, cliManifest)
-	after := writeManifest(t, strings.Replace(cliManifest, "example/web:1", "example/web:2", 1))
+	after := writeManifest(t, strings.Replace(cliManifest, "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", "example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222", 1))
 	tests := []struct {
 		name        string
 		args        []string
