@@ -17,6 +17,17 @@ over a protected channel, stored off-host with mode-equivalent access controls,
 and excluded from source control, logs, and ordinary artifacts. The recovery
 snapshot is created at installation time and does not replace ongoing backups.
 
+Managed upgrades accept only a local regular candidate executable with safe
+ownership and modes. The executable must report a compatible machine-readable
+build descriptor before any service is stopped. Controller upgrades create a
+fresh private recovery set; worker upgrades copy private agent state while the
+agent is stopped. Journals contain paths, phases, descriptors, and hashes but no
+certificate, key, registry credential, secret value, or environment contents.
+
+Automatic rollback ends at authenticated readiness. Beyond that point, an old
+controller database or agent assignment cache may be stale, so orch reports the
+recovery path instead of silently discarding accepted state.
+
 Initialization creates a P-256 private cluster CA and two leaf identities.
 Each agent enrollment later signs another leaf identity:
 

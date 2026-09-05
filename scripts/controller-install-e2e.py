@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--orch", required=True, help="operator-machine orch executable")
     parser.add_argument("--linux-binary", required=True)
+    parser.add_argument("--upgrade-binary", help="candidate Linux amd64 binary; enables managed-upgrade checks")
     parser.add_argument("--linux-pkl", required=True)
     parser.add_argument("--ssh-config", required=True)
     parser.add_argument("--evidence", required=True, help="new private directory")
@@ -76,6 +77,19 @@ services { ["web"] { image = "docker.io/library/busybox@sha256:9db7b59979c38555a
         job = json.loads(record(f"{distro}-job", remote(host, "/root/orch-test job run controller-install-smoke web --wait --context /root/orch-admin/context.json --json -- /bin/sh -c 'echo install-job'")).stdout)
         assert job["status"]["state"] == 3
         remote(host, "test $(curl -fsS http://10.88.0.2:8080/healthz) = ok; systemctl stop orch-controller; sleep 15; test $(curl -fsS http://10.88.0.2:8080/healthz) = ok; systemctl start orch-controller")
+        if args.upgrade_binary:
+            run(["scp", "-F", args.ssh_config, args.upgrade_binary, f"{host}:/root/orch-upgrade"])
+            remote(host, "chown root:root /root/orch-upgrade; chmod 0755 /root/orch-upgrade; /opt/orch/bin/ctr --address /run/orch-containerd/containerd.sock --namespace orch tasks list | sort > /root/tasks-before")
+            controller_dry = json.loads(record(f"{distro}-controller-upgrade-dry-run", remote(host, "/root/orch-upgrade cluster upgrade --binary /root/orch-upgrade --dry-run --json")).stdout)
+            assert controller_dry["compatible"] and not controller_dry["changed"]
+            controller_upgrade = json.loads(record(f"{distro}-controller-upgrade", remote(host, "/root/orch-upgrade cluster upgrade --binary /root/orch-upgrade --wait-timeout 5m --json")).stdout)
+            assert controller_upgrade["ready"] and controller_upgrade["recovery_path"]
+            assert remote(host, "test $(curl -fsS http://10.88.0.2:8080/healthz) = ok").returncode == 0
+            node_dry = json.loads(record(f"{distro}-node-upgrade-dry-run", remote(host, "/root/orch-upgrade node upgrade --binary /root/orch-upgrade --dry-run --json")).stdout)
+            assert node_dry["compatible"] and not node_dry["changed"]
+            node_upgrade = json.loads(record(f"{distro}-node-upgrade", remote(host, "/root/orch-upgrade node upgrade --binary /root/orch-upgrade --wait-timeout 10m --json")).stdout)
+            assert node_upgrade["ready"] and node_upgrade["recovery_path"]
+            remote(host, "test $(curl -fsS http://10.88.0.2:8080/healthz) = ok; /opt/orch/bin/ctr --address /run/orch-containerd/containerd.sock --namespace orch tasks list | sort > /root/tasks-after; cmp /root/tasks-before /root/tasks-after")
         record(f"{distro}-restore", remote(host, "/opt/orch-controller/bin/orch cluster restore --backup /root/orch-recovery/control.db --pki-dir /root/orch-recovery/pki --secret-key /root/orch-recovery/secret-master.key --data-dir /root/orch-restored --json"))
         if distro == "fedora":
             remote(host, "test $(getenforce) = Enforcing; test $(systemctl is-active firewalld) = active; firewall-cmd --list-all > /root/firewall-after; cmp /root/firewall-before /root/firewall-after; ausearch -m AVC,USER_AVC -ts recent > /root/avc || test $? = 1")

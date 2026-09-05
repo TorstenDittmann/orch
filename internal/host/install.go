@@ -17,6 +17,7 @@ import (
 	"time"
 
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
+	"change.codes/torsten/better-swarm/internal/buildinfo"
 	nodebundle "change.codes/torsten/better-swarm/packaging/node"
 )
 
@@ -36,16 +37,17 @@ type InstallResult struct {
 	Ingress *bool  `json:"ingress,omitempty"`
 }
 type manifest struct {
-	Version    int               `json:"version"`
-	Address    string            `json:"advertise_address"`
-	Distro     string            `json:"distro"`
-	OSVersion  string            `json:"os_version"`
-	BinaryHash string            `json:"binary_hash"`
-	BundleHash string            `json:"bundle_hash"`
-	Files      map[string]string `json:"files"`
-	Done       map[string]bool   `json:"done"`
-	NodeID     string            `json:"node_id,omitempty"`
-	JoinHash   string            `json:"join_hash"`
+	Version    int                  `json:"version"`
+	Address    string               `json:"advertise_address"`
+	Distro     string               `json:"distro"`
+	OSVersion  string               `json:"os_version"`
+	BinaryHash string               `json:"binary_hash"`
+	BundleHash string               `json:"bundle_hash"`
+	Files      map[string]string    `json:"files"`
+	Done       map[string]bool      `json:"done"`
+	NodeID     string               `json:"node_id,omitempty"`
+	JoinHash   string               `json:"join_hash"`
+	Build      buildinfo.Descriptor `json:"build,omitempty"`
 }
 type installer struct {
 	plan        Plan
@@ -272,7 +274,7 @@ func (i *installer) loadOrCreate(binaryHash, bundleHash, joinHash string) error 
 			return fmt.Errorf("refusing unowned directory: %s", p)
 		}
 	}
-	i.state = manifest{Version: 1, JoinHash: joinHash, Address: i.plan.Address, Distro: i.plan.Report.OS, OSVersion: i.plan.Report.Version, BinaryHash: binaryHash, BundleHash: bundleHash, Files: map[string]string{}, Done: map[string]bool{}}
+	i.state = manifest{Version: 1, JoinHash: joinHash, Address: i.plan.Address, Distro: i.plan.Report.OS, OSVersion: i.plan.Report.Version, BinaryHash: binaryHash, BundleHash: bundleHash, Build: buildinfo.Current(), Files: map[string]string{}, Done: map[string]bool{}}
 	parent := filepath.Dir(StateDir)
 	stage, err := os.MkdirTemp(parent, ".orch-install-*")
 	if err != nil {

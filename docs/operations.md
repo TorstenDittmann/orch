@@ -145,21 +145,27 @@ restart supervision, and converges with the controller after reconnecting.
 probes. It returns only `ok`, never cluster metadata. All ConnectRPC operator
 methods require a verified administrator certificate.
 
-## Upgrade an existing one-node cluster
+## Upgrade a managed cluster
 
-Plan #9 changes the internal controller/agent protocol, so upgrade the
-controller and agents as one coordinated maintenance operation. Stop the
-existing agent, stop and back up the controller, upgrade both binaries, start
-the controller so its forward-only migration completes, and then start the
-original agent before enrolling more nodes. Do not run old and new protocol
-versions together.
+Guided installations support a controller-first application-binary upgrade.
+Run `cluster upgrade --binary FILE --dry-run` on the controller, perform the
+upgrade, and then run `node upgrade --binary FILE --dry-run` and the real
+upgrade on one worker at a time. The candidate descriptor must match the exact
+protocol and managed dependency generation. If a future release changes either,
+its release procedure must provide a separate compatibility path.
 
-The migration preserves the original node ID, certificate and public-key
-binding, first workload `/24`, immutable application/assignment history,
-encrypted records, and local runtime ownership labels. Matching existing
-workloads are adopted rather than recreated. A failed migration must be
-recovered from the pre-upgrade controller backup; do not edit SQLite or
-host-local CNI state by hand.
+The controller command creates and validates a current database, PKI, and
+secret-key recovery set before stopping the service. The worker command stops
+only the agent; containerd and assigned processes continue from the durable
+cached assignment. The new agent must reconnect with the original node ID and
+adopt its workload state before the command succeeds. Cordon or drain a worker
+first with the existing administrator command when workload movement is desired.
+
+Both commands journal their phases and accept only the same candidate on retry.
+Errors report the private recovery path. Do not edit the journal, SQLite files,
+agent cache, or CNI state. After authenticated readiness, automatic rollback is
+disabled because restoring older state could discard controller mutations or a
+newly acknowledged assignment.
 
 ## Configure the workload CIDR
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"change.codes/torsten/better-swarm/internal/buildinfo"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 )
@@ -37,17 +38,18 @@ type ControllerInstallResult struct {
 }
 
 type controllerManifest struct {
-	Version     int               `json:"version"`
-	Name        string            `json:"name"`
-	Server      string            `json:"server"`
-	Listen      string            `json:"listen"`
-	AdminDir    string            `json:"admin_dir"`
-	RecoveryDir string            `json:"recovery_dir"`
-	BinaryHash  string            `json:"binary_hash"`
-	BundleHash  string            `json:"bundle_hash"`
-	ClusterID   string            `json:"cluster_id,omitempty"`
-	Files       map[string]string `json:"files"`
-	Done        map[string]bool   `json:"done"`
+	Version     int                  `json:"version"`
+	Name        string               `json:"name"`
+	Server      string               `json:"server"`
+	Listen      string               `json:"listen"`
+	AdminDir    string               `json:"admin_dir"`
+	RecoveryDir string               `json:"recovery_dir"`
+	BinaryHash  string               `json:"binary_hash"`
+	BundleHash  string               `json:"bundle_hash"`
+	ClusterID   string               `json:"cluster_id,omitempty"`
+	Files       map[string]string    `json:"files"`
+	Done        map[string]bool      `json:"done"`
+	Build       buildinfo.Descriptor `json:"build,omitempty"`
 }
 
 type controllerInstaller struct {
@@ -239,7 +241,7 @@ func (i *controllerInstaller) loadOrCreate(options ControllerOptions, binaryHash
 	if err := rootOwned(ControllerStateDir, true); err != nil {
 		return err
 	}
-	i.state = controllerManifest{Version: 1, Name: options.Name, Server: options.Server, Listen: options.Listen, AdminDir: options.AdminDir, RecoveryDir: options.RecoveryDir, BinaryHash: binaryHash, BundleHash: bundleHash, Files: map[string]string{}, Done: map[string]bool{}}
+	i.state = controllerManifest{Version: 1, Name: options.Name, Server: options.Server, Listen: options.Listen, AdminDir: options.AdminDir, RecoveryDir: options.RecoveryDir, BinaryHash: binaryHash, BundleHash: bundleHash, Build: buildinfo.Current(), Files: map[string]string{}, Done: map[string]bool{}}
 	i.changed = true
 	return i.save()
 }

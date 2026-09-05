@@ -859,3 +859,19 @@ func countPklEvaluations(t *testing.T, logPath string) int {
 	}
 	return bytes.Count(contents, []byte("evaluate\n"))
 }
+
+func TestVersionJSONExposesUpgradeCompatibility(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"version", "--json"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var value map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &value); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"version", "build_id", "release_generation", "install_format", "controller_schema", "agent_schema", "agent_protocol", "dependency_generation"} {
+		if value[key] == nil {
+			t.Fatalf("missing %s in %s", key, stdout.String())
+		}
+	}
+}

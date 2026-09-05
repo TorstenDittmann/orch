@@ -173,6 +173,43 @@ Evidence includes private join artifacts: publish only reviewed, non-secret
 results. The drill deliberately leaves the VMs and test application available
 for inspection; destroy your disposable infrastructure afterward.
 
+To exercise upgrades, run `scripts/controller-install-e2e.py` with a baseline
+`--linux-binary` and the candidate `--upgrade-binary`. The drill verifies both
+dry runs, controller-first replacement and recovery output, unchanged containerd
+task identities across the worker agent restart, reboot, and Fedora policy.
+
+## Upgrade a managed installation
+
+Copy the trusted new Linux amd64 executable to the host. Upgrade the controller
+first, then each worker. Always inspect the transition before maintenance:
+
+~~~console
+sudo ./new-orch cluster upgrade --binary ./new-orch --dry-run --json
+sudo ./new-orch cluster upgrade --binary ./new-orch
+
+sudo ./new-orch node upgrade --binary ./new-orch --dry-run --json
+sudo ./new-orch node upgrade --binary ./new-orch
+~~~
+
+The candidate must be root-owned for a real root-run upgrade and must expose a
+compatible `version --json` descriptor. Orch rejects downgrades and changes to
+the protocol, install format, architecture, or managed runtime bundle before it
+stops a service. This release upgrades the orch application binary only; it
+does not replace containerd, runc, CNI plugins, or Caddy.
+
+Controller upgrade creates a fresh private recovery set under
+`/var/lib/orch-controller-install/upgrades/`. Worker upgrade stops only
+`orch-agent`, backs up its private state, and leaves containerd and existing
+workload processes running. The restarted agent must reconnect with the same
+node identity and acknowledge an assignment. Each operation is locked and
+journaled; repeat the same command and candidate to resume. A different
+candidate is rejected while an upgrade is incomplete.
+
+The automatic rollback window ends after the upgraded service is authenticated
+and ready. Keep the reported recovery path until the cluster has been observed
+under normal traffic. On a co-located host, finish `cluster upgrade` before
+running `node upgrade`.
+
 Fedora's owned `/etc/systemd/network/10-orch-veth.link` preserves the MAC
 addresses CNI records for kernel-created `veth*` devices (driver `veth`). Without
 it, udev's persistent-MAC policy can change an address after CNI ADD and make

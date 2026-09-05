@@ -17,6 +17,7 @@ import (
 	"time"
 
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
+	"change.codes/torsten/better-swarm/internal/buildinfo"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
@@ -26,7 +27,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const Version = "0.1.0-dev"
+var Version = buildinfo.Version
 
 const (
 	ExitOK      = 0
@@ -105,8 +106,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	case "pkl":
 		return runPkl(args[1:], stdout, stderr)
 	case "version":
+		if len(args) == 2 && args[1] == "--json" {
+			return writeJSON(stdout, stderr, buildinfo.Current())
+		}
 		if len(args) != 1 {
-			fmt.Fprintln(stderr, "version accepts no arguments")
+			fmt.Fprintln(stderr, "version accepts only --json")
 			return ExitInvalid
 		}
 		fmt.Fprintln(stdout, Version)
@@ -426,6 +430,8 @@ func runCluster(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runClusterInit(args[1:], stdout, stderr)
 	case "doctor", "install":
 		return runClusterHost(ctx, args, stdout, stderr)
+	case "upgrade":
+		return runHostUpgrade(ctx, "cluster", args[1:], stdout, stderr)
 	case "restore":
 		return runClusterRecovery(args[1:], true, stdout, stderr)
 	case "backup":
@@ -862,6 +868,7 @@ Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
   orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
+  orch cluster upgrade --binary FILE [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
@@ -880,6 +887,7 @@ Usage:
   orch node join list|revoke [--target NAME]
   orch node doctor --advertise-address PRIVATE_IP [--json]
   orch node install --advertise-address PRIVATE_IP [--join-file FILE|-] [--dry-run] [--json]
+  orch node upgrade --binary FILE [--dry-run] [--json]
   orch app status NAME [--target NAME] [--json]
   orch app history APP [--limit N] [--before-generation N] [--target NAME] [--json]
   orch app diff APP REVISION [--against REVISION] [--target NAME] [--json]
@@ -925,6 +933,7 @@ Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
   orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
+  orch cluster upgrade --binary FILE [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]`)
