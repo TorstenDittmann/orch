@@ -8,7 +8,7 @@
     "build:docs": "docia build --config docia.config.ts"
   },
   "devDependencies": {
-    "docia": "github:TorstenDittmann/docia#b7febe3b3e90f92797bcc7c68a1e820b1a009526",
-    "yeet": "0.1.0"
+    "@dittmann/yeet": "1.0.4",
+    "docia": "github:TorstenDittmann/docia#b7febe3b3e90f92797bcc7c68a1e820b1a009526"
   }
 }
