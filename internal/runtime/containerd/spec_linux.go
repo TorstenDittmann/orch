@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
@@ -50,7 +52,112 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 	if len(allocation.SecretEnvironment) != 0 {
 		opts = append(opts, withSecretEnvironment(allocation.SecretEnvironment))
 	}
+	opts = append(opts, c.withWorkloadOwnership(allocation))
 	return opts
+}
+
+// withWorkloadOwnership hands the host-side files the workload must access to
+// the process user resolved from the image config. It must follow
+// WithImageConfig so that USER directives (including named users) are resolved.
+func (c *runtimeClient) withWorkloadOwnership(allocation model.AllocationDesired) oci.SpecOpts {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
+		return c.applyWorkloadOwnership(allocation, spec)
+	}
+}
+
+func (c *runtimeClient) applyWorkloadOwnership(allocation model.AllocationDesired, spec *oci.Spec) error {
+	uid, gid, err := processOwner(spec)
+	if err != nil {
+		return err
+	}
+	if err := c.chownSecretProjection(allocation, uid, gid); err != nil {
+		return err
+	}
+	applicationDir := filepath.Join(c.options.VolumesDir, allocation.Application)
+	for _, mount := range allocation.Mounts {
+		if err := claimVolumeRoot(filepath.Join(applicationDir, mount.Name), uid, gid); err != nil {
+			return fmt.Errorf("prepare local volume %q ownership: %w", mount.Name, err)
+		}
+	}
+	return nil
+}
+
+func processOwner(spec *oci.Spec) (uint32, uint32, error) {
+	if spec == nil || spec.Process == nil {
+		return 0, 0, fmt.Errorf("image did not produce a process user")
+	}
+	return spec.Process.User.UID, spec.Process.User.GID, nil
+}
+
+// chownSecretProjection gives the projected secret values to the workload user
+// so that runtime-secret-init and secret file readers work for non-root images.
+// Values stay 0400; the projection directory and ownership marker stay
+// root-owned because only the individual value files are bind-mounted.
+func (c *runtimeClient) chownSecretProjection(allocation model.AllocationDesired, uid, gid uint32) error {
+	if len(allocation.SecretEnvironment) == 0 && len(allocation.SecretFiles) == 0 {
+		return nil
+	}
+	objectDir := filepath.Join(c.options.SecretsDir, orchruntime.ObjectID(allocation.ID, allocation.SpecDigest))
+	if filepath.Dir(objectDir) != c.options.SecretsDir {
+		return fmt.Errorf("invalid runtime secret projection identity")
+	}
+	entries, err := os.ReadDir(objectDir)
+	if err != nil {
+		return fmt.Errorf("inspect runtime secret projection: %w", err)
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "value-") || !entry.Type().IsRegular() {
+			continue
+		}
+		if err := os.Lchown(filepath.Join(objectDir, entry.Name()), int(uid), int(gid)); err != nil {
+			return fmt.Errorf("assign runtime secret projection ownership: %w", err)
+		}
+	}
+	return nil
+}
+
+// claimVolumeRoot transfers a local volume root to the workload user only when
+// it is still the empty root-owned directory created by volumeMounts. Existing
+// data and directories already owned by another user are never re-owned, and
+// nothing below the root is changed; the 0700 mode is preserved.
+func claimVolumeRoot(path string, uid, gid uint32) error {
+	if uid == 0 && gid == 0 {
+		return nil
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || !ok {
+		return fmt.Errorf("runtime path %s must be a non-symlink directory", path)
+	}
+	if stat.Uid != 0 || (stat.Uid == uid && stat.Gid == gid) {
+		return nil
+	}
+	empty, err := directoryEmpty(path)
+	if err != nil || !empty {
+		return err
+	}
+	return os.Lchown(path, int(uid), int(gid))
+}
+
+func directoryEmpty(path string) (bool, error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer directory.Close()
+	if _, err := directory.Readdirnames(1); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
 }
 
 func withSecretEnvironment(environment map[string]model.SecretReference) oci.SpecOpts {
