@@ -48,6 +48,7 @@ type distributedAllocation struct {
 type distributedCron struct {
 	job         model.CronJobDesired
 	constraints map[string]string
+	volumeNode  string
 }
 
 func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Cluster, applications []model.Application, nodes []model.Node, now time.Time) error {
@@ -269,6 +270,38 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 	}
 	plannedCron = readyCron
 
+	// A cron job that reads local volumes runs where the owning service's
+	// durable claim put them. Until that service has been placed there is no
+	// node to choose, so the job waits rather than claiming a volume itself.
+	pinnedCron := plannedCron[:0]
+	for _, item := range plannedCron {
+		volumeNode, claimed := "", true
+		for _, mount := range item.job.Mounts {
+			claim, err := r.state.VolumeClaim(ctx, item.job.Application, mount.Name)
+			if err != nil {
+				return err
+			}
+			if claim == "" || volumeNode != "" && claim != volumeNode {
+				claimed = false
+				break
+			}
+			volumeNode = claim
+		}
+		if !claimed {
+			if owner := currentCronNode[cronLogicalKey(item.job.Application, item.job.Job)]; owner != "" {
+				if previous := previousCronByLogical[cronLogicalKey(item.job.Application, item.job.Job)]; previous.Job != "" {
+					preservedCron[owner] = append(preservedCron[owner], previous)
+				}
+			}
+			states[item.job.Application] = executionState(model.ExecutionPending, item.job.ApplicationGeneration,
+				"cron_volume_pending", "waiting for the service that owns the cron job's volumes to be placed", now)
+			continue
+		}
+		item.volumeNode = volumeNode
+		pinnedCron = append(pinnedCron, item)
+	}
+	plannedCron = pinnedCron
+
 	schedulerNodes := make([]scheduler.Node, 0, len(nodes))
 	for _, node := range nodes {
 		labels := cloneEnvironment(node.Labels)
@@ -349,7 +382,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		workloads = append(workloads, scheduler.Workload{
 			ID: logical, Kind: scheduler.KindCronJob, Application: item.job.Application, Service: item.job.Job, Replica: 1,
 			Resources:   scheduler.Resources{CPUMillis: item.job.CPUMillis, MemoryBytes: item.job.MemoryBytes},
-			Constraints: item.constraints, CurrentNodeID: owner,
+			Constraints: item.constraints, CurrentNodeID: owner, VolumeNodeID: item.volumeNode,
 		})
 	}
 	decisions, err := scheduler.Schedule(scheduler.Input{Nodes: schedulerNodes, Workloads: workloads})

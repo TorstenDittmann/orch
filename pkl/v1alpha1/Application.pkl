@@ -109,6 +109,10 @@ class CronJob {
   startDeadline: String = "1m"
 
   timeout: String = "15m"
+
+  /// Read-only mounts of local volumes that a service in this application
+  /// owns. Each run is placed on the node that holds those volumes.
+  mounts: Listing<Mount(readOnly)>(length <= 64) = new {}
 }
 
 class SecretFile {

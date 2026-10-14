@@ -1808,6 +1808,7 @@ func cronRunAllocation(job model.CronJobDesired, runID string) (model.Allocation
 		SecretEnvironment: cloneSecretEnvironment(job.SecretEnvironment), SecretFiles: append([]model.SecretFileDesired(nil), job.SecretFiles...),
 		RegistryCredential: cloneRegistryCredential(job.RegistryCredential), RuntimeSecretValues: job.RuntimeSecretValues,
 		RuntimeRegistrySecrets: job.RuntimeRegistrySecrets, NetworkGeneration: job.NetworkGeneration,
+		Mounts: append([]model.VolumeMount(nil), job.Mounts...),
 	}
 	var err error
 	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)

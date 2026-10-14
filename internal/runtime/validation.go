@@ -194,7 +194,23 @@ func ValidateCronJob(job model.CronJobDesired) error {
 		}
 		totalBytes += len(key) + len(value)
 	}
-	if err := validateSecretBindings(job.Application, domain, job.Environment, nil,
+	if len(job.Mounts) > maxRuntimeMounts {
+		return fmt.Errorf("runtime cron job contains too many volume mounts")
+	}
+	mountTargets := make(map[string]struct{}, len(job.Mounts))
+	for _, mount := range job.Mounts {
+		// Cron jobs only read volumes owned by a service; a writable mount
+		// would let a run race the owning service.
+		if !mount.ReadOnly || !validDNSLabel(mount.Name) || len(mount.Target) > maxRuntimeStringBytes || !safeMountTarget(mount.Target) {
+			return fmt.Errorf("runtime cron volume mount is invalid")
+		}
+		if _, exists := mountTargets[mount.Target]; exists {
+			return fmt.Errorf("runtime cron volume mount target is duplicated")
+		}
+		mountTargets[mount.Target] = struct{}{}
+		totalBytes += len(mount.Name) + len(mount.Target)
+	}
+	if err := validateSecretBindings(job.Application, domain, job.Environment, mountTargets,
 		job.SecretEnvironment, job.SecretFiles, job.RegistryCredential); err != nil {
 		return err
 	}

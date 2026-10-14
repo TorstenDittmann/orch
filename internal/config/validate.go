@@ -319,6 +319,7 @@ func Validate(manifest *Manifest) error {
 		if duration, err := time.ParseDuration(job.Timeout); err != nil || duration < 10*time.Second || duration > 24*time.Hour {
 			add(base+".timeout", "must be a duration between 10s and 24h")
 		}
+		validateCronMounts(base, job, manifest.Volumes, volumeOwners, add)
 	}
 	if totalDomains > maxTotalDomains {
 		add("services", fmt.Sprintf("must not configure more than %d total domains", maxTotalDomains))
@@ -531,6 +532,43 @@ func validHostname(value string) bool {
 func safeSecretTarget(target string) bool {
 	clean := path.Clean(target)
 	return target == clean && strings.HasPrefix(clean, "/run/secrets/") && clean != "/run/secrets"
+}
+
+// validateCronMounts allows a cron job to read local volumes that one service
+// in the same application owns. The service's durable volume claim decides the
+// node, so every mounted volume must share that owner to share a node.
+func validateCronMounts(base string, job CronJob, volumes map[string]Volume, volumeOwners map[string]string, add func(string, string)) {
+	if len(job.Mounts) > maxMountsPerService {
+		add(base+".mounts", fmt.Sprintf("must not contain more than %d entries", maxMountsPerService))
+	}
+	targets := make(map[string]struct{})
+	for _, secret := range job.SecretFiles {
+		targets[secret.Target] = struct{}{}
+	}
+	owner := ""
+	for index, mount := range job.Mounts {
+		item := fmt.Sprintf("%s.mounts[%d]", base, index)
+		validateDNSLabel(item+".source", mount.Source, add)
+		if !mount.ReadOnly {
+			add(item+".read_only", "must be true; cron jobs may only read local volumes")
+		}
+		if _, exists := volumes[mount.Source]; !exists {
+			add(item+".source", "does not name a declared volume")
+		} else if service, owned := volumeOwners[mount.Source]; !owned {
+			add(item+".source", "must be a local volume mounted by a service in this application")
+		} else if owner != "" && service != owner {
+			add(item+".source", fmt.Sprintf("must belong to service %q like the job's other mounts", owner))
+		} else {
+			owner = service
+		}
+		if !safeMountTarget(mount.Target) {
+			add(item+".target", "must be a clean absolute path outside protected system paths")
+		}
+		if _, exists := targets[mount.Target]; exists {
+			add(item+".target", "duplicates another mount or secret file target")
+		}
+		targets[mount.Target] = struct{}{}
+	}
 }
 
 func safeMountTarget(target string) bool {

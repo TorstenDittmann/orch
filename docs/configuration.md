@@ -159,6 +159,32 @@ orch cron logs hello cleanup RUN_ID
 
 Overlapping runs are skipped and missed runs are not replayed.
 
+### Reading a local volume
+
+A cron job can mount a service's local volume read-only, for example to back
+it up. Each run is placed on the worker that holds the volume:
+
+```pkl
+cronJobs {
+  ["database-backup"] {
+    image = "ghcr.io/acme/backup:1.0"
+    schedule = "0 3 * * *"
+    mounts {
+      new Mount {
+        source = "database"
+        target = "/backup/source"
+        readOnly = true
+      }
+    }
+  }
+}
+```
+
+`readOnly` must be `true`, and every mounted volume must belong to the same
+service in the application. The job waits until that service has been placed.
+The service keeps writing while the job reads, so use a copy method that is
+safe for the data, such as the database's own snapshot or backup tool.
+
 ## Rollouts
 
 ```pkl

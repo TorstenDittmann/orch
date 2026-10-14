@@ -218,6 +218,7 @@ message CronJobDesired {
   string run_id = 20;
   google.protobuf.Timestamp run_at = 21;
   bool cancel_requested = 22;
+  repeated VolumeMount mounts = 23;
 }
 
 message AssignmentSnapshot {

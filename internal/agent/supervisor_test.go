@@ -1363,3 +1363,39 @@ func mustAllocationDigest(t *testing.T, allocation model.AllocationDesired) stri
 	}
 	return digest
 }
+
+func TestCronRunCarriesReadOnlyVolumeMounts(t *testing.T) {
+	job := model.CronJobDesired{Application: "hello", Job: "backup", ApplicationGeneration: 1,
+		RevisionID: "revision-one", Image: supervisorExecutableImage, Schedule: "* * * * *", CPUMillis: 100,
+		MemoryBytes: 64 << 20, StartDeadlineSeconds: 30, TimeoutSeconds: 60, NetworkGeneration: 1,
+		Mounts: []model.VolumeMount{{Name: "sqld", Target: "/sqld", ReadOnly: true}}}
+	var err error
+	job.SpecDigest, err = model.CronJobSpecDigest(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := orchruntime.ValidateCronJob(job); err != nil {
+		t.Fatalf("read-only cron mount rejected: %v", err)
+	}
+	allocation, err := cronRunAllocation(job, "job_one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allocation.Mounts) != 1 || allocation.Mounts[0] != job.Mounts[0] {
+		t.Fatalf("run mounts = %#v", allocation.Mounts)
+	}
+	if err := orchruntime.ValidateAllocation(allocation); err != nil {
+		t.Fatalf("run allocation rejected: %v", err)
+	}
+	writable := job
+	writable.Mounts = []model.VolumeMount{{Name: "sqld", Target: "/sqld"}}
+	if err := orchruntime.ValidateCronJob(writable); err == nil {
+		t.Fatal("writable cron mount accepted")
+	}
+	unmounted := job
+	unmounted.Mounts = nil
+	digest, err := model.CronJobSpecDigest(unmounted)
+	if err != nil || digest == job.SpecDigest {
+		t.Fatalf("mounts do not change the cron spec digest: %v", err)
+	}
+}

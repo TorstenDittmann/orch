@@ -66,6 +66,15 @@ func normalize(manifest *Manifest) {
 		if len(job.SecretFiles) == 0 {
 			job.SecretFiles = nil
 		}
+		sort.Slice(job.Mounts, func(left, right int) bool {
+			if job.Mounts[left].Target == job.Mounts[right].Target {
+				return job.Mounts[left].Source < job.Mounts[right].Source
+			}
+			return job.Mounts[left].Target < job.Mounts[right].Target
+		})
+		if len(job.Mounts) == 0 {
+			job.Mounts = nil
+		}
 		manifest.CronJobs[name] = job
 	}
 	if len(manifest.Volumes) == 0 {

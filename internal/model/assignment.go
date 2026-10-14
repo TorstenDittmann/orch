@@ -226,6 +226,7 @@ type CronJobDesired struct {
 	StartDeadlineSeconds   uint32                       `json:"start_deadline_seconds"`
 	TimeoutSeconds         uint32                       `json:"timeout_seconds"`
 	NetworkGeneration      uint64                       `json:"network_generation"`
+	Mounts                 []VolumeMount                `json:"mounts,omitempty"`
 	RuntimeSecretValues    map[string][]byte            `json:"-"`
 	RuntimeRegistrySecrets map[string][]byte            `json:"-"`
 }
@@ -440,9 +441,10 @@ func CronJobSpecDigest(job CronJobDesired) (string, error) {
 		StartDeadlineSeconds uint32                     `json:"start_deadline_seconds"`
 		TimeoutSeconds       uint32                     `json:"timeout_seconds"`
 		NetworkGeneration    uint64                     `json:"network_generation"`
+		Mounts               []VolumeMount              `json:"mounts,omitempty"`
 	}{job.RunID, job.RunAt, job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
 		job.MemoryBytes, job.DependsOn, job.SecretEnvironment, job.SecretFiles,
-		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration}
+		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration, job.Mounts}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode cron job runtime spec: %w", err)
