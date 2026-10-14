@@ -1,0 +1,43 @@
+# Mirrors .change/go.ci.ts so pull requests also get checks on GitHub.
+name: Go checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.check.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - name: Validate generated sources and formatting
+            run: make generate-check fmt-check pkl-test
+          - name: Run Go vet
+            run: make vet
+          - name: Run Go tests
+            run: make test
+          - name: Run Go race tests
+            run: make test-race
+          - name: Build Linux amd64
+            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go build -trimpath -o /tmp/orch-linux-amd64 ./cmd/orch
+          - name: Compile Linux amd64 network tests
+            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-network-amd64.test ./internal/network
+          - name: Compile Linux amd64 containerd tests
+            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-containerd-amd64.test ./internal/e2e
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v2
+      - name: Download dependencies
+        run: mise exec -- go mod download
+      - name: ${{ matrix.check.name }}
+        run: ${{ matrix.check.run }}
