@@ -247,8 +247,8 @@ func TestWireGuardReconcileRequiresPreflightAndValidCanonicalIntent(t *testing.T
 	if err := manager.Preflight(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	configuration.Peers[0].Endpoint = "203.0.113.1:51820"
-	if err := manager.Reconcile(context.Background(), configuration); err == nil || !strings.Contains(err.Error(), "private IPv4") {
+	configuration.Peers[0].Endpoint = "127.0.0.1:51820"
+	if err := manager.Reconcile(context.Background(), configuration); err == nil || !strings.Contains(err.Error(), "unicast IPv4") {
 		t.Fatalf("invalid Reconcile error = %v", err)
 	}
 	if len(backend.operations) != 0 {

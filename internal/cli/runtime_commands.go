@@ -98,7 +98,7 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 	flags.StringVar(&caddyBinary, "caddy-binary", "/usr/bin/caddy", "pinned Caddy executable")
 	flags.StringVar(&ingressUser, "ingress-user", "orch-ingress", "dedicated unprivileged Caddy user")
 	flags.StringVar(&ingressDataDir, "ingress-data-dir", "/var/lib/orch-ingress", "private Caddy data directory owned by --ingress-user")
-	flags.StringVar(&advertiseAddress, "advertise-address", "", "private IPv4 address reachable by the other nodes")
+	flags.StringVar(&advertiseAddress, "advertise-address", "", "private or public IPv4 address reachable by the other nodes")
 	flags.UintVar(&wireGuardPort, "wireguard-port", 51820, "WireGuard UDP listen port")
 	flags.StringVar(&systemReservedCPU, "system-reserved-cpu", "500m", "CPU reserved for the host (for example 500m)")
 	flags.StringVar(&systemReservedMemory, "system-reserved-memory", "512Mi", "memory reserved for the host (for example 512Mi)")
@@ -740,7 +740,7 @@ func printAgentHelp(output io.Writer) {
 Usage:
   orch agent init --join-file FILE|- --data-dir DIR [--json]
 	  orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME \
-	    --advertise-address PRIVATE_IPV4 [--wireguard-port PORT] \
+	    --advertise-address IPV4 [--wireguard-port PORT] \
 	    [--system-reserved-cpu CPU] [--system-reserved-memory MEMORY] \
 	    [--cni-bin-dir DIR] [--caddy-binary PATH] [--ingress-user USER] \
 	    [--ingress-data-dir DIR]`)

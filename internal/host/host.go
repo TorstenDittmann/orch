@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"change.codes/torsten/better-swarm/internal/model"
 	nodebundle "change.codes/torsten/better-swarm/packaging/node"
 )
 
@@ -69,8 +70,8 @@ func Artifacts() ([]Artifact, error) {
 }
 func address(raw string) (netip.Addr, error) {
 	ip, err := netip.ParseAddr(raw)
-	if err != nil || !ip.Is4() || !ip.IsPrivate() || ip.IsLoopback() {
-		return netip.Addr{}, errors.New("advertise address must be a private IPv4 address on this host")
+	if err != nil || !model.IsMeshEndpointAddress(ip) {
+		return netip.Addr{}, errors.New("advertise address must be a unicast IPv4 address on this host")
 	}
 	return ip, nil
 }

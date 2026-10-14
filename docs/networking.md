@@ -5,8 +5,27 @@ or TCP ingress.
 
 ## Requirements
 
-Workers must reach each other over their advertised private IPv4 addresses.
-Allow UDP 51820 between workers for the WireGuard mesh.
+Workers must reach each other over their advertised IPv4 addresses. These
+can be private addresses on a shared network or public addresses when the
+machines have no private network in common. Allow UDP 51820 between workers for
+the WireGuard mesh.
+
+### Public advertise addresses
+
+The mesh encrypts and authenticates all traffic between workers, so a public
+advertise address is supported. Workload addresses, cluster DNS, and service
+endpoints stay inside the private workload network either way; only the
+WireGuard underlay uses the public address.
+
+When workers advertise public addresses, allow UDP 51820 only from the other
+workers' advertised addresses in the host or provider firewall. orch does not
+open or restrict it for you. `orch node doctor` warns when the address is
+public as a reminder.
+
+Traffic between workers in different regions pays the network distance. For
+example, Frankfurt to US East adds about 90 ms each way. Keep chatty services
+and their databases in the same region, and use placement constraints to pin
+them there.
 
 The default workload network is `10.88.0.0/16`. If it overlaps a host, VPN,
 or office network, choose another CIDR before deploying applications:
@@ -106,8 +125,9 @@ orch events --limit 50 --target production
 
 Check that:
 
-- all workers advertise reachable, unique private addresses;
-- UDP 51820 is allowed between workers;
+- all workers advertise reachable, unique addresses;
+- UDP 51820 is allowed between workers, and only from workers when the
+  addresses are public;
 - the workload CIDR does not overlap existing routes;
 - ingress is enabled on the expected nodes;
 - DNS points to those ingress nodes;

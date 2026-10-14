@@ -169,3 +169,37 @@ func TestFedoraAtomicAndOtherVariantsAreNotClaimedSupported(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicAdvertiseAddressWarnsAboutWireGuardFirewall(t *testing.T) {
+	private := Inspect(context.Background(), "10.0.0.11", fixtureProbe("ubuntu"))
+	for _, check := range private.Checks {
+		if check.ID == "public_wireguard_endpoint" {
+			t.Fatalf("private address produced %+v", check)
+		}
+	}
+	probe := fixtureProbe("ubuntu")
+	probe.Addresses = []string{"203.0.113.10"}
+	public := Inspect(context.Background(), "203.0.113.10", probe)
+	var advertise, warning *Check
+	for index := range public.Checks {
+		switch public.Checks[index].ID {
+		case "advertise_address":
+			advertise = &public.Checks[index]
+		case "public_wireguard_endpoint":
+			warning = &public.Checks[index]
+		}
+	}
+	if advertise == nil || advertise.State != "pass" {
+		t.Fatalf("public advertise address check = %+v", advertise)
+	}
+	if warning == nil || warning.State != "warn" || !strings.Contains(warning.Remedy, "UDP 51820") {
+		t.Fatalf("public WireGuard warning = %+v", warning)
+	}
+	loopback := fixtureProbe("ubuntu")
+	loopback.Addresses = []string{"127.0.0.1"}
+	for _, check := range Inspect(context.Background(), "127.0.0.1", loopback).Checks {
+		if check.ID == "advertise_address" && check.State != "fail" {
+			t.Fatalf("loopback advertise address = %+v", check)
+		}
+	}
+}
