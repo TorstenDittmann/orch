@@ -1,8 +1,11 @@
 package host
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"change.codes/torsten/better-swarm/internal/buildinfo"
@@ -204,5 +207,113 @@ func TestVerifyInstalledBinaryAcceptsPinnedCandidateAfterReplacement(t *testing.
 	}
 	if err := applyCandidate(installed, installed, resumed.PreviousHash, resumed.CandidateHash); err != nil {
 		t.Fatalf("apply on resume: %v", err)
+	}
+}
+
+type rollbackFixture struct {
+	journalPath string
+	agentDir    string
+	installed   string
+	journal     upgradeJournal
+}
+
+func newRollbackFixture(t *testing.T) rollbackFixture {
+	t.Helper()
+	root := t.TempDir()
+	f := rollbackFixture{journalPath: filepath.Join(root, "state", "upgrade.json"), agentDir: filepath.Join(root, "agent"), installed: filepath.Join(root, "bin", "orch")}
+	backup := filepath.Join(root, "state", "upgrades", "candidate", "agent-state")
+	for path, content := range map[string]string{
+		filepath.Join(f.agentDir, "agent.db"): "candidate-state",
+		filepath.Join(backup, "agent.db"):     "previous-state",
+		f.installed:                           "candidate-binary",
+		filepath.Join(root, "state", "upgrades", "candidate", "previous-orch"): "previous-binary",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.journal = upgradeJournal{Version: 1, Kind: "node", CandidateHash: "candidate", PreviousPath: f.installed, RecoveryPath: backup, Phase: "replaced"}
+	if err := saveUpgradeJournal(f.journalPath, f.journal); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestRollbackNodeSurvivesCancelledContext(t *testing.T) {
+	f := newRollbackFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var calls []string
+	run := func(ctx context.Context, name string, args ...string) (string, error) {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "show" {
+			return "inactive\n", nil
+		}
+		return "", nil
+	}
+	err := rollbackNode(ctx, run, f.journalPath, f.agentDir, f.journal, errors.New("interrupted"))
+	if err == nil || !strings.Contains(err.Error(), "previous agent was restored") {
+		t.Fatalf("rollback = %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.agentDir, "agent.db")); string(got) != "previous-state" {
+		t.Fatalf("agent state = %q", got)
+	}
+	if got, _ := os.ReadFile(f.installed); string(got) != "previous-binary" {
+		t.Fatalf("binary = %q", got)
+	}
+	if len(calls) != 3 || calls[2] != "start orch-agent.service" {
+		t.Fatalf("calls = %q", calls)
+	}
+}
+
+func TestRollbackAbortsWhenServiceIsNotConfirmedStopped(t *testing.T) {
+	f := newRollbackFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var started bool
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		switch args[0] {
+		case "stop":
+			return "", errors.New("stop failed")
+		case "show":
+			return "active\n", nil
+		case "start":
+			started = true
+		}
+		return "", nil
+	}
+	if err := rollbackNode(ctx, run, f.journalPath, f.agentDir, f.journal, errors.New("interrupted")); err == nil || !strings.Contains(err.Error(), "rollback was not attempted") {
+		t.Fatalf("node rollback = %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.agentDir, "agent.db")); string(got) != "candidate-state" {
+		t.Fatalf("agent state swapped under running candidate: %q", got)
+	}
+	if got, _ := os.ReadFile(f.installed); string(got) != "candidate-binary" {
+		t.Fatalf("binary = %q", got)
+	}
+	if journal, err := loadUpgradeJournal(f.journalPath, "node", "candidate", "", f.installed); err != nil || journal.Phase != "replaced" {
+		t.Fatalf("journal = %#v, %v", journal, err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "control.db-wal"), []byte("candidate-wal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollbackController(ctx, run, f.journalPath, dataDir, f.journal, errors.New("interrupted")); err == nil || !strings.Contains(err.Error(), "rollback was not attempted") {
+		t.Fatalf("controller rollback = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "control.db-wal")); err != nil {
+		t.Fatalf("controller WAL removed under running candidate: %v", err)
+	}
+	if started {
+		t.Fatal("rollback restarted a service it could not stop")
 	}
 }
