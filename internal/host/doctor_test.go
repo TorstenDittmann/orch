@@ -198,8 +198,24 @@ func TestPublicAdvertiseAddressWarnsAboutWireGuardFirewall(t *testing.T) {
 	loopback := fixtureProbe("ubuntu")
 	loopback.Addresses = []string{"127.0.0.1"}
 	for _, check := range Inspect(context.Background(), "127.0.0.1", loopback).Checks {
-		if check.ID == "advertise_address" && check.State != "fail" {
-			t.Fatalf("loopback advertise address = %+v", check)
+		if check.ID == "advertise_address" && check.State != "fail" || check.ID == "public_wireguard_endpoint" {
+			t.Fatalf("loopback advertise address produced %+v", check)
 		}
+	}
+	noRoutes := fixtureProbe("ubuntu")
+	noRoutes.Addresses = []string{"203.0.113.10"}
+	run := noRoutes.Run
+	noRoutes.Run = func(ctx context.Context, name string, args ...string) (string, error) {
+		if name == "ip" {
+			return "", errors.New("route inspection failed")
+		}
+		return run(ctx, name, args...)
+	}
+	warned := false
+	for _, check := range Inspect(context.Background(), "203.0.113.10", noRoutes).Checks {
+		warned = warned || check.ID == "public_wireguard_endpoint"
+	}
+	if !warned {
+		t.Fatal("public address lost its WireGuard warning when route inspection failed")
 	}
 }
