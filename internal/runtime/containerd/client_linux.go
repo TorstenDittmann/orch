@@ -281,6 +281,13 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 		if _, err := c.secretMounts(allocation); err != nil {
 			return orchruntime.Object{}, err
 		}
+		spec, err := existing.Spec(ctx)
+		if err != nil {
+			return orchruntime.Object{}, err
+		}
+		if err := c.applyWorkloadOwnership(allocation, spec); err != nil {
+			return orchruntime.Object{}, err
+		}
 		return c.startTask(ctx, existing, allocation)
 	} else if !errdefs.IsNotFound(err) {
 		return orchruntime.Object{}, err
