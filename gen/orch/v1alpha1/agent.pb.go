@@ -1707,6 +1707,7 @@ type CronJobDesired struct {
 	RunId                 string                       `protobuf:"bytes,20,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAt                 *timestamppb.Timestamp       `protobuf:"bytes,21,opt,name=run_at,json=runAt,proto3" json:"run_at,omitempty"`
 	CancelRequested       bool                         `protobuf:"varint,22,opt,name=cancel_requested,json=cancelRequested,proto3" json:"cancel_requested,omitempty"`
+	Mounts                []*VolumeMount               `protobuf:"bytes,23,rep,name=mounts,proto3" json:"mounts,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1893,6 +1894,13 @@ func (x *CronJobDesired) GetCancelRequested() bool {
 		return x.CancelRequested
 	}
 	return false
+}
+
+func (x *CronJobDesired) GetMounts() []*VolumeMount {
+	if x != nil {
+		return x.Mounts
+	}
+	return nil
 }
 
 type AssignmentSnapshot struct {
@@ -4289,7 +4297,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
 	"\x16SecretEnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
-	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\x80\t\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\xb4\t\n" +
 	"\x0eCronJobDesired\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x10\n" +
 	"\x03job\x18\x02 \x01(\tR\x03job\x125\n" +
@@ -4317,7 +4325,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x13registry_credential\x18\x13 \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x12\x15\n" +
 	"\x06run_id\x18\x14 \x01(\tR\x05runId\x121\n" +
 	"\x06run_at\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x05runAt\x12)\n" +
-	"\x10cancel_requested\x18\x16 \x01(\bR\x0fcancelRequested\x1a>\n" +
+	"\x10cancel_requested\x18\x16 \x01(\bR\x0fcancelRequested\x122\n" +
+	"\x06mounts\x18\x17 \x03(\v2\x1a.orch.v1alpha1.VolumeMountR\x06mounts\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
@@ -4692,61 +4701,62 @@ var file_orch_v1alpha1_agent_proto_depIdxs = []int32{
 	12, // 21: orch.v1alpha1.CronJobDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
 	13, // 22: orch.v1alpha1.CronJobDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
 	48, // 23: orch.v1alpha1.CronJobDesired.run_at:type_name -> google.protobuf.Timestamp
-	48, // 24: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
-	19, // 25: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
-	16, // 26: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
-	20, // 27: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
-	14, // 28: orch.v1alpha1.AssignmentSnapshot.secret_materials:type_name -> orch.v1alpha1.SecretMaterial
-	0,  // 29: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
-	48, // 30: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 31: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
-	48, // 32: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
-	3,  // 33: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	48, // 34: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 35: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	48, // 36: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	48, // 37: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
-	5,  // 38: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
-	48, // 39: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
-	48, // 40: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
-	5,  // 41: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
-	48, // 42: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
-	48, // 43: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
-	48, // 44: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 45: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
-	22, // 46: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	23, // 47: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
-	27, // 48: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
-	24, // 49: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	25, // 50: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
-	26, // 51: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
-	4,  // 52: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	4,  // 53: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
-	36, // 54: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
-	37, // 55: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
-	38, // 56: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
-	28, // 57: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
-	29, // 58: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
-	30, // 59: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
-	31, // 60: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
-	39, // 61: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
-	21, // 62: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
-	32, // 63: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
-	34, // 64: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
-	35, // 65: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
-	33, // 66: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
-	11, // 67: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	11, // 68: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	11, // 69: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	40, // 70: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
-	6,  // 71: orch.v1alpha1.AgentService.RenewCertificate:input_type -> orch.v1alpha1.RenewCertificateRequest
-	41, // 72: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
-	7,  // 73: orch.v1alpha1.AgentService.RenewCertificate:output_type -> orch.v1alpha1.RenewCertificateResponse
-	72, // [72:74] is the sub-list for method output_type
-	70, // [70:72] is the sub-list for method input_type
-	70, // [70:70] is the sub-list for extension type_name
-	70, // [70:70] is the sub-list for extension extendee
-	0,  // [0:70] is the sub-list for field type_name
+	8,  // 24: orch.v1alpha1.CronJobDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
+	48, // 25: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
+	19, // 26: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
+	16, // 27: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
+	20, // 28: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
+	14, // 29: orch.v1alpha1.AssignmentSnapshot.secret_materials:type_name -> orch.v1alpha1.SecretMaterial
+	0,  // 30: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
+	48, // 31: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 32: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
+	48, // 33: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
+	3,  // 34: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	48, // 35: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	3,  // 36: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	48, // 37: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	48, // 38: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
+	5,  // 39: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
+	48, // 40: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
+	48, // 41: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
+	5,  // 42: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
+	48, // 43: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
+	48, // 44: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
+	48, // 45: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 46: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
+	22, // 47: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	23, // 48: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
+	27, // 49: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
+	24, // 50: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	25, // 51: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	26, // 52: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
+	4,  // 53: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	4,  // 54: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
+	36, // 55: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
+	37, // 56: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
+	38, // 57: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
+	28, // 58: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
+	29, // 59: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
+	30, // 60: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
+	31, // 61: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
+	39, // 62: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
+	21, // 63: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
+	32, // 64: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
+	34, // 65: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
+	35, // 66: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
+	33, // 67: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
+	11, // 68: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	11, // 69: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	11, // 70: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	40, // 71: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
+	6,  // 72: orch.v1alpha1.AgentService.RenewCertificate:input_type -> orch.v1alpha1.RenewCertificateRequest
+	41, // 73: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
+	7,  // 74: orch.v1alpha1.AgentService.RenewCertificate:output_type -> orch.v1alpha1.RenewCertificateResponse
+	73, // [73:75] is the sub-list for method output_type
+	71, // [71:73] is the sub-list for method input_type
+	71, // [71:71] is the sub-list for extension type_name
+	71, // [71:71] is the sub-list for extension extendee
+	0,  // [0:71] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_agent_proto_init() }

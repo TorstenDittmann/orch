@@ -57,6 +57,7 @@ type pklCronJob struct {
 	Constraints   map[string]string `pkl:"constraints"`
 	StartDeadline string            `pkl:"startDeadline"`
 	Timeout       string            `pkl:"timeout"`
+	Mounts        []pklMount        `pkl:"mounts"`
 }
 
 type pklSecretFile struct {
@@ -155,6 +156,10 @@ func resolvePkl(doc pklDocument) *Manifest {
 		for index, secret := range input.SecretFiles {
 			secretFiles[index] = SecretFile{Source: secret.Source, Target: secret.Target}
 		}
+		mounts := make([]Mount, len(input.Mounts))
+		for index, mount := range input.Mounts {
+			mounts[index] = Mount{Source: mount.Source, Target: mount.Target, ReadOnly: mount.ReadOnly}
+		}
 		manifest.CronJobs[name] = CronJob{
 			Image: input.Image, Schedule: input.Schedule,
 			Command: append([]string(nil), input.Command...), Args: append([]string(nil), input.Args...),
@@ -163,6 +168,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			DependsOn:     append([]string(nil), input.DependsOn...),
 			Constraints:   cloneMap(input.Constraints),
 			StartDeadline: input.StartDeadline, Timeout: input.Timeout,
+			Mounts: mounts,
 		}
 	}
 	for name, input := range doc.Volumes {

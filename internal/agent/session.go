@@ -869,6 +869,9 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			SecretEnvironment: secretEnvironmentModel(item.GetSecretEnvironment()),
 			SecretFiles:       secretFilesModel(item.GetSecretFiles()), RegistryCredential: registryCredentialModel(item.GetRegistryCredential())}
 		job.RunID, job.CancelRequested = item.GetRunId(), item.GetCancelRequested()
+		for _, mount := range item.GetMounts() {
+			job.Mounts = append(job.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
+		}
 		if item.GetRunAt() != nil {
 			if item.GetRunAt().CheckValid() != nil || len(item.GetRunAt().ProtoReflect().GetUnknown()) != 0 {
 				return model.Assignment{}, errors.New("invalid one-off run time")

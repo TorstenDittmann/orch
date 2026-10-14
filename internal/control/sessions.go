@@ -344,6 +344,9 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		item.SecretEnvironment = secretEnvironmentMessage(job.SecretEnvironment)
 		item.SecretFiles = secretFilesMessage(job.SecretFiles)
 		item.RegistryCredential = registryCredentialMessage(job.RegistryCredential)
+		for _, mount := range job.Mounts {
+			item.Mounts = append(item.Mounts, &orchv1alpha1.VolumeMount{Name: mount.Name, Target: mount.Target, ReadOnly: mount.ReadOnly})
+		}
 		message.CronJobs = append(message.CronJobs, item)
 	}
 	for _, material := range assignment.Materials {

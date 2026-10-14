@@ -69,6 +69,7 @@ type CronJob struct {
 	Constraints   map[string]string `json:"constraints,omitempty"`
 	StartDeadline string            `json:"start_deadline"`
 	Timeout       string            `json:"timeout"`
+	Mounts        []Mount           `json:"mounts,omitempty"`
 }
 
 type SecretFile struct {

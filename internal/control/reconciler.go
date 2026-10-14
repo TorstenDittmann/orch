@@ -462,6 +462,9 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: uint32(startDeadline / time.Second),
 			TimeoutSeconds: uint32(timeout / time.Second), NetworkGeneration: networkConfig.Generation,
 		}
+		for _, mount := range job.Mounts {
+			desired.Mounts = append(desired.Mounts, model.VolumeMount{Name: mount.Source, Target: mount.Target, ReadOnly: true})
+		}
 		desired.SecretEnvironment, desired.SecretFiles = desiredSecretBindings(job.SecretEnv, job.SecretFiles, resolved)
 		desired.RegistryCredential = desiredRegistryCredential(job.Image, resolved)
 		desired.SpecDigest, err = model.CronJobSpecDigest(desired)
