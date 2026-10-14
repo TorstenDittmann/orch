@@ -229,7 +229,7 @@ func controllerUpgradePreflight(ctx context.Context, binary string) (UpgradeResu
 	if freeSpace(ControllerStateDir) < 512<<20 {
 		return r, state, "", errors.New("at least 512 MiB free is required for the controller recovery set")
 	}
-	if err := verifyHash(ControllerPrefix+"/bin/orch", state.BinaryHash); err != nil {
+	if err := verifyInstalledBinary(ControllerPrefix+"/bin/orch", state.BinaryHash, filepath.Join(ControllerStateDir, "upgrade.json"), "controller", hash); err != nil {
 		return r, state, "", errors.New("installed controller binary differs from its manifest")
 	}
 	installed := installedDescriptor(state.Build)
@@ -390,7 +390,7 @@ func nodeUpgradePreflight(ctx context.Context, binary string) (UpgradeResult, ma
 	if freeSpace(StateDir) < 256<<20 {
 		return r, state, "", errors.New("at least 256 MiB free is required for the agent state backup")
 	}
-	if err = verifyHash(Prefix+"/bin/orch", state.BinaryHash); err != nil {
+	if err = verifyInstalledBinary(Prefix+"/bin/orch", state.BinaryHash, filepath.Join(StateDir, "upgrade.json"), "node", hash); err != nil {
 		return r, state, "", errors.New("installed node binary differs from its manifest")
 	}
 	installed := installedDescriptor(state.Build)
@@ -423,6 +423,21 @@ func compatibleTransition(installed, candidate buildinfo.Descriptor, controller 
 		return errors.New("candidate agent schema is older than installed state")
 	}
 	return nil
+}
+
+// verifyInstalledBinary accepts the manifest's binary, or the pinned candidate
+// when an interrupted upgrade replaced the binary before the manifest recorded it.
+func verifyInstalledBinary(installed, recorded, journalPath, kind, candidate string) error {
+	err := verifyHash(installed, recorded)
+	if err == nil {
+		return nil
+	}
+	var j upgradeJournal
+	data, readErr := os.ReadFile(journalPath)
+	if readErr != nil || json.Unmarshal(data, &j) != nil || j.Version != 1 || j.Kind != kind || j.CandidateHash != candidate || j.PreviousHash != recorded || j.Phase == "planned" {
+		return err
+	}
+	return verifyHash(installed, candidate)
 }
 
 func loadUpgradeJournal(path, kind, candidate, previous, installed string) (upgradeJournal, error) {
