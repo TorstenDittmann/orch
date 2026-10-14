@@ -132,7 +132,7 @@ func RenewCertificates(ctx context.Context, options RenewCertificatesOptions) (R
 		return result, err
 	}
 	if err := replaceControllerLeaf(pki, controller); err != nil {
-		return result, fmt.Errorf("replace controller identity: %w; the new administrator directory remains valid, rerun to retry", err)
+		return result, fmt.Errorf("replace controller identity: %w; the new administrator directory remains valid; rerun with a different --admin-dir to retry", err)
 	}
 	if _, err := LoadControllerCredentials(dataDir, stored, current); err != nil {
 		return result, err
@@ -216,7 +216,8 @@ func publishAdministratorDirectory(adminDir string, stored model.Cluster, caPEM 
 // replaceControllerLeaf atomically renames each staged file over the live one,
 // preserving the identity directory's owner so a service account can still
 // read it. The key and certificate are separate renames; an interruption
-// between them is repaired by rerunning the renewal, which needs only the CA.
+// between them is repaired by rerunning the renewal with a new --admin-dir,
+// which needs only the CA.
 func replaceControllerLeaf(pki string, controller security.KeyPair) error {
 	files := []struct {
 		name     string
