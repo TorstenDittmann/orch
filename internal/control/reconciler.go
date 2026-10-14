@@ -604,7 +604,7 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 func (r *Reconciler) resolveApplicationIntent(ctx context.Context, application model.Application) (*resolvedApplicationIntent, *blockReason, error) {
 	var manifest config.Manifest
 	if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-		return nil, nil, err
+		return nil, invalidIntentBlock(err), nil
 	}
 	result := &resolvedApplicationIntent{secrets: make(map[string]model.ResolvedSecret), registries: make(map[string]model.ResolvedRegistryCredential)}
 	secretUses := make(map[string]bool)
@@ -660,7 +660,7 @@ func (r *Reconciler) resolveApplicationIntent(ctx context.Context, application m
 		parsed, err := reference.ParseNormalizedNamed(image)
 		if err != nil {
 			result.wipe()
-			return nil, nil, err
+			return nil, invalidIntentBlock(err), nil
 		}
 		host := reference.Domain(parsed)
 		if _, exists := result.registries[host]; exists || r.secretBox == nil {

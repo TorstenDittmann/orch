@@ -1060,6 +1060,16 @@ func allocationForService(t *testing.T, assignment model.Assignment, service str
 
 func TestReconcilerBlocksInvalidStoredIntentWithoutBlockingOtherApplications(t *testing.T) {
 	t.Parallel()
+	testInvalidStoredIntentIsConfined(t, func(service *config.Service) { service.Restart = "sometimes" })
+}
+
+func TestReconcilerBlocksUnparsableStoredImageWithoutBlockingOtherApplications(t *testing.T) {
+	t.Parallel()
+	testInvalidStoredIntentIsConfined(t, func(service *config.Service) { service.Image = "Invalid Image::ref" })
+}
+
+func testInvalidStoredIntentIsConfined(t *testing.T, invalidate func(*config.Service)) {
+	t.Helper()
 	ctx := context.Background()
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)
@@ -1095,7 +1105,7 @@ func TestReconcilerBlocksInvalidStoredIntentWithoutBlockingOtherApplications(t *
 
 	// A stored manifest that no longer passes validation, for example after an
 	// upgrade tightened a rule, must block only its own application.
-	invalid := runtimeManifest(executableImage, func(service *config.Service) { service.Restart = "sometimes" })
+	invalid := runtimeManifest(executableImage, invalidate)
 	if config.Validate(invalid) == nil {
 		t.Fatal("test manifest unexpectedly passes validation")
 	}
