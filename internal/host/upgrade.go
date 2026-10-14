@@ -177,12 +177,12 @@ func UpgradeController(ctx context.Context, options UpgradeOptions) (UpgradeResu
 		}
 	}
 	if _, err := runCommand(ctx, "systemctl", "start", "orch-controller.service"); err != nil {
-		return result, rollbackController(ctx, journal, err)
+		return result, rollbackController(ctx, runCommand, journalPath, ControllerDataDir, journal, err)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, options.WaitTimeout)
 	defer cancel()
 	if err := waitForController(waitCtx, filepath.Join(state.AdminDir, "context.json"), state); err != nil {
-		return result, rollbackController(ctx, journal, err)
+		return result, rollbackController(ctx, runCommand, journalPath, ControllerDataDir, journal, err)
 	}
 	state.BinaryHash, state.Build = result.CandidateHash, result.Candidate
 	state.Files[ControllerPrefix+"/bin/orch"] = result.CandidateHash
@@ -338,12 +338,12 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 		}
 	}
 	if _, err = runCommand(ctx, "systemctl", "start", "orch-agent.service"); err != nil {
-		return result, rollbackNode(ctx, journal, err)
+		return result, rollbackNode(ctx, runCommand, journalPath, AgentDir, journal, err)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, options.WaitTimeout)
 	defer cancel()
 	if err = waitForAgent(waitCtx, state.NodeID); err != nil {
-		return result, rollbackNode(ctx, journal, err)
+		return result, rollbackNode(ctx, runCommand, journalPath, AgentDir, journal, err)
 	}
 	state.BinaryHash, state.Build = result.CandidateHash, result.Candidate
 	state.Files[Prefix+"/bin/orch"] = result.CandidateHash
@@ -525,41 +525,68 @@ func copyRegular(source, destination string, mode os.FileMode) error {
 	}
 	return writeExclusive(destination, data, mode)
 }
-func rollbackController(ctx context.Context, j upgradeJournal, cause error) error {
-	_, _ = runCommand(ctx, "systemctl", "stop", "orch-controller.service")
-	_ = os.Remove(filepath.Join(ControllerDataDir, "control.db-wal"))
-	_ = os.Remove(filepath.Join(ControllerDataDir, "control.db-shm"))
-	restoreErr := replaceRegular(filepath.Join(j.RecoveryPath, "control.db"), filepath.Join(ControllerDataDir, "control.db"), 0600)
-	if uid, gid, err := controllerUID(ctx); err == nil && restoreErr == nil {
-		restoreErr = os.Chown(filepath.Join(ControllerDataDir, "control.db"), uid, gid)
+
+// rollbackTimeout bounds a rollback that must outlive operator cancellation.
+const rollbackTimeout = 3 * time.Minute
+
+// stopUnitConfirmed stops unit and confirms systemd reports it inactive, so
+// recovery state is never swapped under a still-running candidate.
+func stopUnitConfirmed(ctx context.Context, run Command, unit string) error {
+	_, stopErr := run(ctx, "systemctl", "stop", unit)
+	state, err := run(ctx, "systemctl", "show", unit, "--property=ActiveState", "--value")
+	if err == nil {
+		state = strings.TrimSpace(state)
+		if state == "inactive" || state == "failed" {
+			return nil
+		}
+		err = fmt.Errorf("unit is %s", state)
 	}
-	if err := replaceRegular(filepath.Join(ControllerStateDir, "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
+	return fmt.Errorf("%s could not be confirmed stopped: %w", unit, errors.Join(stopErr, err))
+}
+
+func rollbackController(ctx context.Context, run Command, journalPath, dataDir string, j upgradeJournal, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+	defer cancel()
+	if err := stopUnitConfirmed(ctx, run, "orch-controller.service"); err != nil {
+		return fmt.Errorf("candidate failed: %v; rollback was not attempted: %v; rerun the upgrade with the same candidate to resume; recovery set: %s", cause, err, j.RecoveryPath)
+	}
+	_ = os.Remove(filepath.Join(dataDir, "control.db-wal"))
+	_ = os.Remove(filepath.Join(dataDir, "control.db-shm"))
+	restoreErr := replaceRegular(filepath.Join(j.RecoveryPath, "control.db"), filepath.Join(dataDir, "control.db"), 0600)
+	if uid, gid, err := controllerUID(ctx); err == nil && restoreErr == nil {
+		restoreErr = os.Chown(filepath.Join(dataDir, "control.db"), uid, gid)
+	}
+	if err := replaceRegular(filepath.Join(filepath.Dir(journalPath), "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
 		restoreErr = err
 	}
 	j.Phase = "backed_up"
-	if err := saveUpgradeJournal(filepath.Join(ControllerStateDir, "upgrade.json"), j); restoreErr == nil {
+	if err := saveUpgradeJournal(journalPath, j); restoreErr == nil {
 		restoreErr = err
 	}
-	_, startErr := runCommand(ctx, "systemctl", "start", "orch-controller.service")
+	_, startErr := run(ctx, "systemctl", "start", "orch-controller.service")
 	if restoreErr != nil || startErr != nil {
 		return fmt.Errorf("candidate failed: %v; restoring the previous controller also failed: %v; recovery set: %s", cause, errors.Join(restoreErr, startErr), j.RecoveryPath)
 	}
 	return fmt.Errorf("candidate failed and the previous controller was restored: %w", cause)
 }
-func rollbackNode(ctx context.Context, j upgradeJournal, cause error) error {
-	_, _ = runCommand(ctx, "systemctl", "stop", "orch-agent.service")
-	restoreErr := os.RemoveAll(AgentDir)
-	if err := copyTreePrivate(j.RecoveryPath, AgentDir); restoreErr == nil {
+func rollbackNode(ctx context.Context, run Command, journalPath, agentDir string, j upgradeJournal, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+	defer cancel()
+	if err := stopUnitConfirmed(ctx, run, "orch-agent.service"); err != nil {
+		return fmt.Errorf("candidate failed: %v; rollback was not attempted: %v; rerun the upgrade with the same candidate to resume; state backup: %s", cause, err, j.RecoveryPath)
+	}
+	restoreErr := os.RemoveAll(agentDir)
+	if err := copyTreePrivate(j.RecoveryPath, agentDir); restoreErr == nil {
 		restoreErr = err
 	}
-	if err := replaceRegular(filepath.Join(StateDir, "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
+	if err := replaceRegular(filepath.Join(filepath.Dir(journalPath), "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
 		restoreErr = err
 	}
 	j.Phase = "backed_up"
-	if err := saveUpgradeJournal(filepath.Join(StateDir, "upgrade.json"), j); restoreErr == nil {
+	if err := saveUpgradeJournal(journalPath, j); restoreErr == nil {
 		restoreErr = err
 	}
-	_, startErr := runCommand(ctx, "systemctl", "start", "orch-agent.service")
+	_, startErr := run(ctx, "systemctl", "start", "orch-agent.service")
 	if restoreErr != nil || startErr != nil {
 		return fmt.Errorf("candidate failed: %v; restoring the previous agent also failed: %v; state backup: %s", cause, errors.Join(restoreErr, startErr), j.RecoveryPath)
 	}
