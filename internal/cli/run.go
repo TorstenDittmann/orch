@@ -95,6 +95,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runDeploy(ctx, args[1:], stdout, stderr)
 	case "tui":
 		return runTUI(ctx, args[1:], stdout, stderr)
+	case "web":
+		return runWeb(ctx, args[1:], stdout, stderr)
 	case "validate":
 		return runValidate(ctx, args[1:], stdout, stderr)
 	case "plan":
@@ -961,6 +963,7 @@ Usage:
   orch target transport NAME direct|wireguard|ssh [OPTIONS]
   orch target test [NAME]
   orch tui [--target NAME] [--refresh 2s]
+  orch web [--target NAME] [--port N] [--no-open]
   orch controller serve --data-dir DIR --listen ADDRESS
   orch agent init --join-file FILE|- --data-dir DIR [--json]
   orch agent serve --data-dir DIR --containerd-socket PATH --snapshotter NAME [CNI/Caddy flags]
