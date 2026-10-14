@@ -517,27 +517,72 @@ func TestSupervisorPersistsRestartPolicyAndBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.SetEnsureError(allocation.ID, errors.New("restart failed"))
+	operationCount := len(runtime.SnapshotOperations())
 	statuses, err := supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statuses[0].Phase != model.AllocationBackoff || statuses[0].RestartCount != 1 {
-		t.Fatalf("failed restart status = %#v", statuses[0])
+	if statuses[0].Phase != model.AllocationBackoff || statuses[0].RestartCount != 1 || statuses[0].Reason != "process_exit_backoff" ||
+		len(runtime.SnapshotOperations()) != operationCount {
+		t.Fatalf("exited process status = %#v, operations %v", statuses[0], runtime.SnapshotOperations())
 	}
 	states, err := cache.AllocationStates(ctx)
 	if err != nil || len(states) != 1 || states[0].NextAttemptAt == nil || !states[0].NextAttemptAt.Equal(now.Add(2*time.Second)) {
+		t.Fatalf("persisted exit backoff = %#v, %v", states, err)
+	}
+	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
+	if err != nil || statuses[0].Phase != model.AllocationBackoff || len(runtime.SnapshotOperations()) != operationCount {
+		t.Fatalf("early restart = %#v, %v, operations %v", statuses, err, runtime.SnapshotOperations())
+	}
+	now = now.Add(3 * time.Second)
+	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
+	if err != nil || statuses[0].Phase != model.AllocationBackoff || statuses[0].RestartCount != 2 ||
+		statuses[0].Reason != "process_start_backoff" {
+		t.Fatalf("failed restart status = %#v, %v", statuses, err)
+	}
+	states, err = cache.AllocationStates(ctx)
+	if err != nil || len(states) != 1 || states[0].NextAttemptAt == nil || !states[0].NextAttemptAt.Equal(now.Add(4*time.Second)) {
 		t.Fatalf("persisted injected backoff = %#v, %v", states, err)
 	}
-	operationCount := len(runtime.SnapshotOperations())
+	operationCount = len(runtime.SnapshotOperations())
 	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
 	if err != nil || statuses[0].Phase != model.AllocationBackoff || len(runtime.SnapshotOperations()) != operationCount {
 		t.Fatalf("early retry = %#v, %v, operations %v", statuses, err, runtime.SnapshotOperations())
 	}
-	now = now.Add(3 * time.Second)
+	now = now.Add(5 * time.Second)
 	runtime.SetEnsureError(allocation.ID, nil)
 	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
 	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].RestartCount != 2 {
 		t.Fatalf("successful retry = %#v, %v", statuses, err)
+	}
+	if states, err = cache.AllocationStates(ctx); err != nil || len(states) != 1 || states[0].NextAttemptAt != nil {
+		t.Fatalf("persisted running state = %#v, %v", states, err)
+	}
+
+	// A process that starts successfully and then exits again waits for the
+	// next, longer backoff instead of restarting on every reconcile tick.
+	if err := runtime.Exit(id, 7); err != nil {
+		t.Fatal(err)
+	}
+	operationCount = len(runtime.SnapshotOperations())
+	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
+	if err != nil || statuses[0].Phase != model.AllocationBackoff || statuses[0].RestartCount != 3 ||
+		len(runtime.SnapshotOperations()) != operationCount {
+		t.Fatalf("second exit = %#v, %v, operations %v", statuses, err, runtime.SnapshotOperations())
+	}
+	states, err = cache.AllocationStates(ctx)
+	if err != nil || len(states) != 1 || states[0].NextAttemptAt == nil || !states[0].NextAttemptAt.Equal(now.Add(8*time.Second)) {
+		t.Fatalf("persisted second exit backoff = %#v, %v", states, err)
+	}
+	now = now.Add(7 * time.Second)
+	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
+	if err != nil || statuses[0].Phase != model.AllocationBackoff || len(runtime.SnapshotOperations()) != operationCount {
+		t.Fatalf("restart before backoff elapsed = %#v, %v, operations %v", statuses, err, runtime.SnapshotOperations())
+	}
+	now = now.Add(2 * time.Second)
+	statuses, err = supervisor.Reconcile(ctx, model.Assignment{Allocations: []model.AllocationDesired{allocation}})
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].RestartCount != 3 {
+		t.Fatalf("restart after backoff = %#v, %v", statuses, err)
 	}
 
 	never := allocation
@@ -637,6 +682,74 @@ func TestSupervisorHealthGatesIngress(t *testing.T) {
 	if len(routes) != 1 || routes[0].State != model.RouteActive || len(proxy.Routes) != 1 ||
 		!reflect.DeepEqual(proxy.Routes[0].Upstreams, []string{"10.88.0.2:8080"}) {
 		t.Fatalf("active routes = %#v, proxy %#v", routes, proxy.Routes)
+	}
+}
+
+func TestSupervisorRestartedProcessRepassesReadiness(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	prober := &health.Fake{}
+	proxy := &ingress.Fake{}
+	now := supervisorTestTime
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: proxy}, strings.NewReader(strings.Repeat("\x00", 64)))
+	allocation := supervisorHTTPAllocation(t, "alloc-web", "sha256:"+strings.Repeat("a", 64), 1)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := model.Assignment{Network: networkConfig, Allocations: []model.AllocationDesired{allocation}}
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(health.ProbeInterval)
+	statuses, err := supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].HealthStatus != model.HealthReady {
+		t.Fatalf("initial readiness = %#v, %v", statuses, err)
+	}
+
+	if err := runtime.Exit(orchruntime.ObjectID(allocation.ID, allocation.SpecDigest), 1); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationBackoff || statuses[0].HealthStatus != model.HealthChecking ||
+		statuses[0].ReadyAt != nil || statuses[0].ConsecutiveSuccesses != 0 {
+		t.Fatalf("exited process status = %#v, %v", statuses, err)
+	}
+	routes, _ := supervisor.Observations()
+	if len(routes) != 1 || routes[0].State == model.RouteActive {
+		t.Fatalf("routes while exited = %#v", routes)
+	}
+
+	now = now.Add(3 * time.Second)
+	probes := len(prober.Targets)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].HealthStatus != model.HealthChecking ||
+		statuses[0].ReadyAt != nil {
+		t.Fatalf("restarted process status = %#v, %v", statuses, err)
+	}
+	if len(prober.Targets) != probes+1 {
+		t.Fatalf("restarted process reused a cached probe: %d -> %d", probes, len(prober.Targets))
+	}
+	routes, _ = supervisor.Observations()
+	if len(routes) != 1 || routes[0].State == model.RouteActive {
+		t.Fatalf("routes before restarted process passed readiness = %#v", routes)
+	}
+	if states, err := cache.AllocationStates(ctx); err != nil || len(states) != 1 ||
+		states[0].HealthStatus != model.HealthChecking || states[0].ReadyAt != nil {
+		t.Fatalf("persisted restarted health = %#v, %v", states, err)
+	}
+
+	now = now.Add(health.ProbeInterval)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].HealthStatus != model.HealthReady || statuses[0].ReadyAt == nil {
+		t.Fatalf("restarted readiness = %#v, %v", statuses, err)
+	}
+	routes, _ = supervisor.Observations()
+	if len(routes) != 1 || routes[0].State != model.RouteActive {
+		t.Fatalf("routes after restarted process passed readiness = %#v", routes)
 	}
 }
 
