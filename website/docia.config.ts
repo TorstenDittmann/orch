@@ -12,7 +12,7 @@ export default defineConfig({
 		language: "en",
 		url: "https://orch-small-cluster.torsten-dittmann.chatgpt.site",
 		ogImage: "/og.png",
-		githubEditBaseUrl: "https://change.codes/torsten/better-swarm/files/main/docs",
+		githubEditBaseUrl: "https://github.com/TorstenDittmann/orch/blob/main/docs",
 		githubEditBranch: "main",
 		githubEditPath: "docs",
 	},

@@ -41,4 +41,4 @@ Local TLS registry fixtures exercise public/private resolution, image and index
 digests, supported platforms and error classification. Controller/store tests
 cover tag movement, same-request caching, concurrent acceptance, durable replay,
 rollback and credential redaction. CLI/TUI checks cover requested and resolved
-image display. Native change.codes CI runs the repository checks.
+image display. GitHub Actions CI runs the repository checks.
