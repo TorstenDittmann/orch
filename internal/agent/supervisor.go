@@ -394,6 +394,12 @@ func reconcileFailureStatus(status model.AllocationStatus, err error, now time.T
 	status.Reason = "reconcile_failed"
 	status.Message = boundedMessage(err.Error())
 	status.UpdatedAt = now
+	// The controller rejects a failed allocation that still claims Ready, which
+	// would drop the whole report that carries this failure.
+	if status.HealthStatus == model.HealthReady {
+		status.HealthStatus = model.HealthUnhealthy
+		status.ReadyAt = nil
+	}
 	return status
 }
 
