@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -166,3 +167,67 @@ func (r errorReader) Read([]byte) (int, error) {
 }
 
 var _ io.Reader = errorReader{}
+
+type recordingSender struct {
+	sent []*orchv1alpha1.ConnectRequest
+}
+
+func (s *recordingSender) Send(request *orchv1alpha1.ConnectRequest) error {
+	s.sent = append(s.sent, request)
+	return nil
+}
+
+func TestControlMessagesBypassSaturatedOperationQueue(t *testing.T) {
+	t.Parallel()
+	outbound := make(chan *orchv1alpha1.ConnectRequest, 64)
+	operationOutbound := make(chan *orchv1alpha1.ConnectRequest, 64)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		// A large tail fills the operation queue and then blocks.
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case operationOutbound <- operationResult(&orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{
+				RequestId: "op-one", Data: make([]byte, maxOperationChunk),
+			}}):
+			}
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(operationOutbound) < cap(operationOutbound) {
+		if time.Now().After(deadline) {
+			t.Fatal("operation queue did not saturate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	heartbeat := &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{BootId: "boot-one"}}}
+	ack := &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{BootId: "boot-one", Generation: 1}}}
+	if err := enqueueAgentRequest(outbound, heartbeat); err != nil {
+		t.Fatalf("enqueue heartbeat while operation saturated: %v", err)
+	}
+	if err := enqueueAgentRequest(outbound, ack); err != nil {
+		t.Fatalf("enqueue ACK while operation saturated: %v", err)
+	}
+	runner := &sessionRunner{}
+	stream := &recordingSender{}
+	for range 2 {
+		if sent, err := runner.sendControl(stream, outbound); err != nil || !sent {
+			t.Fatalf("sendControl() = %v, %v", sent, err)
+		}
+	}
+	if sent, err := runner.sendControl(stream, outbound); err != nil || sent {
+		t.Fatalf("sendControl(empty) = %v, %v", sent, err)
+	}
+	if len(stream.sent) != 2 || stream.sent[0] != heartbeat || stream.sent[1] != ack {
+		t.Fatalf("sent = %v", stream.sent)
+	}
+	if !runner.assignmentAcknowledged {
+		t.Fatal("sent ACK did not mark the assignment acknowledged")
+	}
+	cancel()
+	<-producerDone
+}

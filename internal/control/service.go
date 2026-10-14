@@ -1261,6 +1261,9 @@ func operationConnectError(err error) error {
 	if errors.Is(err, errAgentDisconnected) {
 		return connect.NewError(connect.CodeUnavailable, err)
 	}
+	if errors.Is(err, errAgentBusy) {
+		return connect.NewError(connect.CodeResourceExhausted, err)
+	}
 	return connect.NewError(connect.CodeInternal, errors.New("start agent operation"))
 }
 
@@ -1276,6 +1279,8 @@ func agentOperationError(operation *orchv1alpha1.OperationError) error {
 		code = connect.CodeDeadlineExceeded
 	case "unavailable":
 		code = connect.CodeUnavailable
+	case "resource_exhausted":
+		code = connect.CodeResourceExhausted
 	}
 	return connect.NewError(code, errors.New(operation.GetMessage()))
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -294,4 +295,65 @@ func validAgentHello(nodeID string) *orchv1alpha1.AgentHello {
 		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
 		Snapshotter: "overlayfs", CgroupsV2: true,
 	}
+}
+
+func TestStalledOperationConsumerFailsOnlyThatOperation(t *testing.T) {
+	t.Parallel()
+	manager := newSessionManager(time.Now)
+	manager.random = bytes.NewReader(make([]byte, 32))
+	sessionCancelled := false
+	session, err := manager.register(context.Background(), "node-one", "boot-one", func() { sessionCancelled = true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestID, frames, cancel, err := manager.beginOperation(context.Background(), "node-one", func(id string) *orchv1alpha1.ConnectResponse {
+		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailLogs{TailLogs: &orchv1alpha1.TailLogsCommand{RequestId: id, AllocationId: "alloc-one", TailLines: 1}}}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	<-session.send
+	// Nobody reads frames: the admin client has stalled.
+	for range operationFrameBuffer + 8 {
+		if err := manager.routeOperation(session, &orchv1alpha1.AgentOperationResult{Result: &orchv1alpha1.AgentOperationResult_Log{Log: &orchv1alpha1.TailLogsResponse{
+			RequestId: requestID, Data: []byte("line\n"),
+		}}}); err != nil {
+			t.Fatalf("routeOperation() ended the agent stream: %v", err)
+		}
+	}
+	received := 0
+	var last *orchv1alpha1.AgentOperationResult
+	for result := range frames {
+		received++
+		last = result
+	}
+	if received != operationFrameBuffer+1 || last.GetError().GetCode() != "resource_exhausted" {
+		t.Fatalf("received %d frames, last = %v", received, last)
+	}
+	if code := connect.CodeOf(agentOperationError(last.GetError())); code != connect.CodeResourceExhausted {
+		t.Fatalf("admin error code = %v", code)
+	}
+	select {
+	case message := <-session.send:
+		if message.GetCancelOperation().GetRequestId() != requestID {
+			t.Fatalf("agent message = %v", message)
+		}
+	default:
+		t.Fatal("overflowed operation was not cancelled on the agent")
+	}
+	// A full outbound queue drops best-effort operation messages instead of
+	// disconnecting the agent.
+	for len(session.send) < cap(session.send) {
+		session.send <- &orchv1alpha1.ConnectResponse{}
+	}
+	if _, _, _, err := manager.beginOperation(context.Background(), "node-one", func(id string) *orchv1alpha1.ConnectResponse {
+		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailLogs{TailLogs: &orchv1alpha1.TailLogsCommand{RequestId: id, AllocationId: "alloc-one", TailLines: 1}}}
+	}); !errors.Is(err, errAgentBusy) {
+		t.Fatalf("beginOperation(full queue) = %v", err)
+	}
+	if sessionCancelled || !manager.Connected("node-one") {
+		t.Fatal("operation backpressure disconnected the agent session")
+	}
+	manager.Close()
 }
