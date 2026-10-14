@@ -41,10 +41,11 @@ func applicationsUseConstraints(applications []model.Application) bool {
 }
 
 type distributedAllocation struct {
-	allocation  model.AllocationDesired
-	constraints map[string]string
-	volumeNames []string
-	nodePorts   []string
+	allocation   model.AllocationDesired
+	constraints  map[string]string
+	volumeNames  []string
+	volumeNodeID string
+	nodePorts    []string
 }
 
 type distributedCron struct {
@@ -171,7 +172,11 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		}
 		var manifest config.Manifest
 		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-			return fmt.Errorf("decode stored manifest %q: %w", application.Name, err)
+			blocked := invalidIntentBlock(fmt.Errorf("decode stored manifest: %w", err))
+			preserveDistributedApplication(application.Name, currentByNode, preservedAllocations, preservedCron)
+			states[application.Name] = executionState(blockedStatus(blocked), application.Generation,
+				blocked.reason, blocked.message, now)
+			continue
 		}
 		gate, err := r.hookGate(ctx, application, manifest, now)
 		if err != nil {
@@ -203,7 +208,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			networks[planningNode.ID], cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByBaseID, resolved)
 		resolved.wipe()
 		if err != nil {
-			return fmt.Errorf("plan application %q: %w", application.Name, err)
+			blocked = invalidIntentBlock(err)
 		}
 		if blocked != nil {
 			if blocked.preservePrevious {
@@ -214,17 +219,37 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			continue
 		}
 		bundle.allocations = gateDistributedRollout(application, bundle.allocations, previousByBaseID)
+		applicationAllocations := make([]distributedAllocation, 0, len(bundle.allocations))
+		volumeConflict := false
 		for _, allocation := range bundle.allocations {
 			service := manifest.Services[allocation.Service]
 			volumeNames := make([]string, 0, len(service.Mounts))
+			volumeNode := ""
 			for _, mount := range service.Mounts {
 				volumeNames = append(volumeNames, mount.Source)
+				claim, err := r.state.VolumeClaim(ctx, application.Name, mount.Source)
+				if err != nil {
+					return err
+				}
+				if claim != "" && volumeNode != "" && claim != volumeNode {
+					volumeConflict = true
+				}
+				if claim != "" {
+					volumeNode = claim
+				}
 			}
-			plannedAllocations = append(plannedAllocations, distributedAllocation{
-				allocation: allocation, constraints: service.Constraints, volumeNames: volumeNames,
+			applicationAllocations = append(applicationAllocations, distributedAllocation{
+				allocation: allocation, constraints: service.Constraints, volumeNames: volumeNames, volumeNodeID: volumeNode,
 				nodePorts: allocationNodePorts(allocation),
 			})
 		}
+		if volumeConflict {
+			preserveDistributedApplication(application.Name, currentByNode, preservedAllocations, preservedCron)
+			states[application.Name] = executionState(model.ExecutionBlocked, application.Generation,
+				"local_volume_conflict", "local volumes of this application are claimed by different nodes", now)
+			continue
+		}
+		plannedAllocations = append(plannedAllocations, applicationAllocations...)
 		for _, job := range bundle.cronJobs {
 			plannedCron = append(plannedCron, distributedCron{job: job, constraints: manifest.CronJobs[job.Job].Constraints})
 		}
@@ -367,24 +392,11 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 	for _, item := range plannedAllocations {
 		logical := allocationLogicalKey(item.allocation.Application, item.allocation.Service, item.allocation.Replica)
 		allocationByLogical[logical] = item
-		volumeNode := ""
-		for _, volume := range item.volumeNames {
-			claim, err := r.state.VolumeClaim(ctx, item.allocation.Application, volume)
-			if err != nil {
-				return err
-			}
-			if claim != "" && volumeNode != "" && claim != volumeNode {
-				return fmt.Errorf("application %q local volumes are claimed by different nodes", item.allocation.Application)
-			}
-			if claim != "" {
-				volumeNode = claim
-			}
-		}
 		workloads = append(workloads, scheduler.Workload{
 			ID: logical, Kind: scheduler.KindService, Application: item.allocation.Application,
 			Service: item.allocation.Service, Replica: item.allocation.Replica,
 			Resources:   allocationReservation(item.allocation),
-			Constraints: item.constraints, CurrentNodeID: currentNodeByLogical[logical], VolumeNodeID: volumeNode,
+			Constraints: item.constraints, CurrentNodeID: currentNodeByLogical[logical], VolumeNodeID: item.volumeNodeID,
 			NodePorts: item.nodePorts,
 		})
 	}

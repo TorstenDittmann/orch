@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,102 @@ func TestAgentCertificateRenewalPromotesOnReconnect(t *testing.T) {
 	}
 	_ = stream.CloseRequest()
 	_ = stream.CloseResponse()
+}
+
+func TestAgentStreamSurvivesReconcileFailure(t *testing.T) {
+	root := t.TempDir()
+	controllerDir := filepath.Join(root, "controller")
+	contextPath := filepath.Join(root, "operator", "context.json")
+	address := reserveLoopbackAddress(t)
+	endpoint := "https://" + address
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{Name: "test", Server: endpoint,
+		DataDir: controllerDir, ContextPath: contextPath, Now: time.Now, Random: rand.Reader}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := Start(context.Background(), Options{DataDir: controllerDir, Listen: address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	agentDir := filepath.Join(root, "agent")
+	if _, err := agentctl.Enroll(context.Background(), agentctl.EnrollOptions{Name: "node-1", ContextPath: contextPath, DataDir: agentDir, Now: time.Now, Random: rand.Reader}); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := agentctl.Load(agentDir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Enrollment published an assignment. Corrupt durable cluster state so
+	// every later Reconcile fails before it can publish anything.
+	db, err := sql.Open("sqlite", filepath.Join(controllerDir, clusterctl.DatabaseFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, corruptErr := db.Exec(`UPDATE clusters SET created_at = 'invalid'`)
+	closeErr := db.Close()
+	if corruptErr != nil || closeErr != nil {
+		t.Fatalf("corrupt cluster record: %v, %v", corruptErr, closeErr)
+	}
+
+	httpClient := tlsHTTPClient(credentials.RootCAs, credentials.Certificate)
+	defer httpClient.CloseIdleConnections()
+	client := orchv1alpha1connect.NewAgentServiceClient(httpClient, endpoint)
+	streamContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream := client.Connect(streamContext)
+	defer func() {
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
+	}()
+	nodeID := credentials.Config.NodeID
+	if err := stream.Send(&orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Hello{Hello: validAgentHello(nodeID)}}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := stream.Receive()
+	if err != nil || response.GetAssignment() == nil {
+		t.Fatalf("assignment after failed hello reconcile = %#v, %v", response, err)
+	}
+	assignment := response.GetAssignment()
+	network := assignment.GetNetwork()
+	ingressState := model.SubsystemNotConfigured
+	if network.GetIngressEnabled() {
+		ingressState = model.SubsystemReady
+	}
+	messages := []*orchv1alpha1.ConnectRequest{
+		{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
+			BootId: "boot-one", Generation: assignment.GetGeneration(), Digest: assignment.GetDigest()}}},
+		{Message: &orchv1alpha1.ConnectRequest_AllocationReport{AllocationReport: &orchv1alpha1.AllocationReport{
+			BootId: "boot-one", Sequence: 1, AssignmentGeneration: assignment.GetGeneration(), AssignmentDigest: assignment.GetDigest(),
+			Network: &orchv1alpha1.NetworkStatus{Generation: network.GetGeneration(), State: orchv1alpha1.NetworkState_NETWORK_STATE_READY,
+				ClusterCidr: network.GetClusterCidr(), NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(),
+				DnsState: model.SubsystemReady, IngressState: ingressState}}}},
+		{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
+			BootId: "boot-one", AcknowledgedAssignmentGeneration: assignment.GetGeneration()}}},
+	}
+	for _, message := range messages {
+		if err := stream.Send(message); err != nil {
+			t.Fatalf("send %T: %v", message.GetMessage(), err)
+		}
+	}
+	received := make(chan error, 1)
+	go func() {
+		_, err := stream.Receive()
+		received <- err
+	}()
+	select {
+	case err := <-received:
+		t.Fatalf("agent stream ended after a failed reconcile: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	admin, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.CloseIdleConnections()
+	nodes, err := admin.ListNodes(context.Background())
+	if err != nil || len(nodes) != 1 || nodes[0].GetConnectionStatus() != orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED {
+		t.Fatalf("nodes after failed reconcile = %#v, %v", nodes, err)
+	}
 }
 
 func TestValidateHelloRejectsProtocolAndShapeErrors(t *testing.T) {
