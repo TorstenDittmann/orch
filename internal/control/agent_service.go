@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -106,8 +107,10 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("record agent capabilities"))
 	}
+	// A failed reconcile must not end the session: the agent still receives
+	// its current assignment and the periodic reconcile retries.
 	if err := s.reconciler.Reconcile(ctx); err != nil {
-		return connect.NewError(connect.CodeInternal, errors.New("reconcile agent assignment"))
+		slog.Warn("reconcile after agent hello failed", "node", nodeID, "error", err)
 	}
 	assignment, err := s.state.CurrentAssignment(ctx, nodeID)
 	if err == nil {
@@ -265,7 +268,7 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 		}
 		if recorded && s.reconciler != nil {
 			if err := s.reconciler.Reconcile(ctx); err != nil {
-				return connect.NewError(connect.CodeInternal, errors.New("reconcile reported agent state"))
+				slog.Warn("reconcile after agent report failed", "node", session.nodeID, "error", err)
 			}
 		}
 	case *orchv1alpha1.ConnectRequest_Heartbeat:

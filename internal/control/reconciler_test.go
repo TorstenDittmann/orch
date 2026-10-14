@@ -1057,3 +1057,154 @@ func allocationForService(t *testing.T, assignment model.Assignment, service str
 	t.Fatalf("allocation %s/%d not found in %#v", service, replica, assignment.Allocations)
 	return model.AllocationDesired{}
 }
+
+func TestReconcilerBlocksInvalidStoredIntentWithoutBlockingOtherApplications(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	otherManifest := func(mode string) *config.Manifest {
+		return newTestManifest("other", map[string]config.Service{"worker": {
+			Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"}, Env: map[string]string{"MODE": mode},
+		}})
+	}
+	applyManifest(t, state, runtimeManifest(executableImage), "revision-one", "application-key-one", reconcilerTestTime)
+	applyManifest(t, state, otherManifest("one"), "revision-other-one", "application-key-other-one", reconcilerTestTime)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(2 * time.Minute) }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	serving, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(serving.Allocations) != 2 {
+		t.Fatalf("serving assignment = %#v, %v", serving, err)
+	}
+	var servingHello model.AllocationDesired
+	for _, allocation := range serving.Allocations {
+		if allocation.Application == "hello" {
+			servingHello = allocation
+		}
+	}
+
+	// A stored manifest that no longer passes validation, for example after an
+	// upgrade tightened a rule, must block only its own application.
+	invalid := runtimeManifest(executableImage, func(service *config.Service) { service.Restart = "sometimes" })
+	if config.Validate(invalid) == nil {
+		t.Fatal("test manifest unexpectedly passes validation")
+	}
+	canonical, err := config.CanonicalJSON(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ApplyApplication(ctx, model.ApplyApplication{
+		Name: "hello", RevisionID: "revision-invalid", Digest: config.DigestCanonicalJSON(canonical),
+		CanonicalManifest: canonical, IdempotencyKey: "application-key-invalid", CreatedAt: reconcilerTestTime.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	applyManifest(t, state, otherManifest("two"), "revision-other-two", "application-key-other-two", reconcilerTestTime.Add(3*time.Minute))
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile() with one invalid application = %v", err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionBlocked || application.Execution.Reason != "invalid_stored_intent" {
+		t.Fatalf("invalid application execution = %#v, %v", application.Execution, err)
+	}
+	updated, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || updated.Generation == serving.Generation || len(updated.Allocations) != 2 {
+		t.Fatalf("updated assignment = %#v, %v", updated, err)
+	}
+	for _, allocation := range updated.Allocations {
+		switch allocation.Application {
+		case "hello":
+			if allocation.SpecDigest != servingHello.SpecDigest || allocation.RevisionID != servingHello.RevisionID {
+				t.Fatalf("invalid application lost its previous placement: %#v", allocation)
+			}
+		case "other":
+			if allocation.RevisionID != "revision-other-two" || allocation.Environment["MODE"] != "two" {
+				t.Fatalf("valid application was not updated: %#v", allocation)
+			}
+		}
+	}
+}
+
+func TestDistributedReconcilerBlocksVolumeClaimConflictWithoutBlockingOtherApplications(t *testing.T) {
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollDistributedNode(t, state, "node-one", "node-1", "10.0.0.1", 'a', '1')
+	enrollDistributedNode(t, state, "node-two", "node-2", "10.0.0.2", 'b', '2')
+	now := reconcilerTestTime.Add(2 * time.Minute)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return now }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for index, nodeID := range []string{"node-one", "node-two"} {
+		assignment, err := state.CurrentAssignment(ctx, nodeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.AcknowledgeAssignment(ctx, nodeID, assignment.Generation, assignment.Digest); err != nil {
+			t.Fatal(err)
+		}
+		ingressState := model.SubsystemNotConfigured
+		if assignment.Network.IngressEnabled {
+			ingressState = model.SubsystemReady
+		}
+		recorded, err := state.RecordAgentReport(ctx, model.AgentReport{
+			NodeID: nodeID, BootID: []string{"boot-node-one", "boot-node-two"}[index], Sequence: 1,
+			AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+			Network: model.NetworkStatus{Generation: assignment.Network.Generation, State: model.NetworkReady,
+				ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+				Gateway: assignment.Network.Gateway, DNSState: model.SubsystemReady, IngressState: ingressState},
+			ReportedAt: now,
+		})
+		if err != nil || !recorded {
+			t.Fatalf("ready report %s = %t, %v", nodeID, recorded, err)
+		}
+	}
+	stateful := runtimeManifest(executableImage, func(service *config.Service) {
+		service.Mounts = []config.Mount{{Source: "cache", Target: "/cache"}, {Source: "data", Target: "/data"}}
+	})
+	stateful.Volumes = map[string]config.Volume{"cache": {Driver: "local"}, "data": {Driver: "local"}}
+	applyManifest(t, state, stateful, "revision-one", "application-key-one", now)
+	applyManifest(t, state, newTestManifest("other", map[string]config.Service{"worker": {
+		Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"},
+	}}), "revision-other-one", "application-key-other-one", now)
+	if err := state.ClaimVolume(ctx, "hello", "cache", "node-one", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ClaimVolume(ctx, "hello", "data", "node-two", now); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile() with conflicting volume claims = %v", err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionBlocked || application.Execution.Reason != "local_volume_conflict" {
+		t.Fatalf("conflicting application execution = %#v, %v", application.Execution, err)
+	}
+	placed := 0
+	for _, nodeID := range []string{"node-one", "node-two"} {
+		assignment, err := state.CurrentAssignment(ctx, nodeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, allocation := range assignment.Allocations {
+			if allocation.Application == "hello" {
+				t.Fatalf("conflicting application was placed on %s: %#v", nodeID, allocation)
+			}
+			placed++
+		}
+	}
+	if placed != 1 {
+		t.Fatalf("other application placements = %d, want 1", placed)
+	}
+}

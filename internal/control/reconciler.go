@@ -149,7 +149,7 @@ func (r *Reconciler) reconcileLegacy(ctx context.Context, cluster model.Cluster,
 			networkConfig, cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByID, resolved)
 		resolved.wipe()
 		if err != nil {
-			return fmt.Errorf("plan application %q: %w", application.Name, err)
+			blocked = invalidIntentBlock(err)
 		}
 		if blocked != nil {
 			if blocked.preservePrevious {
@@ -219,6 +219,15 @@ type blockReason struct {
 	reason           string
 	message          string
 	preservePrevious bool
+}
+
+// invalidIntentBlock confines a stored application that can no longer be
+// planned, for example after an upgrade tightened validation, to that
+// application. Its previously published placement keeps running so one bad
+// application never stops the reconcile for the rest of the cluster.
+func invalidIntentBlock(err error) *blockReason {
+	return &blockReason{reason: "invalid_stored_intent",
+		message: "stored application intent cannot be planned: " + err.Error(), preservePrevious: true}
 }
 
 type plannedApplication struct {
@@ -819,8 +828,9 @@ func desiredDomainOwners(applications []model.Application) (map[string]string, e
 			continue
 		}
 		var manifest config.Manifest
-		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-			return nil, fmt.Errorf("decode stored manifest for domain ownership: %w", err)
+		if json.Unmarshal(application.CanonicalManifest, &manifest) != nil {
+			// Planning blocks the undecodable application on its own.
+			continue
 		}
 		for serviceName, service := range manifest.Services {
 			if service.HTTP == nil {
@@ -865,8 +875,9 @@ func desiredTCPPortOwners(applications []model.Application) (map[uint32]string, 
 			continue
 		}
 		var manifest config.Manifest
-		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-			return nil, fmt.Errorf("decode stored manifest for TCP port ownership: %w", err)
+		if json.Unmarshal(application.CanonicalManifest, &manifest) != nil {
+			// Planning blocks the undecodable application on its own.
+			continue
 		}
 		for serviceName, service := range manifest.Services {
 			if service.TCP != nil && service.TCP.PublicPort != nil {
