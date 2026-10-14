@@ -153,3 +153,58 @@ func (errorReader) Read([]byte) (int, error) {
 }
 
 var _ io.Reader = errorReader{}
+
+func TestIssueIdentityRenewsLeavesFromExistingCA(t *testing.T) {
+	t.Parallel()
+	const clusterID = "e6207444-6574-4b99-a2d2-3d6db1325c14"
+	const server = "https://controller.example:9443"
+	bundle, err := Generate(GenerateOptions{ClusterID: clusterID, ClusterName: "test", Server: server, Now: pkiTestTime, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := mustCertificate(t, bundle.Controller.CertificatePEM)
+	// The original leaves are expired; only the CA must still be valid.
+	later := original.NotAfter.Add(24 * time.Hour)
+	if err := VerifyIdentity(bundle.CACertificatePEM, bundle.Controller, clusterID, RoleController, server, later); err == nil {
+		t.Fatal("original controller certificate is still valid after its lifetime")
+	}
+	for _, role := range []string{RoleController, RoleAdministrator} {
+		pair, err := IssueIdentity(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, IssueOptions{ClusterID: clusterID, Role: role, Server: server, Now: later, Random: rand.Reader})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyIdentity(bundle.CACertificatePEM, pair, clusterID, role, server, later); err != nil {
+			t.Fatalf("renewed %s identity: %v", role, err)
+		}
+		renewed := mustCertificate(t, pair.CertificatePEM)
+		if !renewed.NotAfter.Equal(later.AddDate(1, 0, 0)) {
+			t.Fatalf("renewed %s NotAfter = %s", role, renewed.NotAfter)
+		}
+		if role == RoleController && (len(renewed.DNSNames) != 1 || renewed.DNSNames[0] != original.DNSNames[0]) {
+			t.Fatalf("renewed controller DNS names = %v, want %v", renewed.DNSNames, original.DNSNames)
+		}
+	}
+
+	ca := mustCertificate(t, bundle.CACertificatePEM)
+	nearEnd := ca.NotAfter.Add(-24 * time.Hour)
+	pair, err := IssueIdentity(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, IssueOptions{ClusterID: clusterID, Role: RoleAdministrator, Now: nearEnd, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustCertificate(t, pair.CertificatePEM).NotAfter; !got.Equal(ca.NotAfter) {
+		t.Fatalf("leaf NotAfter = %s, want clamped to CA %s", got, ca.NotAfter)
+	}
+	if _, err := IssueIdentity(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, IssueOptions{ClusterID: clusterID, Role: RoleAdministrator, Now: ca.NotAfter.Add(time.Hour), Random: rand.Reader}); err == nil {
+		t.Fatal("issued an identity from an expired CA")
+	}
+	other, err := Generate(GenerateOptions{ClusterID: clusterID, ClusterName: "test", Server: server, Now: pkiTestTime, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IssueIdentity(bundle.CACertificatePEM, other.CAPrivateKeyPEM, IssueOptions{ClusterID: clusterID, Role: RoleAdministrator, Now: later, Random: rand.Reader}); err == nil {
+		t.Fatal("issued an identity with a mismatched CA key")
+	}
+	if _, err := IssueIdentity(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, IssueOptions{ClusterID: clusterID, Role: RoleAgent, Now: later, Random: rand.Reader}); err == nil {
+		t.Fatal("issued an agent identity through the controller path")
+	}
+}

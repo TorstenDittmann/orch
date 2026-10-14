@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"change.codes/torsten/better-swarm/internal/model"
 	"change.codes/torsten/better-swarm/internal/security"
 	"change.codes/torsten/better-swarm/internal/store"
 )
@@ -27,6 +28,9 @@ type RecoveryResult struct {
 	Ready   bool     `json:"ready"`
 	Missing []string `json:"missing"`
 	DataDir string   `json:"data_dir,omitempty"`
+	// ControllerCertificateExpired marks recovery material whose CA is valid
+	// but whose controller leaf has expired; renew it before starting.
+	ControllerCertificateExpired bool `json:"controller_certificate_expired,omitempty"`
 }
 
 // InspectBackup works exclusively on a private temporary copy, including when
@@ -169,7 +173,11 @@ func prepareRecovery(ctx context.Context, options RecoveryOptions, stage string)
 			}
 		}
 		if _, err := LoadControllerCredentials(stage, summary.Cluster, now); err != nil {
-			return result, err
+			expired, expiredErr := expiredControllerLeaf(stage, summary.Cluster, now)
+			if expiredErr != nil || !expired {
+				return result, err
+			}
+			result.ControllerCertificateExpired = true
 		}
 		if err := syncDirectory(pki); err != nil {
 			return result, err
@@ -213,6 +221,36 @@ func prepareRecovery(ctx context.Context, options RecoveryOptions, stage string)
 	}
 	result.Ready = len(result.Missing) == 0
 	return result, nil
+}
+
+// expiredControllerLeaf reports whether the only problem with staged controller
+// material is an expired leaf: the CA must be valid now and the leaf must have
+// been a valid identity for this cluster just before it expired.
+func expiredControllerLeaf(dataDir string, stored model.Cluster, now time.Time) (bool, error) {
+	pki := filepath.Join(dataDir, controllerIdentityDirectory)
+	caPEM, err := readPrivateFile(filepath.Join(pki, "ca.pem"))
+	if err != nil {
+		return false, err
+	}
+	caKeyPEM, err := readPrivateFile(filepath.Join(pki, "ca-key.pem"))
+	if err != nil {
+		return false, err
+	}
+	certificatePEM, err := readPrivateFile(filepath.Join(pki, "controller.pem"))
+	if err != nil {
+		return false, err
+	}
+	notAfter, err := security.CertificateNotAfter(certificatePEM)
+	if err != nil || !now.After(notAfter) {
+		return false, err
+	}
+	if err := security.VerifyCertificateAuthority(caPEM, caKeyPEM, stored.Name, now.UTC()); err != nil {
+		return false, err
+	}
+	if _, err := LoadControllerCredentials(dataDir, stored, notAfter.Add(-time.Minute)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func requireStandaloneSnapshot(path string) error {

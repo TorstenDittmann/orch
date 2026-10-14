@@ -107,6 +107,17 @@ func Reference(name string) (string, error) {
 func IsReference(value string) bool { return strings.HasPrefix(value, ReferencePrefix) }
 
 func (s *Store) Import(name, sourceContext string) (Resolved, error) {
+	return s.importContext(name, sourceContext, false)
+}
+
+// Replace swaps the credentials of an existing target for a renewed context
+// of the same cluster and keeps its transport. The current credentials may
+// already be expired; only the replacement is required to be valid.
+func (s *Store) Replace(name, sourceContext string) (Resolved, error) {
+	return s.importContext(name, sourceContext, true)
+}
+
+func (s *Store) importContext(name, sourceContext string, replace bool) (Resolved, error) {
 	if err := ValidateName(name); err != nil {
 		return Resolved{}, err
 	}
@@ -148,7 +159,17 @@ func (s *Store) Import(name, sourceContext string) (Resolved, error) {
 	}
 
 	finalPath := s.targetPath(name)
-	if _, err := os.Lstat(finalPath); err == nil {
+	transport := Transport{Type: TransportDirect}
+	if replace {
+		existing, err := s.existingTarget(name)
+		if err != nil {
+			return Resolved{}, err
+		}
+		if existing.clusterID != credentials.Context.Cluster.ID {
+			return Resolved{}, fmt.Errorf("target %q belongs to cluster %s, not %s", name, existing.clusterID, credentials.Context.Cluster.ID)
+		}
+		transport = existing.transport
+	} else if _, err := os.Lstat(finalPath); err == nil {
 		return Resolved{}, fmt.Errorf("target %q already exists", name)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Resolved{}, fmt.Errorf("inspect target %q: %w", name, err)
@@ -195,10 +216,17 @@ func (s *Store) Import(name, sourceContext string) (Resolved, error) {
 	}
 	manifest := Manifest{
 		Version: Version, Name: name, Context: "context.json",
-		Transport: Transport{Type: TransportDirect},
+		Transport: transport,
 	}
 	if err := writeJSONFile(filepath.Join(temporary, "target.json"), manifest); err != nil {
 		return Resolved{}, err
+	}
+	if replace {
+		if err := swapDirectory(temporary, finalPath); err != nil {
+			return Resolved{}, fmt.Errorf("replace target %q: %w", name, err)
+		}
+		cleanup = false
+		return s.Get(name)
 	}
 	if err := os.Rename(temporary, finalPath); err != nil {
 		if _, statErr := os.Lstat(finalPath); statErr == nil {
@@ -208,6 +236,60 @@ func (s *Store) Import(name, sourceContext string) (Resolved, error) {
 	}
 	cleanup = false
 	return s.Get(name)
+}
+
+type existingTarget struct {
+	clusterID string
+	transport Transport
+}
+
+// existingTarget reads a target without validating credential lifetimes so
+// expired credentials can be replaced.
+func (s *Store) existingTarget(name string) (existingTarget, error) {
+	directory := s.targetPath(name)
+	if err := requirePrivateDirectory(directory); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return existingTarget{}, fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
+		return existingTarget{}, fmt.Errorf("validate target %q: %w", name, err)
+	}
+	var manifest Manifest
+	if err := readStrictJSON(filepath.Join(directory, "target.json"), &manifest); err != nil {
+		return existingTarget{}, fmt.Errorf("read target %q: %w", name, err)
+	}
+	if manifest.Version != Version || manifest.Name != name || manifest.Context != "context.json" {
+		return existingTarget{}, fmt.Errorf("target %q has an invalid or unsupported manifest", name)
+	}
+	if err := ValidateTransport(manifest.Transport); err != nil {
+		return existingTarget{}, fmt.Errorf("target %q: %w", name, err)
+	}
+	local, err := clusterctl.LoadContext(filepath.Join(directory, manifest.Context))
+	if err != nil {
+		return existingTarget{}, fmt.Errorf("target %q context: %w", name, err)
+	}
+	return existingTarget{clusterID: local.Cluster.ID, transport: manifest.Transport}, nil
+}
+
+// swapDirectory moves the current directory aside, publishes the staged one,
+// and restores the original if publication fails.
+func swapDirectory(staged, destination string) error {
+	previous, err := os.MkdirTemp(filepath.Dir(destination), ".replaced-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(previous); err != nil {
+		return err
+	}
+	if err := os.Rename(destination, previous); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, destination); err != nil {
+		if restoreErr := os.Rename(previous, destination); restoreErr != nil {
+			return fmt.Errorf("%w; previous target kept at %s", err, previous)
+		}
+		return err
+	}
+	return os.RemoveAll(previous)
 }
 
 func (s *Store) Get(name string) (Resolved, error) {

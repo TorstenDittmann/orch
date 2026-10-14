@@ -157,6 +157,13 @@ func generateIdentity(random io.Reader, ca *x509.Certificate, caKey *ecdsa.Priva
 		return KeyPair{}, fmt.Errorf("generate %s serial: %w", options.role, err)
 	}
 	identityURI := IdentityURI(options.clusterID, options.role)
+	notAfter := options.now.AddDate(1, 0, 0)
+	if notAfter.After(ca.NotAfter) {
+		notAfter = ca.NotAfter
+	}
+	if !notAfter.After(options.now) {
+		return KeyPair{}, fmt.Errorf("CA certificate expires too soon to sign a %s identity", options.role)
+	}
 	keyID, err := subjectKeyID(&key.PublicKey)
 	if err != nil {
 		return KeyPair{}, fmt.Errorf("derive %s key id: %w", options.role, err)
@@ -168,7 +175,7 @@ func generateIdentity(random io.Reader, ca *x509.Certificate, caKey *ecdsa.Priva
 			Organization: []string{"orch"},
 		},
 		NotBefore:             options.now.Add(-5 * time.Minute),
-		NotAfter:              options.now.AddDate(1, 0, 0),
+		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           options.usages,
 		URIs:                  []*url.URL{identityURI},
@@ -195,6 +202,57 @@ func generateIdentity(random io.Reader, ca *x509.Certificate, caKey *ecdsa.Priva
 		CertificatePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}),
 		PrivateKeyPEM:  keyPEM,
 	}, nil
+}
+
+type IssueOptions struct {
+	ClusterID string
+	Role      string
+	Server    string
+	Now       time.Time
+	Random    io.Reader
+}
+
+// IssueIdentity signs a fresh controller or administrator identity with an
+// existing cluster CA. It is used to renew leaves before or after they expire
+// without changing the CA that agents and administrators already trust.
+func IssueIdentity(caCertificatePEM, caPrivateKeyPEM []byte, options IssueOptions) (KeyPair, error) {
+	if options.ClusterID == "" || options.Now.IsZero() || options.Random == nil {
+		return KeyPair{}, fmt.Errorf("cluster id, current time, and random source are required")
+	}
+	usages, err := identityUsages(options.Role)
+	if err != nil {
+		return KeyPair{}, err
+	}
+	var server *url.URL
+	if options.Role == RoleController {
+		server, err = url.Parse(options.Server)
+		if err != nil || server.Scheme != "https" || server.Hostname() == "" {
+			return KeyPair{}, fmt.Errorf("server must be an HTTPS URL")
+		}
+	}
+	ca, err := parseCertificate(caCertificatePEM)
+	if err != nil {
+		return KeyPair{}, fmt.Errorf("parse CA certificate: %w", err)
+	}
+	caKey, err := parseECDSAPrivateKey(caPrivateKeyPEM)
+	if err != nil {
+		return KeyPair{}, fmt.Errorf("parse CA private key: %w", err)
+	}
+	if err := verifyPrivateKey(ca, caPrivateKeyPEM); err != nil {
+		return KeyPair{}, fmt.Errorf("verify CA private key: %w", err)
+	}
+	return generateIdentity(options.Random, ca, caKey, identityOptions{
+		clusterID: options.ClusterID, role: options.Role, now: options.Now.UTC(), server: server, usages: usages,
+	})
+}
+
+// CertificateNotAfter returns the expiry of one PEM certificate.
+func CertificateNotAfter(certificatePEM []byte) (time.Time, error) {
+	certificate, err := parseCertificate(certificatePEM)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return certificate.NotAfter, nil
 }
 
 func serialNumber(random io.Reader) (*big.Int, error) {

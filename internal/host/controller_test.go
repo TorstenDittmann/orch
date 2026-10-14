@@ -7,7 +7,41 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 )
+
+func TestControllerCertificateCheckReportsExpiry(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "state")
+	created := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	if _, err := clusterctl.Bootstrap(context.Background(), clusterctl.BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: dataDir,
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: func() time.Time { return created },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		now   time.Time
+		state string
+	}{
+		{now: created.AddDate(0, 6, 0), state: "pass"},
+		{now: created.AddDate(0, 11, 20), state: "warn"},
+		{now: created.AddDate(1, 0, 1), state: "fail"},
+	} {
+		state, detail, remedy := controllerCertificateCheck(dataDir, test.now)
+		if state != test.state || !strings.Contains(detail, "2027-09-02") {
+			t.Fatalf("check at %s = %s %q", test.now, state, detail)
+		}
+		if (state == "pass") != (remedy == "") || state != "pass" && !strings.Contains(remedy, "cluster certificates renew") {
+			t.Fatalf("check at %s remedy = %q", test.now, remedy)
+		}
+	}
+	if state, _, _ := controllerCertificateCheck(filepath.Join(root, "missing"), created); state != "fail" {
+		t.Fatalf("missing certificate state = %s", state)
+	}
+}
 
 func TestRecoverySetManifestUsesStableFieldNames(t *testing.T) {
 	data, err := json.Marshal(recoverySetManifest{Version: 1, ClusterID: "cluster", Name: "name", Server: "https://example.com:9443", Schema: 11, CreatedAt: "now"})

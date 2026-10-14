@@ -345,6 +345,47 @@ func TestClusterBackupReportsExactClusterAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestClusterCertificatesRenewPublishesUsableAdministratorContext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "state")
+	contextPath := filepath.Join(root, "config", "context.json")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"cluster", "init", "--name", "test", "--server", "https://controller.example", "--data-dir", dataDir, "--context", contextPath}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("init code = %d, stderr = %s", code, stderr.String())
+	}
+	adminDir := filepath.Join(root, "renewed")
+	stdout.Reset()
+	args := []string{"cluster", "certificates", "renew", "--data-dir", dataDir, "--admin-dir", adminDir, "--json"}
+	if code := Run(args, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("renew code = %d, stderr = %s", code, stderr.String())
+	}
+	var renewed struct {
+		ClusterID          string    `json:"cluster_id"`
+		AdminContext       string    `json:"admin_context"`
+		ControllerNotAfter time.Time `json:"controller_certificate_not_after"`
+		CANotAfter         time.Time `json:"certificate_authority_not_after"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &renewed); err != nil {
+		t.Fatal(err)
+	}
+	if renewed.AdminContext != filepath.Join(adminDir, "context.json") || !renewed.ControllerNotAfter.Before(renewed.CANotAfter) {
+		t.Fatalf("renew payload = %#v", renewed)
+	}
+	credentials, err := clusterctl.LoadAdministratorCredentials(renewed.AdminContext, time.Now())
+	if err != nil || credentials.Context.Cluster.ID != renewed.ClusterID {
+		t.Fatalf("renewed context: %#v %v", credentials.Context, err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(args, &stdout, &stderr); code != ExitRuntime {
+		t.Fatalf("renew into existing directory code = %d, want %d", code, ExitRuntime)
+	}
+	if !strings.Contains(stderr.String(), "already exists") {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+}
+
 func TestClusterCommandsClassifyInvalidInput(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -356,6 +397,8 @@ func TestClusterCommandsClassifyInvalidInput(t *testing.T) {
 		{name: "invalid name", args: []string{"cluster", "init", "--name", "Not Valid", "--server", "https://controller.example", "--data-dir", filepath.Join(root, "bad-name-state"), "--context", filepath.Join(root, "bad-name-config", "context.json"), "--json"}},
 		{name: "non HTTPS", args: []string{"cluster", "init", "--name", "test", "--server", "http://controller.example", "--data-dir", filepath.Join(root, "http-state"), "--context", filepath.Join(root, "http-config", "context.json"), "--json"}},
 		{name: "overlap", args: []string{"cluster", "init", "--name", "test", "--server", "https://controller.example", "--data-dir", filepath.Join(root, "overlap"), "--context", filepath.Join(root, "overlap", "context.json"), "--json"}},
+		{name: "renew without admin dir", args: []string{"cluster", "certificates", "renew", "--data-dir", filepath.Join(root, "state"), "--json"}},
+		{name: "renew admin dir inside data", args: []string{"cluster", "certificates", "renew", "--data-dir", filepath.Join(root, "state"), "--admin-dir", filepath.Join(root, "state", "admin"), "--json"}},
 		{name: "backup inside data", args: []string{"cluster", "backup", "--data-dir", filepath.Join(root, "state"), "--output", filepath.Join(root, "state", "backup.db"), "--json"}},
 	}
 	for _, test := range tests {
@@ -423,14 +466,26 @@ func TestRemoteStatusDeployAndEvents(t *testing.T) {
 		t.Fatalf("status code = %d, stderr = %s", code, stderr.String())
 	}
 	var status struct {
-		ClusterID string `json:"cluster_id"`
-		Name      string `json:"name"`
+		ClusterID             string     `json:"cluster_id"`
+		Name                  string     `json:"name"`
+		AdministratorNotAfter time.Time  `json:"administrator_certificate_not_after"`
+		ControllerNotAfter    *time.Time `json:"controller_certificate_not_after"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
 	if status.ClusterID != initialized.Cluster.ID || status.Name != "test" {
 		t.Fatalf("status = %#v", status)
+	}
+	if status.AdministratorNotAfter.Before(time.Now().AddDate(0, 11, 0)) || status.ControllerNotAfter == nil || status.ControllerNotAfter.Before(time.Now().AddDate(0, 11, 0)) {
+		t.Fatalf("status certificate expiry = %#v", status)
+	}
+	stdout.Reset()
+	if code := Run([]string{"status", "--context", contextPath}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("status code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Admin cert: valid until") || !strings.Contains(stdout.String(), "Controller: valid until") {
+		t.Fatalf("status output = %s", stdout.String())
 	}
 
 	applicationDir := filepath.Join(root, "application")

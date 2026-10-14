@@ -130,6 +130,63 @@ func TestGetRejectsCorruptAndUnsupportedManifest(t *testing.T) {
 	}
 }
 
+func TestReplaceSwapsUnusableCredentialsAndKeepsTransport(t *testing.T) {
+	root := t.TempDir()
+	contextPath := bootstrapContext(t, root)
+	store, err := Open(filepath.Join(root, "config", "orch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Replace("production", contextPath); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("replace of missing target = %v", err)
+	}
+	if _, err := store.Import("production", contextPath); err != nil {
+		t.Fatal(err)
+	}
+	transport := Transport{Type: TransportSSH, SSHHost: "prod-controller"}
+	if err := store.SetTransport("production", transport); err != nil {
+		t.Fatal(err)
+	}
+	local, err := clusterctl.LoadContext(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for an expired certificate: the stored target no longer loads.
+	stored := filepath.Join(root, "config", "orch", "targets", "production", "identities", local.Cluster.ID, "admin.pem")
+	if err := os.WriteFile(stored, []byte("expired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get("production"); err == nil {
+		t.Fatal("damaged target loaded")
+	}
+	renewed, err := clusterctl.RenewCertificates(context.Background(), clusterctl.RenewCertificatesOptions{
+		DataDir: filepath.Join(root, "state"), AdminDir: filepath.Join(root, "renewed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := store.Replace("production", renewed.ContextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Transport != transport {
+		t.Fatalf("replaced transport = %#v, want %#v", resolved.Transport, transport)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "config", "orch", "targets"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("targets after replace = %v, %v", entries, err)
+	}
+
+	other := t.TempDir()
+	foreign := bootstrapContext(t, other)
+	if _, err := store.Replace("production", foreign); err == nil {
+		t.Fatal("replaced a target with another cluster's credentials")
+	}
+	if _, err := store.Get("production"); err != nil {
+		t.Fatalf("refused replace damaged the target: %v", err)
+	}
+}
+
 func TestImportRejectsUnsafeInputs(t *testing.T) {
 	root := t.TempDir()
 	contextPath := bootstrapContext(t, root)

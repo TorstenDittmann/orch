@@ -18,6 +18,39 @@ orch target test
 
 Anyone with this context can administer the cluster.
 
+## Certificate renewal
+
+The controller and administrator certificates are valid for one year; the
+cluster CA is valid for ten. Worker certificates renew automatically, but the
+controller and administrator certificates do not. `orch status` shows both
+expiry times, and `orch cluster doctor` warns 30 days before the controller
+certificate expires.
+
+Renew both on the controller host. This works before or after the
+certificates expire, as long as the cluster CA is still valid. The CA does not
+change, so workers and existing backups are unaffected:
+
+```console
+sudo /opt/orch-controller/bin/orch cluster certificates renew \
+  --data-dir /var/lib/orch-controller \
+  --admin-dir /root/orch-production-admin-2027
+sudo systemctl restart orch-controller
+```
+
+The controller loads its new certificate only when it restarts. `--admin-dir`
+must be a new directory. It receives a fresh administrator context that you
+handle like the one from installation. Replace the credentials of an existing
+target and keep its transport settings:
+
+```console
+orch target import production ./orch-production-admin-2027/context.json --replace
+```
+
+Old administrator certificates stay valid until they expire. After renewing,
+refresh the `pki` copy in your off-host backups. If a restore finds an expired
+controller certificate, it reports that and still restores the data. Run the
+renewal against the restored data directory before starting the controller.
+
 ## Worker enrollment
 
 Create one short-lived join file per worker:

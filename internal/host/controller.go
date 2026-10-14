@@ -116,6 +116,31 @@ func BuildControllerPlan(ctx context.Context, options ControllerOptions) (Contro
 		}}, nil
 }
 
+// controllerCertificateWarning is how early doctor warns before expiry.
+const controllerCertificateWarning = 30 * 24 * time.Hour
+
+// controllerCertificateCheck reports the installed controller leaf lifetime.
+func controllerCertificateCheck(dataDir string, now time.Time) (state, detail, remedy string) {
+	remedy = "Run orch cluster certificates renew --data-dir " + dataDir + " --admin-dir NEW_DIR, then restart orch-controller"
+	contents, err := os.ReadFile(filepath.Join(dataDir, "pki", "controller.pem"))
+	if err != nil {
+		return "fail", "Controller certificate is unreadable", "Inspect the private controller identity directory"
+	}
+	notAfter, err := security.CertificateNotAfter(contents)
+	if err != nil {
+		return "fail", "Controller certificate is invalid", remedy
+	}
+	expiry := notAfter.UTC().Format(time.RFC3339)
+	switch {
+	case !now.Before(notAfter):
+		return "fail", "Controller certificate expired at " + expiry, remedy
+	case notAfter.Sub(now) < controllerCertificateWarning:
+		return "warn", "Controller certificate expires at " + expiry, remedy
+	default:
+		return "pass", "Controller certificate valid until " + expiry, ""
+	}
+}
+
 func ControllerDoctor(ctx context.Context, server, listen string) Report {
 	r := Report{Architecture: runtime.GOARCH, Ready: true, Installable: true}
 	add := func(id, state, detail, remedy string, installable bool) {
@@ -242,6 +267,8 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 						add("controller_state", "pass", "Controller state and secret key match cluster "+cluster.ID, "", false)
 					}
 				}
+				certificateState, detail, remedy := controllerCertificateCheck(ControllerDataDir, time.Now())
+				add("controller_certificate", certificateState, detail, remedy, false)
 				if err := exactControllerProcess(ctx, state.Listen); err != nil {
 					add("controller_service", "fail", err.Error(), "Inspect systemctl status and journalctl -u orch-controller", true)
 				} else {
