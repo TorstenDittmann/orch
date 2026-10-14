@@ -921,8 +921,9 @@ func desiredNodePortOwners(applications []model.Application) (map[string]string,
 			continue
 		}
 		var manifest config.Manifest
-		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
-			return nil, fmt.Errorf("decode stored manifest for node port ownership: %w", err)
+		if json.Unmarshal(application.CanonicalManifest, &manifest) != nil {
+			// Planning blocks the undecodable application on its own.
+			continue
 		}
 		for _, port := range applicationPortKeys(manifest) {
 			if _, exists := owners[port]; !exists {

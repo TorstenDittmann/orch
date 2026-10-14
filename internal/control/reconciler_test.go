@@ -382,6 +382,19 @@ func TestTCPPublicPortOwnershipBlocksLaterApplication(t *testing.T) {
 	}
 }
 
+func TestNodePortOwnershipSkipsUndecodableApplication(t *testing.T) {
+	port := 9418
+	manifest := newTestManifest("first", map[string]config.Service{"git": {Image: executableImage, TCP: &config.TCP{Port: 9418, PublicPort: &port}}})
+	applications := []model.Application{
+		{Name: "broken", Generation: 1, RevisionID: "revision-broken", CanonicalManifest: []byte("{"), CreatedAt: reconcilerTestTime.Add(-time.Second)},
+		{Name: "first", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, manifest), CreatedAt: reconcilerTestTime},
+	}
+	owners, err := desiredNodePortOwners(applications)
+	if err != nil || owners["tcp/9418"] != "first" {
+		t.Fatalf("owners = %#v, %v", owners, err)
+	}
+}
+
 func TestPublicHTTPOwnershipBlocksLaterApplication(t *testing.T) {
 	publicService := func() config.Service {
 		return config.Service{Image: executableImage, HTTP: &config.HTTP{Port: 8080, Public: true, HealthPath: "/healthz"}}
