@@ -190,8 +190,7 @@ func UpgradeController(ctx context.Context, options UpgradeOptions) (UpgradeResu
 	if err := atomicOwned(ControllerManifestPath, append(data, '\n'), 0600); err != nil {
 		return result, err
 	}
-	journal.Phase = "ready"
-	if err := saveUpgradeJournal(journalPath, journal); err != nil {
+	if err := finishUpgradeJournal(journalPath); err != nil {
 		return result, err
 	}
 	result.Changed, result.Ready, result.Phase, result.AutomaticRollback = true, true, "ready", false
@@ -352,8 +351,7 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 	if err = atomicOwned(ManifestPath, data, 0600); err != nil {
 		return result, err
 	}
-	journal.Phase = "ready"
-	if err = saveUpgradeJournal(journalPath, journal); err != nil {
+	if err = finishUpgradeJournal(journalPath); err != nil {
 		return result, err
 	}
 	result.Changed, result.Ready, result.Phase, result.AutomaticRollback = true, true, "ready", false
@@ -431,12 +429,18 @@ func loadUpgradeJournal(path, kind, candidate, previous, installed string) (upgr
 	var j upgradeJournal
 	data, err := os.ReadFile(path)
 	if err == nil {
-		if json.Unmarshal(data, &j) != nil || j.Version != 1 || j.Kind != kind || j.CandidateHash != candidate {
+		if json.Unmarshal(data, &j) != nil || j.Version != 1 || j.Kind != kind {
 			return j, errors.New("another managed upgrade is incomplete; resume it with the same candidate")
 		}
-		return j, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
+		if j.CandidateHash == candidate {
+			return j, nil
+		}
+		// A journal that reached readiness, or whose candidate the manifest
+		// already records, belongs to a finished upgrade and is superseded.
+		if j.Phase != "ready" && j.CandidateHash != previous {
+			return j, errors.New("another managed upgrade is incomplete; resume it with the same candidate")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return j, err
 	}
 	dir := filepath.Join(filepath.Dir(path), "upgrades", candidate)
@@ -449,6 +453,15 @@ func loadUpgradeJournal(path, kind, candidate, previous, installed string) (upgr
 		return j, err
 	}
 	return j, saveUpgradeJournal(path, j)
+}
+
+// finishUpgradeJournal removes the journal once the manifest records the
+// candidate. Recovery material under upgrades/ is retained for the operator.
+func finishUpgradeJournal(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
 }
 
 func saveUpgradeJournal(path string, j upgradeJournal) error {
