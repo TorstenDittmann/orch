@@ -1,4 +1,3 @@
-# Mirrors .change/go.ci.ts so pull requests also get checks on GitHub.
 name: Go checks
 
 on:

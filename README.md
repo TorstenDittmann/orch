@@ -284,7 +284,7 @@ mise exec -- make check
 
 The embedded Pkl schema and generated Protocol Buffer/Connect bindings are
 verified with tools pinned in `mise.toml`; the same file pins Pebble for
-isolated ACME verification. Native change.codes CI rejects stale generated
+isolated ACME verification. GitHub Actions CI rejects stale generated
 output, Pkl or Go formatting differences, vet issues, race failures, and test
 failures.
 The real containerd/network/DNS/Caddy lifecycle is additionally available as
@@ -295,15 +295,12 @@ running it; see
 
 ## Status and roadmap
 
-The product roadmap is captured in change.codes Plan #1. Durable bootstrap is
-Plan #2, the authenticated control API is Plan #3, and encrypted secrets and
-registry authentication are Plan #8. Work is split into reviewable vertical
-slices:
+Work is split into reviewable vertical slices:
 
 1. Configuration and CLI contract.
 2. Secure single-node controller/agent/runtime.
 3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
-4. Multi-node scheduling and WireGuard routing (implemented by Plan #9).
+4. Multi-node scheduling and WireGuard routing.
 5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 

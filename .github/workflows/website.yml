@@ -1,0 +1,32 @@
+name: Website checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  website:
+    name: Check and build website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v2
+      - name: Install pinned website dependencies
+        working-directory: website
+        run: mise exec -- bun install --frozen-lockfile
+      - name: Check Docia navigation and links
+        working-directory: website
+        run: mise exec -- bun run check
+      - name: Build production website
+        working-directory: website
+        run: mise exec -- ./build.sh
+      - name: Verify generated website contract
+        run: |
+          for file in index.html quick-start/index.html 404.html sitemap.xml robots.txt llms.txt server/index.js; do
+            test -f "website/dist/$file"
+          done
