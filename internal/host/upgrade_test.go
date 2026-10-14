@@ -159,3 +159,50 @@ func TestUpgradeJournalSupersedesFinishedJournals(t *testing.T) {
 		t.Fatal("expected an incomplete upgrade to block a different candidate")
 	}
 }
+
+func TestVerifyInstalledBinaryAcceptsPinnedCandidateAfterReplacement(t *testing.T) {
+	root := t.TempDir()
+	installed := filepath.Join(root, "orch")
+	if err := os.WriteFile(installed, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldHash, _ := hashFile(installed)
+	if err := os.WriteFile(installed, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	newHash, _ := hashFile(installed)
+	journalPath := filepath.Join(root, "upgrade.json")
+	if err := verifyInstalledBinary(installed, oldHash, journalPath, "node", newHash); err == nil {
+		t.Fatal("expected a replaced binary without a journal to be rejected")
+	}
+	journal := upgradeJournal{Version: 1, Kind: "node", CandidateHash: newHash, PreviousHash: oldHash, PreviousPath: installed, Phase: "replaced"}
+	if err := saveUpgradeJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyInstalledBinary(installed, oldHash, journalPath, "node", newHash); err != nil {
+		t.Fatalf("resume after replacement: %v", err)
+	}
+	if err := verifyInstalledBinary(installed, oldHash, journalPath, "node", "other-candidate"); err == nil {
+		t.Fatal("expected a different candidate to be rejected")
+	}
+	if err := verifyInstalledBinary(installed, oldHash, journalPath, "controller", newHash); err == nil {
+		t.Fatal("expected a journal of another kind to be rejected")
+	}
+	if err := os.WriteFile(installed, []byte("tampered"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyInstalledBinary(installed, oldHash, journalPath, "node", newHash); err == nil {
+		t.Fatal("expected an unknown binary to be rejected")
+	}
+	// The journal-pinned candidate resumes through the remaining phases.
+	if err := os.WriteFile(installed, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := loadUpgradeJournal(journalPath, "node", newHash, oldHash, installed)
+	if err != nil || resumed.Phase != "replaced" {
+		t.Fatalf("resumed = %#v, %v", resumed, err)
+	}
+	if err := applyCandidate(installed, installed, resumed.PreviousHash, resumed.CandidateHash); err != nil {
+		t.Fatalf("apply on resume: %v", err)
+	}
+}
