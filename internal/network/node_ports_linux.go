@@ -87,7 +87,7 @@ func (f *firewall) publish(ports []NodePort) ([]error, error) {
 		return results, errors.New("the workload firewall has not been prepared")
 	}
 	if slices.Equal(accepted, f.published) {
-		return results, nil
+		return results, f.flushUnflushed()
 	}
 	connection, err := nftables.New()
 	if err != nil {
@@ -107,12 +107,24 @@ func (f *firewall) publish(ports []NodePort) ([]error, error) {
 	// NAT is decided on a flow's first packet. Long-lived UDP flows would
 	// otherwise keep reaching the old allocation, or the host itself, after
 	// the mapping changes, so every added, changed, or removed port starts over.
-	for _, port := range changedNodePorts(previous, accepted) {
+	f.unflushed = append(f.unflushed, changedNodePorts(previous, accepted)...)
+	return results, f.flushUnflushed()
+}
+
+// flushUnflushed deletes conntrack entries for every port still owed a flush.
+// Failed ports stay queued so the next publish retries them even when the
+// published set is unchanged.
+func (f *firewall) flushUnflushed() error {
+	var failed []NodePort
+	var errs []error
+	for _, port := range f.unflushed {
 		if err := flushConntrack(port); err != nil {
-			return results, err
+			failed = append(failed, port)
+			errs = append(errs, err)
 		}
 	}
-	return results, nil
+	f.unflushed = failed
+	return errors.Join(errs...)
 }
 
 func changedNodePorts(previous, current []NodePort) []NodePort {

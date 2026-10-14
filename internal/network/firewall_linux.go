@@ -30,6 +30,9 @@ type firewall struct {
 	// node-port set and is reinstalled whenever prepare rebuilds the table.
 	prepared  bool
 	published []NodePort
+	// unflushed holds ports whose conntrack entries still need deleting
+	// after an earlier flush failed.
+	unflushed []NodePort
 }
 
 type firewallOwner struct {
