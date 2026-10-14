@@ -867,13 +867,34 @@ func (s *Supervisor) reconcileAllocation(ctx context.Context, allocation model.A
 			status.Message = "the process exited and its restart policy does not restart it"
 			return status, s.persistStatus(ctx, status, nil)
 		}
-		if previous.SpecDigest == allocation.SpecDigest && previous.NextAttemptAt != nil && now.Before(*previous.NextAttemptAt) {
+		// The replacement process has not passed readiness yet, so it must not
+		// inherit the exited process's health or a cached probe result.
+		status.HealthStatus = model.HealthNotConfigured
+		if hasEndpoint(allocation) {
+			status.HealthStatus = model.HealthChecking
+		}
+		status.ConsecutiveSuccesses = 0
+		status.ConsecutiveFailures = 0
+		status.ReadyAt = nil
+		delete(s.lastProbes, allocation.ID)
+		if previous.SpecDigest != allocation.SpecDigest || previous.NextAttemptAt == nil {
+			status.RestartCount++
+			delay, err := s.restartDelay(status.RestartCount)
+			if err != nil {
+				return status, fmt.Errorf("generate restart backoff jitter: %w", err)
+			}
+			next := now.Add(delay)
+			status.Phase = model.AllocationBackoff
+			status.Reason = "process_exit_backoff"
+			status.Message = "the process exited; waiting before restart"
+			return status, s.persistStatus(ctx, status, &next)
+		}
+		if now.Before(*previous.NextAttemptAt) {
 			status.Phase = model.AllocationBackoff
 			status.Reason = previous.Reason
 			status.Message = previous.Message
 			return status, nil
 		}
-		status.RestartCount++
 	}
 
 	if exact == nil && len(obsolete) != 0 && !allocation.StartBeforeStop {
@@ -904,7 +925,7 @@ func (s *Supervisor) reconcileAllocation(ctx context.Context, allocation model.A
 			s.setServing(allocation.ID, *old)
 			markRollbackActive(&status, allocation, *old, true)
 		}
-		return s.failedStart(ctx, allocation, status, retainedOld, restartAttempt, startErr)
+		return s.failedStart(ctx, allocation, status, retainedOld, startErr)
 	}
 	if object.AllocationID != allocation.ID || object.SpecDigest != allocation.SpecDigest || !object.Running {
 		return status, fmt.Errorf("runtime returned a mismatched object for allocation %q: %w", allocation.ID, orchruntime.ErrOwnershipMismatch)
@@ -1182,7 +1203,7 @@ func (s *Supervisor) canRetainServing(object orchruntime.Object) bool {
 		endpoint.SpecDigest == object.SpecDigest && endpoint.Address == object.Address
 }
 
-func (s *Supervisor) failedStart(ctx context.Context, allocation model.AllocationDesired, status model.AllocationStatus, retainedOld, restartAttempt bool, startErr error) (model.AllocationStatus, error) {
+func (s *Supervisor) failedStart(ctx context.Context, allocation model.AllocationDesired, status model.AllocationStatus, retainedOld bool, startErr error) (model.AllocationStatus, error) {
 	status.UpdatedAt = s.now().UTC()
 	if allocation.RestartPolicy == "never" {
 		status.Phase = model.AllocationFailed
@@ -1190,9 +1211,7 @@ func (s *Supervisor) failedStart(ctx context.Context, allocation model.Allocatio
 		status.Message = "the process could not be started and restart policy is never"
 		return status, s.persistStatus(ctx, status, nil)
 	}
-	if !restartAttempt {
-		status.RestartCount++
-	}
+	status.RestartCount++
 	delay, err := s.restartDelay(status.RestartCount)
 	if err != nil {
 		return status, fmt.Errorf("generate restart backoff jitter: %w", err)
