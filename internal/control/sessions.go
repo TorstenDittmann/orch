@@ -19,9 +19,13 @@ const (
 	agentProtocolVersion  = "v1alpha1-workloads-5"
 	agentHeartbeatTimeout = 45 * time.Second
 	operationFrameBytes   = 64 << 10
+	operationFrameBuffer  = 32
 )
 
-var errAgentDisconnected = errors.New("agent is not connected")
+var (
+	errAgentDisconnected = errors.New("agent is not connected")
+	errAgentBusy         = errors.New("agent outbound queue is full")
+)
 
 type sessionManager struct {
 	mu       sync.Mutex
@@ -164,7 +168,25 @@ func enqueueSession(session *agentSession, response *orchv1alpha1.ConnectRespons
 		return nil
 	default:
 		session.cancel()
-		return fmt.Errorf("agent outbound queue is full")
+		return errAgentBusy
+	}
+}
+
+// tryEnqueueSession queues a best-effort message for the agent. A full queue
+// drops the message instead of disconnecting the agent, so operation traffic
+// can never take down the session that carries assignments.
+func tryEnqueueSession(session *agentSession, response *orchv1alpha1.ConnectResponse) error {
+	select {
+	case session.send <- response:
+		return nil
+	default:
+		return errAgentBusy
+	}
+}
+
+func cancelOperationMessage(requestID string) *orchv1alpha1.ConnectResponse {
+	return &orchv1alpha1.ConnectResponse{
+		Message: &orchv1alpha1.ConnectResponse_CancelOperation{CancelOperation: &orchv1alpha1.CancelOperation{RequestId: requestID}},
 	}
 }
 
@@ -181,7 +203,8 @@ func (m *sessionManager) beginOperation(ctx context.Context, nodeID string, buil
 	if err != nil {
 		return "", nil, nil, err
 	}
-	frames := make(chan *orchv1alpha1.AgentOperationResult, 32)
+	// One slot beyond the frame buffer is reserved for the overflow error.
+	frames := make(chan *orchv1alpha1.AgentOperationResult, operationFrameBuffer+1)
 	session.mu.Lock()
 	if session.closed {
 		session.mu.Unlock()
@@ -189,7 +212,7 @@ func (m *sessionManager) beginOperation(ctx context.Context, nodeID string, buil
 	}
 	session.operations[requestID] = frames
 	session.mu.Unlock()
-	if err := enqueueSession(session, build(requestID)); err != nil {
+	if err := tryEnqueueSession(session, build(requestID)); err != nil {
 		session.mu.Lock()
 		delete(session.operations, requestID)
 		close(frames)
@@ -208,9 +231,7 @@ func (m *sessionManager) beginOperation(ctx context.Context, nodeID string, buil
 			}
 			session.mu.Unlock()
 			if active {
-				_ = enqueueSession(session, &orchv1alpha1.ConnectResponse{
-					Message: &orchv1alpha1.ConnectResponse_CancelOperation{CancelOperation: &orchv1alpha1.CancelOperation{RequestId: requestID}},
-				})
+				_ = tryEnqueueSession(session, cancelOperationMessage(requestID))
 			}
 		})
 	}
@@ -226,20 +247,29 @@ func (m *sessionManager) routeOperation(session *agentSession, result *orchv1alp
 		return fmt.Errorf("operation frame exceeds %d bytes", operationFrameBytes)
 	}
 	session.mu.Lock()
-	defer session.mu.Unlock()
 	frames := session.operations[requestID]
 	if frames == nil {
+		session.mu.Unlock()
 		return nil
 	}
-	select {
-	case frames <- result:
-	default:
-		return fmt.Errorf("operation response queue is full")
+	if len(frames) >= operationFrameBuffer {
+		// The admin client is not keeping up. Fail only this operation: the
+		// reserved slot carries the error, and the agent is asked to stop.
+		frames <- &orchv1alpha1.AgentOperationResult{Result: &orchv1alpha1.AgentOperationResult_Error{Error: &orchv1alpha1.OperationError{
+			RequestId: requestID, Code: "resource_exhausted", Message: "operation client is not reading responses fast enough",
+		}}}
+		delete(session.operations, requestID)
+		close(frames)
+		session.mu.Unlock()
+		_ = tryEnqueueSession(session, cancelOperationMessage(requestID))
+		return nil
 	}
+	frames <- result
 	if terminal {
 		delete(session.operations, requestID)
 		close(frames)
 	}
+	session.mu.Unlock()
 	return nil
 }
 

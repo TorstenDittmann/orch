@@ -250,7 +250,11 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	receiveContext, cancelReceive := context.WithCancel(ctx)
 	defer cancelReceive()
 	go receiveControllerMessages(receiveContext, stream, received)
+	// Control messages (heartbeats, ACKs, reports) and operation frames use
+	// separate queues so a large log tail or exec stream can never fill the
+	// queue that keeps the session alive.
 	outbound := make(chan *orchv1alpha1.ConnectRequest, 64)
+	operationOutbound := make(chan *orchv1alpha1.ConnectRequest, 64)
 	operations := newAgentOperations()
 	defer func() {
 		operations.cancelAll()
@@ -267,26 +271,28 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	defer reconcile.Stop()
 	defer renewal.Stop()
 	for {
+		// Control messages always go out before queued operation frames.
+		if sent, err := r.sendControl(stream, outbound); err != nil {
+			return err
+		} else if sent {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case request := <-outbound:
-			if err := stream.Send(request); err != nil {
+			if err := r.sendRequest(stream, request); err != nil {
 				return err
 			}
-			if request.GetAssignmentAck() != nil {
-				r.assignmentAcknowledged = true
-			}
-			if report := request.GetAllocationReport(); report != nil {
-				if err := r.writeLocalStatus(report); err != nil {
-					return err
-				}
+		case request := <-operationOutbound:
+			if err := r.sendRequest(stream, request); err != nil {
+				return err
 			}
 		case item := <-received:
 			if item.err != nil {
 				return item.err
 			}
-			if err := r.handleControllerMessage(ctx, item.message, outbound, operations); err != nil {
+			if err := r.handleControllerMessage(ctx, item.message, outbound, operationOutbound, operations); err != nil {
 				return err
 			}
 		case <-heartbeat.C:
@@ -322,7 +328,37 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	}
 }
 
-func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *orchv1alpha1.ConnectResponse, outbound chan<- *orchv1alpha1.ConnectRequest, operations *agentOperations) error {
+type requestSender interface {
+	Send(*orchv1alpha1.ConnectRequest) error
+}
+
+// sendControl sends one queued control message without blocking and reports
+// whether one was sent.
+func (r *sessionRunner) sendControl(stream requestSender, outbound <-chan *orchv1alpha1.ConnectRequest) (bool, error) {
+	select {
+	case request := <-outbound:
+		return true, r.sendRequest(stream, request)
+	default:
+		return false, nil
+	}
+}
+
+func (r *sessionRunner) sendRequest(stream requestSender, request *orchv1alpha1.ConnectRequest) error {
+	if err := stream.Send(request); err != nil {
+		return err
+	}
+	if request.GetAssignmentAck() != nil {
+		r.assignmentAcknowledged = true
+	}
+	if report := request.GetAllocationReport(); report != nil {
+		if err := r.writeLocalStatus(report); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *orchv1alpha1.ConnectResponse, outbound, operationOutbound chan<- *orchv1alpha1.ConnectRequest, operations *agentOperations) error {
 	if response == nil || len(response.ProtoReflect().GetUnknown()) != 0 {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("controller message is invalid or contains unknown fields"))
 	}
@@ -364,7 +400,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		}
 		go func() {
 			defer operations.finish(command.GetRequestId(), operation)
-			r.runTailLogs(operationContext, command, outbound)
+			r.runTailLogs(operationContext, command, operationOutbound)
 		}()
 	case *orchv1alpha1.ConnectResponse_TailCronLogs:
 		command := message.TailCronLogs
@@ -380,7 +416,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		}
 		go func() {
 			defer operations.finish(command.GetRequestId(), operation)
-			r.runTailCronLogs(operationContext, command, outbound)
+			r.runTailCronLogs(operationContext, command, operationOutbound)
 		}()
 	case *orchv1alpha1.ConnectResponse_Exec:
 		command := message.Exec
@@ -410,7 +446,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		}
 		go func() {
 			defer operations.finish(command.GetRequestId(), operation)
-			r.runExec(operationContext, ctx, command, outbound)
+			r.runExec(operationContext, ctx, command, operationOutbound)
 		}()
 	case *orchv1alpha1.ConnectResponse_CancelOperation:
 		if message.CancelOperation == nil || len(message.CancelOperation.ProtoReflect().GetUnknown()) != 0 || message.CancelOperation.GetRequestId() == "" {
