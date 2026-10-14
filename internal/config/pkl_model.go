@@ -18,6 +18,7 @@ type pklService struct {
 	Resources   pklResources      `pkl:"resources"`
 	HTTP        *pklHTTP          `pkl:"http"`
 	TCP         *pklTCP           `pkl:"tcp"`
+	UDP         *pklUDP           `pkl:"udp"`
 	DependsOn   []string          `pkl:"dependsOn"`
 	Env         map[string]string `pkl:"env"`
 	SecretEnv   map[string]string `pkl:"secretEnv"`
@@ -42,6 +43,12 @@ type pklHTTP struct {
 type pklTCP struct {
 	Port       int  `pkl:"port"`
 	PublicPort *int `pkl:"publicPort"`
+	NodePort   *int `pkl:"nodePort"`
+}
+
+type pklUDP struct {
+	Port     int `pkl:"port"`
+	NodePort int `pkl:"nodePort"`
 }
 
 type pklCronJob struct {
@@ -125,6 +132,14 @@ func resolvePkl(doc pklDocument) *Manifest {
 				publicPort := *input.TCP.PublicPort
 				tcpConfig.PublicPort = &publicPort
 			}
+			if input.TCP.NodePort != nil {
+				nodePort := *input.TCP.NodePort
+				tcpConfig.NodePort = &nodePort
+			}
+		}
+		var udpConfig *UDP
+		if input.UDP != nil {
+			udpConfig = &UDP{Port: input.UDP.Port, NodePort: input.UDP.NodePort}
 		}
 		secretFiles := make([]SecretFile, len(input.SecretFiles))
 		for index, secret := range input.SecretFiles {
@@ -143,6 +158,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			Resources:   Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
 			HTTP:        httpConfig,
 			TCP:         tcpConfig,
+			UDP:         udpConfig,
 			DependsOn:   append([]string(nil), input.DependsOn...),
 			Env:         cloneMap(input.Env),
 			SecretEnv:   cloneMap(input.SecretEnv),

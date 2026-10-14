@@ -115,8 +115,16 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 	if allocation.TCP != nil {
 		if allocation.HTTP != nil || allocation.TCP.Port == 0 || allocation.TCP.Port > 65535 ||
 			allocation.TCP.PublicPort > 65535 || allocation.TCP.PublicPort == 53 || allocation.TCP.PublicPort == 80 ||
-			allocation.TCP.PublicPort == 443 || allocation.NetworkGeneration == 0 {
+			allocation.TCP.PublicPort == 443 || allocation.TCP.NodePort > 65535 || allocation.TCP.NodePort == 53 ||
+			allocation.TCP.NodePort == 80 || allocation.TCP.NodePort == 443 || allocation.NetworkGeneration == 0 {
 			return fmt.Errorf("runtime TCP intent is invalid")
+		}
+	}
+	if allocation.UDP != nil {
+		if allocation.HTTP == nil && allocation.TCP == nil || allocation.UDP.Port == 0 || allocation.UDP.Port > 65535 ||
+			allocation.UDP.NodePort == 0 || allocation.UDP.NodePort > 65535 || allocation.UDP.NodePort == 53 ||
+			allocation.UDP.NodePort == 51820 || allocation.NetworkGeneration == 0 {
+			return fmt.Errorf("runtime UDP intent is invalid")
 		}
 	}
 	if len(allocation.DependsOn) > 64 || !sort.StringsAreSorted(allocation.DependsOn) {

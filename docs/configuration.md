@@ -198,6 +198,9 @@ deploy {
 
 `maxSurge` and `maxUnavailable` control how much extra capacity and
 unavailability a rolling update may use. They cannot both be zero.
+Applications whose services publish node-local ports must use `maxSurge = 0`
+and `maxUnavailable = 1`; see
+[node-local TCP and UDP](networking.md#node-local-tcp-and-udp).
 
 See [deployments](runtime.md) for update and rollback behavior, or
 [networking](networking.md) to expose a service.

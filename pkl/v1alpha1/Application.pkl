@@ -45,6 +45,10 @@ class Service {
 
   tcp: Tcp? = null
 
+  /// A UDP endpoint published on the node that runs each replica. It requires
+  /// an `http` or `tcp` endpoint on the same service for readiness.
+  udp: Udp? = null
+
   dependsOn: Listing<DnsLabel>(length <= 64, isDistinct) = new {}
 
   env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
@@ -81,7 +85,18 @@ class Http {
 class Tcp {
   port: Port
 
+  /// Opens this port on every ingress node and proxies connections to ready replicas.
   publicPort: Port? = null
+
+  /// Publishes this port on the node that runs each replica, keeping client addresses.
+  nodePort: Port? = null
+}
+
+class Udp {
+  port: Port
+
+  /// Publishes this port on the node that runs each replica, keeping client addresses.
+  nodePort: Port
 }
 
 class CronJob {

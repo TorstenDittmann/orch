@@ -45,6 +45,8 @@ type Supervisor struct {
 	lastProbes   map[string]time.Time
 	routes       []model.RouteStatus
 	tcpRoutes    []model.TCPRouteStatus
+	nodePorts    []model.NodePortStatus
+	publisher    network.NodePortPublisher
 	cronJobs     []model.CronJobStatus
 	jobRuns      []model.JobRunStatus
 	network      model.NetworkStatus
@@ -57,6 +59,7 @@ type SupervisorServices struct {
 	Discovery  discovery.Controller
 	Ingress    ingress.Controller
 	TCPIngress TCPIngressController
+	NodePorts  network.NodePortPublisher
 }
 
 type TCPIngressController interface {
@@ -80,7 +83,7 @@ func NewSupervisorWithServices(cache *state.Store, runtime orchruntime.Runtime, 
 		services.Prober = health.NewNetworkProber()
 	}
 	return &Supervisor{state: cache, runtime: runtime, prober: services.Prober,
-		discovery: services.Discovery, ingress: services.Ingress, tcpIngress: services.TCPIngress, serving: make(map[string]string),
+		discovery: services.Discovery, ingress: services.Ingress, tcpIngress: services.TCPIngress, publisher: services.NodePorts, serving: make(map[string]string),
 		servingSpecs: make(map[string]string), accepted: make(map[string]state.ServingEndpoint),
 		lastProbes: make(map[string]time.Time),
 		now:        now, random: randomSource}
@@ -329,6 +332,7 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		if err != nil {
 			return nil, err
 		}
+		s.publishNodePorts(ctx, assignment.Allocations)
 		if activated {
 			if err := s.cleanupWithdrawnObjects(ctx, assignment, statuses, objects, acceptedServing); err != nil {
 				return nil, err
@@ -355,6 +359,7 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 	} else {
 		s.routes = nil
 		s.tcpRoutes = nil
+		s.publishNodePorts(ctx, nil)
 		s.network = model.NetworkStatus{}
 	}
 	if err := s.reconcileCronJobs(ctx, assignment.CronJobs, statuses, assignment.Network.Endpoints); err != nil {
@@ -1082,7 +1087,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		CPUMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes,
 		Mounts:               append([]model.VolumeMount(nil), rollback.Mounts...),
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, AutoRollback: rollback.AutoRollback,
-		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
+		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP, UDP: rollback.UDP,
 		DependsOn: append([]string(nil), rollback.DependsOn...), SecretEnvironment: cloneSecretEnvironment(rollback.SecretEnvironment),
 		SecretFiles: append([]model.SecretFileDesired(nil), rollback.SecretFiles...), RegistryCredential: cloneRegistryCredential(rollback.RegistryCredential),
 		RuntimeSecretValues: allocation.RuntimeSecretValues, RuntimeRegistrySecrets: allocation.RuntimeRegistrySecrets,
@@ -1318,6 +1323,83 @@ func (s *Supervisor) TCPObservations() []model.TCPRouteStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]model.TCPRouteStatus(nil), s.tcpRoutes...)
+}
+
+func (s *Supervisor) NodePortObservations() []model.NodePortStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]model.NodePortStatus(nil), s.nodePorts...)
+}
+
+// publishNodePorts forwards the node-local ports of every ready local
+// allocation to its serving address. A port is published only for the
+// contract (desired or rollback) of the revision that is actually serving.
+func (s *Supervisor) publishNodePorts(ctx context.Context, allocations []model.AllocationDesired) {
+	now := s.now().UTC()
+	statuses := make([]model.NodePortStatus, 0)
+	var ports []network.NodePort
+	var portStatus []int
+	for _, allocation := range allocations {
+		tcp, udp := allocation.TCP, allocation.UDP
+		address, specDigest := s.serving[allocation.ID], s.servingSpecs[allocation.ID]
+		if specDigest != allocation.SpecDigest && allocation.Rollback != nil && specDigest == allocation.Rollback.SpecDigest {
+			tcp, udp = allocation.Rollback.TCP, allocation.Rollback.UDP
+		}
+		type mapping struct {
+			protocol         string
+			nodePort, target uint32
+		}
+		var mappings []mapping
+		if tcp != nil && tcp.NodePort != 0 {
+			mappings = append(mappings, mapping{"tcp", tcp.NodePort, tcp.Port})
+		}
+		if udp != nil && udp.NodePort != 0 {
+			mappings = append(mappings, mapping{"udp", udp.NodePort, udp.Port})
+		}
+		parsed, err := netip.ParseAddr(address)
+		ready := address != "" && specDigest != "" && err == nil
+		for _, item := range mappings {
+			status := model.NodePortStatus{Application: allocation.Application, Service: allocation.Service,
+				AllocationID: allocation.ID, Protocol: item.protocol, NodePort: item.nodePort, TargetPort: item.target,
+				State: model.TCPRoutePending, Reason: "readiness_pending", Message: "the allocation is not ready", UpdatedAt: now}
+			if ready {
+				ports = append(ports, network.NodePort{Protocol: item.protocol, Port: uint16(item.nodePort),
+					Address: parsed, TargetPort: uint16(item.target)})
+				portStatus = append(portStatus, len(statuses))
+			}
+			statuses = append(statuses, status)
+		}
+	}
+	var results []error
+	var err error
+	if s.publisher == nil {
+		if len(ports) != 0 {
+			err = errors.New("the agent has no node port publisher")
+		}
+	} else {
+		results, err = s.publisher.PublishNodePorts(ctx, ports)
+	}
+	for index, statusIndex := range portStatus {
+		status := &statuses[statusIndex]
+		switch {
+		case err != nil:
+			status.State, status.Reason, status.Message = model.TCPRouteFailed, "node_port_publish_failed", boundedMessage(err.Error())
+		case index < len(results) && results[index] != nil:
+			status.State, status.Reason, status.Message = model.TCPRouteFailed, "node_port_unavailable", boundedMessage(results[index].Error())
+		default:
+			status.State, status.Reason, status.Message = model.TCPRouteActive, "published", "forwarding to "+ports[index].Address.String()
+		}
+	}
+	sort.Slice(statuses, func(i, j int) bool {
+		if statuses[i].Protocol != statuses[j].Protocol {
+			return statuses[i].Protocol < statuses[j].Protocol
+		}
+		if statuses[i].NodePort != statuses[j].NodePort {
+			return statuses[i].NodePort < statuses[j].NodePort
+		}
+		return statuses[i].AllocationID < statuses[j].AllocationID
+	})
+	s.nodePorts = statuses
 }
 
 func (s *Supervisor) CronObservations() ([]model.CronJobStatus, []model.JobRunStatus) {

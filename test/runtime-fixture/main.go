@@ -76,6 +76,30 @@ func main() {
 			}
 			fmt.Printf("status=%d body=%s", response.StatusCode, body)
 			return
+		case "udp-probe":
+			if len(os.Args) != 3 {
+				fmt.Fprintln(os.Stderr, "udp-probe requires HOST:PORT")
+				os.Exit(2)
+			}
+			connection, err := net.Dial("udp4", os.Args[2])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			defer connection.Close()
+			_ = connection.SetDeadline(time.Now().Add(2 * time.Second))
+			if _, err := connection.Write([]byte("probe")); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			reply := make([]byte, 256)
+			count, err := connection.Read(reply)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s", reply[:count])
+			return
 		case "memory":
 			if len(os.Args) != 3 {
 				fmt.Fprintln(os.Stderr, "memory requires a MiB amount")
@@ -149,6 +173,10 @@ func main() {
 			}
 			_, _ = fmt.Fprintf(response, "address=%s revision=%s\n", address, os.Getenv("ORCH_E2E_REVISION"))
 		})
+		mux.HandleFunc("/source", func(response http.ResponseWriter, request *http.Request) {
+			address, _, _ := net.SplitHostPort(request.RemoteAddr)
+			_, _ = fmt.Fprintf(response, "source=%s\n", address)
+		})
 		mux.HandleFunc("/", func(response http.ResponseWriter, _ *http.Request) {
 			_, _ = fmt.Fprintf(response, "token=%s\n", token)
 		})
@@ -157,6 +185,28 @@ func main() {
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				fmt.Fprintf(os.Stderr, "HTTP server failed: %v\n", err)
 				_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+			}
+		}()
+	}
+
+	if port := strings.TrimSpace(os.Getenv("ORCH_E2E_UDP_PORT")); port != "" {
+		// Reply to every datagram with the source address the workload saw,
+		// so tests can prove node-local publishing preserves client addresses.
+		connection, err := net.ListenPacket("udp4", ":"+port)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "UDP listener failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer connection.Close()
+		go func() {
+			buffer := make([]byte, 1500)
+			for {
+				_, remote, err := connection.ReadFrom(buffer)
+				if err != nil {
+					return
+				}
+				address, _, _ := net.SplitHostPort(remote.String())
+				_, _ = connection.WriteTo([]byte("source="+address+"\n"), remote)
 			}
 		}()
 	}

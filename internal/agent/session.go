@@ -427,6 +427,7 @@ func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectReque
 	r.reportSeq++
 	routes, networkStatus := r.supervisor.Observations()
 	tcpRoutes := r.supervisor.TCPObservations()
+	nodePorts := r.supervisor.NodePortObservations()
 	cronJobs, jobRuns := r.supervisor.CronObservations()
 	report := &orchv1alpha1.AllocationReport{
 		BootId: r.bootID, Sequence: r.reportSeq, AssignmentGeneration: assignment.Generation,
@@ -469,6 +470,14 @@ func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectReque
 			Application: route.Application, Service: route.Service, PublicPort: route.PublicPort,
 			TargetPort: route.TargetPort, State: routeStateProto(route.State), UpstreamCount: route.UpstreamCount,
 			Reason: route.Reason, Message: route.Message, UpdatedAt: timestamppb.New(route.UpdatedAt),
+		})
+	}
+	for _, port := range nodePorts {
+		report.NodePorts = append(report.NodePorts, &orchv1alpha1.NodePortStatus{
+			Application: port.Application, Service: port.Service, AllocationId: port.AllocationID,
+			Protocol: port.Protocol, NodePort: port.NodePort, TargetPort: port.TargetPort,
+			State: routeStateProto(port.State), Reason: port.Reason, Message: port.Message,
+			UpdatedAt: timestamppb.New(port.UpdatedAt),
 		})
 	}
 	for _, job := range cronJobs {
@@ -811,7 +820,10 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Public: desiredHTTP.GetPublic(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
 		}
 		if desiredTCP := item.GetTcp(); desiredTCP != nil {
-			allocation.TCP = &model.TCPDesired{Port: desiredTCP.GetPort(), PublicPort: desiredTCP.GetPublicPort()}
+			allocation.TCP = &model.TCPDesired{Port: desiredTCP.GetPort(), PublicPort: desiredTCP.GetPublicPort(), NodePort: desiredTCP.GetNodePort()}
+		}
+		if desiredUDP := item.GetUdp(); desiredUDP != nil {
+			allocation.UDP = &model.UDPDesired{Port: desiredUDP.GetPort(), NodePort: desiredUDP.GetNodePort()}
 		}
 		for _, mount := range item.GetMounts() {
 			allocation.Mounts = append(allocation.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})
@@ -833,7 +845,10 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Public: rollback.GetHttp().GetPublic(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps()}
 			}
 			if rollback.GetTcp() != nil {
-				allocation.Rollback.TCP = &model.TCPDesired{Port: rollback.GetTcp().GetPort(), PublicPort: rollback.GetTcp().GetPublicPort()}
+				allocation.Rollback.TCP = &model.TCPDesired{Port: rollback.GetTcp().GetPort(), PublicPort: rollback.GetTcp().GetPublicPort(), NodePort: rollback.GetTcp().GetNodePort()}
+			}
+			if rollback.GetUdp() != nil {
+				allocation.Rollback.UDP = &model.UDPDesired{Port: rollback.GetUdp().GetPort(), NodePort: rollback.GetUdp().GetNodePort()}
 			}
 			for _, mount := range rollback.GetMounts() {
 				allocation.Rollback.Mounts = append(allocation.Rollback.Mounts, model.VolumeMount{Name: mount.GetName(), Target: mount.GetTarget(), ReadOnly: mount.GetReadOnly()})

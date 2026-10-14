@@ -39,6 +39,9 @@ type Resources struct {
 //
 // ServicePlacements uses ServiceKey(application, service) and similarly counts
 // placements outside Input.Workloads that should influence replica spreading.
+//
+// UsedNodePorts lists node-local published ports, such as "udp/8790", held by
+// placements outside Input.Workloads.
 type Node struct {
 	ID                string
 	Name              string
@@ -51,11 +54,13 @@ type Node struct {
 	Capacity          Resources
 	Reserved          Resources
 	ServicePlacements map[string]uint32
+	UsedNodePorts     []string
 }
 
 // Workload is one logical service replica or cron template. CurrentNodeID makes
 // a feasible placement sticky. VolumeNodeID is an already-persisted local
-// volume claim and is a hard placement constraint.
+// volume claim and is a hard placement constraint. NodePorts are node-local
+// published ports such as "tcp/8787"; a node can hold each one only once.
 type Workload struct {
 	ID            string
 	Kind          Kind
@@ -66,6 +71,7 @@ type Workload struct {
 	Constraints   map[string]string
 	CurrentNodeID string
 	VolumeNodeID  string
+	NodePorts     []string
 }
 
 type Input struct {
@@ -102,6 +108,7 @@ const (
 	BlockerCronOwnerUnavailable BlockerCode = "cron_owner_unavailable"
 	BlockerInsufficientCPU      BlockerCode = "insufficient_cpu"
 	BlockerInsufficientMemory   BlockerCode = "insufficient_memory"
+	BlockerNodePortInUse        BlockerCode = "node_port_in_use"
 )
 
 // Blocker is one stable explanation for rejecting a node. Node fields are
@@ -125,6 +132,7 @@ type nodeState struct {
 	node     Node
 	used     Resources
 	services map[string]uint64
+	ports    map[string]struct{}
 }
 
 type candidate struct {
@@ -260,8 +268,12 @@ func prepareNodes(input []Node) (map[string]*nodeState, error) {
 		for key, count := range node.ServicePlacements {
 			services[key] = uint64(count)
 		}
+		ports := make(map[string]struct{}, len(node.UsedNodePorts))
+		for _, port := range node.UsedNodePorts {
+			ports[port] = struct{}{}
+		}
 		copy := node
-		result[node.ID] = &nodeState{node: copy, used: node.Reserved, services: services}
+		result[node.ID] = &nodeState{node: copy, used: node.Reserved, services: services, ports: ports}
 		names[node.Name] = struct{}{}
 	}
 	return result, nil
@@ -365,6 +377,11 @@ func feasibilityBlockers(state *nodeState, workload Workload, retaining bool) []
 	if workload.VolumeNodeID != "" && workload.VolumeNodeID != node.ID {
 		add(BlockerLocalVolumePinned, fmt.Sprintf("local volume is claimed by node %q", workload.VolumeNodeID))
 	}
+	for _, port := range workload.NodePorts {
+		if _, used := state.ports[port]; used {
+			add(BlockerNodePortInUse, fmt.Sprintf("node-local port %s is already published on this node", port))
+		}
+	}
 	if !fits(state.used.CPUMillis, workload.Resources.CPUMillis, node.Capacity.CPUMillis) {
 		add(BlockerInsufficientCPU, fmt.Sprintf("needs %dm CPU with %dm of %dm reserved", workload.Resources.CPUMillis, state.used.CPUMillis, node.Capacity.CPUMillis))
 	}
@@ -385,6 +402,9 @@ func addResources(left, right Resources) Resources {
 func place(state *nodeState, workload Workload) {
 	state.used = addResources(state.used, workload.Resources)
 	state.services[ServiceKey(workload.Application, workload.Service)]++
+	for _, port := range workload.NodePorts {
+		state.ports[port] = struct{}{}
+	}
 }
 
 func placedDecision(workloadID string, state *nodeState, reason Reason) Decision {

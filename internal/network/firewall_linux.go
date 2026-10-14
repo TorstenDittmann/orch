@@ -26,6 +26,10 @@ type firewall struct {
 	tableName string
 	bridge    string
 	wireguard string
+	// prepared is set once the table exists; published is the last accepted
+	// node-port set and is reinstalled whenever prepare rebuilds the table.
+	prepared  bool
+	published []NodePort
 }
 
 type firewallOwner struct {
@@ -88,6 +92,7 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		Name: "postrouting", Table: table, Type: nftables.ChainTypeNAT,
 		Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource,
 	})
+	prerouting, published := f.addNodePortChains(connection, table)
 	interfaceName := append([]byte(f.bridge), 0)
 	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
@@ -113,6 +118,11 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 			Mask: binaryutil.NativeEndian.PutUint32(states), Xor: binaryutil.NativeEndian.PutUint32(0)},
 		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}},
 		&expr.Verdict{Kind: expr.VerdictAccept},
+	}})
+	// Published node ports were DNATed in prerouting; admit exactly those
+	// destinations before the default reject below.
+	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
+		&expr.Verdict{Kind: expr.VerdictJump, Chain: published.Name},
 	}})
 	// Reject only new forwarded connections whose destination is the orch
 	// bridge. The chain otherwise falls through, so foreign forwarding policy
@@ -145,9 +155,11 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: interfaceName},
 		&expr.Masq{},
 	}})
+	f.addNodePortRules(connection, table, prerouting, published, f.published)
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install orch nftables rules: %w", err)
 	}
+	f.prepared = true
 	return nil
 }
 

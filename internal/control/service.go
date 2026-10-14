@@ -1313,6 +1313,14 @@ func applicationMessage(application model.Application) *orchv1alpha1.Application
 	for _, route := range application.Execution.TCPRoutes {
 		message.TcpRoutes = append(message.TcpRoutes, tcpRouteStatusMessage(route))
 	}
+	for _, port := range application.Execution.NodePorts {
+		message.NodePorts = append(message.NodePorts, &orchv1alpha1.NodePortStatus{
+			Application: port.Application, Service: port.Service, AllocationId: port.AllocationID,
+			Protocol: port.Protocol, NodePort: port.NodePort, TargetPort: port.TargetPort,
+			State: routeStateMessage(port.State), Reason: port.Reason, Message: port.Message,
+			UpdatedAt: timestamppb.New(port.UpdatedAt), NodeId: port.NodeID, NodeName: port.NodeName,
+		})
+	}
 	for _, job := range application.Execution.CronJobs {
 		message.CronJobs = append(message.CronJobs, cronJobStatusMessage(job))
 	}

@@ -444,6 +444,25 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 			UpstreamCount: route.GetUpstreamCount(), Reason: route.GetReason(), Message: route.GetMessage(), UpdatedAt: route.GetUpdatedAt().AsTime()})
 		previousPort = route.GetPublicPort()
 	}
+	previousNodePort := ""
+	for _, port := range report.GetNodePorts() {
+		if err := rejectUnknownMessage(port); err != nil {
+			return model.AgentReport{}, err
+		}
+		key := fmt.Sprintf("%s\x00%05d\x00%s", port.GetProtocol(), port.GetNodePort(), port.GetAllocationId())
+		if port.GetUpdatedAt() == nil || port.GetUpdatedAt().CheckValid() != nil || port.GetNodePort() == 0 ||
+			port.GetNodePort() > 65535 || port.GetTargetPort() == 0 || port.GetTargetPort() > 65535 ||
+			(port.GetProtocol() != "tcp" && port.GetProtocol() != "udp") || port.GetAllocationId() == "" ||
+			(previousNodePort != "" && key <= previousNodePort) || len(port.GetReason()) > 128 || len(port.GetMessage()) > 1024 ||
+			port.GetNodeId() != "" || port.GetNodeName() != "" {
+			return model.AgentReport{}, errors.New("node port observations are not in strict canonical order or contain invalid data")
+		}
+		result.NodePorts = append(result.NodePorts, model.NodePortStatus{Application: port.GetApplication(), Service: port.GetService(),
+			AllocationID: port.GetAllocationId(), Protocol: port.GetProtocol(), NodePort: port.GetNodePort(),
+			TargetPort: port.GetTargetPort(), State: routeStateModel(port.GetState()), Reason: port.GetReason(),
+			Message: port.GetMessage(), UpdatedAt: port.GetUpdatedAt().AsTime()})
+		previousNodePort = key
+	}
 	previousJob := ""
 	for _, status := range report.GetCronJobs() {
 		if err := rejectUnknownMessage(status); err != nil {

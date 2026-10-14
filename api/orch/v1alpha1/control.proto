@@ -108,6 +108,7 @@ message Application {
   repeated RouteStatus routes = 17;
   repeated TCPRouteStatus tcp_routes = 18;
   repeated CronJobStatus cron_jobs = 19;
+  repeated NodePortStatus node_ports = 20;
 }
 
 message Node {

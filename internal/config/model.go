@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 const (
 	SchemaVersion           = "v1alpha1"
 	DefaultCPU              = "100m"
@@ -30,6 +32,7 @@ type Service struct {
 	Resources   Resources         `json:"resources"`
 	HTTP        *HTTP             `json:"http,omitempty"`
 	TCP         *TCP              `json:"tcp,omitempty"`
+	UDP         *UDP              `json:"udp,omitempty"`
 	DependsOn   []string          `json:"depends_on,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	SecretEnv   map[string]string `json:"secret_env,omitempty"`
@@ -54,6 +57,25 @@ type HTTP struct {
 type TCP struct {
 	Port       int  `json:"port"`
 	PublicPort *int `json:"public_port,omitempty"`
+	NodePort   *int `json:"node_port,omitempty"`
+}
+
+type UDP struct {
+	Port     int `json:"port"`
+	NodePort int `json:"node_port"`
+}
+
+// NodePorts returns the node-local ports the service publishes as
+// "tcp/PORT" and "udp/PORT" keys.
+func (s Service) NodePorts() []string {
+	var ports []string
+	if s.TCP != nil && s.TCP.NodePort != nil {
+		ports = append(ports, fmt.Sprintf("tcp/%d", *s.TCP.NodePort))
+	}
+	if s.UDP != nil {
+		ports = append(ports, fmt.Sprintf("udp/%d", s.UDP.NodePort))
+	}
+	return ports
 }
 
 type CronJob struct {

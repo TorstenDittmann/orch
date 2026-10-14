@@ -80,6 +80,39 @@ type Manager interface {
 	Close() error
 }
 
+// NodePort publishes Port on every local address of this node and forwards
+// it to TargetPort of one allocation address, preserving client addresses.
+type NodePort struct {
+	Protocol   string
+	Port       uint16
+	Address    netip.Addr
+	TargetPort uint16
+}
+
+func (p NodePort) Key() string { return fmt.Sprintf("%s/%d", p.Protocol, p.Port) }
+
+// NodePortPublisher replaces the complete set of node-local published ports.
+// The returned slice holds one error per requested port (nil when the port is
+// published); err reports a failure that affected every port.
+type NodePortPublisher interface {
+	PublishNodePorts(context.Context, []NodePort) (results []error, err error)
+}
+
+func validateNodePorts(ports []NodePort) error {
+	seen := make(map[string]struct{}, len(ports))
+	for _, port := range ports {
+		if port.Protocol != "tcp" && port.Protocol != "udp" || port.Port == 0 || port.TargetPort == 0 ||
+			!port.Address.Is4() || !port.Address.IsPrivate() {
+			return fmt.Errorf("node port %s is invalid", port.Key())
+		}
+		if _, exists := seen[port.Key()]; exists {
+			return fmt.Errorf("node port %s is duplicated", port.Key())
+		}
+		seen[port.Key()] = struct{}{}
+	}
+	return nil
+}
+
 func ValidateOptions(options Options) error {
 	for name, value := range map[string]string{
 		"cluster id": options.ClusterID, "node id": options.NodeID,
@@ -100,7 +133,29 @@ type Fake struct {
 	AttachErr    error
 	Config       model.NetworkConfig
 	Attachments  map[string]Attachment
-	next         netip.Addr
+	// NodePorts is the last published set; NodePortErrors fails single ports
+	// by key, for example "udp/8790".
+	NodePorts      []NodePort
+	NodePortErrors map[string]error
+	next           netip.Addr
+}
+
+func (f *Fake) PublishNodePorts(_ context.Context, ports []NodePort) ([]error, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := validateNodePorts(ports); err != nil {
+		return nil, err
+	}
+	results := make([]error, len(ports))
+	f.NodePorts = f.NodePorts[:0]
+	for index, port := range ports {
+		if err := f.NodePortErrors[port.Key()]; err != nil {
+			results[index] = err
+			continue
+		}
+		f.NodePorts = append(f.NodePorts, port)
+	}
+	return results, nil
 }
 
 func NewFake() *Fake {

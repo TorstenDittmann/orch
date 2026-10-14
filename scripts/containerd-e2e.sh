@@ -236,6 +236,10 @@ ORCH_CADDY_USER="$caddy_user" \
 ORCH_E2E_INGRESS_DATA_DIR="$ingress_data_dir" \
 ORCH_E2E_WORKLOAD_CIDR="${ORCH_E2E_WORKLOAD_CIDR:-10.245.0.0/16}" \
 ORCH_E2E_OUTBOUND_URL="http://198.18.0.2:18080/" \
+ORCH_E2E_EXTERNAL_NAMESPACE="$external_namespace" \
+ORCH_E2E_EXTERNAL_HOST_ADDRESS="198.18.0.1" \
+ORCH_E2E_EXTERNAL_CLIENT_ADDRESS="198.18.0.2" \
+ORCH_E2E_FIXTURE_BINARY="$work_dir/orch-fixture" \
 ORCH_E2E_NAMESPACE_FILE="$namespace_file" \
 ORCH_E2E_NETWORK_FILE="$network_file" \
 	GOTOOLCHAIN=local mise exec -- go test -v -count=1 \

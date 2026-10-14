@@ -69,6 +69,15 @@ type HTTPDesired struct {
 type TCPDesired struct {
 	Port       uint32 `json:"port"`
 	PublicPort uint32 `json:"public_port,omitempty"`
+	// NodePort is published on the node running the allocation, not on
+	// ingress nodes.
+	NodePort uint32 `json:"node_port,omitempty"`
+}
+
+// UDPDesired is always published on the node running the allocation.
+type UDPDesired struct {
+	Port     uint32 `json:"port"`
+	NodePort uint32 `json:"node_port"`
 }
 
 // SecretReference is non-secret runtime intent. Version IDs are random and do
@@ -121,6 +130,7 @@ type RollbackSpec struct {
 	StartDeadlineSeconds  uint32                       `json:"start_deadline_seconds"`
 	HTTP                  *HTTPDesired                 `json:"http,omitempty"`
 	TCP                   *TCPDesired                  `json:"tcp,omitempty"`
+	UDP                   *UDPDesired                  `json:"udp,omitempty"`
 	DependsOn             []string                     `json:"depends_on,omitempty"`
 	SecretEnvironment     map[string]SecretReference   `json:"secret_environment,omitempty"`
 	SecretFiles           []SecretFileDesired          `json:"secret_files,omitempty"`
@@ -179,6 +189,7 @@ type AllocationDesired struct {
 	StartBeforeStop       bool                         `json:"start_before_stop"`
 	HTTP                  *HTTPDesired                 `json:"http,omitempty"`
 	TCP                   *TCPDesired                  `json:"tcp,omitempty"`
+	UDP                   *UDPDesired                  `json:"udp,omitempty"`
 	DependsOn             []string                     `json:"depends_on,omitempty"`
 	SecretEnvironment     map[string]SecretReference   `json:"secret_environment,omitempty"`
 	SecretFiles           []SecretFileDesired          `json:"secret_files,omitempty"`
@@ -241,6 +252,23 @@ type Assignment struct {
 	Materials   []SecretMaterial    `json:"-"`
 	Network     NetworkConfig       `json:"network"`
 	CreatedAt   time.Time           `json:"created_at"`
+}
+
+// NodePortStatus is one node-local published port of one allocation.
+// Protocol is "tcp" or "udp"; State uses the TCP route states.
+type NodePortStatus struct {
+	NodeID       string    `json:"node_id,omitempty"`
+	NodeName     string    `json:"node_name,omitempty"`
+	Application  string    `json:"application"`
+	Service      string    `json:"service"`
+	AllocationID string    `json:"allocation_id"`
+	Protocol     string    `json:"protocol"`
+	NodePort     uint32    `json:"node_port"`
+	TargetPort   uint32    `json:"target_port"`
+	State        string    `json:"state"`
+	Reason       string    `json:"reason,omitempty"`
+	Message      string    `json:"message,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type TCPRouteStatus struct {
@@ -383,6 +411,7 @@ type AgentReport struct {
 	Allocations          []AllocationStatus
 	Routes               []RouteStatus
 	TCPRoutes            []TCPRouteStatus
+	NodePorts            []NodePortStatus
 	CronJobs             []CronJobStatus
 	JobRuns              []JobRunStatus
 	Network              NetworkStatus
@@ -411,11 +440,12 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		SecretEnvironment    map[string]SecretReference `json:"secret_environment,omitempty"`
 		SecretFiles          []SecretFileDesired        `json:"secret_files,omitempty"`
 		NetworkGeneration    uint64                     `json:"network_generation"`
+		UDP                  *UDPDesired                `json:"udp,omitempty"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
 		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
-		allocation.SecretFiles, allocation.NetworkGeneration}
+		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)
@@ -496,7 +526,7 @@ func AllocationSpecDigestMatches(allocation AllocationDesired) (bool, error) {
 // IsPlan4Allocation reports whether the supplied digest is the exact legacy
 // digest and all fields added by the network slice remain unset.
 func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
-	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
+	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || allocation.UDP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
 		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 {
 		return false, nil
 	}

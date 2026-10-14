@@ -782,3 +782,64 @@ func storeTestPublish(t *testing.T, allocations ...model.AllocationDesired) mode
 		Allocations: allocations, CreatedAt: testCreatedAt.Add(2 * time.Minute),
 	}
 }
+
+func TestNodePortObservationsMustMatchAssignedContract(t *testing.T) {
+	ctx := context.Background()
+	state := executionStore(t)
+	allocation := storeTestAllocation(t)
+	allocation.TCP = &model.TCPDesired{Port: 8787, NodePort: 8787}
+	allocation.UDP = &model.UDPDesired{Port: 8790, NodePort: 8790}
+	allocation.NetworkGeneration = 1
+	allocation.SpecDigest, _ = model.AllocationSpecDigest(allocation)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, digest, err := model.AssignmentPayload(networkConfig, []model.AllocationDesired{allocation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, _, err := state.PublishAssignment(ctx, model.PublishAssignment{NodeID: "node-one", Digest: digest,
+		Payload: payload, Network: networkConfig, Allocations: []model.AllocationDesired{allocation}, CreatedAt: testCreatedAt.Add(2 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{NodeID: "node-one", BootID: "boot-one", OperatingSystem: "linux", Architecture: "amd64", SeenAt: testCreatedAt.Add(3 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AcknowledgeAssignment(ctx, "node-one", assignment.Generation, assignment.Digest); err != nil {
+		t.Fatal(err)
+	}
+	readyAt := testCreatedAt.Add(4 * time.Minute)
+	report := func(sequence uint64, ports ...model.NodePortStatus) model.AgentReport {
+		return model.AgentReport{NodeID: "node-one", BootID: "boot-one", Sequence: sequence,
+			AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest, ReportedAt: readyAt,
+			Allocations: []model.AllocationStatus{{ID: allocation.ID, Application: allocation.Application, Service: allocation.Service,
+				Replica: 1, ApplicationGeneration: 1, SpecDigest: allocation.SpecDigest, Phase: model.AllocationRunning,
+				HealthStatus: model.HealthReady, Address: "10.88.0.2", ActiveSpecDigest: allocation.SpecDigest,
+				ActiveGeneration: 1, ActiveRevisionID: allocation.RevisionID, ReadyAt: &readyAt, DeclaredPort: 8787, UpdatedAt: readyAt}},
+			NodePorts: ports,
+			Network: model.NetworkStatus{Generation: 1, State: model.NetworkReady, ClusterCIDR: model.DefaultWorkloadCIDR,
+				NodeSubnet: "10.88.0.0/24", Gateway: "10.88.0.1", DNSState: model.SubsystemReady, IngressState: model.SubsystemReady}}
+	}
+	port := func(protocol string, nodePort, target uint32) model.NodePortStatus {
+		return model.NodePortStatus{Application: "hello", Service: "worker", AllocationID: allocation.ID, Protocol: protocol,
+			NodePort: nodePort, TargetPort: target, State: model.TCPRouteActive, Reason: "published", UpdatedAt: readyAt}
+	}
+	if _, err := state.RecordAgentReport(ctx, report(1, port("udp", 8790, 9999))); err == nil {
+		t.Fatal("unassigned node port target was accepted")
+	}
+	if _, err := state.RecordAgentReport(ctx, report(1, port("udp", 8790, 8790), port("tcp", 8787, 8787))); err == nil {
+		t.Fatal("non-canonical node port order was accepted")
+	}
+	if accepted, err := state.RecordAgentReport(ctx, report(1, port("tcp", 8787, 8787), port("udp", 8790, 8790))); err != nil || !accepted {
+		t.Fatalf("RecordAgentReport() = %t, %v", accepted, err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || len(application.Execution.NodePorts) != 2 {
+		t.Fatalf("node ports = %#v, %v", application.Execution.NodePorts, err)
+	}
+	if got := application.Execution.NodePorts[1]; got.Protocol != "udp" || got.NodeName != "node-1" || got.State != model.TCPRouteActive {
+		t.Fatalf("udp node port = %#v", got)
+	}
+}
