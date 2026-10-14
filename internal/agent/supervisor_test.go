@@ -128,6 +128,17 @@ func TestSupervisorReportsOneAllocationFailureAndReconcilesTheRest(t *testing.T)
 	}
 }
 
+func TestReconcileFailureStatusDropsReadyHealth(t *testing.T) {
+	t.Parallel()
+	readyAt := supervisorTestTime
+	status := reconcileFailureStatus(model.AllocationStatus{
+		Phase: model.AllocationRunning, HealthStatus: model.HealthReady, ReadyAt: &readyAt,
+	}, errors.New("lost CNI cache"), supervisorTestTime)
+	if status.Phase != model.AllocationFailed || status.HealthStatus == model.HealthReady || status.ReadyAt != nil {
+		t.Fatalf("failure status = %#v, want a failed allocation that no longer claims Ready", status)
+	}
+}
+
 // ownershipMismatchAssignment returns two allocations, the first of which has
 // two runtime objects claiming its exact spec.
 func ownershipMismatchAssignment(t *testing.T, runtime *orchruntime.Fake) model.Assignment {
