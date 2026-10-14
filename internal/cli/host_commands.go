@@ -19,7 +19,7 @@ func runNodeHost(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	var address, joinFile string
 	var jsonOutput, dryRun bool
 	var timeout time.Duration
-	flags.StringVar(&address, "advertise-address", "", "private IPv4 address assigned to this host")
+	flags.StringVar(&address, "advertise-address", "", "private or public IPv4 address assigned to this host and reachable by the other nodes")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable results")
 	if command == "install" {
 		flags.StringVar(&joinFile, "join-file", "", "private join artifact path, or - for stdin")
@@ -30,7 +30,7 @@ func runNodeHost(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return ExitInvalid
 	}
 	if flags.NArg() != 0 || address == "" || command == "install" && timeout <= 0 {
-		writeError(stderr, errors.New("requires --advertise-address PRIVATE_IP and a positive --wait-timeout; runs locally without --context or --target"), jsonOutput)
+		writeError(stderr, errors.New("requires --advertise-address IPV4 and a positive --wait-timeout; runs locally without --context or --target"), jsonOutput)
 		return ExitInvalid
 	}
 	if command == "doctor" {

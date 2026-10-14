@@ -20,6 +20,16 @@ const (
 	MaxServiceEndpoints        = 200
 )
 
+// IsMeshEndpointAddress reports whether address may carry WireGuard underlay
+// traffic between nodes. Private and public unicast IPv4 addresses are both
+// accepted because the tunnel encrypts and authenticates every packet; the
+// workload network, DNS, and allocation addresses remain RFC1918 regardless.
+func IsMeshEndpointAddress(address netip.Addr) bool {
+	// IsGlobalUnicast already rejects unspecified, broadcast, loopback,
+	// multicast, and link-local addresses; 0.0.0.0/8 is not routable either.
+	return address.Is4() && address.IsGlobalUnicast() && address.As4()[0] != 0
+}
+
 // ValidateMeshIdentity accepts either the empty legacy capability tuple or one
 // complete, canonical node mesh identity.
 func ValidateMeshIdentity(address, publicKey string, port uint32) error {
@@ -27,8 +37,8 @@ func ValidateMeshIdentity(address, publicKey string, port uint32) error {
 		return nil
 	}
 	parsed, err := netip.ParseAddr(address)
-	if err != nil || !parsed.Is4() || !parsed.IsPrivate() || parsed.IsUnspecified() || parsed.String() != address {
-		return fmt.Errorf("advertise address must be a canonical private IPv4 address")
+	if err != nil || !IsMeshEndpointAddress(parsed) || parsed.String() != address {
+		return fmt.Errorf("advertise address must be a canonical unicast IPv4 address")
 	}
 	decoded, err := base64.StdEncoding.Strict().DecodeString(publicKey)
 	if err != nil || len(decoded) != 32 || base64.StdEncoding.EncodeToString(decoded) != publicKey {
@@ -185,9 +195,8 @@ func CanonicalWireGuardConfig(configuration WireGuardConfig) (WireGuardConfig, e
 		seenKeys[peer.PublicKey] = struct{}{}
 
 		endpoint, err := netip.ParseAddrPort(peer.Endpoint)
-		if err != nil || !endpoint.Addr().Is4() || !endpoint.Addr().IsPrivate() || endpoint.Addr().IsUnspecified() ||
-			endpoint.Port() == 0 || endpoint.String() != peer.Endpoint {
-			return WireGuardConfig{}, fmt.Errorf("WireGuard peer %q endpoint must be a canonical private IPv4 address and port", peer.NodeID)
+		if err != nil || !IsMeshEndpointAddress(endpoint.Addr()) || endpoint.Port() == 0 || endpoint.String() != peer.Endpoint {
+			return WireGuardConfig{}, fmt.Errorf("WireGuard peer %q endpoint must be a canonical unicast IPv4 address and port", peer.NodeID)
 		}
 		allowed, err := parseCanonicalNodeSubnet(peer.AllowedSubnet, cluster)
 		if err != nil {

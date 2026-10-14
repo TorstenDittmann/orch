@@ -7,7 +7,7 @@ This guide installs a controller and adds workers to the cluster.
 | Requirement | Supported setup |
 | --- | --- |
 | Hosts | Ubuntu 24.04 LTS or Fedora Server 44 on amd64 |
-| Network | Private IPv4 connectivity between hosts |
+| Network | IPv4 connectivity between hosts, over private or public addresses |
 | Controller | A stable HTTPS address |
 | Workstation | A machine for running the orch CLI |
 
@@ -15,7 +15,8 @@ The default workload network is `10.88.0.0/16`. Choose a different range if it
 overlaps an existing network.
 
 Allow the controller's TCP port from trusted workers and operators. Allow UDP
-51820 between workers. Nodes that receive public web traffic also need TCP 80
+51820 between workers. When workers use public addresses, allow UDP 51820
+only from the other workers' addresses. Nodes that receive public web traffic also need TCP 80
 and 443.
 
 The installer does not change UFW, firewalld, cloud firewalls, DNS, routing, or
@@ -64,7 +65,7 @@ orch node join create worker-1 --ttl 1h --output worker-1.join
 ```
 
 Copy the trusted `orch` binary and the join file to the worker. Check the host,
-then install the worker with its private address:
+then install the worker with the address the other workers reach it on:
 
 ```console
 sudo ./orch node doctor --advertise-address 10.0.0.11
@@ -73,6 +74,10 @@ sudo ./orch node install \
   --join-file ./worker-1.join \
   --wait-timeout 5m
 ```
+
+Machines without a shared private network can use their public address
+instead. See [public advertise addresses](networking.md#public-advertise-addresses)
+for the firewall rule that should go with it.
 
 Confirm that it joined:
 

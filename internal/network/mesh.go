@@ -22,8 +22,8 @@ func NewMesh(local Manager, wireguard WireGuardManager, advertiseAddress string,
 		return nil, fmt.Errorf("local and WireGuard network managers are required")
 	}
 	address, err := netip.ParseAddr(advertiseAddress)
-	if err != nil || !address.Is4() || !address.IsPrivate() || address.IsUnspecified() || address.String() != advertiseAddress {
-		return nil, fmt.Errorf("advertise address must be a canonical private IPv4 address")
+	if err != nil || !model.IsMeshEndpointAddress(address) || address.String() != advertiseAddress {
+		return nil, fmt.Errorf("advertise address must be a canonical unicast IPv4 address")
 	}
 	if listenPort == 0 {
 		return nil, fmt.Errorf("WireGuard listen port must be positive")

@@ -23,8 +23,10 @@ func TestValidateMeshIdentityRequiresCompleteCanonicalPrivateIdentity(t *testing
 	if err := ValidateMeshIdentity("", "", 0); err != nil {
 		t.Fatalf("legacy empty identity = %v", err)
 	}
-	if err := ValidateMeshIdentity("10.0.0.1", key, 51820); err != nil {
-		t.Fatalf("valid identity = %v", err)
+	for _, address := range []string{"10.0.0.1", "203.0.113.1", "100.64.0.7"} {
+		if err := ValidateMeshIdentity(address, key, 51820); err != nil {
+			t.Fatalf("valid identity %s = %v", address, err)
+		}
 	}
 	cases := []struct {
 		address string
@@ -32,7 +34,13 @@ func TestValidateMeshIdentityRequiresCompleteCanonicalPrivateIdentity(t *testing
 		port    uint32
 	}{
 		{"10.0.0.1", "", 51820},
-		{"203.0.113.1", key, 51820},
+		{"0.0.0.0", key, 51820},
+		{"0.1.2.3", key, 51820},
+		{"127.0.0.1", key, 51820},
+		{"169.254.1.1", key, 51820},
+		{"224.0.0.1", key, 51820},
+		{"255.255.255.255", key, 51820},
+		{"fd00::1", key, 51820},
 		{"10.0.0.1", "not-a-key", 51820},
 		{"10.0.0.1", base64.StdEncoding.EncodeToString(make([]byte, 32)), 51820},
 		{"10.0.0.1", key, 0},
@@ -146,7 +154,8 @@ func TestWireGuardConfigurationRejectsUnsafePeerIntent(t *testing.T) {
 		"zero public key": func(value *WireGuardConfig) {
 			value.Peers[0].PublicKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 		},
-		"public endpoint":   func(value *WireGuardConfig) { value.Peers[0].Endpoint = "203.0.113.1:51820" },
+		"loopback endpoint": func(value *WireGuardConfig) { value.Peers[0].Endpoint = "127.0.0.1:51820" },
+		"link-local":        func(value *WireGuardConfig) { value.Peers[0].Endpoint = "169.254.0.1:51820" },
 		"endpoint spelling": func(value *WireGuardConfig) { value.Peers[0].Endpoint = "10.0.0.1:051820" },
 		"local peer subnet": func(value *WireGuardConfig) { value.Peers[0].AllowedSubnet = value.NodeSubnet },
 		"foreign subnet":    func(value *WireGuardConfig) { value.Peers[0].AllowedSubnet = "10.99.0.0/24" },
@@ -275,5 +284,19 @@ func TestPlan4AllocationDigestIsAcceptedOnlyForUnextendedIntent(t *testing.T) {
 	allocation.SpecDigest = current
 	if legacyAllocation, err := IsPlan4Allocation(allocation); err != nil || legacyAllocation {
 		t.Fatalf("current allocation reported as legacy = %t, %v", legacyAllocation, err)
+	}
+}
+
+func TestWireGuardConfigurationAcceptsPublicPeerEndpoint(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(slices.Repeat([]byte{1}, 32))
+	configuration := WireGuardConfig{
+		Generation: 1, ClusterCIDR: DefaultWorkloadCIDR, NodeSubnet: "10.88.0.0/24",
+		ListenPort: DefaultWireGuardListenPort,
+		Peers: []WireGuardPeer{{
+			NodeID: "game-us", PublicKey: key, Endpoint: "203.0.113.1:51820", AllowedSubnet: "10.88.1.0/24",
+		}},
+	}
+	if err := ValidateWireGuardConfig(configuration); err != nil {
+		t.Fatalf("public peer endpoint rejected: %v", err)
 	}
 }

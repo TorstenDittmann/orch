@@ -103,8 +103,9 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 			found = true
 		}
 	}
-	if _, err := address(ip); err != nil || !found {
-		add("advertise_address", "fail", "Private IPv4 address is not assigned locally", "Choose a private address on this host", false)
+	parsed, err := address(ip)
+	if err != nil || !found {
+		add("advertise_address", "fail", "Unicast IPv4 address is not assigned locally", "Choose a private or public address on this host that the other nodes can reach", false)
 	} else {
 		add("advertise_address", "pass", ip, "", false)
 	}
@@ -260,6 +261,9 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		_ = routes
 	}
 	add("peer_reachability", "warn", "Provider firewall and peer reachability are not verified by local inspection", "Allow UDP 51820 between advertised peer addresses; configure ingress access explicitly", false)
+	if err == nil && found && !parsed.IsPrivate() {
+		add("public_wireguard_endpoint", "warn", "WireGuard listens on a public address", "Allow UDP 51820 only from the other nodes' advertised addresses in the host or provider firewall", false)
+	}
 	return r
 }
 
