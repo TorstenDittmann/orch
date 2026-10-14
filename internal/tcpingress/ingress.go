@@ -3,6 +3,7 @@ package tcpingress
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,13 @@ import (
 )
 
 const DefaultDrainTimeout = 30 * time.Second
+
+// Accept failures such as EMFILE or ECONNABORTED are retried with a capped
+// exponential backoff, matching net/http.Server.
+const (
+	acceptRetryMin = 5 * time.Millisecond
+	acceptRetryMax = time.Second
+)
 
 type Route struct {
 	Application string
@@ -37,6 +45,8 @@ type listener struct {
 	listener  net.Listener
 	mu        sync.Mutex
 	active    map[net.Conn]struct{}
+	drained   bool
+	draining  atomic.Bool
 	next      atomic.Uint64
 	closeOnce sync.Once
 }
@@ -115,11 +125,22 @@ func (c *Controller) Close() error {
 }
 
 func (l *listener) serve() {
+	var delay time.Duration
 	for {
 		connection, err := l.listener.Accept()
 		if err != nil {
-			return
+			if errors.Is(err, net.ErrClosed) || l.draining.Load() {
+				return
+			}
+			if delay == 0 {
+				delay = acceptRetryMin
+			} else {
+				delay = min(2*delay, acceptRetryMax)
+			}
+			time.Sleep(delay)
+			continue
 		}
+		delay = 0
 		go l.proxy(connection)
 	}
 }
@@ -150,6 +171,11 @@ func (l *listener) track(connection net.Conn, add bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if add {
+		// A connection tracked after the drain sweep would otherwise outlive it.
+		if l.drained {
+			_ = connection.Close()
+			return
+		}
 		l.active[connection] = struct{}{}
 	} else {
 		delete(l.active, connection)
@@ -158,6 +184,7 @@ func (l *listener) track(connection net.Conn, add bool) {
 
 func (l *listener) drain(timeout time.Duration) {
 	l.closeOnce.Do(func() {
+		l.draining.Store(true)
 		_ = l.listener.Close()
 		go func() {
 			if timeout > 0 {
@@ -165,6 +192,7 @@ func (l *listener) drain(timeout time.Duration) {
 			}
 			l.mu.Lock()
 			defer l.mu.Unlock()
+			l.drained = true
 			for connection := range l.active {
 				_ = connection.Close()
 			}
