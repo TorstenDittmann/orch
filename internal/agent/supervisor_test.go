@@ -85,6 +85,66 @@ func TestSupervisorEnsuresAdoptsUpdatesAndRemoves(t *testing.T) {
 	}
 }
 
+func TestSupervisorReportsOneAllocationFailureAndReconcilesTheRest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runtime := orchruntime.NewFake()
+	supervisor := NewSupervisor(supervisorCache(t), runtime, func() time.Time { return supervisorTestTime })
+	assignment := ownershipMismatchAssignment(t, runtime)
+	broken := assignment.Allocations[0]
+	brokenID := orchruntime.ObjectID(broken.ID, broken.SpecDigest)
+
+	statuses, err := supervisor.Reconcile(ctx, assignment)
+	if !errors.Is(err, ErrAllocationReconcile) || !errors.Is(err, orchruntime.ErrOwnershipMismatch) {
+		t.Fatalf("Reconcile() error = %v, want an aggregated ownership mismatch", err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %#v, want both allocations", statuses)
+	}
+	for _, status := range statuses {
+		switch status.ID {
+		case broken.ID:
+			if status.Phase != model.AllocationFailed || status.Reason != "reconcile_failed" || status.Message == "" {
+				t.Fatalf("broken status = %#v", status)
+			}
+		default:
+			if status.Phase != model.AllocationRunning {
+				t.Fatalf("healthy allocation was not reconciled: %#v", status)
+			}
+		}
+	}
+
+	// The failure is not persisted as terminal: once the fault clears, the
+	// next pass converges the allocation.
+	delete(runtime.Objects, brokenID+"-duplicate")
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range statuses {
+		if status.Phase != model.AllocationRunning {
+			t.Fatalf("status after repair = %#v", status)
+		}
+	}
+}
+
+// ownershipMismatchAssignment returns two allocations, the first of which has
+// two runtime objects claiming its exact spec.
+func ownershipMismatchAssignment(t *testing.T, runtime *orchruntime.Fake) model.Assignment {
+	t.Helper()
+	broken := supervisorAllocation(t, supervisorExecutableImage)
+	broken.ID, broken.Replica = "alloc-a", 1
+	broken.SpecDigest = mustAllocationDigest(t, broken)
+	healthy := supervisorAllocation(t, supervisorExecutableImage)
+	healthy.ID, healthy.Replica = "alloc-b", 2
+	healthy.SpecDigest = mustAllocationDigest(t, healthy)
+	brokenID := orchruntime.ObjectID(broken.ID, broken.SpecDigest)
+	for _, id := range []string{brokenID, brokenID + "-duplicate"} {
+		runtime.Objects[id] = orchruntime.Object{ID: id, AllocationID: broken.ID, SpecDigest: broken.SpecDigest, Running: true}
+	}
+	return model.Assignment{Allocations: []model.AllocationDesired{broken, healthy}}
+}
+
 func TestSupervisorStartsDependenciesBeforeDependentsAndDoesNotStopRunningDependent(t *testing.T) {
 	ctx := context.Background()
 	cache := supervisorCache(t)

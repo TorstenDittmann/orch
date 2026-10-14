@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -117,13 +116,6 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		Discovery: options.Discovery, Ingress: ingressController, TCPIngress: tcpController,
 		NodePorts: options.NodePorts,
 	}, randomSource)
-	if cached, err := cache.Assignment(ctx); err == nil {
-		if _, err := supervisor.Reconcile(ctx, cached); err != nil {
-			return fmt.Errorf("reconcile cached assignment: %w", err)
-		}
-	} else if !errors.Is(err, state.ErrNoAssignment) {
-		return err
-	}
 	bootID, err := newBootID(randomSource)
 	if err != nil {
 		return err
@@ -132,6 +124,9 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
 	}
+	// run reconciles the cached assignment before its first connection
+	// attempt. A reconcile failure there is logged and retried instead of
+	// exiting, so the agent can still receive the assignment that fixes it.
 	return runner.run(ctx)
 }
 

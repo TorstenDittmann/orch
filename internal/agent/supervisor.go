@@ -89,6 +89,11 @@ func NewSupervisorWithServices(cache *state.Store, runtime orchruntime.Runtime, 
 		now:        now, random: randomSource}
 }
 
+// ErrAllocationReconcile marks a Reconcile pass that completed for the
+// assignment as a whole while one or more allocations failed. The returned
+// statuses are complete and report those allocations as reconcile_failed.
+var ErrAllocationReconcile = errors.New("one or more allocations failed to reconcile")
+
 // Reconcile converges owned runtime objects to a full assignment. It is
 // serialized so snapshot updates and exit polling cannot duplicate work.
 func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment) ([]model.AllocationStatus, error) {
@@ -199,6 +204,7 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 	unavailable := make(map[string]uint32)
 	forcedRollback := make(map[string]bool, len(assignment.Allocations))
 	newRollback := make(map[string]bool)
+	var allocationErrors []error
 	for _, allocation := range assignment.Allocations {
 		var exactRunning, obsoleteRunning bool
 		for _, object := range objectsByAllocation[allocation.ID] {
@@ -288,7 +294,16 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 		}
 		status, err := s.reconcileAllocation(ctx, allocation, owned, stateByID[allocation.ID])
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			// One allocation's persistent runtime fault must not hide every
+			// other allocation's status or stop the agent from reporting it.
+			// The status is not persisted, so the next pass retries it.
+			allocationErrors = append(allocationErrors, fmt.Errorf("allocation %q: %w", allocation.ID, err))
+			status = reconcileFailureStatus(status, err, s.now().UTC())
+			statuses = append(statuses, status)
+			continue
 		}
 		if statusIsRolledBack(allocation, status) {
 			rollbackApplications[allocation.Application] = true
@@ -365,7 +380,21 @@ func (s *Supervisor) Reconcile(ctx context.Context, assignment model.Assignment)
 	if err := s.reconcileCronJobs(ctx, assignment.CronJobs, statuses, assignment.Network.Endpoints); err != nil {
 		return nil, err
 	}
+	if len(allocationErrors) != 0 {
+		return statuses, fmt.Errorf("%w: %w", ErrAllocationReconcile, errors.Join(allocationErrors...))
+	}
 	return statuses, nil
+}
+
+// reconcileFailureStatus reports an allocation whose reconcile step failed
+// without a phase transition of its own. It is reported, never persisted, so
+// a later pass retries the allocation instead of treating it as terminal.
+func reconcileFailureStatus(status model.AllocationStatus, err error, now time.Time) model.AllocationStatus {
+	status.Phase = model.AllocationFailed
+	status.Reason = "reconcile_failed"
+	status.Message = boundedMessage(err.Error())
+	status.UpdatedAt = now
+	return status
 }
 
 func needsSurge(allocation model.AllocationDesired, owned []orchruntime.Object) bool {

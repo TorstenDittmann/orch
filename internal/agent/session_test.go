@@ -10,6 +10,7 @@ import (
 
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"change.codes/torsten/better-swarm/internal/model"
+	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -29,6 +30,43 @@ func TestReconnectJitterUsesInjectedRandomSource(t *testing.T) {
 	}
 	if jitter, err := reconnectJitter(errorReader{want}, 0); err != nil || jitter != 0 {
 		t.Fatalf("zero maximum = (%s, %v), want (0, nil)", jitter, err)
+	}
+}
+
+func TestReconcileCachedSurvivesAllocationFailures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	assignment := ownershipMismatchAssignment(t, runtime)
+	assignment.NodeID, assignment.Generation, assignment.CreatedAt = "node-one", 1, supervisorTestTime
+	var err error
+	_, assignment.Digest, err = model.AssignmentPayloadWithJobs(assignment.Network, assignment.Allocations, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.CommitAssignment(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	runner := sessionRunner{cache: cache, supervisor: NewSupervisor(cache, runtime, func() time.Time { return supervisorTestTime })}
+
+	// A persistent per-allocation fault must not stop the agent before it can
+	// connect and receive the assignment that repairs it.
+	if err := runner.reconcileCached(ctx); err != nil {
+		t.Fatalf("reconcileCached() = %v, want nil", err)
+	}
+	healthy := assignment.Allocations[1]
+	if _, ok := runtime.SnapshotObjects()[orchruntime.ObjectID(healthy.ID, healthy.SpecDigest)]; !ok {
+		t.Fatalf("healthy allocation was not started: %v", runtime.SnapshotOperations())
+	}
+	if err := runner.reconcileCached(ctx); err != nil {
+		t.Fatalf("second reconcileCached() = %v, want nil", err)
+	}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := runner.reconcileCached(canceled); err == nil {
+		t.Fatal("reconcileCached(canceled) = nil, want the cache read error")
 	}
 }
 

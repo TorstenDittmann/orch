@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -185,8 +186,11 @@ func (r *sessionRunner) reconcileCached(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read cached assignment while disconnected: %w", err)
 	}
-	if _, err := r.supervisor.Reconcile(ctx, assignment); err != nil {
-		return fmt.Errorf("reconcile cached assignment while disconnected: %w", err)
+	if _, err := r.supervisor.Reconcile(ctx, assignment); err != nil && ctx.Err() == nil {
+		// A reconcile fault, even a persistent one, must not stop the agent:
+		// only a connected agent can receive the assignment that repairs it.
+		// The next tick retries the pass.
+		log.Printf("agent: reconcile cached assignment while disconnected: %v", err)
 	}
 	return nil
 }
@@ -315,7 +319,15 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 			}
 			statuses, err := r.supervisor.Reconcile(ctx, assignment)
 			if err != nil {
-				return fmt.Errorf("reconcile cached assignment: %w", err)
+				if ctx.Err() != nil {
+					return nil
+				}
+				// Stay connected and retry on the next tick. Per-allocation
+				// failures still produce complete statuses worth reporting.
+				log.Printf("agent: reconcile cached assignment: %v", err)
+				if !errors.Is(err, ErrAllocationReconcile) {
+					continue
+				}
 			}
 			if r.assignmentAcknowledged {
 				if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
@@ -375,8 +387,13 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("durably cache assignment: %w", err))
 		}
 		statuses, err := r.supervisor.Reconcile(ctx, assignment)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrAllocationReconcile) {
 			return fmt.Errorf("reconcile assignment: %w", err)
+		}
+		if err != nil {
+			// The pass converged for the assignment as a whole; the failed
+			// allocations are reported as reconcile_failed and retried.
+			log.Printf("agent: reconcile assignment: %v", err)
 		}
 		// Acknowledge only after the durable assignment has actually converged.
 		// This makes a final empty-assignment ACK a reliable removal fence.
