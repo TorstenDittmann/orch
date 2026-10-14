@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted and implemented by Plan #9; amended by ADR 024.
+Accepted and implemented by Plan #9; amended by ADR 024 and ADR 026.
 
 ## Decision
 

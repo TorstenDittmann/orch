@@ -447,3 +447,12 @@ func hostIPv4Routes() ([]hostRoute, error) {
 }
 
 func (*linuxManager) Close() error { return nil }
+
+func (m *linuxManager) PublishNodePorts(_ context.Context, ports []NodePort) ([]error, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := validateNodePorts(ports); err != nil {
+		return nil, err
+	}
+	return m.firewall.publish(ports)
+}

@@ -189,7 +189,7 @@ func runAgentServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fmt.Fprintf(stdout, "Agent %s connecting to %s\n", credentials.Config.NodeName, credentials.Config.Server)
 	if err := agentctl.Serve(ctx, agentctl.ServeOptions{
 		DataDir: dataDir, Snapshotter: snapshotter, Runtime: runtimeClient,
-		Discovery: dnsServer, Ingress: caddy, SystemReservedCPUMillis: reservedCPU,
+		Discovery: dnsServer, Ingress: caddy, NodePorts: networkManager, SystemReservedCPUMillis: reservedCPU,
 		SystemReservedMemoryBytes: reservedMemory,
 	}); err != nil {
 		writeError(stderr, err, false)
@@ -369,6 +369,11 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "  route tcp://0.0.0.0:%d -> %s:%d  %s upstreams=%d reason=%s\n",
 			route.GetPublicPort(), route.GetService(), route.GetTargetPort(), route.GetState().String(),
 			route.GetUpstreamCount(), statusValue(route.GetReason()))
+	}
+	for _, port := range application.GetNodePorts() {
+		fmt.Fprintf(stdout, "  node port %s/%d on %s -> %s:%d  %s reason=%s\n",
+			port.GetProtocol(), port.GetNodePort(), statusValue(port.GetNodeName()), port.GetService(),
+			port.GetTargetPort(), port.GetState().String(), statusValue(port.GetReason()))
 	}
 	for _, job := range application.GetCronJobs() {
 		next := "-"

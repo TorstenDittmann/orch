@@ -1399,3 +1399,55 @@ func TestCronRunCarriesReadOnlyVolumeMounts(t *testing.T) {
 		t.Fatalf("mounts do not change the cron spec digest: %v", err)
 	}
 }
+
+func TestSupervisorPublishesNodePortsOnceReady(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	publisher := network.NewFake()
+	publisher.NodePortErrors = map[string]error{"tcp/8787": errors.New("TCP port 8787 is already bound on this node")}
+	now := supervisorTestTime
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now }, SupervisorServices{
+		Prober: &health.Fake{}, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}, NodePorts: publisher,
+	})
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkConfig.IngressEnabled = false
+	allocation := supervisorAllocation(t, supervisorExecutableImage)
+	allocation.NetworkGeneration = 1
+	allocation.MaxSurge, allocation.MaxUnavailable, allocation.StartBeforeStop = 0, 1, false
+	allocation.TCP = &model.TCPDesired{Port: 8787, NodePort: 8787}
+	allocation.UDP = &model.UDPDesired{Port: 8790, NodePort: 8790}
+	allocation.SpecDigest = mustAllocationDigest(t, allocation)
+	assignment := model.Assignment{Network: networkConfig, Allocations: []model.AllocationDesired{allocation}}
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+	pending := supervisor.NodePortObservations()
+	if len(pending) != 2 || pending[0].State != model.TCPRoutePending || pending[1].State != model.TCPRoutePending || len(publisher.NodePorts) != 0 {
+		t.Fatalf("pending node ports = %#v, published = %#v", pending, publisher.NodePorts)
+	}
+	for range health.ReadySuccesses {
+		now = now.Add(health.ProbeInterval)
+		if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ports := supervisor.NodePortObservations()
+	if len(ports) != 2 || ports[0].Protocol != "tcp" || ports[0].State != model.TCPRouteFailed ||
+		ports[0].Reason != "node_port_unavailable" || ports[1].Protocol != "udp" || ports[1].State != model.TCPRouteActive {
+		t.Fatalf("node ports = %#v", ports)
+	}
+	if len(publisher.NodePorts) != 1 || publisher.NodePorts[0].Key() != "udp/8790" || publisher.NodePorts[0].TargetPort != 8790 ||
+		!publisher.NodePorts[0].Address.IsPrivate() {
+		t.Fatalf("published = %#v", publisher.NodePorts)
+	}
+	if _, err := supervisor.Reconcile(ctx, model.Assignment{Network: networkConfig}); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.NodePorts) != 0 || len(supervisor.NodePortObservations()) != 0 {
+		t.Fatalf("withdrawn node ports remain: %#v", publisher.NodePorts)
+	}
+}

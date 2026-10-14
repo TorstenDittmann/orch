@@ -470,6 +470,9 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 		}
 		previousPort = route.PublicPort
 	}
+	if err := recordNodePortObservations(ctx, tx, report, assignmentAllocations); err != nil {
+		return false, err
+	}
 	desiredJobs := make(map[string]model.CronJobDesired, len(assignmentCronJobs))
 	for _, job := range assignmentCronJobs {
 		desiredJobs[job.Application+"\x00"+job.Job] = job
@@ -1314,4 +1317,47 @@ func cloneCronJobs(input []model.CronJobDesired) []model.CronJobDesired {
 		return result[i].Application < result[j].Application
 	})
 	return result
+}
+
+// recordNodePortObservations replaces a node's published-port observations.
+// Every observation must match a node port of the allocation's desired or
+// rollback contract in the node's current assignment.
+func recordNodePortObservations(ctx context.Context, tx *sql.Tx, report model.AgentReport, allocations []model.AllocationDesired) error {
+	type contract struct{ application, service string }
+	desired := make(map[string]contract)
+	authorize := func(allocation model.AllocationDesired, tcp *model.TCPDesired, udp *model.UDPDesired) {
+		if tcp != nil && tcp.NodePort != 0 {
+			desired[fmt.Sprintf("%s\x00tcp\x00%d\x00%d", allocation.ID, tcp.NodePort, tcp.Port)] = contract{allocation.Application, allocation.Service}
+		}
+		if udp != nil {
+			desired[fmt.Sprintf("%s\x00udp\x00%d\x00%d", allocation.ID, udp.NodePort, udp.Port)] = contract{allocation.Application, allocation.Service}
+		}
+	}
+	for _, allocation := range allocations {
+		authorize(allocation, allocation.TCP, allocation.UDP)
+		if allocation.Rollback != nil {
+			authorize(allocation, allocation.Rollback.TCP, allocation.Rollback.UDP)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM node_port_observations WHERE node_id = ?`, report.NodeID); err != nil {
+		return fmt.Errorf("replace node port observations: %w", err)
+	}
+	previous := ""
+	for _, port := range report.NodePorts {
+		key := fmt.Sprintf("%s\x00%05d\x00%s", port.Protocol, port.NodePort, port.AllocationID)
+		owner, ok := desired[fmt.Sprintf("%s\x00%s\x00%d\x00%d", port.AllocationID, port.Protocol, port.NodePort, port.TargetPort)]
+		if !ok || owner.application != port.Application || owner.service != port.Service ||
+			(previous != "" && key <= previous) || port.UpdatedAt.IsZero() || !validRouteState(port.State) {
+			return fmt.Errorf("node port observation %s/%d is not authorized", port.Protocol, port.NodePort)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO node_port_observations
+			(node_id, application_name, service_name, allocation_id, protocol, node_port, target_port, state, reason, message, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, report.NodeID, port.Application, port.Service, port.AllocationID,
+			port.Protocol, port.NodePort, port.TargetPort, port.State, port.Reason, port.Message,
+			port.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+			return fmt.Errorf("record node port observation: %w", err)
+		}
+		previous = key
+	}
+	return nil
 }

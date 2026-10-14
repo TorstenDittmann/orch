@@ -402,6 +402,12 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				if service.TCP.PublicPort != nil {
 					allocation.TCP.PublicPort = uint32(*service.TCP.PublicPort)
 				}
+				if service.TCP.NodePort != nil {
+					allocation.TCP.NodePort = uint32(*service.TCP.NodePort)
+				}
+			}
+			if service.UDP != nil {
+				allocation.UDP = &model.UDPDesired{Port: uint32(service.UDP.Port), NodePort: uint32(service.UDP.NodePort)}
 			}
 			allocation.DependsOn = append([]string(nil), service.DependsOn...)
 			allocation.SecretEnvironment, allocation.SecretFiles = desiredSecretBindings(service.SecretEnv, service.SecretFiles, resolved)
@@ -548,7 +554,7 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		CPUMillis: allocation.CPUMillis, MemoryBytes: allocation.MemoryBytes,
 		Mounts:               append([]model.VolumeMount(nil), allocation.Mounts...),
 		StartDeadlineSeconds: allocation.StartDeadlineSeconds,
-		HTTP:                 allocation.HTTP, TCP: allocation.TCP,
+		HTTP:                 allocation.HTTP, TCP: allocation.TCP, UDP: allocation.UDP,
 		DependsOn: append([]string(nil), allocation.DependsOn...), NetworkGeneration: allocation.NetworkGeneration,
 		SecretEnvironment:  cloneSecretEnvironment(allocation.SecretEnvironment),
 		SecretFiles:        append([]model.SecretFileDesired(nil), allocation.SecretFiles...),
@@ -574,6 +580,10 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 	if input.TCP != nil {
 		tcp := *input.TCP
 		result.TCP = &tcp
+	}
+	if input.UDP != nil {
+		udp := *input.UDP
+		result.UDP = &udp
 	}
 	result.DependsOn = append([]string(nil), input.DependsOn...)
 	result.SecretEnvironment = cloneSecretEnvironment(input.SecretEnvironment)
@@ -880,6 +890,79 @@ func desiredTCPPortOwners(applications []model.Application) (map[uint32]string, 
 		}
 	}
 	return owners, nil
+}
+
+// desiredNodePortOwners maps "tcp/PORT" and "udp/PORT" to the earliest
+// application that publishes the port, either node-locally or (for TCP) on
+// ingress nodes. Services of one application may share a node-local port; the
+// scheduler keeps them on different nodes.
+func desiredNodePortOwners(applications []model.Application) (map[string]string, error) {
+	sorted := append([]model.Application(nil), applications...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if !sorted[i].CreatedAt.Equal(sorted[j].CreatedAt) {
+			return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+		}
+		return sorted[i].Name < sorted[j].Name
+	})
+	owners := make(map[string]string)
+	for _, application := range sorted {
+		if application.DeletedAt != nil {
+			continue
+		}
+		var manifest config.Manifest
+		if err := json.Unmarshal(application.CanonicalManifest, &manifest); err != nil {
+			return nil, fmt.Errorf("decode stored manifest for node port ownership: %w", err)
+		}
+		for _, port := range applicationPortKeys(manifest) {
+			if _, exists := owners[port]; !exists {
+				owners[port] = application.Name
+			}
+		}
+	}
+	return owners, nil
+}
+
+func applicationPortKeys(manifest config.Manifest) []string {
+	var ports []string
+	for _, name := range sortedServiceNames(manifest) {
+		service := manifest.Services[name]
+		ports = append(ports, service.NodePorts()...)
+		if service.TCP != nil && service.TCP.PublicPort != nil {
+			ports = append(ports, fmt.Sprintf("tcp/%d", *service.TCP.PublicPort))
+		}
+	}
+	return ports
+}
+
+// nodePortBlocker reports a node-local port, or an ingress TCP port that
+// collides with one, that an earlier application already owns.
+func nodePortBlocker(application string, manifest config.Manifest, owners map[string]string) *blockReason {
+	for _, name := range sortedServiceNames(manifest) {
+		service := manifest.Services[name]
+		for _, port := range service.NodePorts() {
+			if owner := owners[port]; owner != application {
+				return &blockReason{reason: "node_port_conflict", message: fmt.Sprintf(
+					"services.%s node port %s is already owned by application %q", name, port, owner)}
+			}
+		}
+		if service.TCP != nil && service.TCP.PublicPort != nil {
+			port := fmt.Sprintf("tcp/%d", *service.TCP.PublicPort)
+			if owner := owners[port]; owner != application {
+				return &blockReason{reason: "tcp_port_conflict", message: fmt.Sprintf(
+					"services.%s.tcp public port %d is already owned by application %q", name, *service.TCP.PublicPort, owner)}
+			}
+		}
+	}
+	return nil
+}
+
+func sortedServiceNames(manifest config.Manifest) []string {
+	names := make([]string, 0, len(manifest.Services))
+	for name := range manifest.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func allocationID(clusterID, application, service string, replica uint32) string {

@@ -56,6 +56,10 @@ func (s *Store) Application(ctx context.Context, name string) (model.Application
 	if err != nil {
 		return model.Application{}, err
 	}
+	application.Execution.NodePorts, err = s.applicationNodePorts(ctx, name)
+	if err != nil {
+		return model.Application{}, err
+	}
 	application.Execution.CronJobs, err = s.applicationCronJobs(ctx, name)
 	if err != nil {
 		return model.Application{}, err
@@ -584,6 +588,32 @@ func (s *Store) applicationTCPRoutes(ctx context.Context, name string) ([]model.
 		var updated string
 		if err := rows.Scan(&item.Application, &item.Service, &item.PublicPort, &item.TargetPort, &item.State,
 			&item.UpstreamCount, &item.Reason, &item.Message, &updated, &item.NodeID, &item.NodeName); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) applicationNodePorts(ctx context.Context, name string) ([]model.NodePortStatus, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT p.application_name, p.service_name, p.allocation_id, p.protocol,
+		p.node_port, p.target_port, p.state, p.reason, p.message, p.updated_at, p.node_id, n.name
+		FROM node_port_observations p JOIN nodes n ON n.id = p.node_id
+		WHERE p.application_name=? ORDER BY p.service_name, n.name, p.protocol, p.node_port`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.NodePortStatus
+	for rows.Next() {
+		var item model.NodePortStatus
+		var updated string
+		if err := rows.Scan(&item.Application, &item.Service, &item.AllocationID, &item.Protocol, &item.NodePort,
+			&item.TargetPort, &item.State, &item.Reason, &item.Message, &updated, &item.NodeID, &item.NodeName); err != nil {
 			return nil, err
 		}
 		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)

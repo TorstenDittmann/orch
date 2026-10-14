@@ -26,7 +26,8 @@ func applicationsUseConstraints(applications []model.Application) bool {
 			continue
 		}
 		for _, service := range manifest.Services {
-			if len(service.Constraints) != 0 {
+			// Node-local ports are node resources only the scheduler counts.
+			if len(service.Constraints) != 0 || len(service.NodePorts()) != 0 {
 				return true
 			}
 		}
@@ -43,6 +44,7 @@ type distributedAllocation struct {
 	allocation  model.AllocationDesired
 	constraints map[string]string
 	volumeNames []string
+	nodePorts   []string
 }
 
 type distributedCron struct {
@@ -150,6 +152,10 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 	if err != nil {
 		return err
 	}
+	nodePortOwners, err := desiredNodePortOwners(applications)
+	if err != nil {
+		return err
+	}
 	plannedAllocations := make([]distributedAllocation, 0)
 	plannedCron := make([]distributedCron, 0)
 	preservedAllocations := make(map[string][]model.AllocationDesired)
@@ -188,6 +194,11 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 				secretBlocked.reason, secretBlocked.message, now)
 			continue
 		}
+		if blocked := nodePortBlocker(application.Name, manifest, nodePortOwners); blocked != nil {
+			states[application.Name] = executionState(model.ExecutionBlocked, application.Generation,
+				blocked.reason, blocked.message, now)
+			continue
+		}
 		bundle, blocked, err := planApplicationBundleForNetwork(cluster.ID, planningNode, application,
 			networks[planningNode.ID], cluster.NetworkFrozenAt != nil, domainOwners, portOwners, previousByBaseID, resolved)
 		resolved.wipe()
@@ -211,6 +222,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			}
 			plannedAllocations = append(plannedAllocations, distributedAllocation{
 				allocation: allocation, constraints: service.Constraints, volumeNames: volumeNames,
+				nodePorts: allocationNodePorts(allocation),
 			})
 		}
 		for _, job := range bundle.cronJobs {
@@ -346,6 +358,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			Capacity:          scheduler.Resources{CPUMillis: cpu, MemoryBytes: memory},
 			Reserved:          assignmentResources(preservedAllocations[node.ID], preservedCron[node.ID]),
 			ServicePlacements: servicePlacementCounts(preservedAllocations[node.ID]),
+			UsedNodePorts:     usedNodePorts(preservedAllocations[node.ID]),
 		})
 	}
 
@@ -372,6 +385,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			Service: item.allocation.Service, Replica: item.allocation.Replica,
 			Resources:   allocationReservation(item.allocation),
 			Constraints: item.constraints, CurrentNodeID: currentNodeByLogical[logical], VolumeNodeID: volumeNode,
+			NodePorts: item.nodePorts,
 		})
 	}
 	cronByLogical := make(map[string]distributedCron, len(plannedCron))
@@ -829,7 +843,7 @@ func decisionBlocker(decision scheduler.Decision) (string, string) {
 	}
 	for _, preferred := range []scheduler.BlockerCode{
 		scheduler.BlockerVolumeNodeLost, scheduler.BlockerLocalVolumePinned,
-		scheduler.BlockerCronOwnerUnavailable, scheduler.BlockerConstraintMismatch,
+		scheduler.BlockerCronOwnerUnavailable, scheduler.BlockerNodePortInUse, scheduler.BlockerConstraintMismatch,
 		scheduler.BlockerInsufficientCPU, scheduler.BlockerInsufficientMemory,
 	} {
 		for _, blocker := range decision.Blockers {
@@ -924,6 +938,38 @@ func filterPlacedEndpoints(endpoints []model.ServiceEndpoint, allocations map[st
 		if current[endpoint.AllocationID] == endpoint.NodeID && reachable[endpoint.NodeID] {
 			result = append(result, endpoint)
 		}
+	}
+	return result
+}
+
+// allocationNodePorts returns the node-local ports an allocation publishes,
+// including those of its authorized rollback revision, as scheduler keys.
+func allocationNodePorts(allocation model.AllocationDesired) []string {
+	seen := make(map[string]struct{})
+	add := func(tcp *model.TCPDesired, udp *model.UDPDesired) {
+		if tcp != nil && tcp.NodePort != 0 {
+			seen[fmt.Sprintf("tcp/%d", tcp.NodePort)] = struct{}{}
+		}
+		if udp != nil {
+			seen[fmt.Sprintf("udp/%d", udp.NodePort)] = struct{}{}
+		}
+	}
+	add(allocation.TCP, allocation.UDP)
+	if allocation.Rollback != nil {
+		add(allocation.Rollback.TCP, allocation.Rollback.UDP)
+	}
+	result := make([]string, 0, len(seen))
+	for port := range seen {
+		result = append(result, port)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func usedNodePorts(allocations []model.AllocationDesired) []string {
+	var result []string
+	for _, allocation := range allocations {
+		result = append(result, allocationNodePorts(allocation)...)
 	}
 	return result
 }

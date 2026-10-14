@@ -29,6 +29,8 @@ const (
 	maxSecretFilesPerService = 64
 	maxCommandEntries        = 256
 	maxManifestStringBytes   = 4 << 10
+	// wireGuardPort is the default mesh port (model.DefaultWireGuardListenPort).
+	wireGuardPort = 51820
 )
 
 var (
@@ -120,6 +122,7 @@ func Validate(manifest *Manifest) error {
 	totalReplicas := 0
 	totalDomains := 0
 	publicHTTPService := ""
+	var nodePortServices []string
 	serviceNames := sortedKeys(manifest.Services)
 	for _, serviceName := range serviceNames {
 		service := manifest.Services[serviceName]
@@ -218,6 +221,30 @@ func Validate(manifest *Manifest) error {
 					publicPortOwners[port] = serviceName
 				}
 			}
+			if service.TCP.NodePort != nil {
+				port := *service.TCP.NodePort
+				if port < 1 || port > 65535 {
+					add(base+".tcp.node_port", "must be between 1 and 65535")
+				} else if port == 53 || port == 80 || port == 443 {
+					add(base+".tcp.node_port", "port is reserved by orch DNS or HTTP ingress")
+				}
+			}
+		}
+		if service.UDP != nil {
+			if service.UDP.Port < 1 || service.UDP.Port > 65535 {
+				add(base+".udp.port", "must be between 1 and 65535")
+			}
+			if port := service.UDP.NodePort; port < 1 || port > 65535 {
+				add(base+".udp.node_port", "must be between 1 and 65535")
+			} else if port == 53 || port == wireGuardPort {
+				add(base+".udp.node_port", "port is reserved by orch DNS or the WireGuard mesh")
+			}
+			if service.HTTP == nil && service.TCP == nil {
+				add(base+".udp", "requires an http or tcp endpoint on the same service for readiness")
+			}
+		}
+		if len(service.NodePorts()) > 0 {
+			nodePortServices = append(nodePortServices, serviceName)
 		}
 
 		if len(service.SecretFiles) > maxSecretFilesPerService {
@@ -261,6 +288,20 @@ func Validate(manifest *Manifest) error {
 		}
 		if len(service.Mounts) > 0 && service.Replicas != 1 {
 			add(base+".replicas", "must be 1 when the service uses local volumes")
+		}
+	}
+	// A node-local port is bound by the node itself, so an old and a new
+	// replica cannot hold it at the same time on one node.
+	if len(nodePortServices) > 0 && manifest.Deploy.MaxSurge > 0 {
+		add("deploy.max_surge", fmt.Sprintf("must be 0 because service %q publishes node-local ports; set maxSurge = 0 and maxUnavailable = 1", nodePortServices[0]))
+	}
+	for _, serviceName := range nodePortServices {
+		service := manifest.Services[serviceName]
+		if service.TCP == nil || service.TCP.NodePort == nil {
+			continue
+		}
+		if owner, exists := publicPortOwners[*service.TCP.NodePort]; exists {
+			add("services."+serviceName+".tcp.node_port", fmt.Sprintf("is already exposed on ingress nodes by service %q", owner))
 		}
 	}
 	validateDependencies(manifest, add)

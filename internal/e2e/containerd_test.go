@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -46,11 +47,14 @@ import (
 const (
 	e2eApplication   = "runtime-e2e"
 	e2eIngressDomain = "runtime-e2e.orch.invalid"
-	managedLabel     = "io.orch.managed"
-	clusterLabel     = "io.orch.cluster"
-	nodeLabel        = "io.orch.node"
-	allocationLabel  = "io.orch.allocation"
-	specLabel        = "io.orch.spec-digest"
+	// e2eNodePortApplication publishes node-local ports after the main
+	// application has been removed.
+	e2eNodePortApplication = "node-ports-e2e"
+	managedLabel           = "io.orch.managed"
+	clusterLabel           = "io.orch.cluster"
+	nodeLabel              = "io.orch.node"
+	allocationLabel        = "io.orch.allocation"
+	specLabel              = "io.orch.spec-digest"
 )
 
 func TestContainerdSingleNodeLifecycle(t *testing.T) {
@@ -447,6 +451,80 @@ func TestContainerdSingleNodeLifecycle(t *testing.T) {
 	if len(initialPIDs) != 3 {
 		t.Fatalf("initial task count = %d, want 3", len(initialPIDs))
 	}
+
+	assertNodePortPublishing(t, ctx, remote, running, imageReference)
+	assertNoManagedResources(t, ctx, raw, bootstrap.Cluster.ID, snapshotter, filepath.Join(agentDir, agentctl.LogsDirectory))
+	assertForeignResource(t, ctx, raw, foreignID)
+}
+
+// assertNodePortPublishing deploys a service with node-local TCP and UDP
+// ports and reaches both from a separate network namespace through the host
+// address. The workload must see the client's own address, not the node's.
+func assertNodePortPublishing(t *testing.T, ctx context.Context, remote *controlclient.Client, process *agentProcess, imageReference string) {
+	t.Helper()
+	namespace := requiredEnvironment(t, "ORCH_E2E_EXTERNAL_NAMESPACE")
+	hostAddress := requiredEnvironment(t, "ORCH_E2E_EXTERNAL_HOST_ADDRESS")
+	clientAddress := requiredEnvironment(t, "ORCH_E2E_EXTERNAL_CLIENT_ADDRESS")
+	fixture := requiredRegularFile(t, "ORCH_E2E_FIXTURE_BINARY", true)
+	tcpPort, udpPort := 18787, 18790
+	manifest := &config.Manifest{
+		Schema: config.SchemaVersion, Name: e2eNodePortApplication,
+		Services: map[string]config.Service{"game": {
+			Image: imageReference, Command: []string{"/orch-fixture"}, Args: []string{"serve", "game"},
+			Replicas: 1, Restart: "always", Resources: config.Resources{CPU: "125m", Memory: "32Mi"},
+			Env: map[string]string{"ORCH_E2E_TOKEN": "game", "ORCH_E2E_HTTP_PORT": "8787", "ORCH_E2E_UDP_PORT": "8790"},
+			TCP: &config.TCP{Port: 8787, NodePort: &tcpPort},
+			UDP: &config.UDP{Port: 8790, NodePort: udpPort},
+		}},
+		Deploy: config.Deployment{MaxSurge: 0, MaxUnavailable: 1, HealthDeadline: "30s", AutoRollback: true},
+	}
+	if err := config.Validate(manifest); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := config.CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remote.ApplyApplication(ctx, canonical, "containerd-e2e-node-ports"); err != nil {
+		t.Fatal(err)
+	}
+	waitForNamedApplication(t, ctx, remote, process, e2eNodePortApplication, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY)
+	external := func(args ...string) (string, error) {
+		output, err := exec.CommandContext(ctx, "ip", append([]string{"netns", "exec", namespace, fixture}, args...)...).Output()
+		return string(output), err
+	}
+	want := "source=" + clientAddress + "\n"
+	deadline := time.Now().Add(45 * time.Second)
+	var application *orchv1alpha1.Application
+	var udpReply, tcpReply string
+	for {
+		requestContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+		application, _ = remote.GetApplication(requestContext, e2eNodePortApplication)
+		cancel()
+		udpReply, _ = external("udp-probe", net.JoinHostPort(hostAddress, strconv.Itoa(udpPort)))
+		tcpReply, _ = external("fetch", "http://"+net.JoinHostPort(hostAddress, strconv.Itoa(tcpPort))+"/source")
+		active := 0
+		for _, port := range application.GetNodePorts() {
+			if port.GetState() == orchv1alpha1.RouteState_ROUTE_STATE_ACTIVE {
+				active++
+			}
+		}
+		if active == 2 && udpReply == want && tcpReply == "status=200 body="+want {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("node ports were not reachable with client addresses: ports=%#v udp=%q tcp=%q", application.GetNodePorts(), udpReply, tcpReply)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if _, err := remote.RemoveApplication(ctx, e2eNodePortApplication, "containerd-e2e-node-ports-remove"); err != nil {
+		t.Fatal(err)
+	}
+	waitForNamedApplication(t, ctx, remote, process, e2eNodePortApplication, 1, orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_REMOVED)
+	if reply, err := external("udp-probe", net.JoinHostPort(hostAddress, strconv.Itoa(udpPort))); err == nil {
+		t.Fatalf("withdrawn UDP node port still answered: %q", reply)
+	}
 }
 
 func writeNetworkCleanupState(t *testing.T, agentDir string) {
@@ -810,6 +888,11 @@ func waitForNode(t *testing.T, ctx context.Context, remote *controlclient.Client
 
 func waitForApplication(t *testing.T, ctx context.Context, remote *controlclient.Client, process *agentProcess, generation uint64, status orchv1alpha1.ExecutionStatus) *orchv1alpha1.Application {
 	t.Helper()
+	return waitForNamedApplication(t, ctx, remote, process, e2eApplication, generation, status)
+}
+
+func waitForNamedApplication(t *testing.T, ctx context.Context, remote *controlclient.Client, process *agentProcess, name string, generation uint64, status orchv1alpha1.ExecutionStatus) *orchv1alpha1.Application {
+	t.Helper()
 	deadline := time.Now().Add(45 * time.Second)
 	var last *orchv1alpha1.Application
 	var lastErr error
@@ -818,7 +901,7 @@ func waitForApplication(t *testing.T, ctx context.Context, remote *controlclient
 			t.Fatalf("agent exited while waiting for application state: %v", err)
 		}
 		requestContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-		application, err := remote.GetApplication(requestContext, e2eApplication)
+		application, err := remote.GetApplication(requestContext, name)
 		cancel()
 		if err == nil {
 			last = application

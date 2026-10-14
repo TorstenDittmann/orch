@@ -111,3 +111,90 @@ func TestDistributedCronJobRunsOnItsReadOnlyVolumeNode(t *testing.T) {
 		t.Fatalf("cron mounts = %#v", job.Mounts)
 	}
 }
+
+func gameManifest(name string, mutate func(*config.Manifest)) *config.Manifest {
+	tcpPort := 8787
+	game := func(region string) config.Service {
+		port := tcpPort
+		return config.Service{
+			Image: executableImage, Constraints: map[string]string{"region": region},
+			TCP: &config.TCP{Port: 8787, NodePort: &port}, UDP: &config.UDP{Port: 8790, NodePort: 8790},
+		}
+	}
+	manifest := newTestManifest(name, map[string]config.Service{"game-eu": game("eu"), "game-us": game("us")})
+	manifest.Deploy.MaxSurge, manifest.Deploy.MaxUnavailable = 0, 1
+	if mutate != nil {
+		mutate(manifest)
+	}
+	return manifest
+}
+
+func TestDistributedNodePortsPlaceOnePerNodeAndBlockLaterApplications(t *testing.T) {
+	ctx := context.Background()
+	state, reconciler, now := readyDistributedCluster(t, map[string]map[string]string{
+		"node-one": {"region": "eu"}, "node-two": {"region": "us"},
+	})
+	applyManifest(t, state, gameManifest("nmv", nil), "revision-one", "application-key-one", *now)
+	*now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for nodeID, service := range map[string]string{"node-one": "game-eu", "node-two": "game-us"} {
+		assignment, err := state.CurrentAssignment(ctx, nodeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		allocation := allocationForService(t, assignment, service, 1)
+		if allocation.TCP == nil || allocation.TCP.NodePort != 8787 || allocation.UDP == nil ||
+			*allocation.UDP != (model.UDPDesired{Port: 8790, NodePort: 8790}) || allocation.StartBeforeStop {
+			t.Fatalf("%s allocation = %#v", service, allocation)
+		}
+	}
+
+	// A later application asking for the same UDP port is blocked even
+	// though it would fit on a node by resources alone.
+	later := gameManifest("other", func(manifest *config.Manifest) {
+		delete(manifest.Services, "game-us")
+		service := manifest.Services["game-eu"]
+		service.TCP = &config.TCP{Port: 9000}
+		manifest.Services["game-eu"] = service
+	})
+	*now = now.Add(time.Second)
+	applyManifest(t, state, later, "revision-two", "application-key-two", *now)
+	*now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	application, err := state.Application(ctx, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.Execution.Status != model.ExecutionBlocked || application.Execution.Reason != "node_port_conflict" {
+		t.Fatalf("later application execution = %#v", application.Execution)
+	}
+}
+
+func TestDistributedNodePortsBlockSecondReplicaOnOneNode(t *testing.T) {
+	ctx := context.Background()
+	state, reconciler, now := readyDistributedCluster(t, map[string]map[string]string{
+		"node-one": {"region": "eu"}, "node-two": {"region": "us"},
+	})
+	manifest := gameManifest("nmv", func(manifest *config.Manifest) {
+		delete(manifest.Services, "game-us")
+		service := manifest.Services["game-eu"]
+		service.Replicas = 2
+		manifest.Services["game-eu"] = service
+	})
+	applyManifest(t, state, manifest, "revision-one", "application-key-one", *now)
+	*now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	application, err := state.Application(ctx, "nmv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.Execution.Status != model.ExecutionBlocked || application.Execution.Reason != "node_port_in_use" {
+		t.Fatalf("execution = %#v", application.Execution)
+	}
+}

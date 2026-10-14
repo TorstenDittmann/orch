@@ -115,3 +115,11 @@ func (m *Mesh) Close() error {
 	}
 	return localErr
 }
+
+func (m *Mesh) PublishNodePorts(ctx context.Context, ports []NodePort) ([]error, error) {
+	publisher, ok := m.local.(NodePortPublisher)
+	if !ok {
+		return nil, ErrUnsupported
+	}
+	return publisher.PublishNodePorts(ctx, ports)
+}

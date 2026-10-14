@@ -255,6 +255,9 @@ func (m *Model) renderApplicationDetail(t theme, summary *orchv1alpha1.Applicati
 		for _, route := range detail.GetTcpRoutes()[:min(2, len(detail.GetTcpRoutes()))] {
 			lines = append(lines, fmt.Sprintf("TCP :%d -> %s:%d  %s", route.GetPublicPort(), sanitize(route.GetService()), route.GetTargetPort(), enumLabel(route.GetState().String())))
 		}
+		for _, port := range detail.GetNodePorts()[:min(4, len(detail.GetNodePorts()))] {
+			lines = append(lines, fmt.Sprintf("%s %s:%d -> %s:%d  %s", strings.ToUpper(sanitize(port.GetProtocol())), sanitize(port.GetNodeName()), port.GetNodePort(), sanitize(port.GetService()), port.GetTargetPort(), enumLabel(port.GetState().String())))
+		}
 		for _, job := range detail.GetCronJobs()[:min(2, len(detail.GetCronJobs()))] {
 			lines = append(lines, fmt.Sprintf("CRON %s  %s  next %s", sanitize(job.GetJob()), enumLabel(job.GetLastState().String()), relativeTime(job.GetNextRunAt().AsTime())))
 		}

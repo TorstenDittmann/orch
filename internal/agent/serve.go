@@ -26,6 +26,7 @@ type ServeOptions struct {
 	Discovery                 discovery.Controller
 	Ingress                   ingress.Controller
 	TCPIngress                TCPIngressController
+	NodePorts                 network.NodePortPublisher
 	Now                       func() time.Time
 	Random                    io.Reader
 	SystemReservedCPUMillis   uint64
@@ -114,6 +115,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	}
 	supervisor := NewSupervisorWithServices(cache, options.Runtime, options.Now, SupervisorServices{
 		Discovery: options.Discovery, Ingress: ingressController, TCPIngress: tcpController,
+		NodePorts: options.NodePorts,
 	}, randomSource)
 	if cached, err := cache.Assignment(ctx); err == nil {
 		if _, err := supervisor.Reconcile(ctx, cached); err != nil {

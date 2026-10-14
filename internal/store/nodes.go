@@ -626,7 +626,7 @@ func (s *Store) RemoveNode(ctx context.Context, input model.RemoveNode) (model.R
 			return model.RemoveNodeResult{}, fmt.Errorf("node still has desired workloads")
 		}
 	}
-	for _, table := range []string{"allocation_observations", "route_observations", "tcp_route_observations", "cron_job_observations", "cron_run_observations", "desired_allocations", "desired_cron_jobs"} {
+	for _, table := range []string{"allocation_observations", "route_observations", "tcp_route_observations", "node_port_observations", "cron_job_observations", "cron_run_observations", "desired_allocations", "desired_cron_jobs"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE node_id = ?`, node.ID); err != nil {
 			return model.RemoveNodeResult{}, fmt.Errorf("clear removed node %s: %w", table, err)
 		}

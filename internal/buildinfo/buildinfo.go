@@ -11,7 +11,7 @@ var (
 const (
 	InstallFormat        = 1
 	ReleaseGeneration    = 1
-	ControllerSchema     = 11
+	ControllerSchema     = 12
 	AgentSchema          = 4
 	AgentProtocol        = "v1alpha1-workloads-5"
 	DependencyGeneration = "managed-bundle-1"

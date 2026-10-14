@@ -95,6 +95,59 @@ tcp = new Tcp {
 on ingress nodes and forwards bytes without HTTP or TLS handling. Allow that
 port in host and provider firewalls.
 
+## Node-local TCP and UDP
+
+Some workloads, such as game servers, voice relays, or SIP endpoints, need
+clients to connect straight to the machine that runs them and need to see the
+client's real address. `nodePort` publishes a port on the node that runs each
+replica instead of on ingress nodes:
+
+```pkl
+services {
+  ["game"] {
+    image = "ghcr.io/example/game:1.4.2"
+    tcp = new Tcp {
+      port = 7777
+      nodePort = 7777
+    }
+    udp = new Udp {
+      port = 7777
+      nodePort = 7777
+    }
+  }
+}
+
+deploy {
+  maxSurge = 0
+  maxUnavailable = 1
+}
+```
+
+The agent adds a destination NAT rule in its own nftables table, so packets
+reach the container without a user-space proxy and the container sees the
+client's source address. Clients connect to the address of the node that runs
+the replica; `orch app status` lists each published port with its node.
+
+- `udp` requires `http` or `tcp` on the same service. The replica is published
+  once that endpoint's health check passes; UDP itself is not probed.
+- A node can run only one replica that publishes a given port, so replicas of
+  the service spread across nodes. When no node has the port free, the
+  replica stays pending with `node_port_in_use`.
+- A port belongs to the application that first used it. A later application
+  that asks for the same protocol and port is blocked until the first one
+  releases it.
+- Applications that publish node ports must set `maxSurge = 0`, because the old
+  replica must stop before its replacement can take the port. Expect a short
+  gap during each rollout.
+- TCP ports 53, 80, and 443 and UDP ports 53 and 51820 are reserved for cluster
+  DNS, ingress, and WireGuard. A port that a host process already listens on
+  is reported as `node_port_unavailable` instead of being taken over.
+- Connections from the node to its own address are not translated. Test from
+  another machine.
+
+Allow each published port in host and provider firewalls on every node that
+may run the service.
+
 ## Service discovery
 
 Every service endpoint receives a private address and a cluster DNS name:

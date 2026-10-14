@@ -50,6 +50,7 @@ type ApplicationExecution struct {
 	ActiveRevisionID   string             `json:"active_revision_id,omitempty"`
 	Routes             []RouteStatus      `json:"routes,omitempty"`
 	TCPRoutes          []TCPRouteStatus   `json:"tcp_routes,omitempty"`
+	NodePorts          []NodePortStatus   `json:"node_ports,omitempty"`
 	CronJobs           []CronJobStatus    `json:"cron_jobs,omitempty"`
 	JobRuns            []JobRunStatus     `json:"job_runs,omitempty"`
 }

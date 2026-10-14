@@ -80,6 +80,12 @@ message HTTPDesired {
 message TCPDesired {
   uint32 port = 1;
   uint32 public_port = 2;
+  uint32 node_port = 3;
+}
+
+message UDPDesired {
+  uint32 port = 1;
+  uint32 node_port = 2;
 }
 
 message SecretReference {
@@ -130,6 +136,7 @@ message RollbackSpec {
   map<string, SecretReference> secret_environment = 19;
   repeated SecretFileDesired secret_files = 20;
   RegistryCredentialReference registry_credential = 21;
+  UDPDesired udp = 22;
 }
 
 message NetworkConfig {
@@ -193,6 +200,7 @@ message AllocationDesired {
   map<string, SecretReference> secret_environment = 26;
   repeated SecretFileDesired secret_files = 27;
   RegistryCredentialReference registry_credential = 28;
+  UDPDesired udp = 29;
 }
 
 message CronJobDesired {
@@ -285,6 +293,21 @@ message TCPRouteStatus {
   google.protobuf.Timestamp updated_at = 9;
   string node_id = 10;
   string node_name = 11;
+}
+
+message NodePortStatus {
+  string application = 1;
+  string service = 2;
+  string allocation_id = 3;
+  string protocol = 4;
+  uint32 node_port = 5;
+  uint32 target_port = 6;
+  RouteState state = 7;
+  string reason = 8;
+  string message = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  string node_id = 11;
+  string node_name = 12;
 }
 
 enum JobRunState {
@@ -381,6 +404,7 @@ message AllocationReport {
   repeated TCPRouteStatus tcp_routes = 8;
   repeated CronJobStatus cron_jobs = 9;
   repeated JobRunStatus job_runs = 10;
+  repeated NodePortStatus node_ports = 11;
 }
 
 message AgentHeartbeat {

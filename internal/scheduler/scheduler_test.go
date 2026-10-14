@@ -371,3 +371,38 @@ func BenchmarkScheduleTwentyNodesTwoHundredAllocations(b *testing.B) {
 		}
 	}
 }
+
+func TestScheduleTreatsNodePortsAsNodeResources(t *testing.T) {
+	nodeA := testNode("node-a", "a", 4000, 4096)
+	nodeB := testNode("node-b", "b", 4000, 4096)
+	nodeC := testNode("node-c", "c", 4000, 4096)
+	nodeC.UsedNodePorts = []string{"udp/8790"}
+	workloads := make([]Workload, 0, 3)
+	for replica := uint32(0); replica < 3; replica++ {
+		workload := testWorkload(fmt.Sprintf("game-%d", replica), "game", replica, 100, 100)
+		workload.NodePorts = []string{"tcp/8787", "udp/8790"}
+		workloads = append(workloads, workload)
+	}
+	got := decisionsByID(scheduleOK(t, Input{Nodes: []Node{nodeA, nodeB, nodeC}, Workloads: workloads}))
+	if got["game-0"].NodeID != "node-a" || got["game-1"].NodeID != "node-b" {
+		t.Fatalf("decisions = %#v", got)
+	}
+	blocked := got["game-2"]
+	if blocked.NodeID != "" || blocked.Reason != ReasonUnschedulable {
+		t.Fatalf("third replica = %#v", blocked)
+	}
+	for _, nodeID := range []string{"node-a", "node-b", "node-c"} {
+		found := false
+		for _, blocker := range blocked.Blockers {
+			found = found || blocker.NodeID == nodeID && blocker.Code == BlockerNodePortInUse
+		}
+		if !found {
+			t.Fatalf("missing node_port_in_use blocker for %s: %#v", nodeID, blocked.Blockers)
+		}
+	}
+	other := testWorkload("other", "other", 0, 100, 100)
+	other.NodePorts = []string{"udp/8787"}
+	if decision := scheduleOK(t, Input{Nodes: []Node{nodeA}, Workloads: append(workloads[:1:1], other)}); decision[1].NodeID != "node-a" {
+		t.Fatalf("different protocol on the same port was rejected: %#v", decision)
+	}
+}

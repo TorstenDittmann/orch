@@ -318,6 +318,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		}
 		item.Http = httpDesiredMessage(allocation.HTTP)
 		item.Tcp = tcpDesiredMessage(allocation.TCP)
+		item.Udp = udpDesiredMessage(allocation.UDP)
 		item.DependsOn = append([]string(nil), allocation.DependsOn...)
 		item.SecretEnvironment = secretEnvironmentMessage(allocation.SecretEnvironment)
 		item.SecretFiles = secretFilesMessage(allocation.SecretFiles)
@@ -398,7 +399,14 @@ func tcpDesiredMessage(tcp *model.TCPDesired) *orchv1alpha1.TCPDesired {
 	if tcp == nil {
 		return nil
 	}
-	return &orchv1alpha1.TCPDesired{Port: tcp.Port, PublicPort: tcp.PublicPort}
+	return &orchv1alpha1.TCPDesired{Port: tcp.Port, PublicPort: tcp.PublicPort, NodePort: tcp.NodePort}
+}
+
+func udpDesiredMessage(udp *model.UDPDesired) *orchv1alpha1.UDPDesired {
+	if udp == nil {
+		return nil
+	}
+	return &orchv1alpha1.UDPDesired{Port: udp.Port, NodePort: udp.NodePort}
 }
 
 func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpec {
@@ -411,7 +419,7 @@ func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpe
 		Args: append([]string(nil), rollback.Args...), Environment: cloneEnvironment(rollback.Environment),
 		RestartPolicy: rollback.RestartPolicy, CpuMillis: rollback.CPUMillis, MemoryBytes: rollback.MemoryBytes,
 		StartDeadlineSeconds: rollback.StartDeadlineSeconds, Http: httpDesiredMessage(rollback.HTTP),
-		Tcp: tcpDesiredMessage(rollback.TCP), DependsOn: append([]string(nil), rollback.DependsOn...),
+		Tcp: tcpDesiredMessage(rollback.TCP), Udp: udpDesiredMessage(rollback.UDP), DependsOn: append([]string(nil), rollback.DependsOn...),
 		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop,
 	}
