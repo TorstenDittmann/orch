@@ -3,11 +3,14 @@
 package containerd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 
+	"github.com/containerd/containerd/v2/core/containers"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
@@ -85,6 +88,36 @@ func TestClaimVolumeRootKeepsRootWorkloadsRootOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOwner(t, volume, 0, 0, 0o700)
+}
+
+func TestSpecOptionsApplyDefaultSeccompProfile(t *testing.T) {
+	t.Parallel()
+	client := &runtimeClient{}
+	allocation := model.AllocationDesired{
+		Command: []string{"/app"}, CPUMillis: 500, MemoryBytes: 64 << 20,
+		Environment: map[string]string{"MODE": "test"},
+	}
+	// The first option resolves the image config, which needs a real image;
+	// the remaining options are exercised on a default generated spec.
+	opts := client.specOptions(nil, allocation, nil)[1:]
+	ctx := namespaces.WithNamespace(context.Background(), "test")
+	spec, err := oci.GenerateSpec(ctx, nil, &containers.Container{ID: "test"}, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Linux.Seccomp == nil || spec.Linux.Seccomp.DefaultAction != specs.ActErrno || len(spec.Linux.Seccomp.Syscalls) == 0 {
+		t.Fatalf("seccomp = %#v, want containerd default profile", spec.Linux.Seccomp)
+	}
+	for _, rule := range spec.Linux.Seccomp.Syscalls {
+		for _, name := range rule.Names {
+			if (name == "mount" || name == "bpf") && rule.Action == specs.ActAllow {
+				t.Fatalf("default profile allows %s without capabilities", name)
+			}
+		}
+	}
+	if !spec.Process.NoNewPrivileges || len(spec.Process.Capabilities.Bounding) != 0 {
+		t.Fatalf("process hardening = %#v", spec.Process)
+	}
 }
 
 func assertOwner(t *testing.T, path string, uid, gid uint32, mode os.FileMode) {

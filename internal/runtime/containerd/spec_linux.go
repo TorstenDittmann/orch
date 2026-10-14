@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	containerdclient "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/contrib/seccomp"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -46,6 +47,9 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 		oci.WithCPUCFS(quota, 100_000),
 		oci.WithNoNewPrivileges,
 		oci.WithCapabilities(nil),
+		// The default profile is derived from the process capabilities, so it
+		// must follow WithCapabilities.
+		seccomp.WithDefaultProfile(),
 		oci.WithMounts(mounts),
 		hardenedSpec,
 	)
