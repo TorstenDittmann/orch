@@ -106,18 +106,21 @@ func runTargetUse(args []string, stdout, stderr io.Writer) int {
 func runTargetImport(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("target import", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var use, jsonOutput bool
+	var use, replace, jsonOutput bool
 	flags.BoolVar(&use, "use", false, "select the imported target")
+	flags.BoolVar(&replace, "replace", false, "replace the credentials of an existing target for the same cluster")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	reordered := reorderInterspersed(args, map[string]bool{})
 	if err := flags.Parse(reordered); err != nil || flags.NArg() != 2 {
-		fmt.Fprintln(stderr, "usage: orch target import NAME CONTEXT [--use] [--json]")
+		fmt.Fprintln(stderr, "usage: orch target import NAME CONTEXT [--use] [--replace] [--json]")
 		return ExitInvalid
 	}
 	name, source := flags.Arg(0), flags.Arg(1)
 	store, err := target.Default()
 	var resolved target.Resolved
-	if err == nil {
+	if err == nil && replace {
+		resolved, err = store.Replace(name, source)
+	} else if err == nil {
 		resolved, err = store.Import(name, source)
 	}
 	if err == nil && use {
@@ -134,7 +137,11 @@ func runTargetImport(args []string, stdout, stderr io.Writer) int {
 			Current   bool   `json:"current"`
 		}{Name: resolved.Name, Transport: resolved.Transport.Type, Current: use})
 	}
-	fmt.Fprintf(stdout, "Imported target %s (%s)\n", resolved.Name, resolved.Transport.Type)
+	verb := "Imported"
+	if replace {
+		verb = "Replaced"
+	}
+	fmt.Fprintf(stdout, "%s target %s (%s)\n", verb, resolved.Name, resolved.Transport.Type)
 	if !use {
 		fmt.Fprintf(stdout, "Select it with: orch target use %s\n", resolved.Name)
 	}
@@ -317,7 +324,7 @@ func printTargetHelp(output io.Writer) {
 
 Usage:
   orch target list [--json]
-  orch target import NAME CONTEXT [--use] [--json]
+  orch target import NAME CONTEXT [--use] [--replace] [--json]
   orch target use NAME
   orch target transport NAME direct
   orch target transport NAME wireguard --address HOST:PORT

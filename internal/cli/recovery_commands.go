@@ -73,6 +73,13 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 	} else if !restore {
 		fmt.Fprintln(stdout, "Recovery material verified.")
 	}
+	if result.ControllerCertificateExpired {
+		renewDataDir := "DIR"
+		if restore {
+			renewDataDir = result.DataDir
+		}
+		fmt.Fprintf(stdout, "Controller certificate has expired; run 'orch cluster certificates renew --data-dir %s --admin-dir NEW_DIR' before starting the controller.\n", renewDataDir)
+	}
 	if restore {
 		fmt.Fprintln(stdout, "Keep the old controller stopped. Restore endpoint routing before starting the recovered controller; keep existing agent caches.")
 	}

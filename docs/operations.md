@@ -24,6 +24,10 @@ orch tui
 The TUI provides a keyboard-driven view of applications, instances, workers,
 deployments, events, and live logs.
 
+`orch status` also shows when the administrator and controller certificates
+expire. Renew them before then; see
+[certificate renewal](security.md#certificate-renewal).
+
 ## Applications
 
 ```console

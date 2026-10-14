@@ -204,26 +204,52 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, fmt.Errorf("controller returned invalid cluster creation time: %w", err), jsonOutput)
 		return ExitRuntime
 	}
+	administratorNotAfter, controllerNotAfter := remote.CertificateExpiry()
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
-			ClusterID         string    `json:"cluster_id"`
-			Name              string    `json:"name"`
-			Server            string    `json:"server"`
-			Generation        uint64    `json:"generation"`
-			CreatedAt         time.Time `json:"created_at"`
-			WorkloadCIDR      string    `json:"workload_cidr"`
-			NetworkGeneration uint64    `json:"network_generation"`
-			NetworkFrozen     bool      `json:"network_frozen"`
+			ClusterID                   string     `json:"cluster_id"`
+			Name                        string     `json:"name"`
+			Server                      string     `json:"server"`
+			Generation                  uint64     `json:"generation"`
+			CreatedAt                   time.Time  `json:"created_at"`
+			WorkloadCIDR                string     `json:"workload_cidr"`
+			NetworkGeneration           uint64     `json:"network_generation"`
+			NetworkFrozen               bool       `json:"network_frozen"`
+			AdministratorCertificateEnd time.Time  `json:"administrator_certificate_not_after"`
+			ControllerCertificateEnd    *time.Time `json:"controller_certificate_not_after,omitempty"`
 		}{
 			ClusterID: cluster.GetId(), Name: cluster.GetName(), Server: cluster.GetEndpoint(),
 			Generation: cluster.GetGeneration(), CreatedAt: createdAt, WorkloadCIDR: cluster.GetWorkloadCidr(),
 			NetworkGeneration: cluster.GetNetworkGeneration(), NetworkFrozen: cluster.GetNetworkFrozen(),
+			AdministratorCertificateEnd: administratorNotAfter,
+			ControllerCertificateEnd: func() *time.Time {
+				if controllerNotAfter.IsZero() {
+					return nil
+				}
+				return &controllerNotAfter
+			}(),
 		})
 	}
 	fmt.Fprintf(stdout, "Cluster:    %s (%s)\nServer:     %s\nGeneration: %d\nNetwork:    %s (generation %d, frozen %t)\nCreated:    %s\n",
 		cluster.GetName(), cluster.GetId(), cluster.GetEndpoint(), cluster.GetGeneration(), cluster.GetWorkloadCidr(),
 		cluster.GetNetworkGeneration(), cluster.GetNetworkFrozen(), createdAt.Format(time.RFC3339Nano))
+	now := time.Now()
+	fmt.Fprintf(stdout, "Admin cert: %s\n", certificateExpirySummary(administratorNotAfter, now))
+	if !controllerNotAfter.IsZero() {
+		fmt.Fprintf(stdout, "Controller: %s\n", certificateExpirySummary(controllerNotAfter, now))
+	}
 	return ExitOK
+}
+
+// certificateRenewalWindow is when status starts recommending renewal.
+const certificateRenewalWindow = 30 * 24 * time.Hour
+
+func certificateExpirySummary(notAfter, now time.Time) string {
+	summary := "valid until " + notAfter.UTC().Format(time.RFC3339)
+	if notAfter.Sub(now) < certificateRenewalWindow {
+		summary += " (expires soon; run 'orch cluster certificates renew' on the controller host)"
+	}
+	return summary
 }
 
 func runEvents(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -434,6 +460,12 @@ func runCluster(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runHostUpgrade(ctx, "cluster", args[1:], stdout, stderr)
 	case "restore":
 		return runClusterRecovery(args[1:], true, stdout, stderr)
+	case "certificates":
+		if len(args) > 1 && args[1] == "renew" {
+			return runClusterCertificatesRenew(args[2:], stdout, stderr)
+		}
+		fmt.Fprintln(stderr, "usage: orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]")
+		return ExitInvalid
 	case "backup":
 		if len(args) > 1 && args[1] == "inspect" {
 			return runClusterRecovery(args[2:], false, stdout, stderr)
@@ -619,8 +651,59 @@ func runClusterBackup(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
+func runClusterCertificatesRenew(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cluster certificates renew", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var dataDir, adminDir string
+	var jsonOutput bool
+	flags.StringVar(&dataDir, "data-dir", "", "controller state directory")
+	flags.StringVar(&adminDir, "admin-dir", "", "new portable administrator directory")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "cluster certificates renew accepts flags only")
+		return ExitInvalid
+	}
+	if missing := missingFlags(map[string]string{"--data-dir": dataDir, "--admin-dir": adminDir}); len(missing) != 0 {
+		writeError(stderr, fmt.Errorf("cluster certificates renew requires %s", strings.Join(missing, ", ")), jsonOutput)
+		return ExitInvalid
+	}
+	result, err := clusterctl.RenewCertificates(context.Background(), clusterctl.RenewCertificatesOptions{DataDir: dataDir, AdminDir: adminDir})
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		if errors.Is(err, clusterctl.ErrInvalidOptions) {
+			return ExitInvalid
+		}
+		return ExitRuntime
+	}
+	if jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			ClusterID                    string    `json:"cluster_id"`
+			Name                         string    `json:"name"`
+			DataDir                      string    `json:"data_dir"`
+			AdminContext                 string    `json:"admin_context"`
+			ControllerNotAfter           time.Time `json:"controller_certificate_not_after"`
+			AdministratorNotAfter        time.Time `json:"administrator_certificate_not_after"`
+			CertificateAuthorityNotAfter time.Time `json:"certificate_authority_not_after"`
+		}{
+			ClusterID: result.Cluster.ID, Name: result.Cluster.Name, DataDir: result.DataDir, AdminContext: result.ContextPath,
+			ControllerNotAfter: result.ControllerNotAfter, AdministratorNotAfter: result.AdministratorNotAfter,
+			CertificateAuthorityNotAfter: result.CertificateAuthorityNotAfter,
+		})
+	}
+	fmt.Fprintf(stdout, "Renewed certificates for cluster %s (%s)\n", result.Cluster.Name, result.Cluster.ID)
+	fmt.Fprintf(stdout, "Controller certificate:    valid until %s\n", result.ControllerNotAfter.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "Administrator certificate: valid until %s\n", result.AdministratorNotAfter.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "Cluster CA (unchanged):    valid until %s\n", result.CertificateAuthorityNotAfter.Format(time.RFC3339))
+	fmt.Fprintln(stdout, "Administrator context:", result.ContextPath)
+	fmt.Fprintln(stdout, "Restart the controller to serve the new certificate, then import the context with 'orch target import NAME CONTEXT --replace'.")
+	return ExitOK
+}
+
 func missingFlags(values map[string]string) []string {
-	ordered := []string{"--name", "--server", "--data-dir", "--context", "--output", "--listen"}
+	ordered := []string{"--name", "--server", "--data-dir", "--admin-dir", "--context", "--output", "--listen"}
 	missing := make([]string, 0)
 	for _, name := range ordered {
 		if value, present := values[name]; present && strings.TrimSpace(value) == "" {
@@ -872,6 +955,7 @@ Usage:
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+  orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]
   orch target import NAME CONTEXT [--use]
   orch target use NAME
   orch target transport NAME direct|wireguard|ssh [OPTIONS]
@@ -936,7 +1020,8 @@ Usage:
   orch cluster upgrade --binary FILE [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
-  orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]`)
+  orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+  orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]`)
 }
 
 func printControllerHelp(output io.Writer) {

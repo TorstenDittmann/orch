@@ -28,6 +28,16 @@ type Client struct {
 	mode    string
 	tunnel  *sshTunnel
 	close   sync.Once
+
+	administratorNotAfter time.Time
+	controllerNotAfter    *certificateExpiry
+}
+
+// certificateExpiry records the controller leaf expiry observed during the
+// most recent verified handshake.
+type certificateExpiry struct {
+	mutex    sync.Mutex
+	notAfter time.Time
 }
 
 // New loads a protected administrator context and creates an mTLS client.
@@ -67,6 +77,7 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	controllerNotAfter := &certificateExpiry{}
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		RootCAs:      credentials.RootCAs,
@@ -79,6 +90,9 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 			if err := security.VerifyPeerIdentity(state.PeerCertificates[0], credentials.Context.Cluster.ID, security.RoleController); err != nil {
 				return fmt.Errorf("validate controller identity: %w", err)
 			}
+			controllerNotAfter.mutex.Lock()
+			controllerNotAfter.notAfter = state.PeerCertificates[0].NotAfter
+			controllerNotAfter.mutex.Unlock()
 			return nil
 		},
 	}
@@ -143,7 +157,22 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 	return &Client{
 		context: credentials.Context, service: service, http: httpClient,
 		target: endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
+		administratorNotAfter: credentials.Certificate.Leaf.NotAfter, controllerNotAfter: controllerNotAfter,
 	}, nil
+}
+
+// CertificateExpiry returns the local administrator certificate expiry and the
+// controller certificate expiry seen on the last handshake (zero before one).
+func (client *Client) CertificateExpiry() (administrator, controller time.Time) {
+	if client == nil {
+		return time.Time{}, time.Time{}
+	}
+	if client.controllerNotAfter != nil {
+		client.controllerNotAfter.mutex.Lock()
+		controller = client.controllerNotAfter.notAfter
+		client.controllerNotAfter.mutex.Unlock()
+	}
+	return client.administratorNotAfter, controller
 }
 
 func (client *Client) Context() clusterctl.LocalContext {
