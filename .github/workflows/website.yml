@@ -19,10 +19,10 @@ jobs:
       - name: Install pinned website dependencies
         working-directory: website
         run: mise exec -- bun install --frozen-lockfile
-      - name: Check Docia navigation and links
+      - name: Type-check website
         working-directory: website
         run: mise exec -- bun run check
-      - name: Build production website
+      - name: Build production website (fails on broken links)
         working-directory: website
         run: mise exec -- ./build.sh
       - name: Verify generated website contract

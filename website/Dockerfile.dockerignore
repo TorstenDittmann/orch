@@ -4,7 +4,11 @@
 !website/
 !website/package.json
 !website/bun.lock
-!website/docia.config.ts
-!website/public/
-!website/public/**
+!website/tsconfig.json
+!website/vite.config.ts
+!website/serve.ts
+!website/src/
+!website/src/**
+!website/static/
+!website/static/**
 !website/Dockerfile

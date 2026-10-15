@@ -1,8 +1,10 @@
 # orch website
 
-The public product and documentation site is generated from the repository's
-Markdown with [Docia](https://docia.xyz/). Dependencies are pinned by
-`package.json` and `bun.lock`.
+The public product and documentation site is a prerendered
+[SvelteKit](https://svelte.dev/docs/kit) app. The landing page lives in
+`src/routes/+page.svelte`; documentation pages are rendered from the Markdown in
+`../docs`, with the sidebar order taken from `docs/SUMMARY.md`. Dependencies are
+pinned by `package.json` and `bun.lock`.
 
 From this directory:
 
@@ -12,13 +14,14 @@ bun run check
 bun run dev
 ```
 
-`./build.sh` checks links and navigation, builds production assets into `dist`,
-and adds the Sites worker. Generated output is ignored and must not be edited.
+`./build.sh` type-checks the site, prerenders every page into `dist`, and adds
+the Sites worker. The build fails on links to missing pages or headings.
+Generated output is ignored and must not be edited.
 
 ## Deploy to Dokploy
 
-The Dockerfile uses Bun to build and serve the site on port **8080**, using
-Docia's built-in static server. No Nginx or custom server is needed.
+The Dockerfile uses Bun to build the site and serve `dist` on port **8080**
+with the small static server in `serve.ts`. No Nginx is needed.
 
 Create a Dokploy application connected to this repository and configure:
 
@@ -62,7 +65,7 @@ Or without Docker, from `website/`:
 
 ```sh
 bun install --frozen-lockfile
-bun run build:docs
+bun run build:site
 bun run start
 ```
 
