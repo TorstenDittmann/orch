@@ -1011,10 +1011,12 @@ func (*GetClusterRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetClusterResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cluster       *Cluster               `protobuf:"bytes,1,opt,name=cluster,proto3" json:"cluster,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Cluster *Cluster               `protobuf:"bytes,1,opt,name=cluster,proto3" json:"cluster,omitempty"`
+	// PEM cluster CA, so administrators can mint join tokens that pin it.
+	CaCertificatePem []byte `protobuf:"bytes,2,opt,name=ca_certificate_pem,json=caCertificatePem,proto3" json:"ca_certificate_pem,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetClusterResponse) Reset() {
@@ -1050,6 +1052,13 @@ func (*GetClusterResponse) Descriptor() ([]byte, []int) {
 func (x *GetClusterResponse) GetCluster() *Cluster {
 	if x != nil {
 		return x.Cluster
+	}
+	return nil
+}
+
+func (x *GetClusterResponse) GetCaCertificatePem() []byte {
+	if x != nil {
+		return x.CaCertificatePem
 	}
 	return nil
 }
@@ -6098,9 +6107,10 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\fpayload_json\x18\x03 \x01(\tR\vpayloadJson\x129\n" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x13\n" +
-	"\x11GetClusterRequest\"F\n" +
+	"\x11GetClusterRequest\"t\n" +
 	"\x12GetClusterResponse\x120\n" +
-	"\acluster\x18\x01 \x01(\v2\x16.orch.v1alpha1.ClusterR\acluster\"+\n" +
+	"\acluster\x18\x01 \x01(\v2\x16.orch.v1alpha1.ClusterR\acluster\x12,\n" +
+	"\x12ca_certificate_pem\x18\x02 \x01(\fR\x10caCertificatePem\"+\n" +
 	"\x15GetApplicationRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"V\n" +
 	"\x16GetApplicationResponse\x12<\n" +

@@ -51,6 +51,12 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	args = prepared
 	switch args[0] {
+	case "init":
+		return runInit(ctx, args[1:], stdout, stderr)
+	case "join":
+		return runJoin(ctx, args[1:], stdout, stderr)
+	case "join-token":
+		return runJoinToken(ctx, args[1:], stdout, stderr)
 	case "target":
 		return runTarget(ctx, args[1:], stdout, stderr)
 	case "cluster":
@@ -148,9 +154,10 @@ func runController(ctx context.Context, args []string, stdout, stderr io.Writer)
 func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("controller serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dataDir, listen string
+	var dataDir, listen, adminSocket string
 	flags.StringVar(&dataDir, "data-dir", "", "initialized controller state directory")
 	flags.StringVar(&listen, "listen", "", "TCP listen address")
+	flags.StringVar(&adminSocket, "admin-socket", "", "local administrator socket (default DATA_DIR/admin.sock, \"off\" disables)")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
@@ -162,7 +169,22 @@ func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Wr
 		writeError(stderr, fmt.Errorf("controller serve requires %s", strings.Join(missing, ", ")), false)
 		return ExitInvalid
 	}
-	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen}, func(address net.Addr) {
+	switch adminSocket {
+	case "":
+		absolute, err := filepath.Abs(dataDir)
+		if err != nil {
+			writeError(stderr, err, false)
+			return ExitInvalid
+		}
+		adminSocket = filepath.Join(absolute, control.AdminSocketFilename)
+		if len(adminSocket) >= control.MaxAdminSocketPath {
+			fmt.Fprintf(stderr, "Not serving the administrator socket: %s is too long for a unix socket; pass --admin-socket PATH\n", adminSocket)
+			adminSocket = ""
+		}
+	case "off":
+		adminSocket = ""
+	}
+	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen, AdminSocket: adminSocket}, func(address net.Addr) {
 		fmt.Fprintf(stdout, "Controller listening on https://%s\n", address.String())
 	})
 	if err != nil {
@@ -217,13 +239,18 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			WorkloadCIDR                string     `json:"workload_cidr"`
 			NetworkGeneration           uint64     `json:"network_generation"`
 			NetworkFrozen               bool       `json:"network_frozen"`
-			AdministratorCertificateEnd time.Time  `json:"administrator_certificate_not_after"`
+			AdministratorCertificateEnd *time.Time `json:"administrator_certificate_not_after,omitempty"`
 			ControllerCertificateEnd    *time.Time `json:"controller_certificate_not_after,omitempty"`
 		}{
 			ClusterID: cluster.GetId(), Name: cluster.GetName(), Server: cluster.GetEndpoint(),
 			Generation: cluster.GetGeneration(), CreatedAt: createdAt, WorkloadCIDR: cluster.GetWorkloadCidr(),
 			NetworkGeneration: cluster.GetNetworkGeneration(), NetworkFrozen: cluster.GetNetworkFrozen(),
-			AdministratorCertificateEnd: administratorNotAfter,
+			AdministratorCertificateEnd: func() *time.Time {
+				if administratorNotAfter.IsZero() {
+					return nil
+				}
+				return &administratorNotAfter
+			}(),
 			ControllerCertificateEnd: func() *time.Time {
 				if controllerNotAfter.IsZero() {
 					return nil
@@ -236,7 +263,9 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		cluster.GetName(), cluster.GetId(), cluster.GetEndpoint(), cluster.GetGeneration(), cluster.GetWorkloadCidr(),
 		cluster.GetNetworkGeneration(), cluster.GetNetworkFrozen(), createdAt.Format(time.RFC3339Nano))
 	now := time.Now()
-	fmt.Fprintf(stdout, "Admin cert: %s\n", certificateExpirySummary(administratorNotAfter, now))
+	if !administratorNotAfter.IsZero() {
+		fmt.Fprintf(stdout, "Admin cert: %s\n", certificateExpirySummary(administratorNotAfter, now))
+	}
 	if !controllerNotAfter.IsZero() {
 		fmt.Fprintf(stdout, "Controller: %s\n", certificateExpirySummary(controllerNotAfter, now))
 	}
@@ -949,15 +978,22 @@ func writeError(output io.Writer, err error, jsonOutput bool) {
 func printHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch manages small application clusters.
 
+Getting started:
+  orch init [--name NAME] [--advertise-address IP]        on the controller host, as root
+  orch join-token NODE [--ttl 1h]                         prints the command for a new node
+  orch join TOKEN|- [--advertise-address IP]              on each worker, as root
+  orch target add NAME ssh://root@CONTROLLER              on your workstation
+
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
-  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
+  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR [--recovery-dir DIR] [--dry-run] [--json]
   orch cluster upgrade --binary FILE [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
   orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]
+  orch target add NAME ssh://[USER@]HOST[:PORT] [--use]
   orch target import NAME CONTEXT [--use]
   orch target use NAME
   orch target transport NAME direct|wireguard|ssh [OPTIONS]
@@ -1010,7 +1046,8 @@ Exit codes:
   2  usage or manifest validation failure
 
 Remote commands use the selected target. --target overrides it for one command;
---context FILE remains available for compatibility.`)
+--context FILE remains available for compatibility. On the controller host, root
+uses the local administrator socket when no target is selected.`)
 }
 
 func printClusterHelp(output io.Writer) {
@@ -1019,7 +1056,7 @@ func printClusterHelp(output io.Writer) {
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
   orch cluster doctor --server HTTPS_URL --listen ADDRESS [--json]
-  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR --recovery-dir DIR [--dry-run] [--json]
+  orch cluster install --name NAME --server HTTPS_URL --listen ADDRESS --admin-dir DIR [--recovery-dir DIR] [--dry-run] [--json]
   orch cluster upgrade --binary FILE [--dry-run] [--json]
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
@@ -1031,5 +1068,5 @@ func printControllerHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch controller runs the single control-plane process.
 
 Usage:
-  orch controller serve --data-dir DIR --listen ADDRESS`)
+  orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off]`)
 }

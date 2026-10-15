@@ -25,55 +25,56 @@ zones and forwarding policy.
 
 ## Controller
 
-Copy a trusted Linux amd64 `orch` binary to the controller and run the
-preflight check:
+Copy a trusted Linux amd64 `orch` binary to the controller and run, as root:
 
 ```console
-sudo ./orch cluster doctor \
-  --server https://10.0.0.10:9443 \
-  --listen 0.0.0.0:9443
+sudo ./orch init
 ```
 
-Then install:
+`orch init` checks the host, installs the controller as a systemd service and
+waits until it answers. It detects the host's address and listens on port
+9443; pass `--advertise-address`, `--port` or `--name` to override them. Use
+the address workers and your workstation can reach. Rerunning the same command
+resumes an interrupted installation.
+
+On the controller host, root can now run any `orch` command without further
+setup, for example `sudo orch nodes`. The CLI talks to the controller's local
+administrator socket, which only root can open.
+
+To manage the cluster from your workstation, add a target that reaches that
+socket over SSH. Your SSH key for `root` on the controller is the credential:
 
 ```console
-sudo ./orch cluster install \
-  --name production \
-  --server https://10.0.0.10:9443 \
-  --listen 0.0.0.0:9443 \
-  --admin-dir /root/orch-production-admin \
-  --recovery-dir /root/orch-production-recovery
-```
-
-Copy both output directories off the controller through a protected channel.
-The admin directory lets you operate the cluster. The recovery directory
-contains the material needed to recover the controller after host loss.
-
-Import the administrator context on your workstation:
-
-```console
-orch target import production ./orch-production-admin/context.json --use
+orch target add production ssh://root@10.0.0.10
 orch target test
 ```
 
+`orch init` keeps a break-glass mTLS administrator context in
+`/etc/orch/admin` on the controller. You do not need it for normal use. Use
+`orch cluster install` instead when you want to choose where the administrator
+and recovery directories are written.
+
 ## Workers
 
-Create a short-lived join file on your workstation:
+Create a join token for each worker, on the controller host or from your
+workstation:
 
 ```console
-orch node join create worker-1 --ttl 1h --output worker-1.join
+orch join-token worker-1
 ```
 
-Copy the trusted `orch` binary and the join file to the worker. Check the host,
-then install the worker with the address the other workers reach it on:
+It prints a command. Copy the trusted `orch` binary to the worker and run that
+command there as root:
 
 ```console
-sudo ./orch node doctor --advertise-address 10.0.0.11
-sudo ./orch node install \
-  --advertise-address 10.0.0.11 \
-  --join-file ./worker-1.join \
-  --wait-timeout 5m
+sudo ./orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
 ```
+
+The token is valid once, for one hour by default (`--ttl` accepts 1m to 24h),
+and pins the cluster CA, so the worker refuses a controller that is not yours.
+`orch join` checks the host, installs the pinned dependencies and services, and
+advertises the host's detected address to the other workers. Pass
+`--advertise-address` to choose a different one.
 
 Machines without a shared private network can use their public address
 instead. See [public advertise addresses](networking.md#public-advertise-addresses)
@@ -85,11 +86,22 @@ Confirm that it joined:
 orch nodes
 ```
 
-Enable public ingress on a node only when you want that node to accept external
-traffic:
+The first node that joins accepts public ingress automatically. Enable ingress
+on later nodes when you want them to accept external traffic:
 
 ```console
-orch node ingress worker-1 --enable
+orch node ingress worker-2 --enable
+```
+
+### Join files
+
+`orch node join create` and `orch node install --join-file` remain available
+when you prefer to transfer a join file:
+
+```console
+orch node join create worker-1 --ttl 1h --output worker-1.join
+sudo ./orch node doctor --advertise-address 10.0.0.11
+sudo ./orch node install --advertise-address 10.0.0.11 --join-file ./worker-1.join
 ```
 
 You can now [deploy your first application](quick-start.md).
@@ -97,7 +109,7 @@ You can now [deploy your first application](quick-start.md).
 ## Troubleshooting
 
 An interrupted installation can be resumed by running the same command with the
-same binary, addresses, and join file. A readiness timeout leaves the installed
+same binary, addresses, and join token or file. A readiness timeout leaves the installed
 services in place.
 
 On a controller:

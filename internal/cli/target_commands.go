@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,6 +24,8 @@ func runTarget(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return runTargetList(args[1:], stdout, stderr)
 	case "use":
 		return runTargetUse(args[1:], stdout, stderr)
+	case "add":
+		return runTargetAdd(ctx, args[1:], stdout, stderr)
 	case "import":
 		return runTargetImport(args[1:], stdout, stderr)
 	case "transport":
@@ -62,10 +65,11 @@ func runTargetList(args []string, stdout, stderr io.Writer) int {
 		Name      string `json:"name"`
 		Current   bool   `json:"current"`
 		Transport string `json:"transport"`
+		SSHHost   string `json:"ssh_host,omitempty"`
 	}
 	items := make([]item, 0, len(targets))
 	for _, candidate := range targets {
-		items = append(items, item{Name: candidate.Name, Current: candidate.Name == current.Name, Transport: candidate.Transport.Type})
+		items = append(items, item{Name: candidate.Name, Current: candidate.Name == current.Name, Transport: candidate.Transport.Type, SSHHost: candidate.Transport.SSHHost})
 	}
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
@@ -73,13 +77,17 @@ func runTargetList(args []string, stdout, stderr io.Writer) int {
 		}{Targets: items})
 	}
 	if len(items) == 0 {
-		fmt.Fprintln(stdout, "No targets configured. Import one with: orch target import NAME CONTEXT")
+		fmt.Fprintln(stdout, "No targets configured. Add one with: orch target add NAME ssh://root@CONTROLLER")
 		return ExitOK
 	}
 	for _, item := range items {
 		marker := " "
 		if item.Current {
 			marker = "*"
+		}
+		if item.SSHHost != "" {
+			fmt.Fprintf(stdout, "%s %-24s %s via %s\n", marker, item.Name, item.Transport, item.SSHHost)
+			continue
 		}
 		fmt.Fprintf(stdout, "%s %-24s %s\n", marker, item.Name, item.Transport)
 	}
@@ -278,6 +286,11 @@ func prepareConnectionArgs(args []string) ([]string, error) {
 	}
 	if name == "" {
 		resolved, currentErr := store.Current()
+		if errors.Is(currentErr, target.ErrNoCurrent) && controlclient.LocalSocketAvailable() {
+			// On the controller host, act like the swarm manager: root talks
+			// to the local administrator socket without any target.
+			return insertContext(cleaned, controlclient.LocalReference), nil
+		}
 		if currentErr != nil {
 			return nil, currentErr
 		}
@@ -289,6 +302,11 @@ func prepareConnectionArgs(args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return insertContext(cleaned, reference), nil
+}
+
+// insertContext adds --context REFERENCE before any "--" separator.
+func insertContext(cleaned []string, reference string) []string {
 	insert := len(cleaned)
 	for i, argument := range cleaned {
 		if argument == "--" {
@@ -299,12 +317,12 @@ func prepareConnectionArgs(args []string) ([]string, error) {
 	cleaned = append(cleaned, "", "")
 	copy(cleaned[insert+2:], cleaned[insert:len(cleaned)-2])
 	cleaned[insert], cleaned[insert+1] = "--context", reference
-	return cleaned, nil
+	return cleaned
 }
 
 func isRemoteCommand(args []string) bool {
 	switch args[0] {
-	case "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "remove", "secret", "registry", "tui", "web":
+	case "join-token", "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "remove", "secret", "registry", "tui", "web":
 		return true
 	case "app":
 		return len(args) > 1 && (args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")
@@ -323,6 +341,7 @@ func printTargetHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch target manages remembered local cluster connections.
 
 Usage:
+  orch target add NAME ssh://[USER@]HOST[:PORT] [--use] [--json]
   orch target list [--json]
   orch target import NAME CONTEXT [--use] [--replace] [--json]
   orch target use NAME

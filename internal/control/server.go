@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -27,8 +28,11 @@ const maxHTTPBodyBytes = maxManifestBytes + 64<<10
 const maxAgentMessageBytes = 20 << 20
 
 type Options struct {
-	DataDir       string
-	Listen        string
+	DataDir string
+	Listen  string
+	// AdminSocket, when set, also serves the administrator API on a local
+	// unix socket authorized by filesystem permissions instead of mTLS.
+	AdminSocket   string
 	Now           func() time.Time
 	ImageResolver ImageResolver
 }
@@ -36,6 +40,8 @@ type Options struct {
 type Server struct {
 	listener        net.Listener
 	http            *http.Server
+	admin           *http.Server
+	adminDone       chan struct{}
 	state           *store.Store
 	sessions        *sessionManager
 	lock            *dataLock
@@ -127,6 +133,9 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, authenticateAdministrator(cluster.ID, http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	adminMux := http.NewServeMux()
+	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	adminMux.HandleFunc("/healthz", healthHandler)
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
 		enrollmentImplementation,
 		connect.WithReadMaxBytes(64<<10),
@@ -143,9 +152,22 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err := reconciler.Reconcile(ctx); err != nil {
 		return fail(fmt.Errorf("reconcile initial assignment: %w", err), state, listener)
 	}
+	var adminListener net.Listener
+	if options.AdminSocket != "" {
+		adminListener, err = listenAdminSocket(ctx, options.AdminSocket)
+		if err != nil {
+			return fail(err, state, listener)
+		}
+	}
+	// Serve the CA after the leaf so a joining node can pin it by
+	// fingerprint from a join token before it has the CA certificate.
+	served := credentials.Certificate
+	if block, _ := pem.Decode(credentials.CACertificatePEM); block != nil {
+		served.Certificate = append(append([][]byte(nil), served.Certificate...), block.Bytes)
+	}
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{credentials.Certificate},
+		Certificates: []tls.Certificate{served},
 		ClientAuth:   tls.VerifyClientCertIfGiven,
 		ClientCAs:    credentials.ClientCAs,
 		NextProtos:   []string{"h2", "http/1.1"},
@@ -164,6 +186,23 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}),
+	}
+	if adminListener != nil {
+		protocols := new(http.Protocols)
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		server.admin = &http.Server{
+			Handler: adminMux, Protocols: protocols,
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       60 * time.Second,
+			MaxHeaderBytes:    16 << 10,
+			ErrorLog:          log.New(io.Discard, "", 0),
+		}
+		server.adminDone = make(chan struct{})
+		go func() {
+			defer close(server.adminDone)
+			_ = server.admin.Serve(adminListener)
+		}()
 	}
 	go func() {
 		defer close(server.reconcileDone)
@@ -229,6 +268,12 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {
 			_ = server.http.Close()
+		}
+		if server.admin != nil {
+			if err := server.admin.Shutdown(ctx); err != nil {
+				_ = server.admin.Close()
+			}
+			<-server.adminDone
 		}
 		<-server.serveDone
 		server.shutdownErr = errors.Join(shutdownErr, server.serveErr, server.state.Close(), server.lock.Close())

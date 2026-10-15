@@ -249,3 +249,67 @@ func bootstrapContext(t *testing.T, root string) string {
 	}
 	return contextPath
 }
+
+func TestAddSocketTargetHasNoCredentials(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(filepath.Join(root, "orch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Current(); !errors.Is(err, ErrNoCurrent) {
+		t.Fatalf("Current() before selection = %v", err)
+	}
+	transport := Transport{Type: TransportSocket, SSHHost: "root@203.0.113.10", SSHPort: 2222, Socket: DefaultAdminSocket}
+	cluster := Cluster{ID: "0f6f4b8e-2f43-4b55-9d1c-1f7a3a9c0b11", Name: "production"}
+	resolved, err := store.AddSocket("production", transport, cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ContextPath != "" || resolved.Transport != transport || resolved.Cluster != cluster {
+		t.Fatalf("socket target = %#v", resolved)
+	}
+	if _, err := store.AddSocket("production", transport, cluster); err == nil {
+		t.Fatal("duplicate socket target succeeded")
+	}
+	if err := store.SetTransport("production", Transport{Type: TransportDirect}); err == nil {
+		t.Fatal("socket target switched to a certificate transport")
+	}
+	moved := Transport{Type: TransportSocket, SSHHost: "root@203.0.113.20", Socket: DefaultAdminSocket}
+	if err := store.SetTransport("production", moved); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get("production")
+	if err != nil || updated.Transport != moved || updated.Cluster != cluster {
+		t.Fatalf("updated socket target = %#v, %v", updated, err)
+	}
+	if _, err := store.AddSocket("broken", transport, Cluster{ID: "not-a-uuid", Name: "x"}); err == nil {
+		t.Fatal("invalid cluster identity accepted")
+	}
+}
+
+func TestValidateSocketTransport(t *testing.T) {
+	valid := []Transport{
+		{Type: TransportSocket, Socket: "/var/lib/orch-controller/admin.sock"},
+		{Type: TransportSocket, Socket: "/run/orch.sock", SSHHost: "prod", SSHPort: 22},
+	}
+	for _, transport := range valid {
+		if err := ValidateTransport(transport); err != nil {
+			t.Fatalf("ValidateTransport(%#v) = %v", transport, err)
+		}
+	}
+	invalid := []Transport{
+		{Type: TransportSocket},
+		{Type: TransportSocket, Socket: "relative.sock"},
+		{Type: TransportSocket, Socket: "/a:b.sock", SSHHost: "prod"},
+		{Type: TransportSocket, Socket: "/run/orch.sock", SSHPort: 22},
+		{Type: TransportSocket, Socket: "/run/orch.sock", SSHHost: "-oProxyCommand=x"},
+		{Type: TransportSocket, Socket: "/run/orch.sock", Address: "10.0.0.1:9443"},
+		{Type: TransportDirect, Socket: "/run/orch.sock"},
+		{Type: TransportSSH, SSHHost: "prod", SSHPort: 22},
+	}
+	for _, transport := range invalid {
+		if err := ValidateTransport(transport); err == nil {
+			t.Fatalf("ValidateTransport(%#v) unexpectedly succeeded", transport)
+		}
+	}
+}

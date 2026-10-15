@@ -5,41 +5,31 @@ Set up a cluster and deploy a web service. Complete the
 
 ## Controller
 
-Copy a trusted Linux amd64 `orch` executable to the controller host. Choose the
-HTTPS address that the worker and your workstation can reach:
+Copy a trusted Linux amd64 `orch` executable to the controller host and run:
 
 ```console
-sudo ./orch cluster install \
-  --name production \
-  --server https://10.0.0.10:9443 \
-  --listen 0.0.0.0:9443 \
-  --admin-dir /root/orch-production-admin \
-  --recovery-dir /root/orch-production-recovery
+sudo ./orch init
 ```
 
-Allow TCP 9443 from trusted workers and operators. Copy both private output
-directories off the host. Import the administrator context on your workstation:
+Allow TCP 9443 from trusted workers and operators. On your workstation, add a
+target that reaches the controller over SSH as root:
 
 ```console
-orch target import production ./orch-production-admin/context.json --use
-orch target test
+orch target add production ssh://root@10.0.0.10
 ```
 
 ## Worker
 
-Create one expiring credential for the worker and transfer it with the trusted
-executable:
+Create a join token on your workstation (or as root on the controller):
 
 ```console
-orch node join create worker-1 --ttl 1h --output worker-1.join
+orch join-token worker-1
 ```
 
-On the worker, use its mutually reachable private address:
+Copy the `orch` executable to the worker and run the printed command there:
 
 ```console
-sudo ./orch node install \
-  --advertise-address 10.0.0.11 \
-  --join-file ./worker-1.join
+sudo ./orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
 ```
 
 Allow UDP 51820 between workers. For public ingress, route DNS to an

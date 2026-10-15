@@ -10,6 +10,7 @@ import (
 	"time"
 
 	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"change.codes/torsten/better-swarm/internal/target"
 )
 
 func TestControllerCertificateCheckReportsExpiry(t *testing.T) {
@@ -73,6 +74,8 @@ func TestNormalizeControllerOptionsRejectsUnsafeIntent(t *testing.T) {
 		{"same outputs", func(o *ControllerOptions) { o.RecoveryDir = o.AdminDir }},
 		{"nested outputs", func(o *ControllerOptions) { o.RecoveryDir = o.AdminDir + "/recovery" }},
 		{"state overlap", func(o *ControllerOptions) { o.AdminDir = ControllerDataDir + "/admin" }},
+		{"missing admin", func(o *ControllerOptions) { o.AdminDir = "" }},
+		{"relative recovery", func(o *ControllerOptions) { o.RecoveryDir = "recovery" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -85,6 +88,17 @@ func TestNormalizeControllerOptionsRejectsUnsafeIntent(t *testing.T) {
 	}
 	if normalized, err := normalizeControllerOptions(valid, true); err != nil || normalized != valid {
 		t.Fatalf("valid options = %#v, %v", normalized, err)
+	}
+	withoutRecovery := valid
+	withoutRecovery.RecoveryDir = ""
+	if normalized, err := normalizeControllerOptions(withoutRecovery, true); err != nil || normalized != withoutRecovery {
+		t.Fatalf("options without recovery = %#v, %v", normalized, err)
+	}
+	// orch init keeps its break-glass admin context outside controller state.
+	initOptions := withoutRecovery
+	initOptions.AdminDir = "/etc/orch/admin"
+	if _, err := normalizeControllerOptions(initOptions, true); err != nil {
+		t.Fatalf("orch init options = %v", err)
 	}
 }
 
@@ -147,5 +161,11 @@ func TestInvalidControllerDoctorDoesNotMutateOutputs(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("planning mutated filesystem: %v", entries)
+	}
+}
+
+func TestControllerDataDirMatchesDefaultAdminSocket(t *testing.T) {
+	if want := ControllerDataDir + "/admin.sock"; target.DefaultAdminSocket != want {
+		t.Fatalf("target.DefaultAdminSocket = %q, want %q", target.DefaultAdminSocket, want)
 	}
 }

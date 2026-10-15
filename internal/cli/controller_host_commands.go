@@ -25,7 +25,7 @@ func runClusterHost(ctx context.Context, args []string, stdout, stderr io.Writer
 	if command == "install" {
 		flags.StringVar(&options.Name, "name", "", "cluster name")
 		flags.StringVar(&options.AdminDir, "admin-dir", "", "new portable administrator directory")
-		flags.StringVar(&options.RecoveryDir, "recovery-dir", "", "new day-zero recovery directory")
+		flags.StringVar(&options.RecoveryDir, "recovery-dir", "", "optional new day-zero recovery directory")
 		flags.BoolVar(&dryRun, "dry-run", false, "inspect and show planned actions without modifying the host")
 		flags.DurationVar(&wait, "wait-timeout", 2*time.Minute, "maximum wait for authenticated controller readiness")
 	}
@@ -33,7 +33,7 @@ func runClusterHost(ctx context.Context, args []string, stdout, stderr io.Writer
 		return ExitInvalid
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(options.Server) == "" || strings.TrimSpace(options.Listen) == "" || command == "install" && wait <= 0 {
-		writeError(stderr, errors.New("requires a valid --server and --listen; install also requires --name, --admin-dir, --recovery-dir, and a positive --wait-timeout"), jsonOutput)
+		writeError(stderr, errors.New("requires a valid --server and --listen; install also requires --name, --admin-dir, and a positive --wait-timeout"), jsonOutput)
 		return ExitInvalid
 	}
 	if command == "doctor" {
@@ -55,8 +55,8 @@ func runClusterHost(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		return ExitOK
 	}
-	if strings.TrimSpace(options.Name) == "" || strings.TrimSpace(options.AdminDir) == "" || strings.TrimSpace(options.RecoveryDir) == "" {
-		writeError(stderr, errors.New("cluster install requires --name, --admin-dir, and --recovery-dir"), jsonOutput)
+	if strings.TrimSpace(options.Name) == "" || strings.TrimSpace(options.AdminDir) == "" {
+		writeError(stderr, errors.New("cluster install requires --name and --admin-dir"), jsonOutput)
 		return ExitInvalid
 	}
 	if dryRun {
@@ -93,9 +93,11 @@ func runClusterHost(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else if result.ClusterID != "" {
 		fmt.Fprintf(stdout, "Controller %s (%s): ready=%t changed=%t\n", result.Name, result.ClusterID, result.Ready, result.Changed)
 		fmt.Fprintln(stdout, "Administrator context:", result.AdminPath)
-		fmt.Fprintln(stdout, "Recovery set:", result.RecoveryDir)
+		if result.RecoveryDir != "" {
+			fmt.Fprintln(stdout, "Recovery set:", result.RecoveryDir)
+		}
 		if result.Ready {
-			fmt.Fprintln(stdout, "Copy both private directories off-host, then import the administrator context with orch target import.")
+			fmt.Fprintln(stdout, "Copy the private directories off-host, then import the administrator context with orch target import.")
 		}
 	}
 	if err != nil {

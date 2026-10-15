@@ -13,15 +13,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	agentctl "change.codes/torsten/better-swarm/internal/agent"
 	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
 	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/target"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -74,21 +71,13 @@ func runNodeJoinCreate(ctx context.Context, args []string, stdout, stderr io.Wri
 		writeError(stderr, fmt.Errorf("refuse join artifact output %s: %w", output, err), jsonOutput)
 		return ExitInvalid
 	}
-	credentialPath := contextPath
-	if target.IsReference(contextPath) {
-		store, err := target.Default()
-		if err != nil {
-			writeError(stderr, err, jsonOutput)
-			return ExitRuntime
-		}
-		resolved, err := store.Get(strings.TrimPrefix(contextPath, target.ReferencePrefix))
-		if err != nil {
-			writeError(stderr, err, jsonOutput)
-			return ExitRuntime
-		}
-		credentialPath = resolved.ContextPath
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
 	}
-	credentials, err := clusterctl.LoadAdministratorCredentials(credentialPath, time.Now())
+	defer remote.CloseIdleConnections()
+	cluster, caPEM, err := joinClusterIdentity(ctx, remote)
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
@@ -115,8 +104,8 @@ func runNodeJoinCreate(ctx context.Context, args []string, stdout, stderr io.Wri
 		}
 		stage = joinCreationStage{Version: 1, TTL: ttl, IdempotencyKey: idempotencyKey, Artifact: agentctl.JoinArtifact{
 			Version: agentctl.JoinArtifactVersion, JoinID: "join_" + hex.EncodeToString(joinIDBytes), Secret: secret,
-			NodeName: nodeName, ClusterID: credentials.Context.Cluster.ID, ControllerEndpoint: credentials.Context.Server,
-			CACertificatePEM: credentials.CACertificatePEM, ExpiresAt: time.Now().UTC().Add(ttl),
+			NodeName: nodeName, ClusterID: cluster.GetId(), ControllerEndpoint: cluster.GetEndpoint(),
+			CACertificatePEM: caPEM, ExpiresAt: time.Now().UTC().Add(ttl),
 		}}
 		encodedStage, encodeErr := json.MarshalIndent(stage, "", "  ")
 		if encodeErr != nil {
@@ -131,8 +120,8 @@ func runNodeJoinCreate(ctx context.Context, args []string, stdout, stderr io.Wri
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
 	}
-	if stage.Version != 1 || stage.Artifact.NodeName != nodeName || stage.Artifact.ClusterID != credentials.Context.Cluster.ID ||
-		stage.Artifact.ControllerEndpoint != credentials.Context.Server || stage.TTL != ttl ||
+	if stage.Version != 1 || stage.Artifact.NodeName != nodeName || stage.Artifact.ClusterID != cluster.GetId() ||
+		stage.Artifact.ControllerEndpoint != cluster.GetEndpoint() || stage.TTL != ttl ||
 		(idempotencyKey != "" && idempotencyKey != stage.IdempotencyKey) {
 		writeError(stderr, errors.New("pending join artifact belongs to different arguments or administrator context"), jsonOutput)
 		return ExitInvalid
@@ -143,12 +132,6 @@ func runNodeJoinCreate(ctx context.Context, args []string, stdout, stderr io.Wri
 		return ExitInvalid
 	}
 	secretHash := sha256.Sum256(stage.Artifact.Secret)
-	remote, err := controlclient.New(contextPath)
-	if err != nil {
-		writeError(stderr, err, jsonOutput)
-		return ExitRuntime
-	}
-	defer remote.CloseIdleConnections()
 	response, err := remote.CreateJoinToken(ctx, &orchv1alpha1.CreateJoinTokenRequest{Id: stage.Artifact.JoinID, NodeName: nodeName,
 		SecretHash: secretHash[:], ExpiresAt: timestamppb.New(stage.Artifact.ExpiresAt), IdempotencyKey: idempotencyKey})
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -40,9 +41,17 @@ type certificateExpiry struct {
 	notAfter time.Time
 }
 
-// New loads a protected administrator context and creates an mTLS client.
+// LocalReference selects the administrator socket of a controller on this
+// host. Commands fall back to it on the controller when no target is selected.
+const LocalReference = "local://"
+
+// New loads a protected administrator context and creates an mTLS client,
+// or connects to an administrator socket for socket targets and LocalReference.
 func New(contextPath string) (*Client, error) {
 	endpoint := Endpoint{ContextPath: contextPath, Transport: target.Transport{Type: target.TransportDirect}}
+	if contextPath == LocalReference {
+		return NewEndpoint(Endpoint{Target: "local", Transport: target.Transport{Type: target.TransportSocket, Socket: target.DefaultAdminSocket}})
+	}
 	if target.IsReference(contextPath) {
 		store, err := target.Default()
 		if err != nil {
@@ -52,7 +61,7 @@ func New(contextPath string) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		endpoint = Endpoint{ContextPath: resolved.ContextPath, Target: resolved.Name, Transport: resolved.Transport}
+		endpoint = Endpoint{ContextPath: resolved.ContextPath, Target: resolved.Name, Transport: resolved.Transport, Cluster: resolved.Cluster}
 	}
 	return NewEndpoint(endpoint)
 }
@@ -62,6 +71,16 @@ type Endpoint struct {
 	Target      string
 	Transport   target.Transport
 	SSHBinary   string
+	// Cluster is the expected identity behind a socket transport; empty
+	// accepts whichever cluster answers (used when adding a target).
+	Cluster target.Cluster
+}
+
+// LocalSocketAvailable reports whether this host serves a controller
+// administrator socket that the current user could plausibly open.
+func LocalSocketAvailable() bool {
+	info, err := os.Stat(target.DefaultAdminSocket)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 // NewEndpoint creates an mTLS client whose route may differ from its canonical
@@ -72,6 +91,9 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 	}
 	if err := target.ValidateTransport(endpoint.Transport); err != nil {
 		return nil, err
+	}
+	if endpoint.Transport.Type == target.TransportSocket {
+		return newSocketClient(endpoint)
 	}
 	credentials, err := clusterctl.LoadAdministratorCredentials(endpoint.ContextPath, time.Now())
 	if err != nil {
@@ -210,15 +232,24 @@ func (client *Client) Target() (string, string) {
 }
 
 func (client *Client) GetCluster(ctx context.Context) (*orchv1alpha1.Cluster, error) {
+	cluster, _, err := client.GetClusterIdentity(ctx)
+	return cluster, err
+}
+
+// GetClusterIdentity returns the cluster and its PEM CA certificate.
+func (client *Client) GetClusterIdentity(ctx context.Context) (*orchv1alpha1.Cluster, []byte, error) {
 	response, err := client.service.GetCluster(ctx, connect.NewRequest(&orchv1alpha1.GetClusterRequest{}))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cluster := response.Msg.GetCluster()
-	if cluster == nil || cluster.GetId() != client.context.Cluster.ID || cluster.GetName() != client.context.Cluster.Name {
-		return nil, fmt.Errorf("controller cluster identity does not match administrator context")
+	if cluster == nil {
+		return nil, nil, fmt.Errorf("controller returned an empty cluster")
 	}
-	return cluster, nil
+	if client.context.Cluster.ID != "" && (cluster.GetId() != client.context.Cluster.ID || cluster.GetName() != client.context.Cluster.Name) {
+		return nil, nil, fmt.Errorf("controller cluster identity does not match administrator context")
+	}
+	return cluster, response.Msg.GetCaCertificatePem(), nil
 }
 
 func (client *Client) GetApplication(ctx context.Context, name string) (*orchv1alpha1.Application, error) {

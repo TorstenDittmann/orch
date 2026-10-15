@@ -24,6 +24,13 @@ const (
 	TransportDirect = "direct"
 	TransportWG     = "wireguard"
 	TransportSSH    = "ssh"
+	// TransportSocket reaches the controller's local administrator socket,
+	// directly on the controller host or forwarded over SSH. It needs no
+	// administrator certificate: the SSH login (as root) is the credential.
+	TransportSocket = "socket"
+	// DefaultAdminSocket is where a managed controller serves its
+	// administrator socket (host.ControllerDataDir + "/admin.sock").
+	DefaultAdminSocket = "/var/lib/orch-controller/admin.sock"
 )
 
 var (
@@ -33,24 +40,39 @@ var (
 
 var ErrNotFound = errors.New("target was not found")
 
+// ErrNoCurrent reports that no target has been selected.
+var ErrNoCurrent = errors.New("no target is selected; run 'orch target add NAME ssh://root@CONTROLLER' or 'orch target use NAME'")
+
 type Transport struct {
 	Type           string `json:"type"`
 	Address        string `json:"address,omitempty"`
 	SSHHost        string `json:"ssh_host,omitempty"`
 	SSHDestination string `json:"ssh_destination,omitempty"`
+	SSHPort        int    `json:"ssh_port,omitempty"`
+	Socket         string `json:"socket,omitempty"`
+}
+
+// Cluster records the identity a socket target connected to when it was
+// added, so later connections detect a different cluster at the same host.
+type Cluster struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Manifest struct {
 	Version   string    `json:"version"`
 	Name      string    `json:"name"`
-	Context   string    `json:"context"`
+	Context   string    `json:"context,omitempty"`
 	Transport Transport `json:"transport"`
+	Cluster   *Cluster  `json:"cluster,omitempty"`
 }
 
 type Resolved struct {
 	Name        string
 	ContextPath string
 	Transport   Transport
+	// Cluster is set for socket targets, which have no context file.
+	Cluster Cluster
 }
 
 type Store struct {
@@ -307,11 +329,20 @@ func (s *Store) Get(name string) (Resolved, error) {
 	if err := readStrictJSON(filepath.Join(directory, "target.json"), &manifest); err != nil {
 		return Resolved{}, fmt.Errorf("read target %q: %w", name, err)
 	}
-	if manifest.Version != Version || manifest.Name != name || manifest.Context != "context.json" {
+	if manifest.Version != Version || manifest.Name != name {
 		return Resolved{}, fmt.Errorf("target %q has an invalid or unsupported manifest", name)
 	}
 	if err := ValidateTransport(manifest.Transport); err != nil {
 		return Resolved{}, fmt.Errorf("target %q: %w", name, err)
+	}
+	if manifest.Transport.Type == TransportSocket {
+		if manifest.Context != "" || manifest.Cluster == nil || !clusterIDPattern.MatchString(manifest.Cluster.ID) || manifest.Cluster.Name == "" {
+			return Resolved{}, fmt.Errorf("target %q has an invalid or unsupported manifest", name)
+		}
+		return Resolved{Name: name, Transport: manifest.Transport, Cluster: *manifest.Cluster}, nil
+	}
+	if manifest.Context != "context.json" || manifest.Cluster != nil {
+		return Resolved{}, fmt.Errorf("target %q has an invalid or unsupported manifest", name)
 	}
 	contextPath := filepath.Join(directory, manifest.Context)
 	if _, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now()); err != nil {
@@ -363,7 +394,7 @@ func (s *Store) Current() (Resolved, error) {
 	}
 	if err := readStrictJSON(filepath.Join(s.root, "current.json"), &current); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Resolved{}, fmt.Errorf("no target is selected; run 'orch target use NAME' or 'orch target import NAME FILE'")
+			return Resolved{}, ErrNoCurrent
 		}
 		return Resolved{}, fmt.Errorf("read current target: %w", err)
 	}
@@ -381,7 +412,16 @@ func (s *Store) SetTransport(name string, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	manifest := Manifest{Version: Version, Name: name, Context: filepath.Base(resolved.ContextPath), Transport: transport}
+	if (resolved.Transport.Type == TransportSocket) != (transport.Type == TransportSocket) {
+		return fmt.Errorf("target %q cannot switch between socket and certificate transports; add a new target instead", name)
+	}
+	manifest := Manifest{Version: Version, Name: name, Transport: transport}
+	if transport.Type == TransportSocket {
+		cluster := resolved.Cluster
+		manifest.Cluster = &cluster
+	} else {
+		manifest.Context = filepath.Base(resolved.ContextPath)
+	}
 	return writeJSONAtomic(filepath.Join(s.targetPath(name), "target.json"), manifest)
 }
 
@@ -393,6 +433,29 @@ func (s *Store) ResolveReference(reference string) (Resolved, error) {
 }
 
 func ValidateTransport(transport Transport) error {
+	if transport.Type == TransportSocket {
+		if transport.Address != "" || transport.SSHDestination != "" {
+			return fmt.Errorf("socket transport does not accept a wireguard address or SSH destination")
+		}
+		// A colon would be misread by ssh -L forwarding syntax.
+		if !strings.HasPrefix(transport.Socket, "/") || strings.ContainsAny(transport.Socket, "\x00\r\n:") {
+			return fmt.Errorf("socket path must be absolute and must not contain a colon")
+		}
+		if transport.SSHHost == "" {
+			if transport.SSHPort != 0 {
+				return fmt.Errorf("SSH port requires an SSH host")
+			}
+		} else if err := validateSSHHost(transport.SSHHost); err != nil {
+			return err
+		}
+		if transport.SSHPort < 0 || transport.SSHPort > 65535 {
+			return fmt.Errorf("SSH port must be from 1 through 65535")
+		}
+		return nil
+	}
+	if transport.Socket != "" || transport.SSHPort != 0 {
+		return fmt.Errorf("only socket transport accepts a socket path or SSH port")
+	}
 	switch transport.Type {
 	case TransportDirect:
 		if transport.Address != "" || transport.SSHHost != "" || transport.SSHDestination != "" {
@@ -406,8 +469,8 @@ func ValidateTransport(transport Transport) error {
 			return fmt.Errorf("wireguard transport does not accept SSH options")
 		}
 	case TransportSSH:
-		if strings.TrimSpace(transport.SSHHost) == "" || strings.HasPrefix(transport.SSHHost, "-") || strings.ContainsAny(transport.SSHHost, "\x00\r\n") {
-			return fmt.Errorf("SSH host must be a safe OpenSSH host or alias")
+		if err := validateSSHHost(transport.SSHHost); err != nil {
+			return err
 		}
 		if transport.Address != "" {
 			return fmt.Errorf("SSH transport does not accept a wireguard address")
@@ -418,9 +481,64 @@ func ValidateTransport(transport Transport) error {
 			}
 		}
 	default:
-		return fmt.Errorf("transport must be direct, wireguard, or ssh")
+		return fmt.Errorf("transport must be direct, wireguard, ssh, or socket")
 	}
 	return nil
+}
+
+func validateSSHHost(host string) error {
+	if strings.TrimSpace(host) == "" || strings.HasPrefix(host, "-") || strings.ContainsAny(host, "\x00\r\n") {
+		return fmt.Errorf("SSH host must be a safe OpenSSH host or alias")
+	}
+	return nil
+}
+
+// AddSocket remembers a controller reached through its administrator socket.
+// cluster is the identity the caller verified over that transport.
+func (s *Store) AddSocket(name string, transport Transport, cluster Cluster) (Resolved, error) {
+	if err := ValidateName(name); err != nil {
+		return Resolved{}, err
+	}
+	if transport.Type != TransportSocket {
+		return Resolved{}, fmt.Errorf("AddSocket requires socket transport")
+	}
+	if err := ValidateTransport(transport); err != nil {
+		return Resolved{}, err
+	}
+	if !clusterIDPattern.MatchString(cluster.ID) || strings.TrimSpace(cluster.Name) == "" {
+		return Resolved{}, fmt.Errorf("controller returned an invalid cluster identity")
+	}
+	if err := ensurePrivateDirectory(s.root); err != nil {
+		return Resolved{}, err
+	}
+	if err := ensurePrivateDirectory(filepath.Join(s.root, "targets")); err != nil {
+		return Resolved{}, err
+	}
+	finalPath := s.targetPath(name)
+	if _, err := os.Lstat(finalPath); err == nil {
+		return Resolved{}, fmt.Errorf("target %q already exists", name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Resolved{}, fmt.Errorf("inspect target %q: %w", name, err)
+	}
+	temporary, err := os.MkdirTemp(filepath.Join(s.root, "targets"), ".add-")
+	if err != nil {
+		return Resolved{}, fmt.Errorf("stage target: %w", err)
+	}
+	defer os.RemoveAll(temporary)
+	if err := os.Chmod(temporary, 0o700); err != nil {
+		return Resolved{}, fmt.Errorf("protect staged target: %w", err)
+	}
+	manifest := Manifest{Version: Version, Name: name, Transport: transport, Cluster: &cluster}
+	if err := writeJSONFile(filepath.Join(temporary, "target.json"), manifest); err != nil {
+		return Resolved{}, err
+	}
+	if err := os.Rename(temporary, finalPath); err != nil {
+		if _, statErr := os.Lstat(finalPath); statErr == nil {
+			return Resolved{}, fmt.Errorf("target %q already exists", name)
+		}
+		return Resolved{}, fmt.Errorf("publish target %q: %w", name, err)
+	}
+	return s.Get(name)
 }
 
 func validateAddress(value string) error {

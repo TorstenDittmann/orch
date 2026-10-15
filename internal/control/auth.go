@@ -24,8 +24,10 @@ type authenticatedAgent struct {
 
 type authenticatedPrincipal struct {
 	certificate *x509.Certificate
-	err         error
-	code        connect.Code
+	// local is set only for requests on the controller's admin socket.
+	local bool
+	err   error
+	code  connect.Code
 }
 
 func authenticateAgent(clusterID string, state *store.Store, next http.Handler) http.Handler {
@@ -123,7 +125,7 @@ func requireAdministrator(ctx context.Context) error {
 	if principal.err != nil {
 		return connect.NewError(principal.code, principal.err)
 	}
-	if principal.certificate == nil {
+	if principal.certificate == nil && !principal.local {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("administrator client certificate is required"))
 	}
 	return nil

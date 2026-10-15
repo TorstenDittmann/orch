@@ -5,11 +5,21 @@ backups.
 
 ## Administrator access
 
-The directory produced by `orch cluster install --admin-dir ...` contains an
-administrator identity. Transfer the whole directory through a protected
-channel, restrict access to it, and remove unnecessary copies.
+The controller serves its administrator API on two listeners:
 
-Use named targets instead of copying certificate paths into scripts:
+- A local socket, `/var/lib/orch-controller/admin.sock`, that only root and the
+  controller account can open. `orch` on the controller host uses it when no
+  target is selected, and `orch target add NAME ssh://root@HOST` reaches it
+  over SSH. Whoever can log in to the controller as root can administer the
+  cluster, which they could already do by reading its state.
+- The HTTPS port, which requires an mTLS administrator certificate. `orch init`
+  leaves one in `/etc/orch/admin` on the controller for break-glass use;
+  `orch cluster install --admin-dir ...` writes it where you choose.
+
+Socket targets store no credentials on your workstation; access follows your
+SSH keys. For a certificate context, transfer the whole directory through a
+protected channel, restrict access to it, remove unnecessary copies, and use
+named targets instead of copying certificate paths into scripts:
 
 ```console
 orch target import production ./orch-production-admin/context.json --use
@@ -53,15 +63,23 @@ renewal against the restored data directory before starting the controller.
 
 ## Worker enrollment
 
-Create one short-lived join file per worker:
+Create one join token per worker:
 
 ```console
-orch node join create worker-1 --ttl 1h --output worker-1.join
+orch join-token worker-1
 ```
 
-Transfer it privately and keep it mode 0600. Do not place its contents in
-command arguments, environment variables, shell history, or logs. Delete
-transfer copies after the worker has joined.
+A token admits one node with that name, once, until it expires (one hour by
+default). It also pins the cluster CA fingerprint, so `orch join` only enrolls
+with your controller. A used or expired token is worthless, but an unused one
+admits a node: send it through a channel you trust. While `orch join` runs, the
+token is visible in the worker's process list; pass it on stdin with
+`orch join -` if other users share that host. Revoke a token you no longer
+need with `orch node join revoke`.
+
+Join files from `orch node join create` carry the same credential. Transfer
+them privately, keep them mode 0600 and delete copies after the worker has
+joined.
 
 ## Secrets
 
