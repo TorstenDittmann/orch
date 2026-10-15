@@ -49,11 +49,13 @@ type Options struct {
 }
 
 type Object struct {
-	ID                string
-	AllocationID      string
-	SpecDigest        string
-	Running           bool
-	ExitCode          *int32
+	ID           string
+	AllocationID string
+	SpecDigest   string
+	Running      bool
+	ExitCode     *int32
+	// StartedAt is when the current task was started, not when the container
+	// was created, so it moves forward on every restart.
 	StartedAt         time.Time
 	Address           string
 	NetworkGeneration uint64

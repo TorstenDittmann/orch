@@ -25,9 +25,11 @@ type Fake struct {
 	NetworkError    error
 	Operations      []string
 	PreparedNetwork model.NetworkConfig
-	nextAddress     netip.Addr
-	waiters         map[string][]chan Object
-	closed          bool
+	// Now overrides the clock used for StartedAt; nil uses time.Now.
+	Now         func() time.Time
+	nextAddress netip.Addr
+	waiters     map[string][]chan Object
+	closed      bool
 }
 
 func NewFake() *Fake {
@@ -41,6 +43,13 @@ func NewFake() *Fake {
 		Logs: make(map[string][]LogFrame), ExecFrames: make(map[string][]ExecFrame),
 		EnsureErrors: make(map[string]error), waiters: make(map[string][]chan Object),
 	}
+}
+
+func (f *Fake) now() time.Time {
+	if f.Now != nil {
+		return f.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (f *Fake) PrepareNetwork(_ context.Context, config model.NetworkConfig) error {
@@ -110,7 +119,7 @@ func (f *Fake) Ensure(_ context.Context, allocation model.AllocationDesired) (Ob
 		if !current.Running {
 			current.Running = true
 			current.ExitCode = nil
-			current.StartedAt = time.Now().UTC()
+			current.StartedAt = f.now()
 			f.Objects[id] = current
 		}
 		f.Operations = append(f.Operations, "adopt:"+id)
@@ -124,7 +133,7 @@ func (f *Fake) Ensure(_ context.Context, allocation model.AllocationDesired) (Ob
 		address = f.nextAddress.String()
 		f.nextAddress = f.nextAddress.Next()
 	}
-	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: time.Now().UTC(), Address: address, NetworkGeneration: allocation.NetworkGeneration}
+	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: f.now(), Address: address, NetworkGeneration: allocation.NetworkGeneration}
 	f.Objects[id] = object
 	f.Allocations[id] = allocation
 	f.Operations = append(f.Operations, "ensure:"+id)

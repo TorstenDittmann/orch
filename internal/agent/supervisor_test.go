@@ -824,6 +824,55 @@ func TestSupervisorRestartedProcessRepassesReadiness(t *testing.T) {
 	}
 }
 
+func TestSupervisorRestartedSlowStartGetsFullHealthDeadline(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	now := supervisorTestTime
+	runtime.Now = func() time.Time { return now }
+	prober := &health.Fake{Err: errors.New("still warming up")}
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}}, strings.NewReader(strings.Repeat("\x00", 64)))
+	allocation := supervisorHTTPAllocation(t, "alloc-web", "sha256:"+strings.Repeat("a", 64), 1)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := model.Assignment{Network: networkConfig, Allocations: []model.AllocationDesired{allocation}}
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+
+	// The container was created long before it exits and restarts, so a
+	// deadline measured from creation would already be exceeded.
+	now = now.Add(time.Hour)
+	if err := runtime.Exit(orchruntime.ObjectID(allocation.ID, allocation.SpecDigest), 1); err != nil {
+		t.Fatal(err)
+	}
+	if statuses, err := supervisor.Reconcile(ctx, assignment); err != nil || statuses[0].Phase != model.AllocationBackoff {
+		t.Fatalf("exited process status = %#v, %v", statuses, err)
+	}
+	now = now.Add(3 * time.Second)
+	restartedAt := now
+	statuses, err := supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].HealthStatus != model.HealthChecking {
+		t.Fatalf("restarted process status = %#v, %v", statuses, err)
+	}
+
+	deadline := time.Duration(allocation.StartDeadlineSeconds) * time.Second
+	now = restartedAt.Add(deadline - health.ProbeInterval)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].Reason == "health_deadline_exceeded" {
+		t.Fatalf("restarted slow start inside its deadline = %#v, %v", statuses, err)
+	}
+	now = restartedAt.Add(deadline)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationFailed || statuses[0].Reason != "health_deadline_exceeded" {
+		t.Fatalf("restarted slow start past its deadline = %#v, %v", statuses, err)
+	}
+}
+
 func TestSupervisorPromotesMetadataOnlyHealthyRevisionWithoutAnotherProbe(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
