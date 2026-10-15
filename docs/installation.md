@@ -33,7 +33,8 @@ sudo ./orch init
 ```
 
 `orch init` checks the host, installs the controller as a systemd service and
-waits until it answers. It detects the host's address and listens on port
+waits until it answers. If the host cannot be installed, it lists each blocking
+check with its fix instead. It detects the host's address and listens on port
 9443; pass `--advertise-address`, `--port` or `--name` to override them. Use
 the address workers and your workstation can reach. Rerunning the same command
 resumes an interrupted installation.
@@ -73,8 +74,8 @@ sudo ./orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
 
 The token is valid once, for one hour by default (`--ttl` accepts 1m to 24h),
 and pins the cluster CA, so the worker refuses a controller that is not yours.
-`orch join` checks the host, installs the pinned dependencies and services, and
-advertises the host's detected address to the other workers. Pass
+`orch join` checks the host the same way, installs the pinned dependencies and
+services, and advertises the host's detected address to the other workers. Pass
 `--advertise-address` to choose a different one.
 
 Machines without a shared private network can use their public address

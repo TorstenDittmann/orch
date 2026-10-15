@@ -40,9 +40,20 @@ $ orch plan
 $ orch deploy --wait --target production
 ```
 
+Setting up a cluster takes three commands, in the style of Docker Swarm:
+
+```console
+$ sudo ./orch init                          # on the controller
+$ orch join-token worker-1                  # prints the join command
+$ orch target add production ssh://root@controller.example.com
+```
+
+Your SSH key is the credential. There are no certificate bundles to copy
+between machines.
+
 ## Start here
 
-1. [Install a controller and worker](installation.md).
+1. [Set up a controller and join workers](installation.md).
 2. [Deploy your first HTTPS application](quick-start.md).
 3. Learn how [rollouts, placement, and recovery](runtime.md) behave.
 
@@ -57,16 +68,17 @@ passes through the controller.
 | --- | --- |
 | Deployments | Immutable plans, readiness gates, availability budgets, history, and rollback |
 | Runtime | OCI services, workers, cron schedules, one-off jobs, hooks, and local volumes |
-| Network | Private per-node subnets, service DNS, WireGuard routing, HTTPS and raw TCP ingress |
-| Operations | Remembered targets, live logs, events, runtime inventory, and a keyboard-first TUI |
-| Recovery | Durable agent assignments, controller backups, guided host installation, and managed upgrades |
+| Setup | `orch init` and `orch join` with one-time join tokens, SSH targets, and host checks that name each blocker and its fix |
+| Network | Private per-node subnets, service DNS, a WireGuard mesh over private or public addresses, HTTPS and TCP ingress, node-local TCP and UDP ports |
+| Operations | Remembered targets, live logs, events, runtime inventory, a keyboard-first TUI, and the `orch web` dashboard |
+| Recovery | Durable agent assignments, controller backups, certificate renewal, and managed upgrades |
 
 ## Limits
 
-orch targets small teams operating mutually reachable Linux hosts. It does not
+orch targets small teams operating Linux hosts that can reach each other. It does not
 provide Kubernetes APIs, multi-region control planes, distributed storage,
 autoscaling, automatic fencing, or control-plane high availability. Those
 limits keep routine deployment and recovery understandable.
 
 [Read the product scope](product.md) or browse the
-[source on change.codes](https://change.codes/torsten/better-swarm).
+[source on GitHub](https://github.com/TorstenDittmann/orch).

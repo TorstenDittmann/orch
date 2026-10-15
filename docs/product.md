@@ -8,7 +8,7 @@ orch is a good fit when:
 
 - you operate Ubuntu 24.04 LTS or Fedora 44 hosts;
 - one team controls the cluster and its applications;
-- workers can reach each other over private IPv4;
+- workers can reach each other over IPv4, on private or public addresses;
 - applications run as OCI containers;
 - a single durable controller is acceptable;
 - local persistent data can remain tied to one worker.

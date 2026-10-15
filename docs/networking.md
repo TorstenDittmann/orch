@@ -1,7 +1,7 @@
 # Networking
 
-Services can communicate inside the cluster or be exposed through HTTP, HTTPS,
-or TCP ingress.
+Services can communicate inside the cluster, be exposed through HTTP, HTTPS,
+or TCP ingress, or publish TCP and UDP ports on the node they run on.
 
 ## Requirements
 

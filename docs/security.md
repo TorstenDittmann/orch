@@ -56,7 +56,8 @@ target and keep its transport settings:
 orch target import production ./orch-production-admin-2027/context.json --replace
 ```
 
-Old administrator certificates stay valid until they expire. After renewing,
+SSH targets reach the controller's local socket and need no change after a
+renewal. Old administrator certificates stay valid until they expire. After renewing,
 refresh the `pki` copy in your off-host backups. If a restore finds an expired
 controller certificate, it reports that and still restores the data. Run the
 renewal against the restored data directory before starting the controller.
@@ -100,8 +101,8 @@ revision that should use it. Remove unused values with `orch secret delete`.
 
 ## Backups
 
-The recovery directory created during installation is a day-zero snapshot.
-Create newer backups after configuration changes and on a schedule:
+`orch init --recovery-dir DIR` and `orch cluster install` can write a day-zero
+recovery directory. It is only a snapshot. Create newer backups after configuration changes and on a schedule:
 
 ```console
 sudo /opt/orch-controller/bin/orch cluster backup \
