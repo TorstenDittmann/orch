@@ -6,7 +6,7 @@ PKL := $(MISE) exec -- pkl
 
 VERSION ?= 0.1.0-dev
 BUILD_ID ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo development)
-LDFLAGS := -s -w -X change.codes/torsten/better-swarm/internal/buildinfo.Version=$(VERSION) -X change.codes/torsten/better-swarm/internal/buildinfo.BuildID=$(BUILD_ID)
+LDFLAGS := -s -w -X github.com/TorstenDittmann/orch/internal/buildinfo.Version=$(VERSION) -X github.com/TorstenDittmann/orch/internal/buildinfo.BuildID=$(BUILD_ID)
 
 .PHONY: all build check clean containerd-e2e release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
 

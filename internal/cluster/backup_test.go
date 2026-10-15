@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 func TestBackupCreatesReadableSnapshot(t *testing.T) {

@@ -6600,7 +6600,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"RemoveNode\x12 .orch.v1alpha1.RemoveNodeRequest\x1a!.orch.v1alpha1.RemoveNodeResponse\x12`\n" +
 	"\x0fCreateJoinToken\x12%.orch.v1alpha1.CreateJoinTokenRequest\x1a&.orch.v1alpha1.CreateJoinTokenResponse\x12]\n" +
 	"\x0eListJoinTokens\x12$.orch.v1alpha1.ListJoinTokensRequest\x1a%.orch.v1alpha1.ListJoinTokensResponse\x12`\n" +
-	"\x0fRevokeJoinToken\x12%.orch.v1alpha1.RevokeJoinTokenRequest\x1a&.orch.v1alpha1.RevokeJoinTokenResponseBBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\x0fRevokeJoinToken\x12%.orch.v1alpha1.RevokeJoinTokenRequest\x1a&.orch.v1alpha1.RevokeJoinTokenResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_control_proto_rawDescOnce sync.Once

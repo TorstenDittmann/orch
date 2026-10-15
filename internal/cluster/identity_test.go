@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/store"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 func TestCredentialLoadersValidateBootstrapIdentity(t *testing.T) {

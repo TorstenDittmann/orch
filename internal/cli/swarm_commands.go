@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/host"
-	"change.codes/torsten/better-swarm/internal/target"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/host"
+	"github.com/TorstenDittmann/orch/internal/target"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

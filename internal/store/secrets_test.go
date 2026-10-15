@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/security"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 func TestApplicationSecretsAreVersionedEncryptedAndIdempotent(t *testing.T) {

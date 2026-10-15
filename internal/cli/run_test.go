@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/control"
-	"change.codes/torsten/better-swarm/internal/store"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/control"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 const cliManifest = `amends "orch:/v1alpha1/Application.pkl"

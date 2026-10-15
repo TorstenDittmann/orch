@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 // Mesh wraps the node-local CNI manager with the WireGuard transport used to

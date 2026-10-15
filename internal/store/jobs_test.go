@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func TestJobRequestsAreDurableAtomicAndImmutable(t *testing.T) {

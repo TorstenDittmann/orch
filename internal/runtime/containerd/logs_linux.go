@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 const (

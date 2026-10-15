@@ -5,7 +5,7 @@ package containerd
 import (
 	"context"
 
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func RunLogSink(context.Context, string) error {

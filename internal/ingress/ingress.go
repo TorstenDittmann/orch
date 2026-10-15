@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 const RequiredCaddyVersion = "v2.11.3"

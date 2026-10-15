@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/config"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/config"
 )
 
 const maxSecretInput = 1 << 20

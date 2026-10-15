@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 var testCreatedAt = time.Date(2026, time.September, 2, 12, 0, 0, 123, time.UTC)

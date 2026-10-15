@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	agentstate "change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	"change.codes/torsten/better-swarm/internal/store"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	agentstate "github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 type UpgradeOptions struct {

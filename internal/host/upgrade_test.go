@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
 )
 
 func TestUpgradeJournalPinsCandidateAndPreservesPreviousBinary(t *testing.T) {

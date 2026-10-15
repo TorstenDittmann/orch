@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"sort"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 // ReadyServiceEndpoints returns the controller's last authenticated serving

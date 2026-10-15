@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
 )
 
 type Fake struct {

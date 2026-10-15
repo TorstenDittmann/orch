@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
 )
 
 const maxLogBytes = 512 << 10

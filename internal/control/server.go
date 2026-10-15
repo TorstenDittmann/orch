@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 const maxHTTPBodyBytes = maxManifestBytes + 64<<10

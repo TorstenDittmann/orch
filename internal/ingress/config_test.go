@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func TestRenderIsDeterministicAndRoutesOnlyPrivateUpstreams(t *testing.T) {

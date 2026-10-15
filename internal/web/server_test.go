@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	"change.codes/torsten/better-swarm/internal/tui"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/tui"
 )
 
 type fakeProvider struct {

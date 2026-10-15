@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	pklschema "change.codes/torsten/better-swarm/pkl"
+	pklschema "github.com/TorstenDittmann/orch/pkl"
 )
 
 func TestLoadSupportsDeterministicLocalComposition(t *testing.T) {

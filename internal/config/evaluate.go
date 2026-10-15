@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	pklschema "change.codes/torsten/better-swarm/pkl"
+	pklschema "github.com/TorstenDittmann/orch/pkl"
 	applepkl "github.com/apple/pkl-go/pkl"
 )
 

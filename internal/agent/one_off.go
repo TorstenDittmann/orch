@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func (s *Supervisor) reconcileOneOff(ctx context.Context, job model.CronJobDesired, run state.CronRunState, allocations []model.AllocationStatus, endpoints []model.ServiceEndpoint, now time.Time) (state.CronRunState, error) {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 )
 
 func TestImportUseAndTransport(t *testing.T) {

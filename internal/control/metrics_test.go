@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func TestRenderMetricsReportsFailureStates(t *testing.T) {

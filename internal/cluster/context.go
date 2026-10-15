@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/security"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 const ContextVersion = "v1alpha1"

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	orchschedule "change.codes/torsten/better-swarm/internal/schedule"
+	orchschedule "github.com/TorstenDittmann/orch/internal/schedule"
 	"github.com/distribution/reference"
 	"golang.org/x/net/idna"
 )

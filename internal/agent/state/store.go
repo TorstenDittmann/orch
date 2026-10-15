@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
-	"change.codes/torsten/better-swarm/internal/security"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
+	"github.com/TorstenDittmann/orch/internal/security"
 	_ "modernc.org/sqlite"
 )
 

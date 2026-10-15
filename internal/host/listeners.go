@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	"change.codes/torsten/better-swarm/internal/network"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	"github.com/TorstenDittmann/orch/internal/network"
 )
 
 var listenerPID = regexp.MustCompile(`pid=([0-9]+),`)

@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
-	controllerbundle "change.codes/torsten/better-swarm/packaging/controller"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
+	controllerbundle "github.com/TorstenDittmann/orch/packaging/controller"
 )
 
 var controllerName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)

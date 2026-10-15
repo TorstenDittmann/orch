@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 // metricsInput is everything one scrape reports, read from the store and the

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/security"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 // JoinTokenPrefix starts every printable join token.

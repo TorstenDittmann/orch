@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/tui"
-	"change.codes/torsten/better-swarm/internal/web"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/tui"
+	"github.com/TorstenDittmann/orch/internal/web"
 )
 
 func runWeb(ctx context.Context, args []string, stdout, stderr io.Writer) int {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/host"
+	"github.com/TorstenDittmann/orch/internal/host"
 )
 
 func runHostUpgrade(ctx context.Context, kind string, args []string, stdout, stderr io.Writer) int {

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	nodebundle "change.codes/torsten/better-swarm/packaging/node"
+	"github.com/TorstenDittmann/orch/internal/model"
+	nodebundle "github.com/TorstenDittmann/orch/packaging/node"
 )
 
 const Prefix = "/opt/orch"

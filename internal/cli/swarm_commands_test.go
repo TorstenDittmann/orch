@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/control"
-	"change.codes/torsten/better-swarm/internal/target"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/control"
+	"github.com/TorstenDittmann/orch/internal/target"
 )
 
 func TestSocketTargetStatusAndJoinTokenWithoutCertificates(t *testing.T) {

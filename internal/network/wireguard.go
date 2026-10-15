@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 

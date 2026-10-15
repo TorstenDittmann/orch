@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
 
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/network"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/network"
 )
 
 // Probe separates read-only inspection from the installer mutation interface.

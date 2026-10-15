@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/scheduler"
-	"change.codes/torsten/better-swarm/internal/store"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/scheduler"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 const distributedLossGrace = 60 * time.Second

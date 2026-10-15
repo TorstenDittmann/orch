@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 type caddyConfig struct {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	"connectrpc.com/connect"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 )
 
 func (c *Client) RunJob(ctx context.Context, req *orchv1alpha1.RunJobRequest) (*orchv1alpha1.OneOffJob, error) {
