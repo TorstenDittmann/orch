@@ -170,7 +170,7 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 		r.OS, r.Version = Distro(string(data))
 	}
 	if runtime.GOOS != "linux" || !supported(r.OS, r.Version, runtime.GOARCH) || r.OS == "fedora" && (releaseValue(string(data), "VARIANT_ID") != "server" || pathExistsLocal("/run/ostree-booted")) {
-		add("distribution", "fail", r.OS+" "+r.Version+" "+r.Architecture, "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, r.Architecture, string(data), pathExistsLocal("/run/ostree-booted")), "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}

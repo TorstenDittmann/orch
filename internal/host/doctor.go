@@ -76,7 +76,7 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		r.OS, r.Version = Distro(string(data))
 	}
 	if !supported(r.OS, r.Version, p.Arch) || r.OS == "fedora" && (releaseValue(string(data), "VARIANT_ID") != "server" || p.Exists("/run/ostree-booted")) {
-		add("distribution", "fail", r.OS+" "+r.Version+" "+p.Arch, "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, p.Arch, string(data), p.Exists("/run/ostree-booted")), "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}

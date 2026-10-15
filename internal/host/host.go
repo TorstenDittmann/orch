@@ -157,3 +157,39 @@ func supported(osName, version, arch string) bool {
 	return arch == "amd64" && (osName == "ubuntu" && version == "24.04" || osName == "fedora" && version == "44")
 }
 func platform() string { return runtime.GOOS }
+
+// blockersError lists the checks that stop installation, with their remedies.
+func blockersError(kind string, report Report) error {
+	var lines []string
+	for _, check := range report.Checks {
+		if (check.State == "fail" || check.State == "unknown") && !check.Installable {
+			line := fmt.Sprintf("  %s: %s", check.ID, check.Detail)
+			if check.Remedy != "" {
+				line += " (" + check.Remedy + ")"
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return fmt.Errorf("host has %s blockers", kind)
+	}
+	return fmt.Errorf("host has %s blockers:\n%s", kind, strings.Join(lines, "\n"))
+}
+
+// distributionDetail names why a Fedora host is unsupported: only the Server
+// edition qualifies, not Cloud, Workstation or ostree-based variants.
+func distributionDetail(os, version, arch, release string, ostree bool) string {
+	detail := os + " " + version + " " + arch
+	if os != "fedora" {
+		return detail
+	}
+	variant := releaseValue(release, "VARIANT_ID")
+	if variant == "" {
+		variant = "none"
+	}
+	detail += " (edition " + variant
+	if ostree {
+		detail += ", ostree"
+	}
+	return detail + "; only Fedora Server is supported)"
+}

@@ -169,3 +169,24 @@ func TestControllerDataDirMatchesDefaultAdminSocket(t *testing.T) {
 		t.Fatalf("target.DefaultAdminSocket = %q, want %q", target.DefaultAdminSocket, want)
 	}
 }
+
+func TestBlockersErrorListsFailingChecks(t *testing.T) {
+	report := Report{Checks: []Check{
+		{ID: "distribution", State: "fail", Detail: "rocky 9", Remedy: "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64"},
+		{ID: "controller_installation", State: "fail", Detail: "not installed", Installable: true},
+		{ID: "clock", State: "pass", Detail: "ok"},
+	}}
+	message := blockersError("controller installation", report).Error()
+	if !strings.Contains(message, "distribution: rocky 9 (Use Ubuntu 24.04 LTS or Fedora Server 44 amd64)") || strings.Contains(message, "controller_installation") || strings.Contains(message, "clock") {
+		t.Fatalf("blockers error = %q", message)
+	}
+}
+
+func TestDistributionDetailNamesFedoraEdition(t *testing.T) {
+	if got := distributionDetail("fedora", "44", "amd64", "ID=fedora\nVARIANT_ID=cloud\n", false); got != "fedora 44 amd64 (edition cloud; only Fedora Server is supported)" {
+		t.Fatalf("detail = %q", got)
+	}
+	if got := distributionDetail("ubuntu", "22.04", "amd64", "ID=ubuntu\n", false); got != "ubuntu 22.04 amd64" {
+		t.Fatalf("detail = %q", got)
+	}
+}

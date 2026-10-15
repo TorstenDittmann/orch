@@ -69,7 +69,7 @@ func Install(ctx context.Context, options InstallOptions) (InstallResult, error)
 		return InstallResult{}, err
 	}
 	if !p.Report.Installable {
-		return InstallResult{}, errors.New("host has installation blockers; run node doctor or install --dry-run")
+		return InstallResult{}, blockersError("installation", p.Report)
 	}
 	unlock, err := installationLock()
 	if err != nil {
