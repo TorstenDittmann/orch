@@ -30,3 +30,18 @@ jobs:
           for file in index.html quick-start/index.html 404.html sitemap.xml robots.txt llms.txt server/index.js; do
             test -f "website/dist/$file"
           done
+      - name: Build Dokploy image
+        run: docker build -f website/Dockerfile --build-arg SITE_URL=https://docs.example.com -t orch-website:test .
+      - name: Smoke test static container
+        run: |
+          docker run -d --name orch-website-test -p 127.0.0.1:8080:8080 orch-website:test
+          trap 'docker rm -f orch-website-test' EXIT
+          base=http://127.0.0.1:8080
+          curl --retry 10 --retry-delay 1 --retry-connrefused -fsS "$base/" -o /dev/null
+          curl -fsS "$base/quick-start/" -o /dev/null
+          curl -fsS "$base/sitemap.xml" | grep -F 'https://docs.example.com/'
+          curl -fsS "$base/robots.txt" | grep -F 'https://docs.example.com/sitemap.xml'
+          curl -sS -D headers.txt "$base/quick-start" -o /dev/null
+          grep -i '^location: /quick-start/' headers.txt
+          test "$(curl -sS -o missing.html -w '%{http_code}' "$base/this-page-does-not-exist")" = 404
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$base/server/index.js")" = 404

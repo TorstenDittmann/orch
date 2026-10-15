@@ -10,7 +10,7 @@ export default defineConfig({
 		title: "orch",
 		description: "Application orchestration for small Linux clusters.",
 		language: "en",
-		url: "https://orch-small-cluster.torsten-dittmann.chatgpt.site",
+		url: process.env.SITE_URL || "https://orch-small-cluster.torsten-dittmann.chatgpt.site",
 		ogImage: "/og.png",
 		githubEditBaseUrl: "https://github.com/TorstenDittmann/orch/blob/main/docs",
 		githubEditBranch: "main",

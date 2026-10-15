@@ -1,0 +1,11 @@
+**
+!docs/
+!docs/**
+!website/
+!website/package.json
+!website/bun.lock
+!website/docia.config.ts
+!website/public/
+!website/public/**
+!website/nginx.conf
+!website/Dockerfile
