@@ -4,13 +4,23 @@ GOFMT := $(MISE) exec -- gofmt
 BUF := $(MISE) exec -- buf
 PKL := $(MISE) exec -- pkl
 
-.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
+VERSION ?= 0.1.0-dev
+BUILD_ID ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo development)
+LDFLAGS := -s -w -X change.codes/torsten/better-swarm/internal/buildinfo.Version=$(VERSION) -X change.codes/torsten/better-swarm/internal/buildinfo.BuildID=$(BUILD_ID)
+
+.PHONY: all build check clean containerd-e2e release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
 
 all: check
 
 build:
 	mkdir -p bin
-	$(GO) build -trimpath -o bin/orch ./cmd/orch
+	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/orch ./cmd/orch
+
+# Release binaries are static Linux amd64 builds with a SHA-256 checksum file.
+release:
+	rm -rf dist && mkdir -p dist
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-linux-amd64 ./cmd/orch
+	cd dist && sha256sum orch-linux-amd64 > SHA256SUMS
 
 generate:
 	$(BUF) generate
@@ -69,4 +79,4 @@ network-e2e:
 	./scripts/network-e2e.sh
 
 clean:
-	rm -f bin/orch coverage.out
+	rm -rf bin/orch coverage.out dist
