@@ -4,12 +4,23 @@
 - Getting started
   - [Installation](installation.md)
   - [Quickstart](quick-start.md)
+  - [Core concepts](concepts.md)
+  - [Tutorial](tutorial.md)
 - Guides
   - [Applications](configuration.md)
   - [Deployments](runtime.md)
   - [Networking](networking.md)
+  - [Secrets](secrets.md)
+  - [Jobs and schedules](jobs.md)
+  - [Targets and interfaces](targets.md)
 - Operations
   - [Cluster operations](operations.md)
   - [Security and recovery](security.md)
+  - [Troubleshooting](troubleshooting.md)
 - Reference
+  - [CLI](cli.md)
+  - [Application manifest](manifest.md)
+  - [Hosts and ports](host.md)
+  - [Architecture](architecture.md)
+  - [Compared with Swarm and Kubernetes](comparison.md)
   - [Limitations](product.md)

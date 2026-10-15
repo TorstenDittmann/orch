@@ -104,8 +104,10 @@ Use the TUI for discovery, or the application commands for scripts:
 ```console
 orch app status hello --target production
 orch logs hello web --replica 1 --tail 100 --target production
-orch exec hello web --replica 1 --target production -- /bin/sh
+orch exec hello web --replica 1 --target production -- cat /etc/hostname
 ```
+
+`orch exec` runs one non-interactive command in a replica and prints its output.
 
 See [cluster operations](operations.md) for node maintenance and application
 removal.

@@ -96,8 +96,10 @@ Secret values are encrypted by the controller and delivered only to assigned
 workers. Files are projected below `/run/secrets`; environment values are
 provided only to the workload that references them.
 
-Rotate a secret by setting the same name again and deploying the application
-revision that should use it. Remove unused values with `orch secret delete`.
+Rotate a secret by setting the same name again. The controller reconciles right
+away and replaces the services and cron jobs that reference it; no deploy is
+needed. Remove unused values with `orch secret delete`. See
+[Secrets](secrets.md) for details.
 
 ## Backups
 

@@ -51,7 +51,7 @@ the address workers and your workstation can reach. Rerunning the same command
 resumes an interrupted installation.
 
 On the controller host, root can now run any `orch` command without further
-setup, for example `sudo orch nodes`. The CLI talks to the controller's local
+setup, for example `sudo ./orch nodes` with the executable you copied. The CLI talks to the controller's local
 administrator socket, which only root can open.
 
 To manage the cluster from your workstation, add a target that reaches that

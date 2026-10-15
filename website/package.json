@@ -1,15 +1,26 @@
 {
   "name": "orch-website",
   "private": true,
+  "type": "module",
   "scripts": {
-    "check": "docia check --config docia.config.ts",
-    "dev": "docia dev --config docia.config.ts",
-    "start": "docia serve --config docia.config.ts --host 0.0.0.0 --port 8080",
+    "dev": "vite dev",
     "build": "./build.sh",
-    "build:docs": "docia build --config docia.config.ts"
+    "build:site": "vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "start": "bun serve.ts"
   },
   "devDependencies": {
-    "@dittmann/yeet": "1.0.4",
-    "docia": "github:TorstenDittmann/docia#b7febe3b3e90f92797bcc7c68a1e820b1a009526"
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@sveltejs/adapter-static": "4.0.0",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/bun": "1.4.3",
+    "marked": "18.1.1",
+    "shiki": "4.5.0",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.4"
   }
 }
