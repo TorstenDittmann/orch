@@ -57,7 +57,7 @@ func runWeb(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return ExitRuntime
 	}
 	server := &http.Server{
-		Handler:           web.New(tui.ClientProvider{Client: remote}, targetName, transport, token),
+		Handler:           web.New(web.ClientProvider{ClientProvider: tui.ClientProvider{Client: remote}}, targetName, transport, token),
 		ReadHeaderTimeout: 5 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,7 @@ type fakeProvider struct {
 	tui.Provider
 	updated    *orchv1alpha1.UpdateNodeRequest
 	rolledBack *orchv1alpha1.RollbackApplicationRequest
+	jobAction  string
 }
 
 func (f *fakeProvider) GetCluster(context.Context) (*orchv1alpha1.Cluster, error) {
@@ -46,6 +48,23 @@ func (f *fakeProvider) RollbackApplication(_ context.Context, request *orchv1alp
 }
 func (f *fakeProvider) ListJobs(context.Context, string, string, uint32) (*orchv1alpha1.ListJobsResponse, error) {
 	return &orchv1alpha1.ListJobsResponse{}, nil
+}
+func (f *fakeProvider) CancelJob(_ context.Context, id string) (*orchv1alpha1.OneOffJob, error) {
+	f.jobAction = "cancel " + id
+	return &orchv1alpha1.OneOffJob{Id: id}, nil
+}
+func (f *fakeProvider) RetryJob(_ context.Context, id, key string) (*orchv1alpha1.OneOffJob, error) {
+	f.jobAction = "retry " + id
+	if key == "" {
+		return nil, context.Canceled
+	}
+	return &orchv1alpha1.OneOffJob{Id: "retried"}, nil
+}
+func (f *fakeProvider) ListCronRuns(_ context.Context, app, job string, _ uint32) ([]*orchv1alpha1.JobRunStatus, error) {
+	return []*orchv1alpha1.JobRunStatus{{Id: "run1", Application: app, Job: job}}, nil
+}
+func (f *fakeProvider) CompareDeployments(_ context.Context, app, from, to string) (*orchv1alpha1.CompareDeploymentsResponse, error) {
+	return &orchv1alpha1.CompareDeploymentsResponse{Changes: []*orchv1alpha1.DeploymentChange{{Path: app + ":" + from + ".." + to}}}, nil
 }
 
 const testToken = "secret-token"
@@ -117,9 +136,46 @@ func TestSnapshotAndIndex(t *testing.T) {
 	if body.Cluster["name"] != "prod" || len(body.Applications) != 1 || body.Applications[0]["executionStatus"] != "EXECUTION_STATUS_RUNNING" || len(body.Errors) != 0 {
 		t.Fatalf("body = %s", response.Body)
 	}
-	index := serve(t, &fakeProvider{}, request(http.MethodGet, "/", "", nil))
-	if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "<title>orch</title>") || index.Header().Get("Content-Security-Policy") == "" {
-		t.Fatalf("index status = %d", index.Code)
+}
+
+func TestServesAppShellAndAssets(t *testing.T) {
+	for _, path := range []string{"/", "/apps/web"} {
+		index := serve(t, &fakeProvider{}, request(http.MethodGet, path, "", nil))
+		if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "<title>orch</title>") || index.Header().Get("Content-Security-Policy") == "" {
+			t.Fatalf("%s status = %d", path, index.Code)
+		}
+	}
+	entries, err := fs.ReadDir(assets, "ui/dist/assets")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("embedded assets missing: %v", err)
+	}
+	asset := serve(t, &fakeProvider{}, request(http.MethodGet, "/assets/"+entries[0].Name(), "", nil))
+	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("asset status = %d, cache = %q", asset.Code, asset.Header().Get("Cache-Control"))
+	}
+	if missing := serve(t, &fakeProvider{}, request(http.MethodGet, "/api/nope", "", nil)); missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown API status = %d", missing.Code)
+	}
+}
+
+func TestCompareRunsAndJobActions(t *testing.T) {
+	provider := &fakeProvider{}
+	compare := serve(t, provider, request(http.MethodGet, "/api/apps/web/compare?from=a&to=b", "", nil))
+	if compare.Code != http.StatusOK || !strings.Contains(compare.Body.String(), "web:a..b") {
+		t.Fatalf("compare = %d: %s", compare.Code, compare.Body)
+	}
+	runs := serve(t, provider, request(http.MethodGet, "/api/apps/web/cron/backup/runs", "", nil))
+	if runs.Code != http.StatusOK || !strings.Contains(runs.Body.String(), `"job":"backup"`) {
+		t.Fatalf("runs = %d: %s", runs.Code, runs.Body)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/jobs/j1/retry", `{}`, nil)); response.Code != http.StatusOK || provider.jobAction != "retry j1" {
+		t.Fatalf("retry = %d %q", response.Code, provider.jobAction)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/jobs/j1/cancel", `{}`, nil)); response.Code != http.StatusOK || provider.jobAction != "cancel j1" {
+		t.Fatalf("cancel = %d %q", response.Code, provider.jobAction)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/jobs/j1/delete", `{}`, nil)); response.Code != http.StatusNotFound {
+		t.Fatalf("unknown job action = %d", response.Code)
 	}
 }
 
