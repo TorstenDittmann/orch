@@ -84,4 +84,4 @@ last healthy revision when `autoRollback` is enabled.
 
 Continue with [application configuration](configuration.md), learn the
 [runtime and rollout contract](runtime.md), or review
-[deployment history and manual rollback](operations.md#deployment-history-comparison-and-rollback).
+[deployment history and manual rollback](runtime.md#rollbacks).

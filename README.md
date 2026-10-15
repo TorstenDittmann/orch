@@ -50,8 +50,8 @@ bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
-For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora
-Server 44 amd64** hosts, copy the binary to each host and run:
+For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
+amd64** (any non-ostree edition) hosts, copy the binary to each host and run:
 
 ~~~console
 sudo ./orch init                        # on the controller
@@ -134,7 +134,7 @@ For multiple nodes, create one join artifact per unique node name and run
 `agent init` with a private data directory on each host. A join artifact is a
 bearer credential: keep it mode `0600`, transfer it over a protected channel,
 and revoke it immediately if it may have been disclosed. Their advertised
-private IPv4 addresses must be mutually reachable, and host/provider firewalls
+IPv4 addresses, private or public, must be mutually reachable, and host/provider firewalls
 must permit the configured WireGuard UDP port (51820 by default). Manage
 placement and ingress explicitly:
 
