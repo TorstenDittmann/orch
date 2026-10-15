@@ -151,3 +151,14 @@ func TestValidateRejectsReservedTCPPortAndCronExtensions(t *testing.T) {
 		t.Fatalf("problems = %#v", validation.Problems)
 	}
 }
+
+func TestValidateRejectsCronScheduleThatNeverFires(t *testing.T) {
+	manifest := loadManifest(t, tcpCronManifest)
+	job := manifest.CronJobs["backup-monitor"]
+	job.Schedule = "0 0 30 2 *"
+	manifest.CronJobs["backup-monitor"] = job
+	var validation *ValidationError
+	if !errors.As(Validate(manifest), &validation) || !hasProblem(validation, "cron_jobs.backup-monitor.schedule") {
+		t.Fatalf("Validate() = %v", validation)
+	}
+}

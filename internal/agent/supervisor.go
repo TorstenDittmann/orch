@@ -1730,7 +1730,14 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 				}
 				next, err := schedule.Next(job.Schedule, now)
 				if err != nil {
-					return fmt.Errorf("evaluate cron job %s/%s: %w", job.Application, job.Job, err)
+					// A schedule that can never fire (for example February 30)
+					// is reported on this job alone; other jobs keep running.
+					if err := s.state.SaveCronJobState(ctx, state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, UpdatedAt: now}); err != nil {
+						return err
+					}
+					statuses = append(statuses, model.CronJobStatus{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+						Reason: "schedule_invalid", Message: boundedMessage(err.Error()), UpdatedAt: now})
+					continue
 				}
 				jobState = state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, NextRunAt: &next, UpdatedAt: now}
 			}

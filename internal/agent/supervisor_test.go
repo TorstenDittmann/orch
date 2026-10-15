@@ -252,6 +252,48 @@ func TestSupervisorSchedulesOneShotCronRunAndRecordsCompletion(t *testing.T) {
 	}
 }
 
+func TestSupervisorReportsCronScheduleThatNeverFires(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	now := supervisorTestTime
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}})
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newJob := func(name, expression string) model.CronJobDesired {
+		job := model.CronJobDesired{Application: "hello", Job: name, ApplicationGeneration: 1,
+			RevisionID: "revision-one", Image: supervisorExecutableImage, Schedule: expression, CPUMillis: 100,
+			MemoryBytes: 64 << 20, StartDeadlineSeconds: 30, TimeoutSeconds: 60, NetworkGeneration: 1}
+		job.SpecDigest, err = model.CronJobSpecDigest(job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return job
+	}
+	assignment := model.Assignment{Network: networkConfig, CronJobs: []model.CronJobDesired{newJob("backup", "* * * * *"), newJob("never", "0 0 30 2 *")}}
+	for range 3 {
+		if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Minute)
+	}
+	jobs, runs := supervisor.CronObservations()
+	if len(jobs) != 2 || jobs[1].Job != "never" || jobs[1].Reason != "schedule_invalid" || jobs[1].NextRunAt != nil {
+		t.Fatalf("cron job observations = %#v", jobs)
+	}
+	if jobs[0].NextRunAt == nil {
+		t.Fatalf("valid job lost its schedule: %#v", jobs[0])
+	}
+	for _, run := range runs {
+		if run.Job == "never" {
+			t.Fatalf("impossible schedule produced run %#v", run)
+		}
+	}
+}
+
 func TestSupervisorPublishesReadyTCPRoute(t *testing.T) {
 	ctx := context.Background()
 	cache := supervisorCache(t)
