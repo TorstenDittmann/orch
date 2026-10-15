@@ -164,3 +164,128 @@ func freePort(t *testing.T) uint32 {
 	_ = listener.Close()
 	return port
 }
+
+func TestListenerRejectsConnectionsBeyondLimit(t *testing.T) {
+	upstream := echoListener(t)
+	defer upstream.Close()
+	managed, address := startTestListener(t, upstream, 1, time.Minute)
+	defer managed.drain(0)
+	first := dialEcho(t, address)
+	defer first.Close()
+	rejected, err := net.Dial("tcp4", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rejected.Close()
+	_ = rejected.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := rejected.Read(make([]byte, 1)); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+		t.Fatalf("read beyond the connection limit = %v, want closed connection", err)
+	}
+	_ = first.Close()
+	waitForOpen(t, managed, 0)
+	dialEcho(t, address).Close()
+}
+
+func TestProxyClosesIdleConnections(t *testing.T) {
+	upstream := echoListener(t)
+	defer upstream.Close()
+	managed, address := startTestListener(t, upstream, 0, 300*time.Millisecond)
+	defer managed.drain(0)
+	connection := dialEcho(t, address)
+	defer connection.Close()
+	// Traffic keeps the connection open past the idle timeout.
+	for range 5 {
+		time.Sleep(100 * time.Millisecond)
+		if _, err := connection.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.ReadFull(connection, make([]byte, 1)); err != nil {
+			t.Fatalf("active connection was closed: %v", err)
+		}
+	}
+	started := time.Now()
+	_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := connection.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("read from idle connection = %v, want EOF", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("idle connection closed after %s", elapsed)
+	}
+	waitForOpen(t, managed, 0)
+}
+
+func TestProxyBoundsWaitAfterHalfClose(t *testing.T) {
+	// The upstream reads everything but never answers or closes.
+	upstream, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstream.Close()
+	go func() {
+		for {
+			connection, err := upstream.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _, _ = io.Copy(io.Discard, connection) }()
+		}
+	}()
+	managed, address := startTestListener(t, upstream, 0, 300*time.Millisecond)
+	defer managed.drain(0)
+	connection, err := net.Dial("tcp4", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err := connection.Write([]byte("request")); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := connection.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("read after half-close = %v, want EOF once the idle timeout ends the wait", err)
+	}
+	waitForOpen(t, managed, 0)
+}
+
+func startTestListener(t *testing.T, upstream net.Listener, limit int64, idle time.Duration) (*listener, string) {
+	t.Helper()
+	public, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed := &listener{listener: public, active: make(map[net.Conn]struct{}), limit: limit, idle: idle}
+	managed.route.Store(&Route{TargetPort: uint32(upstream.Addr().(*net.TCPAddr).Port), Upstreams: []string{"127.0.0.1"}})
+	go managed.serve()
+	return managed, public.Addr().String()
+}
+
+func dialEcho(t *testing.T, address string) net.Conn {
+	t.Helper()
+	connection, err := net.Dial("tcp4", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := connection.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(connection, make([]byte, 4)); err != nil {
+		t.Fatalf("echo through proxy: %v", err)
+	}
+	_ = connection.SetDeadline(time.Time{})
+	return connection
+}
+
+func waitForOpen(t *testing.T, managed *listener, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for managed.open.Load() != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("open connections = %d, want %d", managed.open.Load(), want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

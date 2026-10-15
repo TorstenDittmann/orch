@@ -25,6 +25,15 @@ const (
 	acceptRetryMax = time.Second
 )
 
+// Each listener accepts a bounded number of concurrent connections so idle or
+// abusive clients cannot exhaust the agent's file descriptors, and a proxied
+// connection with no bytes in either direction for idleTimeout is closed. The
+// idle timeout also bounds the wait for the second direction after a half-close.
+const (
+	maxConnections = 4096
+	idleTimeout    = 5 * time.Minute
+)
+
 type Route struct {
 	Application string
 	Service     string
@@ -48,7 +57,11 @@ type listener struct {
 	drained   bool
 	draining  atomic.Bool
 	next      atomic.Uint64
+	open      atomic.Int64
 	closeOnce sync.Once
+	// limit and idle default to maxConnections and idleTimeout; tests lower them.
+	limit int64
+	idle  time.Duration
 }
 
 func New(drainTimeout time.Duration) *Controller {
@@ -141,7 +154,12 @@ func (l *listener) serve() {
 			continue
 		}
 		delay = 0
-		go l.proxy(connection)
+		if l.open.Add(1) > l.connectionLimit() {
+			l.open.Add(-1)
+			_ = connection.Close()
+			continue
+		}
+		go func() { defer l.open.Add(-1); l.proxy(connection) }()
 	}
 }
 
@@ -160,11 +178,65 @@ func (l *listener) proxy(client net.Conn) {
 	}
 	l.track(upstream, true)
 	defer func() { l.track(upstream, false); _ = upstream.Close() }()
+	idle := l.idle
+	if idle <= 0 {
+		idle = idleTimeout
+	}
+	var lastActive atomic.Int64
+	lastActive.Store(time.Now().UnixNano())
+	// The watchdog closes both sides once neither direction has moved bytes
+	// for the idle timeout, which also unblocks a copy left waiting after the
+	// other direction half-closed.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		timer := time.NewTimer(idle)
+		defer timer.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-timer.C:
+			}
+			if quiet := time.Since(time.Unix(0, lastActive.Load())); quiet < idle {
+				timer.Reset(idle - quiet)
+				continue
+			}
+			_ = client.Close()
+			_ = upstream.Close()
+			return
+		}
+	}()
 	done := make(chan struct{}, 1)
-	go func() { _, _ = io.Copy(upstream, client); closeWrite(upstream); done <- struct{}{} }()
-	_, _ = io.Copy(client, upstream)
+	go func() {
+		_, _ = io.Copy(upstream, activityReader{client, &lastActive})
+		closeWrite(upstream)
+		done <- struct{}{}
+	}()
+	_, _ = io.Copy(client, activityReader{upstream, &lastActive})
 	closeWrite(client)
 	<-done
+}
+
+func (l *listener) connectionLimit() int64 {
+	if l.limit > 0 {
+		return l.limit
+	}
+	return maxConnections
+}
+
+// activityReader records when bytes last arrived for the idle watchdog.
+type activityReader struct {
+	reader     io.Reader
+	lastActive *atomic.Int64
+}
+
+func (r activityReader) Read(buffer []byte) (int, error) {
+	count, err := r.reader.Read(buffer)
+	if count > 0 {
+		r.lastActive.Store(time.Now().UnixNano())
+	}
+	return count, err
 }
 
 func (l *listener) track(connection net.Conn, add bool) {
