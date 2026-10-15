@@ -37,7 +37,8 @@ jobs:
           docker run -d --name orch-website-test -p 127.0.0.1:8080:8080 orch-website:test
           trap 'docker rm -f orch-website-test' EXIT
           base=http://127.0.0.1:8080
-          curl --retry 10 --retry-delay 1 --retry-connrefused -fsS "$base/" -o /dev/null
+          curl --retry 10 --retry-delay 1 --retry-all-errors -fsS "$base/" -o /dev/null \
+            || { docker logs orch-website-test; exit 1; }
           curl -fsS "$base/quick-start/" -o /dev/null
           curl -fsS "$base/sitemap.xml" | grep -F 'https://docs.example.com/'
           curl -fsS "$base/robots.txt" | grep -F 'https://docs.example.com/sitemap.xml'
