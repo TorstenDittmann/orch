@@ -32,7 +32,7 @@ A new bundle version or executable is not an implicit upgrade: the installation
 journal rejects changed binary or artifact hashes. Upgrade and uninstall flows
 require a separate design covering live workloads and persistent state.
 
-Fedora's owned `/etc/systemd/network/10-orch-veth.link` preserves the MAC
+On Ubuntu and Fedora, the owned `/etc/systemd/network/10-orch-veth.link` preserves the MAC
 addresses CNI records for kernel-created `veth*` devices (driver `veth`). Without
 it, udev's persistent-MAC policy can change an address after CNI ADD and make
 CNI CHECK reject the attachment. The rule applies to future matching veth pairs,

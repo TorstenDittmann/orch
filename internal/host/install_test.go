@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	nodebundle "change.codes/torsten/better-swarm/packaging/node"
 )
 
 func TestPublicationCanResumeJournaledMissingFileAndRefusesChangedContent(t *testing.T) {
@@ -89,5 +92,101 @@ func TestPackageManagersInstallOnlyDeclaredDependencies(t *testing.T) {
 				t.Fatal("package failure ignored")
 			}
 		})
+	}
+}
+
+func TestVethLinkPolicyIsPlannedOnSupportedDistributions(t *testing.T) {
+	for _, distro := range []string{"ubuntu", "fedora"} {
+		t.Run(distro, func(t *testing.T) {
+			plan := buildPlan(Report{OS: distro}, "10.0.0.11", nil)
+			if !slices.Contains(plan.Files, VethLinkPath) {
+				t.Fatal("veth link policy is not owned by the installation plan")
+			}
+			if !strings.Contains(strings.Join(plan.Actions, "\n"), "preserving CNI MAC addresses") {
+				t.Fatal("veth link policy is missing from the installation actions")
+			}
+			dependency := "udev"
+			if distro == "fedora" {
+				dependency = "systemd-udev"
+			}
+			if !slices.Contains(plan.Packages, dependency) {
+				t.Fatalf("missing udev dependency %s", dependency)
+			}
+		})
+	}
+}
+
+func TestVethLinkPolicyPublishesBeforeReloadAndCanResume(t *testing.T) {
+	for _, distro := range []string{"ubuntu", "fedora"} {
+		t.Run(distro, func(t *testing.T) {
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "network", "10-orch-veth.link")
+			want, err := nodebundle.Files.ReadFile("10-orch-veth.link")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, setting := range []string{"OriginalName=veth*", "Driver=veth", "MACAddressPolicy=none"} {
+				if !strings.Contains(string(want), setting) {
+					t.Fatalf("veth-only MAC protection missing %q", setting)
+				}
+			}
+			reloadErr := errors.New("udev unavailable")
+			i := installer{journalPath: filepath.Join(dir, "manifest.json"), state: manifest{Distro: distro, Files: map[string]string{}}}
+			calls := 0
+			i.run = func(_ context.Context, name string, args ...string) (string, error) {
+				calls++
+				if name != "udevadm" || strings.Join(args, " ") != "control --reload" {
+					t.Fatalf("must only reload udev, not trigger/reconfigure interfaces: %s %v", name, args)
+				}
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != string(want) || i.state.Files[path] != digest(want) {
+					t.Fatalf("policy must be published and journaled before reload: %q, %v", got, err)
+				}
+				return "", reloadErr
+			}
+			if err := i.configureVethLink(context.Background(), path); !errors.Is(err, reloadErr) {
+				t.Fatalf("udev reload failure was not propagated: %v", err)
+			}
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reloadErr = nil
+			if err := i.configureVethLink(context.Background(), path); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != 2 || !os.SameFile(before, after) {
+				t.Fatal("retry must reload udev without replacing the owned policy")
+			}
+		})
+	}
+}
+
+func TestVethLinkPolicyRefusesForeignFileWithoutReload(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "10-orch-veth.link")
+	if err := os.WriteFile(path, []byte("foreign policy"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	i := installer{journalPath: filepath.Join(dir, "manifest.json"), state: manifest{Files: map[string]string{}}, run: func(context.Context, string, ...string) (string, error) {
+		t.Fatal("udev must not reload after refusing a foreign file")
+		return "", nil
+	}}
+	if err := i.configureVethLink(context.Background(), path); err == nil {
+		t.Fatal("foreign policy was adopted")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "foreign policy" || len(i.state.Files) != 0 {
+		t.Fatalf("foreign policy was modified or claimed: %q, %v", got, err)
 	}
 }

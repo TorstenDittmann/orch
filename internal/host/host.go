@@ -92,7 +92,7 @@ func packages(distro string) []string {
 	if distro == "fedora" {
 		return []string{"ca-certificates", "nftables", "iproute", "libcap", "kmod", "shadow-utils", "container-selinux", "policycoreutils-python-utils", "systemd-udev"}
 	}
-	return []string{"ca-certificates", "nftables", "iproute2", "libcap2-bin", "kmod", "passwd"}
+	return []string{"ca-certificates", "nftables", "iproute2", "libcap2-bin", "kmod", "passwd", "udev"}
 }
 func BuildPlan(ctx context.Context, raw string) (Plan, error) {
 	ip, err := address(raw)
@@ -104,22 +104,24 @@ func BuildPlan(ctx context.Context, raw string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	return buildPlan(report, ip.String(), artifacts), nil
+}
+
+func buildPlan(report Report, address string, artifacts []Artifact) Plan {
 	files := []string{Prefix + "/bin/orch", Prefix + "/containerd.toml", "/etc/systemd/system/orch-containerd.service", "/etc/systemd/system/orch-agent.service", "/etc/sysctl.d/90-orch.conf", "/etc/modules-load.d/orch.conf", ManifestPath, AgentDir, "/var/lib/orch-containerd", "/var/lib/orch-ingress"}
 	for _, a := range artifacts {
 		for _, f := range a.Files {
 			files = append(files, Prefix+"/"+f)
 		}
 	}
-	if report.OS == "fedora" {
-		files = append(files, VethLinkPath)
-	}
+	files = append(files, VethLinkPath)
 	sort.Strings(files)
 	actions := []string{"Install listed OS utilities from signed distribution repositories (no host upgrade)", "Download and verify pinned artifacts; copy this orch executable", "Create owned service/configuration files and private state directories", "Create non-login orch-ingress account and set Caddy low-port capability", "Enable IPv4 forwarding; load overlay and WireGuard modules", "Enroll using the supplied join artifact; enable and start owned systemd services", "Wait for the authenticated agent assignment and network readiness; retain state on timeout", "Leave host/provider firewall rules unchanged; allow peer UDP 51820 and ingress TCP 80/443 as needed"}
+	actions = append(actions, "Install an owned veth link policy preserving CNI MAC addresses; reload udev rules without reconfiguring existing interfaces")
 	if report.OS == "fedora" {
-		actions = append(actions, "Install an owned veth link policy preserving CNI MAC addresses; reload udev rules without reconfiguring existing interfaces")
 		actions = append(actions, "Install distribution container-selinux policy; label owned runtime binaries container_runtime_exec_t, runtime state container_var_lib_t/container_var_run_t and configuration container_config_t; restore labels without disabling SELinux or firewalld")
 	}
-	return Plan{Report: report, Address: ip.String(), Packages: packages(report.OS), Artifacts: artifacts, Files: files, Actions: actions}, nil
+	return Plan{Report: report, Address: address, Packages: packages(report.OS), Artifacts: artifacts, Files: files, Actions: actions}
 }
 func privateRegular(path string) (os.FileInfo, error) {
 	info, err := os.Lstat(path)
