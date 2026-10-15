@@ -6,7 +6,7 @@ This guide installs a controller and adds workers to the cluster.
 
 | Requirement | Supported setup |
 | --- | --- |
-| Hosts | Ubuntu 24.04 LTS or Fedora Server 44 on amd64 |
+| Hosts | Ubuntu 24.04 LTS or Fedora 44 (any edition except ostree-based ones) on amd64 |
 | Network | IPv4 connectivity between hosts, over private or public addresses |
 | Controller | A stable HTTPS address |
 | Workstation | A machine for running the orch CLI |
@@ -20,8 +20,9 @@ only from the other workers' addresses. Nodes that receive public web traffic al
 and 443.
 
 The installer does not change UFW, firewalld, cloud firewalls, DNS, routing, or
-NAT. On Fedora, keep SELinux enforcing and configure the appropriate firewalld
-zones and forwarding policy.
+NAT, and it never changes the SELinux mode. On Fedora it installs SELinux file
+labels whenever SELinux is enabled; doctor warns when SELinux is permissive or
+disabled. Configure the appropriate firewalld zones and forwarding policy.
 
 ## Controller
 

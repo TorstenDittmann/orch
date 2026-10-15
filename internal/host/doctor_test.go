@@ -66,15 +66,6 @@ func TestDoctorRejectsUnsafeHosts(t *testing.T) {
 				return read(s)
 			}
 		},
-		"selinux": func(p *Probe) {
-			read := p.Read
-			p.Read = func(s string) ([]byte, error) {
-				if s == "/sys/fs/selinux/enforce" {
-					return []byte("0"), nil
-				}
-				return read(s)
-			}
-		},
 		"ports": func(p *Probe) {
 			run := p.Run
 			p.Run = func(c context.Context, n string, a ...string) (string, error) {
@@ -154,8 +145,8 @@ func TestOwnedManifestDoesNotHideForeignListeners(t *testing.T) {
 	}
 }
 
-func TestFedoraAtomicAndOtherVariantsAreNotClaimedSupported(t *testing.T) {
-	for _, variant := range []string{"silverblue", "coreos", "workstation", ""} {
+func TestAnyFedoraEditionExceptOstreeIsSupported(t *testing.T) {
+	for _, variant := range []string{"server", "cloud", "workstation", ""} {
 		p := fixtureProbe("fedora")
 		read := p.Read
 		p.Read = func(path string) ([]byte, error) {
@@ -164,11 +155,48 @@ func TestFedoraAtomicAndOtherVariantsAreNotClaimedSupported(t *testing.T) {
 			}
 			return read(path)
 		}
-		if Inspect(context.Background(), "10.0.0.11", p).Installable {
-			t.Fatalf("unsupported variant %q accepted", variant)
+		if !Inspect(context.Background(), "10.0.0.11", p).Installable {
+			t.Fatalf("Fedora 44 edition %q rejected", variant)
+		}
+	}
+	p := fixtureProbe("fedora")
+	exists := p.Exists
+	p.Exists = func(path string) bool { return path == "/run/ostree-booted" || exists(path) }
+	if Inspect(context.Background(), "10.0.0.11", p).Installable {
+		t.Fatal("ostree-based Fedora accepted")
+	}
+}
+
+func TestSELinuxModeWarnsInsteadOfBlocking(t *testing.T) {
+	for mode, contents := range map[string]*string{"permissive": ptr("0"), "disabled": nil} {
+		p := fixtureProbe("fedora")
+		read := p.Read
+		p.Read = func(path string) ([]byte, error) {
+			if path == "/sys/fs/selinux/enforce" {
+				if contents == nil {
+					return nil, os.ErrNotExist
+				}
+				return []byte(*contents), nil
+			}
+			return read(path)
+		}
+		report := Inspect(context.Background(), "10.0.0.11", p)
+		if !report.Installable {
+			t.Fatalf("SELinux %s blocked installation: %+v", mode, report.Checks)
+		}
+		found := false
+		for _, check := range report.Checks {
+			if check.ID == "selinux" {
+				found = check.State == "warn" && strings.Contains(check.Detail, mode)
+			}
+		}
+		if !found {
+			t.Fatalf("SELinux %s did not produce a warning: %+v", mode, report.Checks)
 		}
 	}
 }
+
+func ptr(value string) *string { return &value }
 
 func TestPublicAdvertiseAddressWarnsAboutWireGuardFirewall(t *testing.T) {
 	private := Inspect(context.Background(), "10.0.0.11", fixtureProbe("ubuntu"))

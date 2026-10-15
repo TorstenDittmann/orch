@@ -528,6 +528,9 @@ func (i *installer) configure(ctx context.Context) error {
 	return nil
 }
 func (i *installer) selinux(ctx context.Context) error {
+	if selinuxMode(os.ReadFile) == "disabled" {
+		return nil
+	}
 	// Prefer the distribution-maintained container runtime policy, without
 	// permissive domains or custom blanket allow rules.
 	labels := selinuxLabels()

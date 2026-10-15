@@ -176,20 +176,38 @@ func blockersError(kind string, report Report) error {
 	return fmt.Errorf("host has %s blockers:\n%s", kind, strings.Join(lines, "\n"))
 }
 
-// distributionDetail names why a Fedora host is unsupported: only the Server
-// edition qualifies, not Cloud, Workstation or ostree-based variants.
-func distributionDetail(os, version, arch, release string, ostree bool) string {
+// distributionDetail explains a failed distribution check. Any Fedora 44
+// edition works except ostree-based ones, whose /usr is read-only.
+func distributionDetail(os, version, arch string, ostree bool) string {
 	detail := os + " " + version + " " + arch
-	if os != "fedora" {
-		return detail
+	if os == "fedora" && ostree {
+		detail += " (ostree-based Fedora is not supported)"
 	}
-	variant := releaseValue(release, "VARIANT_ID")
-	if variant == "" {
-		variant = "none"
+	return detail
+}
+
+// selinuxMode reports enforcing, permissive or disabled from selinuxfs.
+func selinuxMode(read func(string) ([]byte, error)) string {
+	value, err := read("/sys/fs/selinux/enforce")
+	switch {
+	case err != nil:
+		return "disabled"
+	case strings.TrimSpace(string(value)) == "1":
+		return "enforcing"
+	default:
+		return "permissive"
 	}
-	detail += " (edition " + variant
-	if ostree {
-		detail += ", ostree"
+}
+
+// selinuxCheck turns the SELinux mode into a doctor check. orch labels its
+// files whenever SELinux is enabled, and never changes the mode itself.
+func selinuxCheck(mode string) Check {
+	switch mode {
+	case "enforcing":
+		return Check{ID: "selinux", State: "pass", Detail: "SELinux enforcing; orch installs its file labels"}
+	case "permissive":
+		return Check{ID: "selinux", State: "warn", Detail: "SELinux permissive; orch installs its file labels so enforcing mode works later"}
+	default:
+		return Check{ID: "selinux", State: "warn", Detail: "SELinux disabled; orch skips file labels", Remedy: "Rerun the install after enabling SELinux to apply labels"}
 	}
-	return detail + "; only Fedora Server is supported)"
 }

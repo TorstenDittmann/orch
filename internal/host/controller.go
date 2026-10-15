@@ -169,8 +169,9 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 	if err == nil {
 		r.OS, r.Version = Distro(string(data))
 	}
-	if runtime.GOOS != "linux" || !supported(r.OS, r.Version, runtime.GOARCH) || r.OS == "fedora" && (releaseValue(string(data), "VARIANT_ID") != "server" || pathExistsLocal("/run/ostree-booted")) {
-		add("distribution", "fail", distributionDetail(r.OS, r.Version, r.Architecture, string(data), pathExistsLocal("/run/ostree-booted")), "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
+	ostree := pathExistsLocal("/run/ostree-booted")
+	if runtime.GOOS != "linux" || !supported(r.OS, r.Version, runtime.GOARCH) || r.OS == "fedora" && ostree {
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, r.Architecture, ostree), "Use Ubuntu 24.04 LTS or Fedora 44 amd64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}
@@ -286,12 +287,7 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 		}
 	}
 	if r.OS == "fedora" {
-		enforcing, _ := os.ReadFile("/sys/fs/selinux/enforce")
-		if strings.TrimSpace(string(enforcing)) != "1" {
-			add("selinux", "fail", "SELinux enforcing is required for supported Fedora installation", "Restore enforcing mode; installation never disables SELinux", false)
-		} else {
-			add("selinux", "pass", "SELinux enforcing", "", false)
-		}
+		r.Checks = append(r.Checks, selinuxCheck(selinuxMode(os.ReadFile)))
 		firewall, err := timeoutCommand(runCommand, ctx, "systemctl", "is-active", "firewalld")
 		if err == nil && strings.TrimSpace(firewall) == "active" {
 			r.Checks = append(r.Checks, Check{ID: "firewalld", State: "warn", Detail: "firewalld is active and remains operator-managed", Remedy: "Allow the controller port from trusted operators and workers"})

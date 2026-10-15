@@ -156,7 +156,7 @@ func InstallController(ctx context.Context, options ControllerInstallOptions) (C
 			return err
 		}
 		distro, _ := Distro(mustReadOSRelease())
-		if distro == "fedora" {
+		if distro == "fedora" && selinuxMode(os.ReadFile) != "disabled" {
 			if _, err := i.run(ctx, "restorecon", "-RF", ControllerPrefix, ControllerDataDir, ControllerStateDir, ControllerUnitPath); err != nil {
 				return err
 			}
