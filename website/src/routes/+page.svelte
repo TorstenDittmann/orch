@@ -234,65 +234,7 @@
 			padding-block: 64px 0;
 		}
 
-		.compare {
-		padding-block: 88px 0;
-	}
-
-	.compare h2,
-	.setup h2 {
-		margin: 0 0 12px;
-		font-size: 24px;
-		font-weight: 500;
-		letter-spacing: -0.03em;
-	}
-
-	.sub {
-		margin: 0 0 32px;
-		max-width: 60ch;
-		color: var(--dim);
-	}
-
-	.table {
-		overflow-x: auto;
-	}
-
-	table {
-		width: 100%;
-		min-width: 620px;
-		border-collapse: collapse;
-		font-size: 14px;
-	}
-
-	th,
-	td {
-		text-align: left;
-		vertical-align: top;
-		padding: 12px 16px 12px 0;
-		border-bottom: 1px solid var(--line);
-	}
-
-	thead th {
-		font-weight: 500;
-		color: var(--dim);
-		font-size: 13px;
-	}
-
-	tbody th {
-		font-weight: 500;
-		width: 18%;
-	}
-
-	td {
-		color: var(--dim);
-	}
-
-	td:last-child,
-	thead th:last-child {
-		color: var(--fg);
-		font-weight: 500;
-	}
-
-	.features {
+		.features {
 			grid-template-columns: 1fr;
 		}
 
