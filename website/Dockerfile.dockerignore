@@ -7,5 +7,4 @@
 !website/docia.config.ts
 !website/public/
 !website/public/**
-!website/nginx.conf
 !website/Dockerfile

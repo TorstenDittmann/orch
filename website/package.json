@@ -4,6 +4,7 @@
   "scripts": {
     "check": "docia check --config docia.config.ts",
     "dev": "docia dev --config docia.config.ts",
+    "start": "docia serve --config docia.config.ts --host 0.0.0.0 --port 8080",
     "build": "./build.sh",
     "build:docs": "docia build --config docia.config.ts"
   },

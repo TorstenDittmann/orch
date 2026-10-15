@@ -17,9 +17,8 @@ and adds the Sites worker. Generated output is ignored and must not be edited.
 
 ## Deploy to Dokploy
 
-The Dockerfile builds the documentation with Bun and serves only the static
-output with unprivileged Nginx on port **8080**. No Sites worker, Node.js server,
-database, or persistent volume is needed.
+The Dockerfile uses Bun to build and serve the site on port **8080**, using
+Docia's built-in static server. No Nginx or custom server is needed.
 
 Create a Dokploy application connected to this repository and configure:
 
@@ -29,7 +28,6 @@ Create a Dokploy application connected to this repository and configure:
 | Build type | Dockerfile |
 | Dockerfile path | `website/Dockerfile` |
 | Docker context path | `.` |
-| Docker build stage | Leave empty (use the final image) |
 | Domain container port | `8080` |
 | Domain path | `/` |
 
@@ -58,6 +56,14 @@ docker build -f website/Dockerfile \
   --build-arg SITE_URL=https://docs.example.com \
   -t orch-website .
 docker run --rm -p 127.0.0.1:8080:8080 orch-website
+```
+
+Or without Docker, from `website/`:
+
+```sh
+bun install --frozen-lockfile
+bun run build:docs
+bun run start
 ```
 
 Check `/`, `/quick-start/`, and `/sitemap.xml`. Unknown paths return the

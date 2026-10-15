@@ -41,7 +41,6 @@ jobs:
           curl -fsS "$base/quick-start/" -o /dev/null
           curl -fsS "$base/sitemap.xml" | grep -F 'https://docs.example.com/'
           curl -fsS "$base/robots.txt" | grep -F 'https://docs.example.com/sitemap.xml'
-          curl -sS -D headers.txt "$base/quick-start" -o /dev/null
-          grep -i '^location: /quick-start/' headers.txt
+          curl -fsS "$base/quick-start" -o /dev/null
           test "$(curl -sS -o missing.html -w '%{http_code}' "$base/this-page-does-not-exist")" = 404
           test "$(curl -sS -o /dev/null -w '%{http_code}' "$base/server/index.js")" = 404
