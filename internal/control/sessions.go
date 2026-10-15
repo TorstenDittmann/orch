@@ -123,6 +123,21 @@ func (m *sessionManager) Connected(nodeID string) bool {
 	return m.now().Sub(session.lastSeen) < m.timeout
 }
 
+// ConnectedCount reports sessions whose agent sent a recent heartbeat.
+func (m *sessionManager) ConnectedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, session := range m.sessions {
+		session.mu.Lock()
+		if m.now().Sub(session.lastSeen) < m.timeout {
+			count++
+		}
+		session.mu.Unlock()
+	}
+	return count
+}
+
 func (m *sessionManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

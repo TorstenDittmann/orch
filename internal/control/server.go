@@ -136,6 +136,11 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	adminMux.HandleFunc("/healthz", healthHandler)
+	// /metrics needs the same credentials as the administrator API: an
+	// administrator certificate on the HTTPS port, or access to the socket.
+	metrics := implementation.metricsHandler(credentials.Certificate.Leaf.NotAfter)
+	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, metrics))
+	adminMux.Handle("/metrics", authenticateLocalAdministrator(metrics))
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
 		enrollmentImplementation,
 		connect.WithReadMaxBytes(64<<10),

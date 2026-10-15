@@ -134,6 +134,70 @@ orch remove hello
 Removing desired state stops its workloads. Treat local-volume data separately
 according to your retention policy.
 
+## Monitoring
+
+The controller serves Prometheus metrics at `/metrics`, computed from cluster
+state on each scrape. There is nothing to enable. The endpoint takes the same
+credentials as the administrator API: an administrator certificate on the
+HTTPS port, or access to the local admin socket. Metrics name every node,
+application and domain, so they are not public.
+
+Scrape the HTTPS port with the `ca.pem`, `admin.pem` and `admin-key.pem` of an
+administrator context (`orch init` keeps one in `/etc/orch/admin`). Protect
+these files like any administrator credentials, and replace them when you
+[renew the certificates](security.md#certificate-renewal):
+
+```yaml
+scrape_configs:
+  - job_name: orch
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/orch/ca.pem
+      cert_file: /etc/prometheus/orch/admin.pem
+      key_file: /etc/prometheus/orch/admin-key.pem
+    static_configs:
+      - targets: ["controller.example.com:9443"]
+```
+
+On the controller host, `curl --unix-socket /var/lib/orch-controller/admin.sock
+http://orch/metrics` prints the same metrics as root.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `orch_build_info` | `version`, `build_id`, `go_version` | Always 1 |
+| `orch_agent_sessions` | | Connected agents |
+| `orch_nodes` | `lifecycle`, `connection` | Node count; `connection` is `connected`, `disconnected`, `unreachable` (no heartbeat for 45s) or `enrolled` |
+| `orch_node_connected` | `node`, `lifecycle` | 1 when the node's agent is connected |
+| `orch_node_certificate_expiry_seconds` | `node` | Until the worker certificate expires (renewed automatically 90 days ahead) |
+| `orch_certificate_expiry_seconds` | `certificate` | Until the `ca`, `controller` or `admin` certificate expires; `admin` is the scraper's own certificate |
+| `orch_application_status` | `application`, `status` | Always 1; `status` is e.g. `healthy`, `running`, `degraded`, `failed`, `blocked` |
+| `orch_allocations` | `application`, `service`, `phase`, `health` | Instance count; `phase="backoff"` is crash-looping |
+| `orch_allocation_restarts` | `application`, `service` | Restarts of the current instances |
+| `orch_routes` | `application`, `kind`, `state` | HTTP and TCP routes per ingress node by `state` (`active`, `pending`, `failed`) |
+| `orch_cron_job_last_run_failed` | `application`, `job` | 1 when the last run failed or timed out |
+
+Suggested alerts:
+
+```yaml
+groups:
+  - name: orch
+    rules:
+      - alert: OrchNodeLost
+        expr: orch_node_connected == 0
+        for: 5m
+      - alert: OrchCertificateExpiring
+        expr: orch_certificate_expiry_seconds < 30 * 86400 or orch_node_certificate_expiry_seconds < 30 * 86400
+      - alert: OrchApplicationUnhealthy
+        expr: orch_application_status{status=~"degraded|failed|blocked"} == 1
+        for: 10m
+      - alert: OrchCrashLooping
+        expr: orch_allocations{phase="backoff"} > 0
+        for: 10m
+      - alert: OrchRouteFailed
+        expr: orch_routes{state="failed"} > 0
+        for: 10m
+```
+
 ## Backups
 
 Create backups regularly and copy them off the controller:
