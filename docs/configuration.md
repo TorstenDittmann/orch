@@ -134,7 +134,7 @@ volumes {
 ```
 
 If that worker is lost, orch reports `volume_node_lost`. It does not create an
-empty replacement volume on another worker.
+empty replacement volume on another worker until you remove the lost worker.
 
 ## Schedules
 

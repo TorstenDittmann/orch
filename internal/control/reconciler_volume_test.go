@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,38 @@ func TestDistributedCronJobRunsOnItsReadOnlyVolumeNode(t *testing.T) {
 	job := two.CronJobs[0]
 	if len(job.Mounts) != 1 || job.Mounts[0] != (model.VolumeMount{Name: "sqld", Target: "/sqld", ReadOnly: true}) {
 		t.Fatalf("cron mounts = %#v", job.Mounts)
+	}
+}
+
+func TestDistributedVolumeServiceMovesAfterLostNodeRemoval(t *testing.T) {
+	ctx := context.Background()
+	state, reconciler, now := readyDistributedCluster(t, map[string]map[string]string{
+		"node-one": {"disk": "local"}, "node-two": {},
+	})
+	manifest := newTestManifest("nmv", map[string]config.Service{
+		"db": {Image: executableImage, Mounts: []config.Mount{{Source: "sqld", Target: "/var/lib/sqld"}}},
+	})
+	manifest.Volumes = map[string]config.Volume{"sqld": {Driver: "local"}}
+	applyManifest(t, state, manifest, "revision-one", "application-key-one", *now)
+	if err := state.ClaimVolume(ctx, "nmv", "sqld", "node-one", *now); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Second)
+	if _, err := state.RemoveNode(ctx, model.RemoveNode{NodeName: "node-1", Lost: true, IdempotencyKey: "lost-node-remove-key",
+		RequestHash: strings.Repeat("9", 64), RemovedAt: *now}); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := state.CurrentAssignment(ctx, "node-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocationForService(t, assignment, "db", 1)
+	if claim, err := state.VolumeClaim(ctx, "nmv", "sqld"); err != nil || claim != "node-two" {
+		t.Fatalf("volume claim = %q, %v", claim, err)
 	}
 }
 

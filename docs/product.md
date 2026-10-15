@@ -30,7 +30,8 @@ unavailable, agents keep their assigned workloads running, but deployments and
 cluster changes wait.
 
 Local volumes stay on the worker where they were created. orch will not start
-an empty replacement volume elsewhere after that worker is lost. Back up
+an empty replacement volume elsewhere after that worker is lost; only removing
+the worker with `orch node remove --lost` releases its volumes. Back up
 stateful applications with tools appropriate to the application.
 
 ## Responsibilities

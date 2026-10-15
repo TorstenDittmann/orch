@@ -89,8 +89,9 @@ instances. A service remains `BLOCKED` when no eligible worker can run it.
 
 When a worker disappears, services without local volumes can be placed on other
 eligible workers. A service with a local volume stays bound to the worker that
-owns its data and reports `volume_node_lost` until that worker returns or you
-restore the data separately.
+owns its data and reports `volume_node_lost` until that worker returns. Removing
+the lost worker releases the claim, and the service then starts elsewhere with
+an empty volume; restore the data separately.
 
 Agents keep their assigned workloads running while the controller is
 unavailable. New deployments, scheduling decisions, and cluster changes wait
