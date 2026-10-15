@@ -39,13 +39,15 @@ func startSSHTunnel(binary, host, destination string) (*sshTunnel, error) {
 		_ = listener.Close()
 		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		forward := address + ":" + destination
+		var stderr bytes.Buffer
 		command := exec.Command(binary,
 			"-N", "-T",
 			"-o", "BatchMode=yes",
 			"-o", "ExitOnForwardFailure=yes",
 			"-L", forward,
-			host,
+			"--", host,
 		)
+		command.Stderr = &limitedWriter{buffer: &stderr, limit: 4 << 10}
 		if err := command.Start(); err != nil {
 			return nil, fmt.Errorf("start SSH tunnel via %s: %w", host, err)
 		}
@@ -54,40 +56,49 @@ func startSSHTunnel(binary, host, destination string) (*sshTunnel, error) {
 			_ = command.Wait()
 			close(tunnel.done)
 		}()
-		deadline := time.NewTimer(5 * time.Second)
-		ticker := time.NewTicker(25 * time.Millisecond)
-		ready := false
-		failed := false
-		for !ready && !failed {
-			select {
-			case <-ticker.C:
-				connection, dialErr := net.DialTimeout("tcp", address, 100*time.Millisecond)
-				if dialErr == nil {
-					_ = connection.Close()
-					ready = true
-				}
-			case <-tunnel.done:
-				failed = true
-			case <-deadline.C:
-				failed = true
-			}
-		}
-		ticker.Stop()
-		if !deadline.Stop() {
-			select {
-			case <-deadline.C:
-			default:
-			}
-		}
+		ready, exited := waitForTunnel(tunnel, "tcp", address, 15*time.Second)
 		if ready {
 			return tunnel, nil
 		}
 		_ = tunnel.Close()
-		if attempt == 2 {
+		if !exited {
 			return nil, fmt.Errorf("SSH tunnel via %s did not become ready", host)
 		}
+		message := strings.TrimSpace(stderr.String())
+		// Another process can grab the reserved port before ssh binds it;
+		// only that race is worth another attempt.
+		if strings.Contains(message, "forwarding") && attempt < 2 {
+			continue
+		}
+		if message == "" {
+			message = "ssh exited"
+		}
+		return nil, fmt.Errorf("SSH tunnel via %s failed: %s", host, message)
 	}
 	return nil, fmt.Errorf("SSH tunnel via %s did not become ready", host)
+}
+
+// waitForTunnel polls the forwarded address until it accepts connections,
+// ssh exits, or the timeout elapses.
+func waitForTunnel(tunnel *sshTunnel, network, address string, timeout time.Duration) (ready, exited bool) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			connection, err := net.DialTimeout(network, address, 100*time.Millisecond)
+			if err == nil {
+				_ = connection.Close()
+				return true, false
+			}
+		case <-tunnel.done:
+			return false, true
+		case <-deadline.C:
+			return false, false
+		}
+	}
 }
 
 func (t *sshTunnel) Address() string { return t.address }
@@ -158,30 +169,19 @@ func startSSHSocketTunnel(binary, host string, port int, remoteSocket string) (*
 		_ = command.Wait()
 		close(tunnel.done)
 	}()
-	deadline := time.NewTimer(15 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			connection, dialErr := net.DialTimeout("unix", local, 100*time.Millisecond)
-			if dialErr == nil {
-				_ = connection.Close()
-				return tunnel, nil
-			}
-		case <-tunnel.done:
-			_ = tunnel.Close()
-			message := strings.TrimSpace(stderr.String())
-			if message == "" {
-				message = "ssh exited"
-			}
-			return nil, fmt.Errorf("SSH to %s failed: %s", host, message)
-		case <-deadline.C:
-			_ = tunnel.Close()
-			return nil, fmt.Errorf("SSH to %s did not become ready", host)
-		}
+	ready, exited := waitForTunnel(tunnel, "unix", local, 15*time.Second)
+	if ready {
+		return tunnel, nil
 	}
+	_ = tunnel.Close()
+	if !exited {
+		return nil, fmt.Errorf("SSH to %s did not become ready", host)
+	}
+	message := strings.TrimSpace(stderr.String())
+	if message == "" {
+		message = "ssh exited"
+	}
+	return nil, fmt.Errorf("SSH to %s failed: %s", host, message)
 }
 
 // limitedWriter keeps the first bytes of ssh diagnostics for error messages.

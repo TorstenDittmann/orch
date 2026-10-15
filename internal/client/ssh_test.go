@@ -17,12 +17,12 @@ func TestSSHTunnelUsesArgumentVectorAndRejectsOptionHost(t *testing.T) {
 	root := t.TempDir()
 	arguments := filepath.Join(root, "arguments")
 	binary := filepath.Join(root, "fake-ssh")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + arguments + "\nexit 1\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + arguments + "\necho 'Host key verification failed.' >&2\nexit 255\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := startSSHTunnel(binary, "prod-controller", "127.0.0.1:9443"); err == nil {
-		t.Fatal("failed SSH command unexpectedly became ready")
+	if _, err := startSSHTunnel(binary, "prod-controller", "127.0.0.1:9443"); err == nil || !strings.Contains(err.Error(), "Host key verification failed.") {
+		t.Fatalf("failed SSH command error = %v", err)
 	}
 	contents, err := os.ReadFile(arguments)
 	if err != nil {
