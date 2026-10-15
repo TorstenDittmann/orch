@@ -76,7 +76,7 @@ func (s *service) GetCluster(ctx context.Context, request *connect.Request[orchv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("read cluster state"))
 	}
-	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(cluster)}), nil
+	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(cluster), CaCertificatePem: append([]byte(nil), s.caPEM...)}), nil
 }
 
 func (s *service) ConfigureNetwork(ctx context.Context, request *connect.Request[orchv1alpha1.ConfigureNetworkRequest]) (*connect.Response[orchv1alpha1.ConfigureNetworkResponse], error) {

@@ -50,13 +50,20 @@ bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
-For a persistent controller on a fresh **Ubuntu 24.04 LTS amd64** or **Fedora
-Server 44 amd64** host, use the [guided controller installer](docs/installation.md#guided-controller-installation).
-It installs a systemd service and produces portable administrator and recovery
-directories. Copy both off the controller host before adding workers.
-Managed controller and worker installations can later be upgraded from a
-trusted local executable with `cluster upgrade` and `node upgrade`. See the
-[controller-first procedure](docs/installation.md#upgrade-a-managed-installation).
+For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora
+Server 44 amd64** hosts, copy the binary to each host and run:
+
+~~~console
+sudo ./orch init                        # on the controller
+orch join-token worker-1                # prints the join command for a worker
+sudo ./orch join orch1....              # on the worker
+orch target add prod ssh://root@HOST    # on your workstation
+~~~
+
+See [installation](docs/installation.md#controller) for details. Managed
+controller and worker installations can later be upgraded from a trusted local
+executable with `cluster upgrade` and `node upgrade`. See
+[upgrades](docs/installation.md#upgrades).
 
 For development, initialize controller state manually. The command installs
 the administrator identity into a private local target named `lab` and selects it:

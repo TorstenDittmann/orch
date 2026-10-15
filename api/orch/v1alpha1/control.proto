@@ -165,6 +165,8 @@ message GetClusterRequest {}
 
 message GetClusterResponse {
   Cluster cluster = 1;
+  // PEM cluster CA, so administrators can mint join tokens that pin it.
+  bytes ca_certificate_pem = 2;
 }
 
 message GetApplicationRequest {

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -107,5 +108,147 @@ func TestSSHHelperProcess(t *testing.T) {
 			os.Exit(4)
 		}
 		_ = connection.Close()
+	}
+}
+
+func TestSSHSocketTunnelForwardsPrivateLocalSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-specific")
+	}
+	root := t.TempDir()
+	arguments := filepath.Join(root, "arguments")
+	binary := filepath.Join(root, "fake-ssh")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + arguments + "\necho 'Permission denied (publickey).' >&2\nexit 255\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := startSSHSocketTunnel(binary, "root@prod", 2222, "/var/lib/orch-controller/admin.sock")
+	if err == nil || !strings.Contains(err.Error(), "Permission denied (publickey).") {
+		t.Fatalf("failed SSH error = %v", err)
+	}
+	contents, err := os.ReadFile(arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(contents)
+	for _, expected := range []string{"-N\n", "BatchMode=yes\n", "ExitOnForwardFailure=yes\n", "-p\n2222\n", ":/var/lib/orch-controller/admin.sock\n", "--\nroot@prod\n"} {
+		if !strings.Contains(value, expected) {
+			t.Fatalf("SSH argv %q lacks %q", value, expected)
+		}
+	}
+	if _, err := startSSHSocketTunnel(binary, "-oProxyCommand=bad", 0, "/run/orch.sock"); err == nil {
+		t.Fatal("option-shaped SSH host was accepted")
+	}
+}
+
+func TestSSHSocketTunnelRelaysToRemoteSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-specific")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ORCH_TEST_BINARY", executable)
+	t.Setenv("ORCH_SSH_SOCKET_HELPER", "1")
+	root := t.TempDir()
+	binary := filepath.Join(root, "fake-ssh")
+	script := "#!/bin/sh\nexec \"$ORCH_TEST_BINARY\" -test.run=TestSSHSocketHelperProcess -- \"$@\"\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	remote := filepath.Join(root, "remote.sock")
+	listener, err := net.Listen("unix", remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				buffer := make([]byte, 4)
+				if _, err := io.ReadFull(connection, buffer); err == nil {
+					_, _ = connection.Write(append([]byte("ack:"), buffer...))
+				}
+			}()
+		}
+	}()
+	tunnel, err := startSSHSocketTunnel(binary, "root@prod", 0, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Dir(tunnel.Address()))
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("local socket directory = %v, %v", info, err)
+	}
+	connection, err := net.Dial("unix", tunnel.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 8)
+	if _, err := io.ReadFull(connection, reply); err != nil || string(reply) != "ack:ping" {
+		t.Fatalf("relayed reply = %q, %v", reply, err)
+	}
+	_ = connection.Close()
+	directory := filepath.Dir(tunnel.Address())
+	if err := tunnel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("local socket directory remained after close: %v", err)
+	}
+}
+
+// TestSSHSocketHelperProcess plays ssh -L LOCAL_SOCKET:REMOTE_SOCKET.
+func TestSSHSocketHelperProcess(t *testing.T) {
+	if os.Getenv("ORCH_SSH_SOCKET_HELPER") != "1" {
+		return
+	}
+	arguments := os.Args
+	for index, argument := range arguments {
+		if argument == "--" {
+			arguments = arguments[index+1:]
+			break
+		}
+	}
+	forward := ""
+	for index, argument := range arguments {
+		if argument == "-L" && index+1 < len(arguments) {
+			forward = arguments[index+1]
+			break
+		}
+	}
+	local, remote, found := strings.Cut(forward, ":")
+	if !found {
+		os.Exit(2)
+	}
+	listener, err := net.Listen("unix", local)
+	if err != nil {
+		os.Exit(3)
+	}
+	defer listener.Close()
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			os.Exit(4)
+		}
+		go func() {
+			defer connection.Close()
+			upstream, err := net.Dial("unix", remote)
+			if err != nil {
+				return
+			}
+			defer upstream.Close()
+			go func() { _, _ = io.Copy(upstream, connection) }()
+			_, _ = io.Copy(connection, upstream)
+		}()
 	}
 }

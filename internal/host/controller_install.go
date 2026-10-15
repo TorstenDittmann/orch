@@ -225,12 +225,20 @@ func (i *controllerInstaller) loadOrCreate(options ControllerOptions, binaryHash
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	for _, path := range []string{ControllerPrefix, ControllerDataDir, ControllerStateDir, ControllerUnitPath, options.AdminDir, options.RecoveryDir, options.AdminDir + ".installing", options.RecoveryDir + ".installing"} {
+	outputs := []string{options.AdminDir}
+	if options.RecoveryDir != "" {
+		outputs = append(outputs, options.RecoveryDir)
+	}
+	paths := []string{ControllerPrefix, ControllerDataDir, ControllerStateDir, ControllerUnitPath}
+	for _, output := range outputs {
+		paths = append(paths, output, output+".installing")
+	}
+	for _, path := range paths {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("refusing unowned controller path: %s", path)
 		}
 	}
-	for _, path := range []string{options.AdminDir, options.RecoveryDir} {
+	for _, path := range outputs {
 		if err := validateControllerOutputPath(path); err != nil {
 			return err
 		}
@@ -471,6 +479,9 @@ type recoverySetManifest struct {
 }
 
 func (i *controllerInstaller) createRecoverySet(ctx context.Context) error {
+	if i.state.RecoveryDir == "" {
+		return nil
+	}
 	if pathExistsLocal(i.state.RecoveryDir) {
 		return i.validateRecoverySet(ctx)
 	}

@@ -46,8 +46,8 @@ func normalizeControllerOptions(options ControllerOptions, requireOutputs bool) 
 	options.Name = strings.TrimSpace(options.Name)
 	options.Server = strings.TrimSpace(options.Server)
 	options.Listen = strings.TrimSpace(options.Listen)
-	if options.Server == "" || options.Listen == "" || requireOutputs && (options.Name == "" || options.AdminDir == "" || options.RecoveryDir == "") {
-		return ControllerOptions{}, errors.New("controller name, HTTPS server, listen address, admin directory, and recovery directory are required")
+	if options.Server == "" || options.Listen == "" || requireOutputs && (options.Name == "" || options.AdminDir == "") {
+		return ControllerOptions{}, errors.New("controller name, HTTPS server, listen address, and admin directory are required")
 	}
 	if requireOutputs && !controllerName.MatchString(options.Name) {
 		return ControllerOptions{}, errors.New("controller name must be a lowercase DNS label of at most 63 characters")
@@ -82,15 +82,23 @@ func normalizeControllerOptions(options ControllerOptions, requireOutputs bool) 
 		return ControllerOptions{}, errors.New("listen host cannot be multicast")
 	}
 	if requireOutputs {
-		for _, field := range []*string{&options.AdminDir, &options.RecoveryDir} {
+		// The recovery set is optional; orch cluster backup creates one later.
+		outputs := []*string{&options.AdminDir}
+		if options.RecoveryDir != "" {
+			outputs = append(outputs, &options.RecoveryDir)
+		}
+		for _, field := range outputs {
 			if !filepath.IsAbs(*field) {
 				return ControllerOptions{}, errors.New("admin and recovery directories must be absolute")
 			}
 			*field = filepath.Clean(*field)
 		}
-		if options.AdminDir == options.RecoveryDir || hostPathsOverlap(options.AdminDir, options.RecoveryDir) ||
-			hostPathsOverlap(options.AdminDir, ControllerDataDir) || hostPathsOverlap(options.RecoveryDir, ControllerDataDir) ||
-			hostPathsOverlap(options.AdminDir, ControllerStateDir) || hostPathsOverlap(options.RecoveryDir, ControllerStateDir) {
+		overlap := hostPathsOverlap(options.AdminDir, ControllerDataDir) || hostPathsOverlap(options.AdminDir, ControllerStateDir)
+		if options.RecoveryDir != "" {
+			overlap = overlap || options.AdminDir == options.RecoveryDir || hostPathsOverlap(options.AdminDir, options.RecoveryDir) ||
+				hostPathsOverlap(options.RecoveryDir, ControllerDataDir) || hostPathsOverlap(options.RecoveryDir, ControllerStateDir)
+		}
+		if overlap {
 			return ControllerOptions{}, errors.New("admin, recovery, controller data, and installation state paths must not overlap")
 		}
 	}
@@ -111,7 +119,7 @@ func BuildControllerPlan(ctx context.Context, options ControllerOptions) (Contro
 			"Initialize private controller state and a portable administrator directory",
 			"Validate and enable the owned systemd controller service",
 			"Wait for an authenticated controller response",
-			"Publish a verified day-zero recovery set for immediate off-host transfer",
+			"Publish a verified day-zero recovery set when a recovery directory is given",
 			"Leave firewall, DNS, routing, sysctl, and unrelated services unchanged",
 		}}, nil
 }
@@ -189,7 +197,7 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 	}
 	owned := pathExistsLocal(ControllerManifestPath)
 	if !owned {
-		add("controller_installation", "fail", "The managed controller is not installed", "Run cluster install with explicit administrator and recovery directories", true)
+		add("controller_installation", "fail", "The managed controller is not installed", "Run orch init", true)
 		if _, err := timeoutCommand(runCommand, ctx, "getent", "passwd", "orch-controller"); err == nil {
 			add("controller_account", "fail", "Unowned orch-controller account exists", "Use a fresh host; existing accounts are not adopted", false)
 		}
@@ -238,7 +246,7 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 					add("administrator_output", "pass", "Administrator handoff directory is private", "", false)
 				}
 			}
-			if state.Done["recovery"] {
+			if state.Done["recovery"] && state.RecoveryDir != "" {
 				if err := validatePrivateTree(state.RecoveryDir); err != nil {
 					add("recovery_output", "fail", err.Error(), "Restore the immutable recovery directory", false)
 				} else {
