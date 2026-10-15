@@ -14,12 +14,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 	"github.com/distribution/reference"
 )
 

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 	modernsqlite "modernc.org/sqlite"
 )
 
@@ -27,6 +27,7 @@ var (
 type Store struct {
 	db        *sql.DB
 	path      string
+	readOnly  bool
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -178,6 +179,45 @@ func OpenInitialized(ctx context.Context, databasePath string) (*Store, error) {
 	return Open(ctx, absolute)
 }
 
+// OpenReadOnly opens an existing orch database without applying migrations or
+// checkpointing on close, so a running controller's schema is left untouched.
+// Databases with a schema newer than this binary are refused.
+func OpenReadOnly(ctx context.Context, databasePath string) (*Store, error) {
+	if strings.TrimSpace(databasePath) == "" {
+		return nil, fmt.Errorf("database path is required")
+	}
+	absolute, err := filepath.Abs(databasePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("inspect existing database: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is not a regular file", ErrUnrecognized, absolute)
+	}
+	if err := validateExistingDatabase(ctx, absolute); err != nil {
+		return nil, err
+	}
+	dsn := (&url.URL{
+		Scheme:   "file",
+		Path:     filepath.ToSlash(absolute),
+		RawQuery: "mode=ro&_pragma=busy_timeout(5000)",
+	}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("connect to database: %w", err)
+	}
+	return &Store{db: db, path: absolute, readOnly: true}, nil
+}
+
 func validateExistingDatabase(ctx context.Context, databasePath string) error {
 	dsn := (&url.URL{Scheme: "file", Path: filepath.ToSlash(databasePath), RawQuery: "mode=ro"}).String()
 	db, err := sql.Open("sqlite", dsn)
@@ -215,8 +255,10 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closeOnce.Do(func() {
-		if _, err := s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-			s.closeErr = fmt.Errorf("checkpoint database: %w", err)
+		if !s.readOnly {
+			if _, err := s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				s.closeErr = fmt.Errorf("checkpoint database: %w", err)
+			}
 		}
 		if err := s.db.Close(); err != nil && s.closeErr == nil {
 			s.closeErr = fmt.Errorf("close database: %w", err)

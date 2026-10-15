@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/charmbracelet/x/ansi"
 )
 

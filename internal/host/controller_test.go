@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/target"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/target"
 )
 
 func TestControllerCertificateCheckReportsExpiry(t *testing.T) {

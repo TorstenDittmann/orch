@@ -15,10 +15,10 @@ import (
 	"path/filepath"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/config"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/config"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

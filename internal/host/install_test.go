@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	nodebundle "change.codes/torsten/better-swarm/packaging/node"
+	nodebundle "github.com/TorstenDittmann/orch/packaging/node"
 )
 
 func TestPublicationCanResumeJournaledMissingFileAndRefusesChangedContent(t *testing.T) {

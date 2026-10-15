@@ -9,8 +9,8 @@ import (
 	"io"
 	"strings"
 
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/model"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func runNetwork(ctx context.Context, args []string, stdout, stderr io.Writer) int {

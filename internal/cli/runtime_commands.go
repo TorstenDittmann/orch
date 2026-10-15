@@ -15,15 +15,15 @@ import (
 	"strings"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/discovery"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/network"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	containerdruntime "change.codes/torsten/better-swarm/internal/runtime/containerd"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/discovery"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/network"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	containerdruntime "github.com/TorstenDittmann/orch/internal/runtime/containerd"
 )
 
 func runAgent(ctx context.Context, args []string, stdout, stderr io.Writer) int {

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/store"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 var bootstrapTestTime = time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)

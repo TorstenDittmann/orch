@@ -14,8 +14,8 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func TestProcessOwnerUsesResolvedProcessUser(t *testing.T) {

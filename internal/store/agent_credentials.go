@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 const renewAgentCertificateOperation = "node.certificate.renew"

@@ -3,8 +3,8 @@ package containerd
 import (
 	"strings"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func validateAllocation(allocation model.AllocationDesired) error {

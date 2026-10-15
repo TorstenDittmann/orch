@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func TestNodeMutationsAreAtomicIdempotentAndRequireSafeRemoval(t *testing.T) {
@@ -147,6 +147,43 @@ func TestPlacementAttemptsAreStableUntilAReplicaMoves(t *testing.T) {
 		"", "recreated", testCreatedAt.Add(5*time.Second))
 	if err != nil || fourth == first || fourth == second || fourth == third {
 		t.Fatalf("recreated attempt = %q, %v; prior %q, %q, %q", fourth, err, first, second, third)
+	}
+}
+
+func TestVolumeClaimsAreReleasedWithTheirNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	for index, name := range []string{"node-1", "node-2"} {
+		input := testEnrollAgent(fmt.Sprintf("node-%d", index+1), name, fmt.Sprintf("%064x", index+1),
+			fmt.Sprintf("volume-enrollment-%d", index+1), fmt.Sprintf("%064x", index+301))
+		if _, err := state.EnrollAgent(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := state.ApplyApplication(ctx, applicationInput(`{"name":"hello"}`, "volume-revision",
+		"volume-application-key", testCreatedAt)); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ClaimVolume(ctx, "hello", "data", "node-1", testCreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.ClaimVolume(ctx, "hello", "data", "node-2", testCreatedAt); err == nil {
+		t.Fatal("ClaimVolume() on a second node succeeded")
+	}
+
+	if _, err := state.RemoveNode(ctx, model.RemoveNode{NodeName: "node-1", Lost: true,
+		IdempotencyKey: "volume-node-remove-key", RequestHash: strings.Repeat("5", 64), RemovedAt: testCreatedAt.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if claim, err := state.VolumeClaim(ctx, "hello", "data"); err != nil || claim != "" {
+		t.Fatalf("claim after lost-node removal = %q, %v", claim, err)
+	}
+	if err := state.ClaimVolume(ctx, "hello", "data", "node-2", testCreatedAt.Add(2*time.Minute)); err != nil {
+		t.Fatalf("ClaimVolume() after lost-node removal = %v", err)
 	}
 }
 

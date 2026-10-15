@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	agentstate "change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	"change.codes/torsten/better-swarm/internal/store"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	agentstate "github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 type UpgradeOptions struct {
@@ -128,29 +128,32 @@ func UpgradeController(ctx context.Context, options UpgradeOptions) (UpgradeResu
 		recovery := filepath.Join(ControllerStateDir, "upgrades", result.CandidateHash, "recovery")
 		installer := controllerInstaller{state: state, run: runCommand}
 		installer.state.RecoveryDir = recovery
-		if err := installer.createRecoverySet(ctx); err != nil {
-			return result, fmt.Errorf("create pre-upgrade recovery set: %w", err)
-		}
-		rehearsal := filepath.Join(ControllerStateDir, "upgrades", result.CandidateHash, "migration-rehearsal")
-		if err := os.RemoveAll(rehearsal); err != nil {
-			return result, err
-		}
-		if err := os.MkdirAll(rehearsal, 0700); err != nil {
-			return result, err
-		}
-		rehearsalDB := filepath.Join(rehearsal, "control.db")
-		if err := copyRegular(filepath.Join(recovery, "control.db"), rehearsalDB, 0600); err != nil {
-			return result, fmt.Errorf("stage controller migration rehearsal: %w", err)
-		}
-		database, _, err := store.OpenRecoveryCopy(ctx, rehearsalDB)
+		err := prepareControllerRecovery(ctx, runCommand, recovery, func(ctx context.Context) error {
+			if err := installer.createRecoverySet(ctx); err != nil {
+				return fmt.Errorf("create pre-upgrade recovery set: %w", err)
+			}
+			rehearsal := filepath.Join(ControllerStateDir, "upgrades", result.CandidateHash, "migration-rehearsal")
+			if err := os.RemoveAll(rehearsal); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(rehearsal, 0700); err != nil {
+				return err
+			}
+			rehearsalDB := filepath.Join(rehearsal, "control.db")
+			if err := copyRegular(filepath.Join(recovery, "control.db"), rehearsalDB, 0600); err != nil {
+				return fmt.Errorf("stage controller migration rehearsal: %w", err)
+			}
+			database, _, err := store.OpenRecoveryCopy(ctx, rehearsalDB)
+			if err != nil {
+				return fmt.Errorf("candidate controller migration rehearsal: %w", err)
+			}
+			if err = database.Close(); err != nil {
+				return err
+			}
+			journal.RecoveryPath, journal.Phase = recovery, "backed_up"
+			return saveUpgradeJournal(journalPath, journal)
+		})
 		if err != nil {
-			return result, fmt.Errorf("candidate controller migration rehearsal: %w", err)
-		}
-		if err = database.Close(); err != nil {
-			return result, err
-		}
-		journal.RecoveryPath, journal.Phase = recovery, "backed_up"
-		if err := saveUpgradeJournal(journalPath, journal); err != nil {
 			return result, err
 		}
 	}
@@ -197,8 +200,29 @@ func UpgradeController(ctx context.Context, options UpgradeOptions) (UpgradeResu
 	return result, nil
 }
 
+// prepareControllerRecovery stops the controller so the recovery set is a
+// consistent snapshot, and discards any set left by an earlier attempt: until
+// the journal records backed_up the live database is authoritative, so a stale
+// set must never be reused. The old controller is restarted if preparation fails.
+func prepareControllerRecovery(ctx context.Context, run Command, recovery string, prepare func(context.Context) error) error {
+	if err := stopUnitConfirmed(ctx, run, "orch-controller.service"); err != nil {
+		return err
+	}
+	err := os.RemoveAll(recovery)
+	if err == nil {
+		err = prepare(ctx)
+	}
+	if err != nil {
+		if _, startErr := run(ctx, "systemctl", "start", "orch-controller.service"); startErr != nil {
+			return fmt.Errorf("upgrade preparation failed: %v; restart old controller: %w", err, startErr)
+		}
+		return err
+	}
+	return nil
+}
+
 func controllerUpgradePreflight(ctx context.Context, binary string) (UpgradeResult, controllerManifest, string, error) {
-	r := UpgradeResult{Kind: "controller", Phase: "preflight", AutomaticRollback: true, Actions: []string{"Create a fresh private recovery set", "Stop only orch-controller", "Atomically replace the managed orch binary", "Start and authenticate the original cluster identity"}}
+	r := UpgradeResult{Kind: "controller", Phase: "preflight", AutomaticRollback: true, Actions: []string{"Stop only orch-controller", "Create a fresh private recovery set", "Atomically replace the managed orch binary", "Start and authenticate the original cluster identity"}}
 	candidate, hash, err := inspectCandidate(ctx, binary)
 	r.Candidate, r.CandidateHash = candidate, hash
 	if err != nil {
@@ -559,7 +583,13 @@ func rollbackController(ctx context.Context, run Command, journalPath, dataDir s
 	if err := replaceRegular(filepath.Join(filepath.Dir(journalPath), "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
 		restoreErr = err
 	}
-	j.Phase = "backed_up"
+	// After a full restore the previous version runs and changes state again,
+	// so a retry starts from planned and takes a fresh backup. If the restore
+	// failed, the backup is still the only good copy and stays pinned.
+	j.Phase = "planned"
+	if restoreErr != nil {
+		j.Phase = "backed_up"
+	}
 	if err := saveUpgradeJournal(journalPath, j); restoreErr == nil {
 		restoreErr = err
 	}
@@ -582,7 +612,11 @@ func rollbackNode(ctx context.Context, run Command, journalPath, agentDir string
 	if err := replaceRegular(filepath.Join(filepath.Dir(journalPath), "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
 		restoreErr = err
 	}
-	j.Phase = "backed_up"
+	// As for the controller, a retry after a full restore takes a fresh backup.
+	j.Phase = "planned"
+	if restoreErr != nil {
+		j.Phase = "backed_up"
+	}
 	if err := saveUpgradeJournal(journalPath, j); restoreErr == nil {
 		restoreErr = err
 	}

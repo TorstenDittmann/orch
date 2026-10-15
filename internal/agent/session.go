@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
-	"change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
 	"connectrpc.com/connect"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
+	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

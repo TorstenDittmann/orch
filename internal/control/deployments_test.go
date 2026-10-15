@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/model"
 	"connectrpc.com/connect"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
 	"google.golang.org/protobuf/proto"
 )
 

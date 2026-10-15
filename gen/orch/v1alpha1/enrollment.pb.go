@@ -230,7 +230,7 @@ const file_orch_v1alpha1_enrollment_proto_rawDesc = "" +
 	"\achanged\x18\b \x01(\bR\achanged\x12%\n" +
 	"\x0eevent_sequence\x18\t \x01(\x04R\reventSequence2\x8b\x01\n" +
 	"\x11EnrollmentService\x12v\n" +
-	"\vEnrollAgent\x122.orch.v1alpha1.EnrollmentServiceEnrollAgentRequest\x1a3.orch.v1alpha1.EnrollmentServiceEnrollAgentResponseBBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\vEnrollAgent\x122.orch.v1alpha1.EnrollmentServiceEnrollAgentRequest\x1a3.orch.v1alpha1.EnrollmentServiceEnrollAgentResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_enrollment_proto_rawDescOnce sync.Once

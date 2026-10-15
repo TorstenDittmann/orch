@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/discovery"
-	"change.codes/torsten/better-swarm/internal/health"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	"change.codes/torsten/better-swarm/internal/tcpingress"
+	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/discovery"
+	"github.com/TorstenDittmann/orch/internal/health"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/tcpingress"
 )
 
 var supervisorTestTime = time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
@@ -249,6 +249,48 @@ func TestSupervisorSchedulesOneShotCronRunAndRecordsCompletion(t *testing.T) {
 	frames, err := supervisor.TailCronLogs(ctx, runs[0].ID, 20)
 	if err != nil || len(frames) != 1 || string(frames[0].Data) != "backup complete\n" {
 		t.Fatalf("retained cron logs = %#v, %v", frames, err)
+	}
+}
+
+func TestSupervisorReportsCronScheduleThatNeverFires(t *testing.T) {
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	now := supervisorTestTime
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}})
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newJob := func(name, expression string) model.CronJobDesired {
+		job := model.CronJobDesired{Application: "hello", Job: name, ApplicationGeneration: 1,
+			RevisionID: "revision-one", Image: supervisorExecutableImage, Schedule: expression, CPUMillis: 100,
+			MemoryBytes: 64 << 20, StartDeadlineSeconds: 30, TimeoutSeconds: 60, NetworkGeneration: 1}
+		job.SpecDigest, err = model.CronJobSpecDigest(job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return job
+	}
+	assignment := model.Assignment{Network: networkConfig, CronJobs: []model.CronJobDesired{newJob("backup", "* * * * *"), newJob("never", "0 0 30 2 *")}}
+	for range 3 {
+		if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Minute)
+	}
+	jobs, runs := supervisor.CronObservations()
+	if len(jobs) != 2 || jobs[1].Job != "never" || jobs[1].Reason != "schedule_invalid" || jobs[1].NextRunAt != nil {
+		t.Fatalf("cron job observations = %#v", jobs)
+	}
+	if jobs[0].NextRunAt == nil {
+		t.Fatalf("valid job lost its schedule: %#v", jobs[0])
+	}
+	for _, run := range runs {
+		if run.Job == "never" {
+			t.Fatalf("impossible schedule produced run %#v", run)
+		}
 	}
 }
 
@@ -821,6 +863,55 @@ func TestSupervisorRestartedProcessRepassesReadiness(t *testing.T) {
 	routes, _ = supervisor.Observations()
 	if len(routes) != 1 || routes[0].State != model.RouteActive {
 		t.Fatalf("routes after restarted process passed readiness = %#v", routes)
+	}
+}
+
+func TestSupervisorRestartedSlowStartGetsFullHealthDeadline(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	now := supervisorTestTime
+	runtime.Now = func() time.Time { return now }
+	prober := &health.Fake{Err: errors.New("still warming up")}
+	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
+		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}}, strings.NewReader(strings.Repeat("\x00", 64)))
+	allocation := supervisorHTTPAllocation(t, "alloc-web", "sha256:"+strings.Repeat("a", 64), 1)
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment := model.Assignment{Network: networkConfig, Allocations: []model.AllocationDesired{allocation}}
+	if _, err := supervisor.Reconcile(ctx, assignment); err != nil {
+		t.Fatal(err)
+	}
+
+	// The container was created long before it exits and restarts, so a
+	// deadline measured from creation would already be exceeded.
+	now = now.Add(time.Hour)
+	if err := runtime.Exit(orchruntime.ObjectID(allocation.ID, allocation.SpecDigest), 1); err != nil {
+		t.Fatal(err)
+	}
+	if statuses, err := supervisor.Reconcile(ctx, assignment); err != nil || statuses[0].Phase != model.AllocationBackoff {
+		t.Fatalf("exited process status = %#v, %v", statuses, err)
+	}
+	now = now.Add(3 * time.Second)
+	restartedAt := now
+	statuses, err := supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].HealthStatus != model.HealthChecking {
+		t.Fatalf("restarted process status = %#v, %v", statuses, err)
+	}
+
+	deadline := time.Duration(allocation.StartDeadlineSeconds) * time.Second
+	now = restartedAt.Add(deadline - health.ProbeInterval)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].Reason == "health_deadline_exceeded" {
+		t.Fatalf("restarted slow start inside its deadline = %#v, %v", statuses, err)
+	}
+	now = restartedAt.Add(deadline)
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil || statuses[0].Phase != model.AllocationFailed || statuses[0].Reason != "health_deadline_exceeded" {
+		t.Fatalf("restarted slow start past its deadline = %#v, %v", statuses, err)
 	}
 }
 

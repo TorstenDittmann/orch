@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 var ErrJobNotFound = errors.New("job was not found")

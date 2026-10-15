@@ -1,4 +1,4 @@
-module change.codes/torsten/better-swarm
+module github.com/TorstenDittmann/orch
 
 go 1.26.3
 

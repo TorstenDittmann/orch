@@ -25,3 +25,19 @@ func TestParseRejectsExtendedCronSyntax(t *testing.T) {
 		})
 	}
 }
+
+func TestNextRejectsSchedulesThatNeverFire(t *testing.T) {
+	for _, expression := range []string{"0 0 30 2 *", "0 0 31 4 *"} {
+		t.Run(expression, func(t *testing.T) {
+			if _, err := Parse(expression); err != nil {
+				t.Fatalf("Parse(%q) error = %v", expression, err)
+			}
+			if next, err := Next(expression, time.Now()); err == nil {
+				t.Fatalf("Next(%q) = %s, want error", expression, next)
+			}
+		})
+	}
+	if _, err := Next("0 0 29 2 *", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("leap-day schedule: %v", err)
+	}
+}

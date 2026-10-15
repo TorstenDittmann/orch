@@ -16,14 +16,14 @@ import (
 	"strings"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/control"
-	"change.codes/torsten/better-swarm/internal/target"
-	pklschema "change.codes/torsten/better-swarm/pkl"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/control"
+	"github.com/TorstenDittmann/orch/internal/target"
+	pklschema "github.com/TorstenDittmann/orch/pkl"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

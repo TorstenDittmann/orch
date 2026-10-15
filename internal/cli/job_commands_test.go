@@ -12,16 +12,16 @@ import (
 	"testing"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/control"
-	"change.codes/torsten/better-swarm/internal/discovery"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/control"
+	"github.com/TorstenDittmann/orch/internal/discovery"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 func TestJobCLIThroughControllerAndAgent(t *testing.T) {

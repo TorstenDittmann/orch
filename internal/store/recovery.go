@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"path/filepath"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/security"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 // RecoverySummary contains only aggregate metadata, never manifests or credentials.

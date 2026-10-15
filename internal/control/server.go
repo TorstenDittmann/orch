@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/gen/orch/v1alpha1/orchv1alpha1connect"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 const maxHTTPBodyBytes = maxManifestBytes + 64<<10
@@ -136,6 +136,11 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	adminMux.HandleFunc("/healthz", healthHandler)
+	// /metrics needs the same credentials as the administrator API: an
+	// administrator certificate on the HTTPS port, or access to the socket.
+	metrics := implementation.metricsHandler(credentials.Certificate.Leaf.NotAfter)
+	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, metrics))
+	adminMux.Handle("/metrics", authenticateLocalAdministrator(metrics))
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
 		enrollmentImplementation,
 		connect.WithReadMaxBytes(64<<10),

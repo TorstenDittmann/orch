@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/vishvananda/netlink"
 )
 

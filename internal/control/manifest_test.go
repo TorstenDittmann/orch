@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/config"
+	"github.com/TorstenDittmann/orch/internal/config"
 )
 
 func newTestManifest(name string, services map[string]config.Service) *config.Manifest {

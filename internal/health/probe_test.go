@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 type dialContextFunc func(context.Context, string, string) (net.Conn, error)

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 func TestFakeAttachmentIsIdempotentAndOwned(t *testing.T) {

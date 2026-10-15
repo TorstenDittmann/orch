@@ -29,9 +29,9 @@ import (
 	"github.com/containerd/platforms"
 	"golang.org/x/sys/unix"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 const (
@@ -41,6 +41,7 @@ const (
 	labelAllocation        = "io.orch.allocation"
 	labelSpec              = "io.orch.spec-digest"
 	labelNetworkGeneration = "io.orch.network-generation"
+	labelStartedAt         = "io.orch.started-at"
 )
 
 type runtimeClient struct {
@@ -276,7 +277,12 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 			return orchruntime.Object{}, err
 		}
 		if taskErr == nil {
-			_, _ = task.Delete(ctx)
+			// A task left in Created (or Stopped) state after an agent crash still
+			// holds a pid; without WithProcessKill the delete fails and NewTask
+			// below would report AlreadyExists forever.
+			if _, err := task.Delete(ctx, containerdclient.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+				return orchruntime.Object{}, fmt.Errorf("delete stale task %q: %w", id, err)
+			}
 		}
 		if _, err := c.secretMounts(allocation); err != nil {
 			return orchruntime.Object{}, err
@@ -405,6 +411,12 @@ func (c *runtimeClient) startTask(ctx context.Context, container containerdclien
 	if err != nil {
 		return orchruntime.Object{}, err
 	}
+	// Record the start before creating the task so health deadlines measure
+	// from the current task rather than from container creation after a restart.
+	startedAt := time.Now().UTC()
+	if _, err := container.SetLabels(ctx, map[string]string{labelStartedAt: startedAt.Format(time.RFC3339Nano)}); err != nil {
+		return orchruntime.Object{}, fmt.Errorf("record task start %q: %w", container.ID(), err)
+	}
 	task, err := container.NewTask(ctx, taskLogCreator(c.options.LoggerPath, logPrefix))
 	if err != nil {
 		return orchruntime.Object{}, fmt.Errorf("create task %q: %w", container.ID(), err)
@@ -459,7 +471,7 @@ func (c *runtimeClient) startTask(ctx context.Context, container containerdclien
 	}
 	return orchruntime.Object{
 		ID: container.ID(), AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest,
-		Running: true, StartedAt: time.Now().UTC(), Address: address, NetworkGeneration: allocation.NetworkGeneration,
+		Running: true, StartedAt: startedAt, Address: address, NetworkGeneration: allocation.NetworkGeneration,
 	}, nil
 }
 
@@ -754,7 +766,7 @@ func (c *runtimeClient) object(ctx context.Context, container containerdclient.C
 		return orchruntime.Object{}, err
 	}
 	object := orchruntime.Object{
-		ID: container.ID(), AllocationID: labels[labelAllocation], SpecDigest: labels[labelSpec], StartedAt: info.CreatedAt,
+		ID: container.ID(), AllocationID: labels[labelAllocation], SpecDigest: labels[labelSpec], StartedAt: taskStartedAt(labels, info.CreatedAt),
 	}
 	task, taskErr := container.Task(ctx, nil)
 	if taskErr != nil && !errdefs.IsNotFound(taskErr) {
@@ -892,6 +904,15 @@ func (c *runtimeClient) ownedContainer(ctx context.Context, id string) (containe
 		return nil, err
 	}
 	return container, nil
+}
+
+// taskStartedAt returns when the current task was started, falling back to
+// container creation for containers created before the label existed.
+func taskStartedAt(labels map[string]string, createdAt time.Time) time.Time {
+	if startedAt, err := time.Parse(time.RFC3339Nano, labels[labelStartedAt]); err == nil {
+		return startedAt
+	}
+	return createdAt
 }
 
 func (c *runtimeClient) labels(allocationID, specDigest string) map[string]string {

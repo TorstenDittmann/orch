@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	orchschedule "change.codes/torsten/better-swarm/internal/schedule"
+	orchschedule "github.com/TorstenDittmann/orch/internal/schedule"
 	"github.com/distribution/reference"
 	"golang.org/x/net/idna"
 )
@@ -320,7 +320,7 @@ func Validate(manifest *Manifest) error {
 		} else if _, err := reference.ParseNormalizedNamed(job.Image); err != nil {
 			add(base+".image", "must be a valid OCI image reference")
 		}
-		if _, err := orchschedule.Parse(job.Schedule); err != nil {
+		if _, err := orchschedule.Next(job.Schedule, time.Now()); err != nil {
 			add(base+".schedule", err.Error())
 		}
 		validateStringList(base+".command", job.Command, add)

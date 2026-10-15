@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"change.codes/torsten/better-swarm/internal/cli"
+	"github.com/TorstenDittmann/orch/internal/cli"
 )
 
 func main() {

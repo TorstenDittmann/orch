@@ -311,5 +311,9 @@ Work is split into reviewable vertical slices:
 5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 
-The public name and open-source license are intentionally undecided until
-before the first distributable release.
+Tagging `vX.Y.Z` publishes a GitHub release with a stamped Linux amd64 binary
+and `SHA256SUMS`.
+
+## License
+
+orch is licensed under the [Apache License 2.0](LICENSE).

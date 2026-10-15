@@ -15,15 +15,15 @@ import (
 	"sync"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/discovery"
-	"change.codes/torsten/better-swarm/internal/health"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	"change.codes/torsten/better-swarm/internal/schedule"
-	"change.codes/torsten/better-swarm/internal/tcpingress"
+	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/discovery"
+	"github.com/TorstenDittmann/orch/internal/health"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/schedule"
+	"github.com/TorstenDittmann/orch/internal/tcpingress"
 )
 
 const taskStopGrace = 10 * time.Second
@@ -1730,7 +1730,14 @@ func (s *Supervisor) reconcileCronJobs(ctx context.Context, desired []model.Cron
 				}
 				next, err := schedule.Next(job.Schedule, now)
 				if err != nil {
-					return fmt.Errorf("evaluate cron job %s/%s: %w", job.Application, job.Job, err)
+					// A schedule that can never fire (for example February 30)
+					// is reported on this job alone; other jobs keep running.
+					if err := s.state.SaveCronJobState(ctx, state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, UpdatedAt: now}); err != nil {
+						return err
+					}
+					statuses = append(statuses, model.CronJobStatus{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest,
+						Reason: "schedule_invalid", Message: boundedMessage(err.Error()), UpdatedAt: now})
+					continue
 				}
 				jobState = state.CronJobState{Application: job.Application, Job: job.Job, SpecDigest: job.SpecDigest, NextRunAt: &next, UpdatedAt: now}
 			}

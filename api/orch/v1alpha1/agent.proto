@@ -4,7 +4,7 @@ package orch.v1alpha1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1";
+option go_package = "github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1";
 
 service AgentService {
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);

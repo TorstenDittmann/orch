@@ -11,7 +11,7 @@ import (
 	"sort"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 var ErrAssignmentNotFound = errors.New("assignment was not found")

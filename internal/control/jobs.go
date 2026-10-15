@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	"change.codes/torsten/better-swarm/internal/config"
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
-	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/store"
 	"google.golang.org/protobuf/proto"
 )
 

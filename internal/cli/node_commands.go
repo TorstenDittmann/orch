@@ -9,8 +9,8 @@ import (
 	"io"
 	"strings"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
 )
 
 func runNode(ctx context.Context, args []string, stdout, stderr io.Writer) int {

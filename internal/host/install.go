@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	agentctl "change.codes/torsten/better-swarm/internal/agent"
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	nodebundle "change.codes/torsten/better-swarm/packaging/node"
+	agentctl "github.com/TorstenDittmann/orch/internal/agent"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	nodebundle "github.com/TorstenDittmann/orch/packaging/node"
 )
 
 type InstallOptions struct {

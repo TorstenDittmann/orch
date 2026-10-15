@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
 )
 
 func TestUpgradeJournalPinsCandidateAndPreservesPreviousBinary(t *testing.T) {
@@ -315,5 +315,101 @@ func TestRollbackAbortsWhenServiceIsNotConfirmedStopped(t *testing.T) {
 	}
 	if started {
 		t.Fatal("rollback restarted a service it could not stop")
+	}
+}
+
+func inactiveUnits(calls *[]string) Command {
+	return func(_ context.Context, name string, args ...string) (string, error) {
+		*calls = append(*calls, strings.Join(args, " "))
+		if args[0] == "show" {
+			return "inactive\n", nil
+		}
+		return "", nil
+	}
+}
+
+func TestRollbackRetryTakesFreshBackup(t *testing.T) {
+	f := newRollbackFixture(t)
+	var calls []string
+	if err := rollbackNode(context.Background(), inactiveUnits(&calls), f.journalPath, f.agentDir, f.journal, errors.New("unhealthy")); err == nil || !strings.Contains(err.Error(), "previous agent was restored") {
+		t.Fatalf("rollback = %v", err)
+	}
+	previousHash, err := hashFile(f.installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The retry resumes the same journal from planned, so it backs up the
+	// state the restored agent has written since instead of the stale copy.
+	journal, err := loadUpgradeJournal(f.journalPath, "node", "candidate", previousHash, f.installed)
+	if err != nil || journal.Phase != "planned" {
+		t.Fatalf("journal after rollback = %#v, %v", journal, err)
+	}
+	if err := verifyInstalledBinary(f.installed, previousHash, f.journalPath, "node", "candidate"); err != nil {
+		t.Fatalf("restored binary rejected on retry: %v", err)
+	}
+
+	controller := newRollbackFixture(t)
+	if err := os.WriteFile(filepath.Join(controller.journal.RecoveryPath, "control.db"), []byte("previous-db"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollbackController(context.Background(), inactiveUnits(&calls), controller.journalPath, dataDir, controller.journal, errors.New("unhealthy")); err == nil || !strings.Contains(err.Error(), "previous controller was restored") {
+		t.Fatalf("controller rollback = %v", err)
+	}
+	if journal, err := loadUpgradeJournal(controller.journalPath, "node", "candidate", "", controller.installed); err != nil || journal.Phase != "planned" {
+		t.Fatalf("controller journal after rollback = %#v, %v", journal, err)
+	}
+}
+
+func TestRollbackKeepsBackupPinnedWhenRestoreFails(t *testing.T) {
+	f := newRollbackFixture(t)
+	if err := os.Remove(filepath.Join(filepath.Dir(f.journalPath), "upgrades", "candidate", "previous-orch")); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	if err := rollbackNode(context.Background(), inactiveUnits(&calls), f.journalPath, f.agentDir, f.journal, errors.New("unhealthy")); err == nil || !strings.Contains(err.Error(), "also failed") {
+		t.Fatalf("rollback = %v", err)
+	}
+	if journal, err := loadUpgradeJournal(f.journalPath, "node", "candidate", "", f.installed); err != nil || journal.Phase != "backed_up" {
+		t.Fatalf("journal = %#v, %v", journal, err)
+	}
+}
+
+func TestPrepareControllerRecoveryStopsFirstAndReplacesStaleSet(t *testing.T) {
+	recovery := filepath.Join(t.TempDir(), "upgrades", "candidate", "recovery")
+	if err := os.MkdirAll(recovery, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(recovery, "control.db"), []byte("stale"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	err := prepareControllerRecovery(context.Background(), inactiveUnits(&calls), recovery, func(context.Context) error {
+		if len(calls) == 0 || calls[0] != "stop orch-controller.service" {
+			t.Fatalf("backup taken before the controller stopped: %q", calls)
+		}
+		if _, err := os.Stat(recovery); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale recovery set still present: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range calls {
+		if strings.HasPrefix(call, "start") {
+			t.Fatalf("controller restarted after successful preparation: %q", calls)
+		}
+	}
+
+	calls = nil
+	err = prepareControllerRecovery(context.Background(), inactiveUnits(&calls), recovery, func(context.Context) error {
+		return errors.New("backup failed")
+	})
+	if err == nil || err.Error() != "backup failed" || calls[len(calls)-1] != "start orch-controller.service" {
+		t.Fatalf("failed preparation = %v, calls %q", err, calls)
 	}
 }

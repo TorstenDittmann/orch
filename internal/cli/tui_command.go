@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/tui"
 	tea "charm.land/bubbletea/v2"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/tui"
 	"github.com/charmbracelet/x/term"
 )
 

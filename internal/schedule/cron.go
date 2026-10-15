@@ -37,5 +37,11 @@ func Next(expression string, after time.Time) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return schedule.Next(after.UTC()).UTC(), nil
+	// robfig/cron reports a schedule without any matching calendar date (for
+	// example "0 0 30 2 *") as the zero time instead of an error.
+	next := schedule.Next(after.UTC())
+	if next.IsZero() {
+		return time.Time{}, fmt.Errorf("cron schedule never fires: no calendar date matches it")
+	}
+	return next.UTC(), nil
 }

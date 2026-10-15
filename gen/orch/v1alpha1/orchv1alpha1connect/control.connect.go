@@ -5,10 +5,10 @@
 package orchv1alpha1connect
 
 import (
-	v1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	http "net/http"
 	strings "strings"
 )

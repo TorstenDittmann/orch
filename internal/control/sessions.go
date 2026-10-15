@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
-	"change.codes/torsten/better-swarm/internal/model"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/model"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -121,6 +121,21 @@ func (m *sessionManager) Connected(nodeID string) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return m.now().Sub(session.lastSeen) < m.timeout
+}
+
+// ConnectedCount reports sessions whose agent sent a recent heartbeat.
+func (m *sessionManager) ConnectedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, session := range m.sessions {
+		session.mu.Lock()
+		if m.now().Sub(session.lastSeen) < m.timeout {
+			count++
+		}
+		session.mu.Unlock()
+	}
+	return count
 }
 
 func (m *sessionManager) Close() {

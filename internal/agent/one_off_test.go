@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/agent/state"
-	"change.codes/torsten/better-swarm/internal/discovery"
-	"change.codes/torsten/better-swarm/internal/ingress"
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/discovery"
+	"github.com/TorstenDittmann/orch/internal/ingress"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func TestOneOffRunCompletionCancellationAndRestart(t *testing.T) {

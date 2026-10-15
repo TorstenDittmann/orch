@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	"change.codes/torsten/better-swarm/internal/target"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/target"
 )
 
 func runTarget(ctx context.Context, args []string, stdout, stderr io.Writer) int {

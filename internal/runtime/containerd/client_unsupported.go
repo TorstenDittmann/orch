@@ -5,7 +5,7 @@ package containerd
 import (
 	"fmt"
 
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func New(_ string, _ orchruntime.Options) (orchruntime.Runtime, error) {

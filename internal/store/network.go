@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
 const configureNetworkOperation = "network.configure"

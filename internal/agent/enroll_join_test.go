@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	orchv1alpha1 "change.codes/torsten/better-swarm/gen/orch/v1alpha1"
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 )
 
 type fakeBootstrapEnrollmentRemote struct {

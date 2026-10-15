@@ -22,8 +22,8 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func (c *runtimeClient) specOptions(image containerdclient.Image, allocation model.AllocationDesired, mounts []specs.Mount) []oci.SpecOpts {

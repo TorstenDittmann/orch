@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	orchruntime "change.codes/torsten/better-swarm/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/model"
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func TestVolumeMountsWritesApplicationScopedReadableResolver(t *testing.T) {

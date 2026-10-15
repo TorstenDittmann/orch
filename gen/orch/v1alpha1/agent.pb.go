@@ -4850,7 +4850,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x15JOB_RUN_STATE_SKIPPED\x10\x062\xc1\x01\n" +
 	"\fAgentService\x12L\n" +
 	"\aConnect\x12\x1d.orch.v1alpha1.ConnectRequest\x1a\x1e.orch.v1alpha1.ConnectResponse(\x010\x01\x12c\n" +
-	"\x10RenewCertificate\x12&.orch.v1alpha1.RenewCertificateRequest\x1a'.orch.v1alpha1.RenewCertificateResponseBBZ@change.codes/torsten/better-swarm/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\x10RenewCertificate\x12&.orch.v1alpha1.RenewCertificateRequest\x1a'.orch.v1alpha1.RenewCertificateResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_agent_proto_rawDescOnce sync.Once

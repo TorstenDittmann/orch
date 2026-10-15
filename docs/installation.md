@@ -26,7 +26,18 @@ disabled. Configure the appropriate firewalld zones and forwarding policy.
 
 ## Controller
 
-Copy a trusted Linux amd64 `orch` binary to the controller and run, as root:
+Download the Linux amd64 `orch` binary and its checksum from the
+[latest release](https://github.com/TorstenDittmann/orch/releases/latest), verify
+it, and copy it to the controller:
+
+```console
+curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/orch-linux-amd64
+curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS
+install -m 0755 orch-linux-amd64 orch
+```
+
+Then run, as root:
 
 ```console
 sudo ./orch init

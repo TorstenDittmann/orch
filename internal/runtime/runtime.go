@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/model"
-	"change.codes/torsten/better-swarm/internal/network"
+	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/TorstenDittmann/orch/internal/network"
 )
 
 var (
@@ -49,11 +49,13 @@ type Options struct {
 }
 
 type Object struct {
-	ID                string
-	AllocationID      string
-	SpecDigest        string
-	Running           bool
-	ExitCode          *int32
+	ID           string
+	AllocationID string
+	SpecDigest   string
+	Running      bool
+	ExitCode     *int32
+	// StartedAt is when the current task was started, not when the container
+	// was created, so it moves forward on every restart.
 	StartedAt         time.Time
 	Address           string
 	NetworkGeneration uint64

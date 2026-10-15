@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"change.codes/torsten/better-swarm/internal/buildinfo"
-	controlclient "change.codes/torsten/better-swarm/internal/client"
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 )
 
 type ControllerInstallOptions struct {

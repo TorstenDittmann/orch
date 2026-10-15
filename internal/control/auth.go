@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	"change.codes/torsten/better-swarm/internal/security"
-	"change.codes/torsten/better-swarm/internal/store"
 	"connectrpc.com/connect"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/TorstenDittmann/orch/internal/store"
 )
 
 type principalKey struct{}

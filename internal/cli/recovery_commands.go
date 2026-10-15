@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	clusterctl "change.codes/torsten/better-swarm/internal/cluster"
+	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 )
 
 func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) int {
