@@ -1,0 +1,20 @@
+name: Web dashboard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Check and build web dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v2
+      - name: Type-check, build, and verify the embedded dashboard is current
+        run: make web-check

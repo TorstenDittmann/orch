@@ -4,7 +4,7 @@ GOFMT := $(MISE) exec -- gofmt
 BUF := $(MISE) exec -- buf
 PKL := $(MISE) exec -- pkl
 
-.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet
+.PHONY: all build check clean containerd-e2e coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
 
 all: check
 
@@ -43,6 +43,19 @@ test-race:
 
 vet:
 	$(GO) vet ./...
+
+BUN := $(MISE) exec -- bun
+WEB_UI := internal/web/ui
+
+# The orch web dashboard is built into internal/web/ui/dist and embedded in the binary.
+web:
+	cd $(WEB_UI) && $(BUN) install --frozen-lockfile && $(BUN) run check && $(BUN) run build
+
+web-check: web
+	@git diff --exit-code -- $(WEB_UI)/dist || \
+		(echo "Embedded dashboard is stale; run make web and commit internal/web/ui/dist" && exit 1)
+	@test -z "$$(git status --porcelain -- $(WEB_UI)/dist)" || \
+		(echo "Embedded dashboard has uncommitted files; run make web and commit internal/web/ui/dist" && exit 1)
 
 coverage:
 	$(GO) test -coverprofile=coverage.out ./...

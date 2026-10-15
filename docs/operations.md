@@ -19,10 +19,21 @@ Pass `--target production` explicitly in automation.
 orch status
 orch nodes
 orch tui
+orch web
 ```
 
 The TUI provides a keyboard-driven view of applications, instances, workers,
 deployments, events, and live logs.
+
+`orch web` opens a browser dashboard for the selected target: cluster health,
+applications with replicas, routes, cron runs, deployment history, diffs and
+rollback, runtimes, nodes with cordon, drain and ingress controls, one-off jobs,
+events, and live logs. Press `⌘K` or `/` to jump anywhere.
+
+The dashboard is served from the `orch` binary on a loopback address. It prints
+a one-time URL; the page only works on this machine and the administrator
+credentials stay in the `orch` process. Pass `--no-open` to only print the URL,
+and `--port N` to choose the port.
 
 `orch status` also shows when the administrator and controller certificates
 expire. Renew them before then; see
