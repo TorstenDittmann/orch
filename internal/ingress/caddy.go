@@ -150,12 +150,7 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 		return nil, acceptedErr
 	}
 	if acceptedErr == nil && acceptedDigest == digest {
-		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		if err := c.waitForRoutes(probeCtx, routes); err != nil {
-			return applyFailure(routes, now, "route_probe_failed", err)
-		}
-		return activeRoutes(routes, now), nil
+		return c.probeRoutes(ctx, routes, now), nil
 	}
 	candidatePath := filepath.Join(c.options.StateDir, "candidate-config.json")
 	if err := publishAgentFile(candidatePath, configuration, 0o600); err != nil {
@@ -175,14 +170,13 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 		_ = os.Remove(candidatePath)
 		return applyFailure(routes, now, "caddy_load_failed", err)
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if err := c.waitForRoutes(probeCtx, routes); err != nil {
-		if restoreErr := c.restoreAcceptedConfiguration(acceptedConfiguration); restoreErr != nil {
-			return nil, fmt.Errorf("probe candidate routes: %w; restore accepted Caddy configuration: %v", err, restoreErr)
-		}
+	// Caddy accepted the configuration, so it is kept even when individual
+	// routes do not probe healthy yet: reverting would take every other route
+	// on the node down with it and restart pending ACME issuance. Only a Caddy
+	// that stops serving is rolled back, by restarting from the accepted file.
+	if err := c.ping(ctx); err != nil {
 		_ = os.Remove(candidatePath)
-		return applyFailure(routes, now, "route_probe_failed", err)
+		return applyFailure(routes, now, "caddy_unavailable", err)
 	}
 	if err := publishProcessFile(filepath.Join(c.options.DataDir, "config.json"), configuration, c.identity, 0o600); err != nil {
 		if restoreErr := c.restoreAcceptedConfiguration(acceptedConfiguration); restoreErr != nil {
@@ -198,7 +192,7 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 		_ = os.Remove(candidatePath)
 		return nil, fmt.Errorf("accept Caddy configuration: %w", err)
 	}
-	return activeRoutes(routes, now), nil
+	return c.probeRoutes(ctx, routes, now), nil
 }
 
 func (c *Caddy) ensureRunning(ctx context.Context) error {
@@ -538,30 +532,58 @@ func caddyCommandEnvironment(options CaddyOptions) []string {
 	}
 }
 
-func (c *Caddy) waitForRoutes(ctx context.Context, routes []Route) error {
+// probeRoutes reports every route on its own, so one failing upstream or a
+// certificate that is still being issued never affects the other routes.
+func (c *Caddy) probeRoutes(ctx context.Context, routes []Route, now time.Time) []model.RouteStatus {
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return probedRoutes(routes, c.waitForRoutes(probeCtx, routes), now)
+}
+
+// waitForRoutes retries failing routes until each has probed healthy once or
+// the context ends, and returns the last failure of each route.
+func (c *Caddy) waitForRoutes(ctx context.Context, routes []Route) []error {
 	probe := c.options.Probe
 	if probe == nil {
 		probe = probeRoute
 	}
+	failures := make([]error, len(routes))
+	for index := range failures {
+		failures[index] = errors.New("route was not probed")
+	}
 	for {
-		var failed error
-		for _, route := range routes {
-			if err := probe(ctx, route); err != nil {
-				failed = err
-				break
+		remaining := false
+		for index, route := range routes {
+			if failures[index] == nil {
+				continue
 			}
+			if ctx.Err() != nil {
+				return failures
+			}
+			failures[index] = probe(ctx, route)
+			remaining = remaining || failures[index] != nil
 		}
-		if failed == nil {
-			return nil
+		if !remaining {
+			return failures
 		}
 		timer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return failed
+			return failures
 		case <-timer.C:
 		}
 	}
+}
+
+// routeStatusError is a probe that reached the route but got a server error.
+type routeStatusError struct {
+	domain string
+	status int
+}
+
+func (e *routeStatusError) Error() string {
+	return fmt.Sprintf("route %s returned status %d", e.domain, e.status)
 }
 
 func probeRoute(ctx context.Context, route Route) error {
@@ -590,7 +612,7 @@ func probeRoute(ctx context.Context, route Route) error {
 	defer response.Body.Close()
 	_, _ = io.CopyN(io.Discard, response.Body, 4<<10)
 	if response.StatusCode >= 500 {
-		return fmt.Errorf("route %s returned status %d", route.Domain, response.StatusCode)
+		return &routeStatusError{domain: route.Domain, status: response.StatusCode}
 	}
 	return nil
 }
@@ -618,6 +640,30 @@ func failedRoutes(routes []Route, now time.Time, reason, message string) []model
 		result[index].State = model.RouteFailed
 		result[index].CertificateState = "pending"
 		result[index].Reason = reason
+		result[index].Message = message
+	}
+	return result
+}
+
+// probedRoutes marks routes whose probe failed. An HTTPS route that cannot be
+// reached at all is most likely still waiting for its certificate, so it is
+// pending rather than failed.
+func probedRoutes(routes []Route, failures []error, now time.Time) []model.RouteStatus {
+	result := activeRoutes(routes, now)
+	for index, failure := range failures {
+		if failure == nil {
+			continue
+		}
+		message := failure.Error()
+		if len(message) > 512 {
+			message = message[:512]
+		}
+		var status *routeStatusError
+		result[index].State, result[index].Reason = model.RouteFailed, "route_probe_failed"
+		if routes[index].HTTPS && !errors.As(failure, &status) {
+			result[index].State, result[index].Reason = model.RoutePending, "certificate_pending"
+		}
+		result[index].CertificateState = "pending"
 		result[index].Message = message
 	}
 	return result

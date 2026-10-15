@@ -125,8 +125,21 @@ func TestCaddyRealHTTPReloadRollbackAndAdoption(t *testing.T) {
 	if err != nil || len(statuses) != 1 || statuses[0].State != model.RouteFailed || statuses[0].Reason != "route_probe_failed" {
 		t.Fatalf("failed candidate = %#v, %v", statuses, err)
 	}
+	// Caddy accepted the candidate, so it stays loaded and only this route
+	// reports the failing upstream.
+	failingContext, cancelFailing := context.WithTimeout(context.Background(), 2*time.Second)
+	failingResponse, err := managedHTTPRequest(failingContext, route.Domain, "/")
+	cancelFailing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = failingResponse.Body.Close()
+	if failingResponse.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("kept candidate route response = %s", failingResponse.Status)
+	}
+	assertAppliedRoute(t, caddy, route)
 	if body := requestManagedRoute(t, route.Domain); body != "second" {
-		t.Fatalf("accepted route was not restored after candidate failure: %q", body)
+		t.Fatalf("route was not reapplied after candidate failure: %q", body)
 	}
 
 	adopter, err := NewCaddy(options)
@@ -410,7 +423,7 @@ func trustedHTTPSProbe(roots *x509.CertPool) func(context.Context, Route) error 
 		defer response.Body.Close()
 		_, _ = io.CopyN(io.Discard, response.Body, 4<<10)
 		if response.StatusCode >= 500 {
-			return fmt.Errorf("route %s returned status %d", route.Domain, response.StatusCode)
+			return &routeStatusError{domain: route.Domain, status: response.StatusCode}
 		}
 		return nil
 	}
