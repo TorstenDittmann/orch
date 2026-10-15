@@ -75,7 +75,7 @@ func InstallController(ctx context.Context, options ControllerInstallOptions) (C
 		return ControllerInstallResult{}, err
 	}
 	if !plan.Report.Installable {
-		return ControllerInstallResult{}, errors.New("host has controller installation blockers; run cluster doctor or install --dry-run")
+		return ControllerInstallResult{}, blockersError("controller installation", plan.Report)
 	}
 	unlock, err := controllerInstallationLock()
 	if err != nil {
@@ -156,7 +156,7 @@ func InstallController(ctx context.Context, options ControllerInstallOptions) (C
 			return err
 		}
 		distro, _ := Distro(mustReadOSRelease())
-		if distro == "fedora" {
+		if distro == "fedora" && selinuxMode(os.ReadFile) != "disabled" {
 			if _, err := i.run(ctx, "restorecon", "-RF", ControllerPrefix, ControllerDataDir, ControllerStateDir, ControllerUnitPath); err != nil {
 				return err
 			}

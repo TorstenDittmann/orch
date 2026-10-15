@@ -157,3 +157,57 @@ func supported(osName, version, arch string) bool {
 	return arch == "amd64" && (osName == "ubuntu" && version == "24.04" || osName == "fedora" && version == "44")
 }
 func platform() string { return runtime.GOOS }
+
+// blockersError lists the checks that stop installation, with their remedies.
+func blockersError(kind string, report Report) error {
+	var lines []string
+	for _, check := range report.Checks {
+		if (check.State == "fail" || check.State == "unknown") && !check.Installable {
+			line := fmt.Sprintf("  %s: %s", check.ID, check.Detail)
+			if check.Remedy != "" {
+				line += " (" + check.Remedy + ")"
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return fmt.Errorf("host has %s blockers", kind)
+	}
+	return fmt.Errorf("host has %s blockers:\n%s", kind, strings.Join(lines, "\n"))
+}
+
+// distributionDetail explains a failed distribution check. Any Fedora 44
+// edition works except ostree-based ones, whose /usr is read-only.
+func distributionDetail(os, version, arch string, ostree bool) string {
+	detail := os + " " + version + " " + arch
+	if os == "fedora" && ostree {
+		detail += " (ostree-based Fedora is not supported)"
+	}
+	return detail
+}
+
+// selinuxMode reports enforcing, permissive or disabled from selinuxfs.
+func selinuxMode(read func(string) ([]byte, error)) string {
+	value, err := read("/sys/fs/selinux/enforce")
+	switch {
+	case err != nil:
+		return "disabled"
+	case strings.TrimSpace(string(value)) == "1":
+		return "enforcing"
+	default:
+		return "permissive"
+	}
+}
+
+// selinuxCheck turns the SELinux mode into a doctor check. orch labels its
+// files whenever SELinux is enabled, and never changes the mode itself.
+func selinuxCheck(mode string) Check {
+	switch mode {
+	case "enforcing":
+		return Check{ID: "selinux", State: "pass", Detail: "SELinux enforcing; orch installs its file labels"}
+	case "permissive":
+		return Check{ID: "selinux", State: "warn", Detail: "SELinux permissive; orch installs its file labels so enforcing mode works later"}
+	default:
+		return Check{ID: "selinux", State: "warn", Detail: "SELinux disabled; orch skips file labels", Remedy: "Rerun the install after enabling SELinux to apply labels"}
+	}
+}

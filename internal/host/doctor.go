@@ -68,15 +68,16 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		}
 	}
 	if p.GOOS != "linux" {
-		add("platform", "fail", "Node installation requires Linux", "Run on Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
+		add("platform", "fail", "Node installation requires Linux", "Run on Ubuntu 24.04 LTS or Fedora 44 amd64", false)
 		return r
 	}
 	data, err := p.Read("/etc/os-release")
 	if err == nil {
 		r.OS, r.Version = Distro(string(data))
 	}
-	if !supported(r.OS, r.Version, p.Arch) || r.OS == "fedora" && (releaseValue(string(data), "VARIANT_ID") != "server" || p.Exists("/run/ostree-booted")) {
-		add("distribution", "fail", r.OS+" "+r.Version+" "+p.Arch, "Use Ubuntu 24.04 LTS or Fedora Server 44 amd64", false)
+	ostree := p.Exists("/run/ostree-booted")
+	if !supported(r.OS, r.Version, p.Arch) || r.OS == "fedora" && ostree {
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, p.Arch, ostree), "Use Ubuntu 24.04 LTS or Fedora 44 amd64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}
@@ -207,13 +208,9 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		}
 	}
 	if r.OS == "fedora" {
-		enforcing, _ := p.Read("/sys/fs/selinux/enforce")
-		if strings.TrimSpace(string(enforcing)) != "1" {
-			add("selinux", "fail", "SELinux enforcing is required for the Fedora installer", "Restore SELinux enforcing; the installer never disables it", false)
-		} else {
-			add("selinux", "pass", "SELinux enforcing; owned labels are installed with distribution policy", "", false)
-		}
-		if owned && configured {
+		mode := selinuxMode(p.Read)
+		r.Checks = append(r.Checks, selinuxCheck(mode))
+		if owned && configured && mode != "disabled" {
 			for _, label := range selinuxLabels() {
 				path := strings.TrimSuffix(label[0], "(/.*)?")
 				if !p.Exists(path) {

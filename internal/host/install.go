@@ -69,7 +69,7 @@ func Install(ctx context.Context, options InstallOptions) (InstallResult, error)
 		return InstallResult{}, err
 	}
 	if !p.Report.Installable {
-		return InstallResult{}, errors.New("host has installation blockers; run node doctor or install --dry-run")
+		return InstallResult{}, blockersError("installation", p.Report)
 	}
 	unlock, err := installationLock()
 	if err != nil {
@@ -528,6 +528,9 @@ func (i *installer) configure(ctx context.Context) error {
 	return nil
 }
 func (i *installer) selinux(ctx context.Context) error {
+	if selinuxMode(os.ReadFile) == "disabled" {
+		return nil
+	}
 	// Prefer the distribution-maintained container runtime policy, without
 	// permissive domains or custom blanket allow rules.
 	labels := selinuxLabels()
