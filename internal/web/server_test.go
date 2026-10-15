@@ -169,7 +169,7 @@ func TestSnapshotAndIndex(t *testing.T) {
 func TestServesAppShellAndAssets(t *testing.T) {
 	for _, path := range []string{"/", "/apps/web"} {
 		index := serve(t, &fakeProvider{}, request(http.MethodGet, path, "", nil))
-		if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "<title>orch</title>") || index.Header().Get("Content-Security-Policy") == "" {
+		if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "<title>orch</title>") || !strings.Contains(index.Body.String(), `src="/assets/`) || index.Header().Get("Content-Security-Policy") == "" {
 			t.Fatalf("%s status = %d", path, index.Code)
 		}
 	}
