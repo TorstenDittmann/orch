@@ -3,6 +3,7 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -94,5 +95,51 @@ func TestBackupValidatesPathsAndRequiresExistingState(t *testing.T) {
 	}
 	if _, err := Backup(context.Background(), BackupOptions{DataDir: dataDir, Output: filepath.Join(root, "backups", "test.db")}); err == nil || !strings.Contains(err.Error(), DatabaseFilename) {
 		t.Fatalf("Backup() missing state = %v", err)
+	}
+}
+
+func TestBackupDoesNotMigrateOrAcceptNewerLiveSchema(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	initialized, err := Bootstrap(ctx, BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: filepath.Join(root, "state"),
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: func() time.Time { return bootstrapTestTime },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	databasePath := filepath.Join(initialized.DataDir, DatabaseFilename)
+	// Simulate an older controller: its history lacks the newest migration.
+	mutateRecoveryDatabase(t, databasePath, "DELETE FROM schema_migrations WHERE version = (SELECT max(version) FROM schema_migrations)")
+	countMigrations := func() int {
+		t.Helper()
+		db, err := sql.Open("sqlite", databasePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var count int
+		if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := countMigrations()
+	if _, err := Backup(ctx, BackupOptions{DataDir: initialized.DataDir, Output: filepath.Join(root, "backups", "old.db")}); err != nil {
+		t.Fatal(err)
+	}
+	if after := countMigrations(); after != before {
+		t.Fatalf("backup migrated live database from %d to %d migrations", before, after)
+	}
+
+	mutateRecoveryDatabase(t, databasePath, `INSERT INTO schema_migrations(version, name, checksum, applied_at)
+		VALUES (999, '999_future.sql', 'x', '2026-01-01T00:00:00Z')`)
+	output := filepath.Join(root, "backups", "newer.db")
+	if _, err := Backup(ctx, BackupOptions{DataDir: initialized.DataDir, Output: output}); err == nil || !strings.Contains(err.Error(), "newer than this binary") {
+		t.Fatalf("Backup() newer schema = %v", err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("refused backup left output behind: %v", err)
 	}
 }

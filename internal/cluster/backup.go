@@ -57,13 +57,22 @@ func Backup(ctx context.Context, options BackupOptions) (result BackupResult, fi
 	if !info.Mode().IsRegular() {
 		return BackupResult{}, fmt.Errorf("cluster database is not a regular file: %s", databasePath)
 	}
-	state, err := store.OpenInitialized(ctx, databasePath)
+	// Read-only: a running controller may be on an older schema, and backup
+	// must neither migrate nor checkpoint the live database underneath it.
+	state, err := store.OpenReadOnly(ctx, databasePath)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("open cluster state: %w", err)
 	}
+	var published []string
 	defer func() {
 		if err := state.Close(); err != nil && finalErr == nil {
 			finalErr = err
+		}
+		if finalErr != nil {
+			// Never leave outputs behind that would make a retry refuse.
+			for _, path := range published {
+				_ = os.Remove(path)
+			}
 		}
 	}()
 	stored, err := state.Cluster(ctx)
@@ -90,13 +99,12 @@ func Backup(ctx context.Context, options BackupOptions) (result BackupResult, fi
 		if err := copySecretKey(filepath.Join(dataDir, SecretKeyFilename), secretKeyOutput); err != nil {
 			return BackupResult{}, err
 		}
+		published = append(published, secretKeyOutput)
 	}
 	if err := state.Backup(ctx, output); err != nil {
-		if secretKeyOutput != "" {
-			_ = os.Remove(secretKeyOutput)
-		}
 		return BackupResult{}, err
 	}
+	published = append(published, output)
 	return BackupResult{Cluster: stored, Output: output, SecretKeyOutput: secretKeyOutput}, nil
 }
 
