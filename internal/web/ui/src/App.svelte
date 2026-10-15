@@ -38,8 +38,8 @@
 	{#if live.unauthorized}
 		<div class="gate">
 			<div class="panel card">
-				<h1>Session expired</h1>
-				<p class="muted">This page needs the one-time link that <code>orch web</code> printed in your terminal. Restart <code>orch web</code> if it is no longer running.</p>
+				<h1>Not signed in</h1>
+				<p class="muted">Open this page with the link <code>orch web</code> printed in your terminal. Each link works once, so restart <code>orch web</code> to get a new one.</p>
 			</div>
 		</div>
 	{:else}

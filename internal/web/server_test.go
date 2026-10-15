@@ -67,12 +67,25 @@ func (f *fakeProvider) CompareDeployments(_ context.Context, app, from, to strin
 	return &orchv1alpha1.CompareDeploymentsResponse{Changes: []*orchv1alpha1.DeploymentChange{{Path: app + ":" + from + ".." + to}}}, nil
 }
 
-const testToken = "secret-token"
+const (
+	testToken   = "secret-token"
+	testSession = "secret-session"
+)
+
+func newTestServer(t *testing.T, provider *fakeProvider) *Server {
+	t.Helper()
+	server, err := New(provider, "prod", "direct", testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.session = testSession
+	return server
+}
 
 func request(method, target, body string, mutate func(*http.Request)) *http.Request {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Host = "127.0.0.1:4000"
-	r.AddCookie(&http.Cookie{Name: cookieName, Value: testToken})
+	r.AddCookie(&http.Cookie{Name: cookieName, Value: testSession})
 	if method == http.MethodPost {
 		r.Header.Set("Origin", "http://127.0.0.1:4000")
 		r.Header.Set("Content-Type", "application/json")
@@ -86,25 +99,40 @@ func request(method, target, body string, mutate func(*http.Request)) *http.Requ
 func serve(t *testing.T, provider *fakeProvider, r *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	New(provider, "prod", "direct", testToken).ServeHTTP(recorder, r)
+	newTestServer(t, provider).ServeHTTP(recorder, r)
 	return recorder
 }
 
-func TestTokenExchangeSetsCookie(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/?token="+testToken, nil)
-	r.Host = "localhost:4000"
-	response := serve(t, &fakeProvider{}, r)
+func TestTokenExchangeSetsCookieOnce(t *testing.T) {
+	server := newTestServer(t, &fakeProvider{})
+	exchange := func(token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/?token="+token, nil)
+		r.Host = "localhost:4000"
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, r)
+		return recorder
+	}
+	if response := exchange("wrong"); response.Code != http.StatusForbidden {
+		t.Fatalf("wrong token status = %d", response.Code)
+	}
+	response := exchange(testToken)
 	if response.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d", response.Code)
 	}
 	cookie := response.Result().Cookies()
-	if len(cookie) != 1 || cookie[0].Value != testToken || !cookie[0].HttpOnly || cookie[0].SameSite != http.SameSiteStrictMode {
+	if len(cookie) != 1 || cookie[0].Value != testSession || !cookie[0].HttpOnly || cookie[0].SameSite != http.SameSiteStrictMode {
 		t.Fatalf("cookie = %+v", cookie)
 	}
-	r = httptest.NewRequest(http.MethodGet, "/?token=wrong", nil)
+	if response := exchange(testToken); response.Code != http.StatusForbidden {
+		t.Fatalf("reused token status = %d", response.Code)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/snapshot", nil)
 	r.Host = "localhost:4000"
-	if response := serve(t, &fakeProvider{}, r); response.Code != http.StatusForbidden {
-		t.Fatalf("wrong token status = %d", response.Code)
+	r.AddCookie(&http.Cookie{Name: cookieName, Value: testToken})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, r)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("token as cookie status = %d", recorder.Code)
 	}
 }
 

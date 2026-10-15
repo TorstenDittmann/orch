@@ -51,18 +51,23 @@ func runWeb(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
+	handler, err := web.New(web.ClientProvider{ClientProvider: tui.ClientProvider{Client: remote}}, targetName, transport, token)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		writeError(stderr, fmt.Errorf("listen for web dashboard: %w", err), false)
 		return ExitRuntime
 	}
 	server := &http.Server{
-		Handler:           web.New(web.ClientProvider{ClientProvider: tui.ClientProvider{Client: remote}}, targetName, transport, token),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 	address := fmt.Sprintf("http://%s/?token=%s", listener.Addr().String(), token)
-	fmt.Fprintf(stdout, "orch web is serving %s\nOpen %s\nPress Ctrl+C to stop.\n", displayTarget(targetName), address)
+	fmt.Fprintf(stdout, "orch web is serving %s\nOpen %s (the link works once)\nPress Ctrl+C to stop.\n", displayTarget(targetName), address)
 	if !noOpen {
 		openBrowser(address)
 	}

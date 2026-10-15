@@ -60,6 +60,9 @@ func (p ClientProvider) ListCronRuns(ctx context.Context, application, job strin
 type Server struct {
 	provider  Provider
 	token     string
+	session   string
+	mu        sync.Mutex
+	exchanged bool
 	target    string
 	transport string
 	mux       *http.ServeMux
@@ -75,11 +78,15 @@ func NewToken() (string, error) {
 	return hex.EncodeToString(value), nil
 }
 
-func New(provider Provider, target, transport, token string) *Server {
-	s := &Server{provider: provider, token: token, target: target, transport: transport, mux: http.NewServeMux()}
+func New(provider Provider, target, transport, token string) (*Server, error) {
+	session, err := NewToken()
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{provider: provider, token: token, session: session, target: target, transport: transport, mux: http.NewServeMux()}
 	dist, err := fs.Sub(assets, "ui/dist")
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("load embedded dashboard: %w", err)
 	}
 	s.static = http.FileServerFS(dist)
 	s.mux.HandleFunc("GET /", s.index)
@@ -95,7 +102,7 @@ func New(provider Provider, target, transport, token string) *Server {
 	s.mux.HandleFunc("GET /api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("unknown API route"))
 	})
-	return s
+	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -110,16 +117,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/" && r.Method == http.MethodGet && r.URL.Query().Has("token") {
-		if !s.validToken(r.URL.Query().Get("token")) {
-			http.Error(w, "invalid token", http.StatusForbidden)
+		if !s.exchange(r.URL.Query().Get("token")) {
+			http.Error(w, "this link was already used or is invalid; restart orch web for a new one", http.StatusForbidden)
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: s.token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	cookie, err := r.Cookie(cookieName)
-	if err != nil || !s.validToken(cookie.Value) {
+	if err != nil || !equal(cookie.Value, s.session) {
 		http.Error(w, "open the URL printed by orch web", http.StatusUnauthorized)
 		return
 	}
@@ -132,8 +139,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-func (s *Server) validToken(value string) bool {
-	return value != "" && subtle.ConstantTimeCompare([]byte(value), []byte(s.token)) == 1
+// exchange accepts the printed URL token once, so a URL recovered later from
+// shell or browser history cannot open a new session.
+func (s *Server) exchange(value string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.exchanged || !equal(value, s.token) {
+		return false
+	}
+	s.exchanged = true
+	return true
+}
+
+func equal(value, expected string) bool {
+	return value != "" && subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
 }
 
 // loopbackHost rejects DNS-rebound names: only literal loopback hosts are served.
