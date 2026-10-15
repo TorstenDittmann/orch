@@ -440,7 +440,11 @@ func (i *installer) installArtifacts(ctx context.Context, executable string) err
 	return i.publish(Prefix+"/bin/orch", executable, 0755)
 }
 func (i *installer) publishBytes(path string, data []byte) error {
-	f, err := os.CreateTemp(StateDir, "config-*")
+	stateDir := StateDir
+	if i.journalPath != "" {
+		stateDir = filepath.Dir(i.journalPath)
+	}
+	f, err := os.CreateTemp(stateDir, "config-*")
 	if err != nil {
 		return err
 	}
@@ -505,19 +509,10 @@ func (i *installer) configure(ctx context.Context) error {
 	if _, err := i.run(ctx, "sysctl", "-p", "/etc/sysctl.d/90-orch.conf"); err != nil {
 		return err
 	}
+	if err := i.configureVethLink(ctx, VethLinkPath); err != nil {
+		return err
+	}
 	if i.state.Distro == "fedora" {
-		data, err := nodebundle.Files.ReadFile("10-orch-veth.link")
-		if err != nil {
-			return err
-		}
-		if err := i.publishBytes(VethLinkPath, data); err != nil {
-			return err
-		}
-		// Only reload configuration for future devices; never trigger/reapply the
-		// host's physical links. NetworkManager's existing veth exclusion remains.
-		if _, err := i.run(ctx, "udevadm", "control", "--reload"); err != nil {
-			return err
-		}
 		if err := i.selinux(ctx); err != nil {
 			return err
 		}
@@ -527,6 +522,22 @@ func (i *installer) configure(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (i *installer) configureVethLink(ctx context.Context, path string) error {
+	data, err := nodebundle.Files.ReadFile("10-orch-veth.link")
+	if err != nil {
+		return err
+	}
+	if err := i.publishBytes(path, data); err != nil {
+		return err
+	}
+	// Ubuntu and Fedora both apply persistent-MAC policies to new veth devices.
+	// Only reload configuration for future devices; never trigger/reapply the
+	// host's physical links. NetworkManager's existing veth exclusion remains.
+	_, err = i.run(ctx, "udevadm", "control", "--reload")
+	return err
+}
+
 func (i *installer) selinux(ctx context.Context) error {
 	// Prefer the distribution-maintained container runtime policy, without
 	// permissive domains or custom blanket allow rules.
