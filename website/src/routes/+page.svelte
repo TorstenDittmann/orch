@@ -9,7 +9,7 @@
 <section class="container hero">
 	<div class="intro">
 		<h1>Deploy to your own servers.</h1>
-		<p>A container orchestrator for 1 to 20 Linux nodes. Three commands to a cluster, one file per app.</p>
+		<p>The simplicity of Docker Swarm with the modern features of Kubernetes. Three commands to a cluster, one file per app.</p>
 		<div class="actions">
 			<a class="button" href="/quick-start/">Get started</a>
 			<a class="quiet" href="/docs/">Read the docs</a>
@@ -32,6 +32,25 @@
 			<h2>Built-in networking</h2>
 			<p>HTTPS ingress and an encrypted WireGuard mesh.</p>
 		</div>
+	</div>
+</section>
+
+<section class="container compare">
+	<h2>Between Swarm and Kubernetes</h2>
+	<p class="sub">Swarm is easy but stopped growing. Kubernetes can do everything but needs a team to run it. orch keeps the easy part and adds what modern apps expect.</p>
+	<div class="table">
+		<table>
+			<thead>
+				<tr><th></th><th>Docker Swarm</th><th>Kubernetes</th><th>orch</th></tr>
+			</thead>
+			<tbody>
+				<tr><th>Setup</th><td>init and join</td><td>control plane, network plugin, add-ons</td><td>init and join</td></tr>
+				<tr><th>App definition</th><td>Compose file</td><td>many YAML resources</td><td>one typed file, checked before deploy</td></tr>
+				<tr><th>HTTPS</th><td>bring your own proxy</td><td>ingress controller and cert-manager</td><td>built in</td></tr>
+				<tr><th>Private network</th><td>overlay, encryption opt-in</td><td>depends on the network plugin</td><td>WireGuard mesh by default</td></tr>
+				<tr><th>Deploys</th><td>rolling updates</td><td>rolling updates, diff with kubectl</td><td>plan first, health-checked rollout, automatic rollback</td></tr>
+			</tbody>
+		</table>
 	</div>
 </section>
 
@@ -81,13 +100,6 @@
 		color: var(--dim);
 	}
 
-	.setup h2 {
-		margin: 0 0 12px;
-		font-size: 24px;
-		font-weight: 500;
-		letter-spacing: -0.03em;
-	}
-
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -115,6 +127,64 @@
 
 	.quiet:hover {
 		color: var(--fg);
+	}
+
+	.compare {
+		padding-block: 88px 0;
+	}
+
+	.compare h2,
+	.setup h2 {
+		margin: 0 0 12px;
+		font-size: 24px;
+		font-weight: 500;
+		letter-spacing: -0.03em;
+	}
+
+	.sub {
+		margin: 0 0 32px;
+		max-width: 60ch;
+		color: var(--dim);
+	}
+
+	.table {
+		overflow-x: auto;
+	}
+
+	table {
+		width: 100%;
+		min-width: 620px;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+
+	th,
+	td {
+		text-align: left;
+		vertical-align: top;
+		padding: 12px 16px 12px 0;
+		border-bottom: 1px solid var(--line);
+	}
+
+	thead th {
+		font-weight: 500;
+		color: var(--dim);
+		font-size: 13px;
+	}
+
+	tbody th {
+		font-weight: 500;
+		width: 18%;
+	}
+
+	td {
+		color: var(--dim);
+	}
+
+	td:last-child,
+	thead th:last-child {
+		color: var(--fg);
+		font-weight: 500;
 	}
 
 	.features {
@@ -160,7 +230,69 @@
 			padding-block: 48px 64px;
 		}
 
-		.features {
+		.compare {
+			padding-block: 64px 0;
+		}
+
+		.compare {
+		padding-block: 88px 0;
+	}
+
+	.compare h2,
+	.setup h2 {
+		margin: 0 0 12px;
+		font-size: 24px;
+		font-weight: 500;
+		letter-spacing: -0.03em;
+	}
+
+	.sub {
+		margin: 0 0 32px;
+		max-width: 60ch;
+		color: var(--dim);
+	}
+
+	.table {
+		overflow-x: auto;
+	}
+
+	table {
+		width: 100%;
+		min-width: 620px;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+
+	th,
+	td {
+		text-align: left;
+		vertical-align: top;
+		padding: 12px 16px 12px 0;
+		border-bottom: 1px solid var(--line);
+	}
+
+	thead th {
+		font-weight: 500;
+		color: var(--dim);
+		font-size: 13px;
+	}
+
+	tbody th {
+		font-weight: 500;
+		width: 18%;
+	}
+
+	td {
+		color: var(--dim);
+	}
+
+	td:last-child,
+	thead th:last-child {
+		color: var(--fg);
+		font-weight: 500;
+	}
+
+	.features {
 			grid-template-columns: 1fr;
 		}
 
