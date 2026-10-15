@@ -276,7 +276,12 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 			return orchruntime.Object{}, err
 		}
 		if taskErr == nil {
-			_, _ = task.Delete(ctx)
+			// A task left in Created (or Stopped) state after an agent crash still
+			// holds a pid; without WithProcessKill the delete fails and NewTask
+			// below would report AlreadyExists forever.
+			if _, err := task.Delete(ctx, containerdclient.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+				return orchruntime.Object{}, fmt.Errorf("delete stale task %q: %w", id, err)
+			}
 		}
 		if _, err := c.secretMounts(allocation); err != nil {
 			return orchruntime.Object{}, err
