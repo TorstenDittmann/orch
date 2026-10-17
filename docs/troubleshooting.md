@@ -33,8 +33,8 @@ sudo journalctl -u orch-agent -u orch-containerd --since '-10 min'    # worker
 And the host checks:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11
-sudo /opt/orch-controller/bin/orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo orch node doctor --advertise-address 10.0.0.11
+sudo orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
 ```
 
 `orch tui` and `orch web` show the same information live.
@@ -78,7 +78,7 @@ sudo ./orch node doctor --advertise-address 10.0.0.11
 If an install already started, use the installed copy and look at the agent:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11 --json
+sudo orch node doctor --advertise-address 10.0.0.11 --json
 sudo systemctl status orch-containerd orch-agent
 sudo journalctl -u orch-containerd -u orch-agent --since '-10 min'
 ```
@@ -113,7 +113,7 @@ same binary, address, and token or join file. If enrollment already finished,
 you can resume without the token:
 
 ```console
-sudo /opt/orch/bin/orch node install --advertise-address 10.0.0.11
+sudo orch node install --advertise-address 10.0.0.11
 ```
 
 When the agent times out, read its journal. Common causes:
@@ -514,14 +514,14 @@ On the controller:
 ```console
 sudo systemctl status orch-controller
 sudo journalctl -u orch-controller --since '-10 min'
-sudo /opt/orch-controller/bin/orch status
-sudo /opt/orch-controller/bin/orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo orch status
+sudo orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
 ```
 
 On the controller host, root can run any `orch` command against the local
 administrator socket, so `orch status` there works even when the network path
 from your workstation does not. The installed binary is
-`/opt/orch-controller/bin/orch`.
+`/opt/orch-controller/bin/orch`, linked as `/usr/local/bin/orch`.
 
 ### Fix
 
@@ -553,7 +553,7 @@ On the worker:
 ```console
 sudo systemctl status orch-agent orch-containerd
 sudo journalctl -u orch-agent --since '-10 min'
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11
+sudo orch node doctor --advertise-address 10.0.0.11
 ```
 
 ### Fix

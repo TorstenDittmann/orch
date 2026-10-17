@@ -125,6 +125,7 @@ of these explicitly.
 | Path | Contents |
 | --- | --- |
 | `/opt/orch-controller/bin/orch` | Copy of the orch binary that ran the install; root-owned |
+| `/usr/local/bin/orch` | Link to the controller's binary, so `sudo orch` works; replaces a node's link |
 | `/var/lib/orch-controller/` | Controller state, owned by `orch-controller` |
 | `/var/lib/orch-controller/control.db` | SQLite database: desired state, revisions, encrypted secrets, history |
 | `/var/lib/orch-controller/secret-master.key` | Secret-encryption key |
@@ -158,7 +159,8 @@ write access only to `/var/lib/orch-controller`.
 ### What a controller install changes
 
 1. Creates the `orch-controller` account.
-2. Copies the running orch binary to `/opt/orch-controller/bin/orch`.
+2. Copies the running orch binary to `/opt/orch-controller/bin/orch` and links
+   it as `/usr/local/bin/orch` unless a file that orch did not create is there.
 3. Creates the cluster identity: CA, controller certificate, database, and
    secret key, plus the administrator context.
 4. Writes and verifies the systemd unit (`systemd-analyze verify`). On Fedora
@@ -219,6 +221,7 @@ without upgrading the rest of the host:
 | Path | Contents |
 | --- | --- |
 | `/opt/orch/bin/orch` | Copy of the orch binary that ran the install |
+| `/usr/local/bin/orch` | Link to `/opt/orch/bin/orch` unless the controller's link is already there |
 | `/opt/orch/bin/`, `/opt/orch/cni/` | Pinned dependencies from the table above |
 | `/opt/orch/containerd.toml` | Configuration for orch's dedicated containerd |
 | `/etc/systemd/system/orch-containerd.service` | systemd unit for containerd |
@@ -308,7 +311,7 @@ gateway and DNS server.
 
 1. Installs the OS utilities listed above with `apt-get` or `dnf`.
 2. Downloads and verifies the pinned artifacts and copies the orch binary to
-   `/opt/orch/bin/orch`.
+   `/opt/orch/bin/orch`, linked as `/usr/local/bin/orch` on PATH.
 3. Creates `/var/lib/orch-agent`, `/var/lib/orch-containerd`, and
    `/var/lib/orch-ingress`; creates the `orch-ingress` account; sets Caddy's
    low-port capability; writes the containerd configuration and both units;

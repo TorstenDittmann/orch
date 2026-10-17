@@ -135,7 +135,7 @@ sudo journalctl -u orch-controller --since '-10 min'
 On a worker:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11 --json
+sudo orch node doctor --advertise-address 10.0.0.11 --json
 sudo systemctl status orch-containerd orch-agent
 sudo journalctl -u orch-containerd -u orch-agent --since '-10 min'
 ```

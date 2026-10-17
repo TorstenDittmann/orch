@@ -246,7 +246,7 @@ The controller database contains encrypted secrets but not the master key.
 once the cluster has a master key or stored secrets:
 
 ```console
-sudo /opt/orch-controller/bin/orch cluster backup \
+sudo orch cluster backup \
   --data-dir /var/lib/orch-controller \
   --output /secure/orch-backups/production.db \
   --secret-key-output /secure/orch-backups/production.key

@@ -131,6 +131,7 @@ func InstallController(ctx context.Context, options ControllerInstallOptions) (C
 	if err := phase("binary", func() error { return i.publishFile(ControllerPrefix+"/bin/orch", executable, 0755) }); err != nil {
 		return result("binary"), err
 	}
+	ensureCommandLink(ControllerPrefix+"/bin/orch", true, options.Progress)
 	adminStage := i.state.AdminDir + ".installing"
 	if err := phase("identity", func() error {
 		if err := os.MkdirAll(filepath.Dir(adminStage), 0700); err != nil {
