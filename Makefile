@@ -16,15 +16,17 @@ build:
 	mkdir -p bin
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/orch ./cmd/orch
 
-# Release binaries are static builds with a SHA-256 checksum file. Nodes run
-# Linux amd64; the other platforms are for workstations and orch dev.
-RELEASE_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+# Release binaries are static builds for each supported platform with a
+# SHA-256 checksum file. Linux amd64 runs clusters; every build runs the CLI.
+RELEASE_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 release:
 	rm -rf dist && mkdir -p dist
-	for platform in $(RELEASE_PLATFORMS); do \
-		os=$${platform%/*}; arch=$${platform#*/}; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-$$os-$$arch ./cmd/orch || exit 1; \
+	@set -e; for platform in $(RELEASE_PLATFORMS); do \
+		os=$${platform%/*}; arch=$${platform#*/}; ext=; \
+		if [ "$$os" = windows ]; then ext=.exe; fi; \
+		echo "build dist/orch-$$os-$$arch$$ext"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-$$os-$$arch$$ext ./cmd/orch; \
 	done
 	cd dist && sha256sum orch-* > SHA256SUMS
 

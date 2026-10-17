@@ -16,6 +16,17 @@ var (
 	ErrUnsupported       = errors.New("runtime is unsupported on this platform")
 )
 
+// ImagePullError reports that a workload image could not be pulled. Its
+// message is safe to show to operators: it never contains credentials.
+type ImagePullError struct {
+	Image string
+	Err   error
+}
+
+func (e *ImagePullError) Error() string { return fmt.Sprintf("pull image %q: %v", e.Image, e.Err) }
+
+func (e *ImagePullError) Unwrap() error { return e.Err }
+
 type Capabilities struct {
 	OperatingSystem        string
 	Architecture           string
@@ -48,6 +59,13 @@ type Options struct {
 	Network      network.Manager
 }
 
+// DefaultStopGrace is how long a task may take to exit after SIGTERM when its
+// allocation does not set a stop grace period. MaxStopGraceSeconds bounds it.
+const (
+	DefaultStopGrace    = 10 * time.Second
+	MaxStopGraceSeconds = 600
+)
+
 type Object struct {
 	ID           string
 	AllocationID string
@@ -56,8 +74,12 @@ type Object struct {
 	ExitCode     *int32
 	// StartedAt is when the current task was started, not when the container
 	// was created, so it moves forward on every restart.
-	StartedAt         time.Time
-	Address           string
+	StartedAt time.Time
+	Address   string
+	// StopGrace is the allocation's stop grace period, or zero for the
+	// default. It is recorded on the object so a removed allocation still
+	// stops with the grace period it was started with.
+	StopGrace         time.Duration
 	NetworkGeneration uint64
 }
 

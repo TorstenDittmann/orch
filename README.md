@@ -58,13 +58,25 @@ bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
 ~~~
 
-For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
-amd64** (any non-ostree edition) hosts, copy the binary to each host and run:
+Install the CLI on Linux or macOS, and on each cluster host:
 
 ~~~console
-sudo ./orch init                        # on the controller
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+~~~
+
+On Windows, in PowerShell:
+
+~~~console
+irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
+~~~
+
+For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
+amd64** (any non-ostree edition) hosts, run:
+
+~~~console
+sudo orch init                        # on the controller
 orch join-token worker-1                # prints the join command for a worker
-sudo ./orch join orch1....              # on the worker
+sudo orch join orch1....              # on the worker
 orch target add prod ssh://root@HOST    # on your workstation
 ~~~
 

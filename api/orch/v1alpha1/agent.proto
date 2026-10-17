@@ -137,6 +137,7 @@ message RollbackSpec {
   repeated SecretFileDesired secret_files = 20;
   RegistryCredentialReference registry_credential = 21;
   UDPDesired udp = 22;
+  uint32 stop_grace_seconds = 23;
 }
 
 message NetworkConfig {
@@ -201,6 +202,7 @@ message AllocationDesired {
   repeated SecretFileDesired secret_files = 27;
   RegistryCredentialReference registry_credential = 28;
   UDPDesired udp = 29;
+  uint32 stop_grace_seconds = 30;
 }
 
 message CronJobDesired {

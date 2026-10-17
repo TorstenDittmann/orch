@@ -26,11 +26,14 @@ Stop it with orch dev down.
 
 ## Requirements
 
-The `orch` CLI for your machine, from the
-[latest release](https://github.com/TorstenDittmann/orch/releases/latest)
-(`orch-darwin-arm64` on Apple silicon, `orch-darwin-amd64`, `orch-linux-amd64`
-or `orch-linux-arm64`), and the [Pkl](https://pkl-lang.org) CLI that every
-manifest command uses.
+The `orch` CLI, installed with the install script (or from the
+[latest release](https://github.com/TorstenDittmann/orch/releases/latest)):
+
+```console
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+```
+
+and the [Pkl](https://pkl-lang.org) CLI that every manifest command uses.
 
 A running Docker-compatible engine: Docker Desktop, OrbStack or Colima on macOS,
 or Docker Engine on Linux. `orch dev` uses `docker` when it is installed and

@@ -183,6 +183,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `secretFiles` | `Listing<SecretFile>` | empty | At most 64 |
 | `constraints` | `Mapping<String, String>` | empty | At most 64 required node labels |
 | `mounts` | `Listing<Mount>` | empty | At most 64 |
+| `stopGracePeriod` | `String?` | `null` (10s) | Whole seconds from `"1s"` to `"10m"` |
 
 ### Image
 
@@ -190,6 +191,23 @@ Tags are resolved to immutable digests by the controller when a deployment is
 accepted, so every replica of a revision runs the same image. A rollback reuses
 the recorded digests. Images from private registries need a registry
 credential; see [secrets and registry credentials](secrets.md).
+
+### Stopping
+
+When a replica is replaced, removed, or drained, orch sends it `SIGTERM` and
+waits `stopGracePeriod` before it sends `SIGKILL`. The default is 10 seconds.
+Give servers that save state on shutdown, such as game servers, more time:
+
+```pkl
+services {
+  ["game"] {
+    image = "ghcr.io/acme/game:1.4"
+    stopGracePeriod = "2m"
+  }
+}
+```
+
+Changing it replaces the replica, like any other change to the service.
 
 ### Command and args
 

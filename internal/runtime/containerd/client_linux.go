@@ -42,6 +42,7 @@ const (
 	labelSpec              = "io.orch.spec-digest"
 	labelNetworkGeneration = "io.orch.network-generation"
 	labelStartedAt         = "io.orch.started-at"
+	labelStopGrace         = "io.orch.stop-grace-seconds"
 )
 
 type runtimeClient struct {
@@ -303,6 +304,9 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 	if allocation.NetworkGeneration != 0 {
 		labels[labelNetworkGeneration] = strconv.FormatUint(allocation.NetworkGeneration, 10)
 	}
+	if allocation.StopGraceSeconds != 0 {
+		labels[labelStopGrace] = strconv.FormatUint(uint64(allocation.StopGraceSeconds), 10)
+	}
 	lease, err := c.ensureLease(ctx, id, labels)
 	if err != nil {
 		return orchruntime.Object{}, err
@@ -370,7 +374,7 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 	if credential := allocation.RegistryCredential; credential != nil {
 		secret := append([]byte(nil), allocation.RuntimeRegistrySecrets[credential.VersionID]...)
 		if len(secret) == 0 {
-			return nil, fmt.Errorf("registry credential material for %q is unavailable", credential.Host)
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("registry credential material for %q is unavailable", credential.Host)}
 		}
 		defer wipeSecretBytes(secret)
 		authorizer := docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
@@ -385,12 +389,12 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 	image, err = c.client.Pull(ctx, reference, pullOptions...)
 	if err != nil {
 		if strings.Contains(err.Error(), "no match for platform") {
-			return nil, fmt.Errorf("image %q does not support worker platform %s", reference, platforms.DefaultString())
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("the image does not support worker platform %s", platforms.DefaultString())}
 		}
-		return nil, fmt.Errorf("pull digest image %q: %w", reference, err)
+		return nil, &orchruntime.ImagePullError{Image: reference, Err: err}
 	}
 	if !imageMatchesDigest(image, reference) {
-		return nil, fmt.Errorf("pulled image %q target does not match its digest", reference)
+		return nil, &orchruntime.ImagePullError{Image: reference, Err: errors.New("the pulled image does not match its digest")}
 	}
 	return image, nil
 }
@@ -560,7 +564,7 @@ func (c *runtimeClient) Stop(ctx context.Context, id string, grace time.Duration
 		if err := task.Kill(ctx, syscall.SIGKILL, containerdclient.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
-		killTimer := time.NewTimer(grace)
+		killTimer := time.NewTimer(min(grace, orchruntime.DefaultStopGrace))
 		defer killTimer.Stop()
 		select {
 		case <-ctx.Done():
@@ -767,6 +771,7 @@ func (c *runtimeClient) object(ctx context.Context, container containerdclient.C
 	}
 	object := orchruntime.Object{
 		ID: container.ID(), AllocationID: labels[labelAllocation], SpecDigest: labels[labelSpec], StartedAt: taskStartedAt(labels, info.CreatedAt),
+		StopGrace: labeledStopGrace(labels),
 	}
 	task, taskErr := container.Task(ctx, nil)
 	if taskErr != nil && !errdefs.IsNotFound(taskErr) {
@@ -1067,4 +1072,14 @@ func randomExecID() (string, error) {
 		return "", err
 	}
 	return "exec_" + hex.EncodeToString(value), nil
+}
+
+// labeledStopGrace reads the stop grace period recorded at creation, or zero
+// for containers created without one.
+func labeledStopGrace(labels map[string]string) time.Duration {
+	seconds, err := strconv.ParseUint(labels[labelStopGrace], 10, 32)
+	if err != nil || seconds == 0 || seconds > orchruntime.MaxStopGraceSeconds {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }

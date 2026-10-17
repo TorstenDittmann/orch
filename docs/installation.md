@@ -26,21 +26,23 @@ disabled. Configure the appropriate firewalld zones and forwarding policy.
 
 ## Controller
 
-Download the Linux amd64 `orch` binary and its checksum from the
-[latest release](https://github.com/TorstenDittmann/orch/releases/latest), verify
-it, and copy it to the controller:
+Install `orch` on the controller. The script downloads the binary for the
+host from the [latest release](https://github.com/TorstenDittmann/orch/releases/latest),
+verifies its checksum and puts it in `/usr/local/bin`:
 
 ```console
-curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/orch-linux-amd64
-curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/SHA256SUMS
-sha256sum -c --ignore-missing SHA256SUMS
-install -m 0755 orch-linux-amd64 orch
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
 ```
+
+Set `ORCH_VERSION=v0.2.0` to install a specific release and `ORCH_INSTALL_DIR`
+to choose another directory. To install by hand, download `orch-linux-amd64`
+and `SHA256SUMS` from the release, check them with `sha256sum -c
+--ignore-missing SHA256SUMS`, and make the binary executable.
 
 Then run, as root:
 
 ```console
-sudo ./orch init
+sudo orch init
 ```
 
 `orch init` checks the host, installs the controller as a systemd service and
@@ -51,11 +53,23 @@ the address workers and your workstation can reach. Rerunning the same command
 resumes an interrupted installation.
 
 On the controller host, root can now run any `orch` command without further
-setup, for example `sudo ./orch nodes` with the executable you copied. The CLI talks to the controller's local
+setup, for example `sudo orch nodes`. The CLI talks to the controller's local
 administrator socket, which only root can open.
 
-To manage the cluster from your workstation, add a target that reaches that
-socket over SSH. Your SSH key for `root` on the controller is the credential:
+To manage the cluster from your workstation, install the CLI there. On Windows
+the script puts `orch.exe` in `%LOCALAPPDATA%\Programs\orch` and adds it to
+your PATH:
+
+```console
+# Linux and macOS
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
+```
+
+Then add a target that reaches the controller's socket over SSH. Your SSH key
+for `root` on the controller is the credential:
 
 ```console
 orch target add production ssh://root@10.0.0.10
@@ -76,11 +90,11 @@ workstation:
 orch join-token worker-1
 ```
 
-It prints a command. Copy the trusted `orch` binary to the worker and run that
-command there as root:
+It prints a command. Install `orch` on the worker with the same script and run
+that command there as root:
 
 ```console
-sudo ./orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
+sudo orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
 ```
 
 The token is valid once, for one hour by default (`--ttl` accepts 1m to 24h),
@@ -113,8 +127,8 @@ when you prefer to transfer a join file:
 
 ```console
 orch node join create worker-1 --ttl 1h --output worker-1.join
-sudo ./orch node doctor --advertise-address 10.0.0.11
-sudo ./orch node install --advertise-address 10.0.0.11 --join-file ./worker-1.join
+sudo orch node doctor --advertise-address 10.0.0.11
+sudo orch node install --advertise-address 10.0.0.11 --join-file ./worker-1.join
 ```
 
 You can now [deploy your first application](quick-start.md).
@@ -135,7 +149,7 @@ sudo journalctl -u orch-controller --since '-10 min'
 On a worker:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11 --json
+sudo orch node doctor --advertise-address 10.0.0.11 --json
 sudo systemctl status orch-containerd orch-agent
 sudo journalctl -u orch-containerd -u orch-agent --since '-10 min'
 ```
@@ -145,8 +159,16 @@ On Fedora, inspect recent SELinux denials with
 
 ## Upgrades
 
-Upgrade the controller before workers. Copy the trusted new binary to each host
-and inspect the change before applying it:
+Upgrade the controller before workers. Rerun the install script on each host,
+or copy the trusted new binary there, and inspect the change before applying
+it. With the install script the new binary is `/usr/local/bin/orch`:
+
+```console
+sudo orch cluster upgrade --binary /usr/local/bin/orch
+sudo orch node upgrade --binary /usr/local/bin/orch
+```
+
+With a copied binary:
 
 ```console
 sudo ./new-orch cluster upgrade --binary ./new-orch --dry-run --json

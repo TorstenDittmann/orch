@@ -355,6 +355,9 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			allocation.GetHealthStatus().String(), statusValue(allocation.GetAddress()), allocation.GetDeclaredPort(),
 			allocation.GetActiveApplicationGeneration(), statusValue(allocation.GetActiveRevisionId()),
 			statusValue(allocation.GetActiveSpecDigest()), allocation.GetRestartCount(), statusValue(allocation.GetReason()))
+		if failingAllocation(allocation) {
+			fmt.Fprintf(stdout, "    %s\n", allocation.GetMessage())
+		}
 	}
 	for _, route := range application.GetRoutes() {
 		protocol := "http"
@@ -760,4 +763,18 @@ func runRuntimeLogSink(ctx context.Context, args []string, stderr io.Writer) int
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+// failingAllocation reports whether a replica is failing with a message worth
+// printing under it, such as the registry error of a failed image pull.
+func failingAllocation(allocation *orchv1alpha1.AllocationStatus) bool {
+	if allocation.GetMessage() == "" {
+		return false
+	}
+	switch allocation.GetPhase() {
+	case orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_BACKOFF, orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_FAILED:
+		return true
+	default:
+		return false
+	}
 }

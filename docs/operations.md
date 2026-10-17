@@ -203,7 +203,7 @@ groups:
 Create backups regularly and copy them off the controller:
 
 ```console
-sudo /opt/orch-controller/bin/orch cluster backup \
+sudo orch cluster backup \
   --data-dir /var/lib/orch-controller \
   --output /secure/orch-backups/production.db \
   --secret-key-output /secure/orch-backups/production.key

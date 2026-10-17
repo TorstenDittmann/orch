@@ -30,6 +30,23 @@ func TestHostCommandsDoNotResolveSelectedTargets(t *testing.T) {
 	}
 }
 
+func TestNodeUpgradeDoesNotResolveSelectedTargets(t *testing.T) {
+	t.Setenv("ORCH_TARGET", "missing-target")
+	args := []string{"node", "upgrade", "--binary", "/does/not/exist", "--dry-run", "--json"}
+	if isRemoteCommand(args) {
+		t.Fatal("node upgrade classified as remote")
+	}
+	resolved, err := prepareConnectionArgs(args)
+	if err != nil || strings.Join(resolved, " ") != strings.Join(args, " ") {
+		t.Fatalf("local args changed: %v %v", resolved, err)
+	}
+	var out, errs bytes.Buffer
+	RunContext(context.Background(), args, &out, &errs)
+	if strings.Contains(errs.String(), "target") {
+		t.Fatalf("node upgrade resolved a target: %s", errs.String())
+	}
+}
+
 func TestControllerHostCommandsAreLocalAndDryRunDoesNotPublishOutputs(t *testing.T) {
 	root := t.TempDir()
 	admin := filepath.Join(root, "admin")
