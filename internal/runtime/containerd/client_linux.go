@@ -374,7 +374,7 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 	if credential := allocation.RegistryCredential; credential != nil {
 		secret := append([]byte(nil), allocation.RuntimeRegistrySecrets[credential.VersionID]...)
 		if len(secret) == 0 {
-			return nil, fmt.Errorf("registry credential material for %q is unavailable", credential.Host)
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("registry credential material for %q is unavailable", credential.Host)}
 		}
 		defer wipeSecretBytes(secret)
 		authorizer := docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
@@ -389,12 +389,12 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 	image, err = c.client.Pull(ctx, reference, pullOptions...)
 	if err != nil {
 		if strings.Contains(err.Error(), "no match for platform") {
-			return nil, fmt.Errorf("image %q does not support worker platform %s", reference, platforms.DefaultString())
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("the image does not support worker platform %s", platforms.DefaultString())}
 		}
-		return nil, fmt.Errorf("pull digest image %q: %w", reference, err)
+		return nil, &orchruntime.ImagePullError{Image: reference, Err: err}
 	}
 	if !imageMatchesDigest(image, reference) {
-		return nil, fmt.Errorf("pulled image %q target does not match its digest", reference)
+		return nil, &orchruntime.ImagePullError{Image: reference, Err: errors.New("the pulled image does not match its digest")}
 	}
 	return image, nil
 }

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/TorstenDittmann/orch/internal/agent/state"
 	"github.com/TorstenDittmann/orch/internal/discovery"
@@ -1240,10 +1241,19 @@ func (s *Supervisor) canRetainServing(object orchruntime.Object) bool {
 
 func (s *Supervisor) failedStart(ctx context.Context, allocation model.AllocationDesired, status model.AllocationStatus, retainedOld bool, startErr error) (model.AllocationStatus, error) {
 	status.UpdatedAt = s.now().UTC()
+	// Other runtime details are intentionally not persisted in status; an
+	// image pull error is what operators most need to see and carries no
+	// secret material.
+	var pullErr *orchruntime.ImagePullError
+	pullFailed := errors.As(startErr, &pullErr)
 	if allocation.RestartPolicy == "never" {
 		status.Phase = model.AllocationFailed
 		status.Reason = "process_start_failed"
 		status.Message = "the process could not be started and restart policy is never"
+		if pullFailed {
+			status.Reason = "image_pull_failed"
+			status.Message = imagePullMessage(pullErr, "restart policy is never")
+		}
 		return status, s.persistStatus(ctx, status, nil)
 	}
 	status.RestartCount++
@@ -1254,17 +1264,37 @@ func (s *Supervisor) failedStart(ctx context.Context, allocation model.Allocatio
 	next := status.UpdatedAt.Add(delay)
 	status.Phase = model.AllocationBackoff
 	status.Reason = "process_start_backoff"
-	if retainedOld && allocation.AutoRollback {
+	switch {
+	case retainedOld && allocation.AutoRollback:
 		status.Reason = "replacement_rollback_retained"
 		status.Message = "replacement failed; the prior process-running revision was retained"
-	} else {
+		if pullFailed {
+			status.Message = imagePullMessage(pullErr, "the prior process-running revision was retained")
+		}
+	case pullFailed:
+		status.Reason = "image_pull_failed"
+		status.Message = imagePullMessage(pullErr, "waiting before retry")
+	default:
 		status.Message = "process start failed; waiting before retry"
 	}
-	if err := s.persistStatus(ctx, status, &next); err != nil {
-		return status, err
+	return status, s.persistStatus(ctx, status, &next)
+}
+
+// imagePullMessage renders a pull error as one line that fits the
+// controller's 1024-byte status message limit.
+func imagePullMessage(err *orchruntime.ImagePullError, outcome string) string {
+	const maxMessage = 1000
+	suffix := "; " + outcome
+	message := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, fmt.Sprintf("pulling %s failed: %v", err.Image, err.Err))
+	if len(message)+len(suffix) > maxMessage {
+		message = strings.ToValidUTF8(message[:maxMessage-len(suffix)-3], "") + "..."
 	}
-	_ = startErr // Runtime details are intentionally not persisted in status.
-	return status, nil
+	return message + suffix
 }
 
 func (s *Supervisor) persistStatus(ctx context.Context, status model.AllocationStatus, next *time.Time) error {

@@ -233,6 +233,9 @@ func waitForDeployment(ctx context.Context, reader controlclient.ApplicationRead
 		fmt.Fprintf(&progress, "%s  observed=%d active=%d  %s\n", strings.TrimPrefix(app.GetExecutionStatus().String(), "EXECUTION_STATUS_"), app.GetObservedGeneration(), app.GetActiveGeneration(), app.GetExecutionReason())
 		for _, a := range app.GetAllocations() {
 			fmt.Fprintf(&progress, "  %s #%d on %s: %s / %s  active=%d  %s\n", a.GetService(), a.GetReplica(), a.GetNodeName(), strings.TrimPrefix(a.GetPhase().String(), "ALLOCATION_PHASE_"), strings.TrimPrefix(a.GetHealthStatus().String(), "HEALTH_STATUS_"), a.GetActiveApplicationGeneration(), a.GetReason())
+			if failingAllocation(a) {
+				fmt.Fprintf(&progress, "    %s\n", a.GetMessage())
+			}
 		}
 		if value := progress.String(); value != previous {
 			fmt.Fprint(stdout, value)

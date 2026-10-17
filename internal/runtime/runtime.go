@@ -16,6 +16,17 @@ var (
 	ErrUnsupported       = errors.New("runtime is unsupported on this platform")
 )
 
+// ImagePullError reports that a workload image could not be pulled. Its
+// message is safe to show to operators: it never contains credentials.
+type ImagePullError struct {
+	Image string
+	Err   error
+}
+
+func (e *ImagePullError) Error() string { return fmt.Sprintf("pull image %q: %v", e.Image, e.Err) }
+
+func (e *ImagePullError) Unwrap() error { return e.Err }
+
 type Capabilities struct {
 	OperatingSystem        string
 	Architecture           string
