@@ -43,7 +43,7 @@ $ orch deploy --wait --target production
 Setting up a cluster takes three commands, in the style of Docker Swarm:
 
 ```console
-$ sudo ./orch init                          # on the controller
+$ sudo orch init                          # on the controller
 $ orch join-token worker-1                  # prints the join command
 $ orch target add production ssh://root@controller.example.com
 ```

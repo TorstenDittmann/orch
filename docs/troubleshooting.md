@@ -72,7 +72,7 @@ not list the new node, or lists it but it never becomes connected.
 Run the host checks on the worker. They change nothing:
 
 ```console
-sudo ./orch node doctor --advertise-address 10.0.0.11
+sudo orch node doctor --advertise-address 10.0.0.11
 ```
 
 If an install already started, use the installed copy and look at the agent:

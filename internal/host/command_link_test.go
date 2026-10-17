@@ -62,3 +62,22 @@ func TestLinkCommandReplacesADanglingLinkToTheOtherInstall(t *testing.T) {
 		t.Fatalf("dangling link kept = %t, %v", changed, err)
 	}
 }
+
+func TestLinkCommandReplacesACopyOfTheInstalledBinary(t *testing.T) {
+	dir := t.TempDir()
+	commandLinkPath = filepath.Join(dir, "orch")
+	t.Cleanup(func() { commandLinkPath = "/usr/local/bin/orch" })
+	target := filepath.Join(dir, "installed")
+	if err := os.WriteFile(target, []byte("orch binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(commandLinkPath, []byte("orch binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := linkCommand(target, false); err != nil || !changed {
+		t.Fatalf("copy kept = %t, %v", changed, err)
+	}
+	if current, err := os.Readlink(commandLinkPath); err != nil || current != target {
+		t.Fatalf("link = %q, %v", current, err)
+	}
+}

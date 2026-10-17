@@ -136,7 +136,7 @@ keeps it out of the process list.
 | `--json` | `false` | Emit machine-readable JSON |
 
 ```console
-sudo ./orch join - < worker-1.token
+sudo orch join - < worker-1.token
 ```
 
 ### orch cluster doctor

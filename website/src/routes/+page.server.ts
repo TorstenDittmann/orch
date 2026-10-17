@@ -17,7 +17,7 @@ services {
 }`;
 
 const setup = `# on the controller
-sudo ./orch init
+sudo orch init
 
 # on your machine
 orch join-token worker-1

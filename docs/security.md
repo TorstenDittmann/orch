@@ -137,13 +137,13 @@ orch cluster backup inspect \
   --secret-key /secure/orch-backups/production.key \
   --json
 
-sudo ./orch cluster restore \
+sudo orch cluster restore \
   --backup /secure/orch-backups/production.db \
   --pki-dir /secure/orch-backups/pki \
   --secret-key /secure/orch-backups/production.key \
   --data-dir /var/lib/orch-recovered
 
-sudo ./orch controller serve \
+sudo orch controller serve \
   --data-dir /var/lib/orch-recovered \
   --listen 0.0.0.0:9443
 ```

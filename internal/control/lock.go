@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"sync"
 
-	"golang.org/x/sys/unix"
+	"github.com/TorstenDittmann/orch/internal/filelock"
 )
 
 const controllerLockFilename = "controller.lock"
@@ -58,30 +58,30 @@ func acquireDataLock(dataDir string) (*dataLock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open controller lock: %w", err)
 	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := filelock.TryLock(file); err != nil {
 		_ = file.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+		if errors.Is(err, filelock.ErrLocked) {
 			return nil, ErrControllerRunning
 		}
 		return nil, fmt.Errorf("acquire controller lock: %w", err)
 	}
 	if err := file.Truncate(0); err != nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = filelock.Unlock(file)
 		_ = file.Close()
 		return nil, fmt.Errorf("truncate controller lock: %w", err)
 	}
 	if _, err := file.Seek(0, 0); err != nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = filelock.Unlock(file)
 		_ = file.Close()
 		return nil, fmt.Errorf("seek controller lock: %w", err)
 	}
 	if _, err := file.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = filelock.Unlock(file)
 		_ = file.Close()
 		return nil, fmt.Errorf("write controller lock: %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = filelock.Unlock(file)
 		_ = file.Close()
 		return nil, fmt.Errorf("sync controller lock: %w", err)
 	}
@@ -94,7 +94,7 @@ func (lock *dataLock) Close() error {
 		return nil
 	}
 	lock.once.Do(func() {
-		unlockErr := unix.Flock(int(lock.file.Fd()), unix.LOCK_UN)
+		unlockErr := filelock.Unlock(lock.file)
 		closeErr := lock.file.Close()
 		forgetProcessLock(lock.path)
 		lock.err = errors.Join(unlockErr, closeErr)
