@@ -23,9 +23,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// heartbeatInterval is a variable so tests can shorten it.
+var heartbeatInterval = 10 * time.Second
+
 const (
 	reconcileInterval      = 2 * time.Second
-	heartbeatInterval      = 10 * time.Second
 	maxOperationChunk      = 64 << 10
 	maxAssignedAllocations = 1000
 	maxAssignedCronJobs    = 132
@@ -45,6 +47,10 @@ type sessionRunner struct {
 	dataDir                string
 	renewalRetryAt         time.Time
 	renewalBackoff         time.Duration
+	// keepalive sends a heartbeat on the connected stream. It is set while a
+	// session is connected so a long reconcile, such as a replica given minutes
+	// to stop, cannot let the controller time the session out.
+	keepalive func(context.Context) error
 }
 
 type controllerMessage struct {
@@ -178,6 +184,52 @@ func (r *sessionRunner) waitToReconnect(ctx context.Context, delay time.Duration
 	}
 }
 
+func (r *sessionRunner) heartbeatRequest(ctx context.Context) *orchv1alpha1.ConnectRequest {
+	assignmentGeneration := uint64(0)
+	if assignment, err := r.cache.Assignment(ctx); err == nil {
+		assignmentGeneration = assignment.Generation
+	}
+	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
+		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration,
+	}}}
+}
+
+// reconcile runs one supervisor pass and keeps the session alive with
+// heartbeats while it takes longer than a heartbeat interval.
+func (r *sessionRunner) reconcile(ctx context.Context, assignment model.Assignment) ([]model.AllocationStatus, error) {
+	if r.keepalive == nil {
+		return r.supervisor.Reconcile(ctx, assignment)
+	}
+	type result struct {
+		statuses []model.AllocationStatus
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		statuses, err := r.supervisor.Reconcile(ctx, assignment)
+		done <- result{statuses, err}
+	}()
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	keepalive := r.keepalive
+	for {
+		select {
+		case finished := <-done:
+			return finished.statuses, finished.err
+		case <-ticker.C:
+			if keepalive == nil {
+				continue
+			}
+			if err := keepalive(ctx); err != nil {
+				// The stream is gone; the loop sees that on its next send. The
+				// pass itself still has to finish before the agent moves on.
+				log.Printf("agent: heartbeat during reconcile: %v", err)
+				keepalive = nil
+			}
+		}
+	}
+}
+
 func (r *sessionRunner) reconcileCached(ctx context.Context) error {
 	assignment, err := r.cache.Assignment(ctx)
 	if errors.Is(err, state.ErrNoAssignment) {
@@ -274,6 +326,10 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 	defer heartbeat.Stop()
 	defer reconcile.Stop()
 	defer renewal.Stop()
+	// Only this loop sends on the stream, and it is blocked while a reconcile
+	// runs, so sending the keepalive directly cannot interleave with it.
+	r.keepalive = func(ctx context.Context) error { return r.sendRequest(stream, r.heartbeatRequest(ctx)) }
+	defer func() { r.keepalive = nil }()
 	for {
 		// Control messages always go out before queued operation frames.
 		if sent, err := r.sendControl(stream, outbound); err != nil {
@@ -300,13 +356,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 				return err
 			}
 		case <-heartbeat.C:
-			assignmentGeneration := uint64(0)
-			if assignment, err := r.cache.Assignment(ctx); err == nil {
-				assignmentGeneration = assignment.Generation
-			}
-			if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
-				BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration,
-			}}}); err != nil {
+			if err := enqueueAgentRequest(outbound, r.heartbeatRequest(ctx)); err != nil {
 				return err
 			}
 		case <-reconcile.C:
@@ -317,7 +367,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("read cached assignment: %w", err)
 			}
-			statuses, err := r.supervisor.Reconcile(ctx, assignment)
+			statuses, err := r.reconcile(ctx, assignment)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -386,7 +436,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		if _, err := r.cache.CommitAssignment(ctx, assignment); err != nil {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("durably cache assignment: %w", err))
 		}
-		statuses, err := r.supervisor.Reconcile(ctx, assignment)
+		statuses, err := r.reconcile(ctx, assignment)
 		if err != nil && !errors.Is(err, ErrAllocationReconcile) {
 			return fmt.Errorf("reconcile assignment: %w", err)
 		}
@@ -864,7 +914,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			RestartPolicy: item.GetRestartPolicy(), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
 			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
 			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
-			DependsOn: append([]string(nil), item.GetDependsOn()...),
+			DependsOn: append([]string(nil), item.GetDependsOn()...), StopGraceSeconds: item.GetStopGraceSeconds(),
 		}
 		allocation.SecretEnvironment = secretEnvironmentModel(item.GetSecretEnvironment())
 		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
@@ -889,7 +939,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				RestartPolicy: rollback.GetRestartPolicy(), CPUMillis: rollback.GetCpuMillis(), MemoryBytes: rollback.GetMemoryBytes(),
 				StartDeadlineSeconds: rollback.GetStartDeadlineSeconds(), NetworkGeneration: rollback.GetNetworkGeneration(),
 				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
-				DependsOn: append([]string(nil), rollback.GetDependsOn()...),
+				DependsOn: append([]string(nil), rollback.GetDependsOn()...), StopGraceSeconds: rollback.GetStopGraceSeconds(),
 			}
 			allocation.Rollback.SecretEnvironment = secretEnvironmentModel(rollback.GetSecretEnvironment())
 			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())

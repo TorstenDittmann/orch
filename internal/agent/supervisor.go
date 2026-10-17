@@ -26,7 +26,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/tcpingress"
 )
 
-const taskStopGrace = 10 * time.Second
+const taskStopGrace = orchruntime.DefaultStopGrace
 
 type Supervisor struct {
 	mu           sync.Mutex
@@ -1147,7 +1147,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		DependsOn: append([]string(nil), rollback.DependsOn...), SecretEnvironment: cloneSecretEnvironment(rollback.SecretEnvironment),
 		SecretFiles: append([]model.SecretFileDesired(nil), rollback.SecretFiles...), RegistryCredential: cloneRegistryCredential(rollback.RegistryCredential),
 		RuntimeSecretValues: allocation.RuntimeSecretValues, RuntimeRegistrySecrets: allocation.RuntimeRegistrySecrets,
-		NetworkGeneration: rollback.NetworkGeneration,
+		NetworkGeneration: rollback.NetworkGeneration, StopGraceSeconds: rollback.StopGraceSeconds,
 	}
 }
 
@@ -1287,7 +1287,11 @@ func (s *Supervisor) persistStatus(ctx context.Context, status model.AllocationS
 
 func (s *Supervisor) stopAndRemove(ctx context.Context, object orchruntime.Object) error {
 	if object.Running {
-		if err := s.runtime.Stop(ctx, object.ID, taskStopGrace); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
+		grace := taskStopGrace
+		if object.StopGrace > 0 {
+			grace = object.StopGrace
+		}
+		if err := s.runtime.Stop(ctx, object.ID, grace); err != nil && !errors.Is(err, orchruntime.ErrNotFound) {
 			return fmt.Errorf("stop owned runtime object %q: %w", object.ID, err)
 		}
 	}

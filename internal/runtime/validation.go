@@ -30,7 +30,7 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 		!validSHA256Digest(allocation.SpecDigest) || allocation.CPUMillis == 0 || allocation.CPUMillis > uint64(1<<63-1)/100 ||
 		allocation.MemoryBytes == 0 || allocation.MemoryBytes > uint64(1<<63-1) || allocation.StartDeadlineSeconds == 0 ||
 		allocation.StartDeadlineSeconds > 3600 || allocation.MaxSurge > 100 || allocation.MaxUnavailable > 100 ||
-		strings.ContainsRune(allocation.RevisionID, 0) {
+		allocation.StopGraceSeconds > MaxStopGraceSeconds || strings.ContainsRune(allocation.RevisionID, 0) {
 		return fmt.Errorf("runtime allocation identity, resources, or deadline is incomplete or invalid")
 	}
 	switch allocation.RestartPolicy {
@@ -255,6 +255,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP,
 		DependsOn: rollback.DependsOn, SecretEnvironment: rollback.SecretEnvironment, SecretFiles: rollback.SecretFiles,
 		RegistryCredential: rollback.RegistryCredential, NetworkGeneration: rollback.NetworkGeneration,
+		StopGraceSeconds: rollback.StopGraceSeconds,
 	}
 }
 

@@ -374,6 +374,12 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 		if err != nil {
 			return plannedApplication{}, nil, fmt.Errorf("parse stored process-start deadline: %w", err)
 		}
+		var stopGrace time.Duration
+		if service.StopGrace != "" {
+			if stopGrace, err = time.ParseDuration(service.StopGrace); err != nil {
+				return plannedApplication{}, nil, fmt.Errorf("parse stored stop grace period: %w", err)
+			}
+		}
 		mounts := make([]model.VolumeMount, 0, len(service.Mounts))
 		for _, mount := range service.Mounts {
 			mounts = append(mounts, model.VolumeMount{Name: mount.Source, Target: mount.Target, ReadOnly: mount.ReadOnly})
@@ -399,6 +405,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				NetworkGeneration:    networkConfig.Generation,
 				MaxSurge:             uint32(manifest.Deploy.MaxSurge),
 				MaxUnavailable:       uint32(manifest.Deploy.MaxUnavailable),
+				StopGraceSeconds:     uint32(stopGrace / time.Second),
 			}
 			if service.HTTP != nil {
 				allocation.HTTP = &model.HTTPDesired{
@@ -569,6 +576,7 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		SecretFiles:        append([]model.SecretFileDesired(nil), allocation.SecretFiles...),
 		RegistryCredential: cloneRegistryCredential(allocation.RegistryCredential),
 		AutoRollback:       allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
+		StopGraceSeconds: allocation.StopGraceSeconds,
 	}
 }
 

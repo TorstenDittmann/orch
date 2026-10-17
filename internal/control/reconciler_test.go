@@ -1231,3 +1231,27 @@ func TestDistributedReconcilerBlocksVolumeClaimConflictWithoutBlockingOtherAppli
 		t.Fatalf("other application placements = %d, want 1", placed)
 	}
 }
+
+func TestPlanApplicationCarriesTheStopGracePeriod(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, _ := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) { service.StopGrace = "2m" }), "revision-one", "application-key-one", reconcilerTestTime)
+	application, err := state.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	planned, blocked, err := planApplication("cluster-one", node, application)
+	if err != nil || blocked != nil || len(planned) != 1 || planned[0].StopGraceSeconds != 120 {
+		t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+	}
+}

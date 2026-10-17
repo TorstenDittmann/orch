@@ -1011,6 +1011,7 @@ type RollbackSpec struct {
 	SecretFiles           []*SecretFileDesired         `protobuf:"bytes,20,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
 	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,21,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	Udp                   *UDPDesired                  `protobuf:"bytes,22,opt,name=udp,proto3" json:"udp,omitempty"`
+	StopGraceSeconds      uint32                       `protobuf:"varint,23,opt,name=stop_grace_seconds,json=stopGraceSeconds,proto3" json:"stop_grace_seconds,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1197,6 +1198,13 @@ func (x *RollbackSpec) GetUdp() *UDPDesired {
 		return x.Udp
 	}
 	return nil
+}
+
+func (x *RollbackSpec) GetStopGraceSeconds() uint32 {
+	if x != nil {
+		return x.StopGraceSeconds
+	}
+	return 0
 }
 
 type NetworkConfig struct {
@@ -1522,6 +1530,7 @@ type AllocationDesired struct {
 	SecretFiles           []*SecretFileDesired         `protobuf:"bytes,27,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
 	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,28,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	Udp                   *UDPDesired                  `protobuf:"bytes,29,opt,name=udp,proto3" json:"udp,omitempty"`
+	StopGraceSeconds      uint32                       `protobuf:"varint,30,opt,name=stop_grace_seconds,json=stopGraceSeconds,proto3" json:"stop_grace_seconds,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1757,6 +1766,13 @@ func (x *AllocationDesired) GetUdp() *UDPDesired {
 		return x.Udp
 	}
 	return nil
+}
+
+func (x *AllocationDesired) GetStopGraceSeconds() uint32 {
+	if x != nil {
+		return x.StopGraceSeconds
+	}
+	return 0
 }
 
 type CronJobDesired struct {
@@ -4413,7 +4429,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x12\n" +
 	"\x04host\x18\x05 \x01(\tR\x04host\x12\x1a\n" +
 	"\busername\x18\x06 \x01(\tR\busername\x12\x14\n" +
-	"\x05value\x18\a \x01(\fR\x05value\"\xc2\t\n" +
+	"\x05value\x18\a \x01(\fR\x05value\"\xf0\t\n" +
 	"\fRollbackSpec\x125\n" +
 	"\x16application_generation\x18\x01 \x01(\x04R\x15applicationGeneration\x12\x1f\n" +
 	"\vrevision_id\x18\x02 \x01(\tR\n" +
@@ -4441,7 +4457,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x12secret_environment\x18\x13 \x03(\v22.orch.v1alpha1.RollbackSpec.SecretEnvironmentEntryR\x11secretEnvironment\x12C\n" +
 	"\fsecret_files\x18\x14 \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
 	"\x13registry_credential\x18\x15 \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x12+\n" +
-	"\x03udp\x18\x16 \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x1a>\n" +
+	"\x03udp\x18\x16 \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x12,\n" +
+	"\x12stop_grace_seconds\x18\x17 \x01(\rR\x10stopGraceSeconds\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
@@ -4479,7 +4496,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftcp_public_port\x18\t \x01(\rR\rtcpPublicPort\x12\x1f\n" +
 	"\vhttp_public\x18\n" +
 	" \x01(\bR\n" +
-	"httpPublic\"\xb6\v\n" +
+	"httpPublic\"\xe4\v\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -4514,7 +4531,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x12secret_environment\x18\x1a \x03(\v27.orch.v1alpha1.AllocationDesired.SecretEnvironmentEntryR\x11secretEnvironment\x12C\n" +
 	"\fsecret_files\x18\x1b \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
 	"\x13registry_credential\x18\x1c \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x12+\n" +
-	"\x03udp\x18\x1d \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x1a>\n" +
+	"\x03udp\x18\x1d \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x12,\n" +
+	"\x12stop_grace_seconds\x18\x1e \x01(\rR\x10stopGraceSeconds\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
