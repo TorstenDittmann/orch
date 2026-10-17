@@ -751,6 +751,11 @@ func TestReconcilerBlocksMissingSecretAndRollsReferencingWorkloadOnRotation(t *t
 		second.Allocations[0].SecretEnvironment["TOKEN"].VersionID != "secv_two" {
 		t.Fatalf("rotated secret assignment = %#v, %v", second, err)
 	}
+	// The rotation replaces the allocation within generation one, so it must
+	// not authorize a rollback to that same generation; agents reject that.
+	if rollback := second.Allocations[0].Rollback; rollback != nil && rollback.ApplicationGeneration >= second.Allocations[0].ApplicationGeneration {
+		t.Fatalf("rotated secret rollback = %#v", rollback)
+	}
 }
 
 func TestRegistryCredentialRotationUpdatesPullAuthorizationWithoutRestart(t *testing.T) {

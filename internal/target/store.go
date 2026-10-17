@@ -351,6 +351,18 @@ func (s *Store) Get(name string) (Resolved, error) {
 	return Resolved{Name: name, ContextPath: contextPath, Transport: manifest.Transport}, nil
 }
 
+// Remove deletes a target and its credentials. Removing a missing target is
+// not an error.
+func (s *Store) Remove(name string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(s.targetPath(name)); err != nil {
+		return fmt.Errorf("remove target %q: %w", name, err)
+	}
+	return nil
+}
+
 func (s *Store) List() ([]Resolved, error) {
 	entries, err := os.ReadDir(filepath.Join(s.root, "targets"))
 	if errors.Is(err, os.ErrNotExist) {

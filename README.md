@@ -36,6 +36,14 @@ service DNS. A managed WireGuard full mesh connects those node subnets, while
 ingress-enabled nodes proxy HTTP/HTTPS and raw TCP directly to ready local or
 remote allocations. The controller is not in the application data path.
 
+## Run it locally
+
+With Docker Desktop, OrbStack, Colima or Docker Engine running, `orch dev`
+starts a one-node cluster in a container and deploys `./orch.pkl` to it, with
+HTTP services at `http://SERVICE.APP.localhost:8080` and locally built images
+used as they are. `orch dev down` stops it. See
+[local development](docs/local-development.md).
+
 ## Try the runtime
 
 Install the pinned Go and Pkl toolchain and build the CLI:

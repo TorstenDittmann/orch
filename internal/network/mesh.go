@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 
@@ -62,6 +63,12 @@ func (m *Mesh) Prepare(ctx context.Context, configuration model.NetworkConfig) e
 		Peers: append([]model.WireGuardPeer(nil), configuration.Peers...),
 	}
 	if err := m.wireguard.EnsureOwnership(ctx); err != nil {
+		// A node without peers has nothing to tunnel to, so a kernel without
+		// WireGuard (as in some container engines) only blocks once a second
+		// node joins.
+		if len(wireguard.Peers) == 0 && errors.Is(err, ErrWireGuardUnavailable) {
+			return m.local.Prepare(ctx, configuration)
+		}
 		return fmt.Errorf("verify WireGuard ownership: %w", err)
 	}
 	if err := m.local.Prepare(ctx, configuration); err != nil {

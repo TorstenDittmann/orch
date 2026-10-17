@@ -413,6 +413,27 @@ already current. With `--wait`, the result is `READY`, `FAILED`, `TIMED_OUT`,
 or `CANCELED`. Stopping the watcher does not cancel the deployment; resume
 watching with `orch app watch`.
 
+### orch dev
+
+```text
+orch dev [-f orch.pkl] [--root DIR] [--env-file FILE] [--http-port 8080] [--timeout 10m]
+orch dev down [--volumes]
+```
+
+Runs the application on this machine: starts a one-node cluster in a container
+on the local Docker-compatible engine, adds it as target `dev`, and deploys the
+manifest to it with HTTP services at `http://SERVICE.APP.localhost:8080`. See
+[local development](local-development.md).
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-f`, `--file` | `orch.pkl` | Pkl manifest path |
+| `--root` | manifest directory | Pkl evaluation root |
+| `--env-file` | `orch.dev.env` next to the manifest | Secret values as `NAME=VALUE` lines |
+| `--http-port` | `8080` | Local port for HTTP services |
+| `--timeout` | `10m` | Rollout wait deadline |
+| `--volumes` | `false` | With `down`, also delete the dev node's data |
+
 ### orch app status
 
 ```text
