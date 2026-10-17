@@ -36,6 +36,7 @@ const (
 	devTarget       = "dev"
 	devAPIPort      = 9443
 	devPortsLabel   = "orch.dev.ports"
+	devHTTPLabel    = "orch.dev.http-port"
 	devSocket       = "/run/orch-containerd/containerd.sock"
 	devReadyFile    = "/run/orch-dev.ready"
 	devAdminDir     = "/var/lib/orch/admin"
@@ -375,17 +376,18 @@ func ensureDevNode(ctx context.Context, engine devEngine, image string, httpPort
 		return false, err
 	}
 	state, err := engine.run(ctx, nil, "container", "inspect", "--format",
-		`{{.State.Running}}|{{.Image}}|{{index .Config.Labels "`+devPortsLabel+`"}}`, devContainer)
+		`{{.State.Running}}|{{.Image}}|{{index .Config.Labels "`+devHTTPLabel+`"}}|{{index .Config.Labels "`+devPortsLabel+`"}}`, devContainer)
 	if err == nil {
-		fields := strings.SplitN(state, "|", 3)
-		if len(fields) != 3 {
+		fields := strings.SplitN(state, "|", 4)
+		if len(fields) != 4 {
 			return false, fmt.Errorf("unexpected %s inspect output %q", devContainer, state)
 		}
 		existing := map[string]bool{}
-		for _, value := range strings.Split(fields[2], ",") {
+		previousHTTP := fmt.Sprintf("127.0.0.1:%s:80/tcp", fields[2])
+		for _, value := range strings.Split(fields[3], ",") {
 			existing[value] = true
 			// Keep ports of applications deployed earlier; the HTTP port follows --http-port.
-			if value != "" && !strings.HasSuffix(value, ":80/tcp") {
+			if value != "" && value != previousHTTP {
 				published[value] = true
 			}
 		}
@@ -418,7 +420,7 @@ func ensureDevNode(ctx context.Context, engine devEngine, image string, httpPort
 	args := []string{"run", "--detach", "--name", devContainer, "--hostname", devContainer,
 		"--privileged", "--cgroupns", "private", "--restart", "unless-stopped",
 		"--volume", devVolume + ":/var/lib/orch",
-		"--label", devPortsLabel + "=" + strings.Join(values, ",")}
+		"--label", devHTTPLabel + "=" + strconv.Itoa(httpPort), "--label", devPortsLabel + "=" + strings.Join(values, ",")}
 	for _, value := range values {
 		args = append(args, "--publish", value)
 	}
