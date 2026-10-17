@@ -17,6 +17,23 @@ reference, and retries and rollback reuse the recorded images. One-off jobs run
 maintenance commands using service images and secrets; optional pre-deploy hooks
 gate updates on successful migrations while current services keep serving.
 
+## Install
+
+Install the CLI on Linux or macOS, and on each cluster host:
+
+~~~console
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+~~~
+
+On Windows, in PowerShell:
+
+~~~console
+irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
+~~~
+
+Both scripts install the latest release; set `ORCH_VERSION=v0.1.0` to pin one.
+See [installation](docs/installation.md).
+
 ## The contract
 
 - One typed, versioned Pkl module describes an application and may compose
@@ -56,18 +73,6 @@ bin/orch validate --root . --file examples/hello/orch.pkl
 bin/orch plan --root . --file examples/hello/orch.pkl
 bin/orch render --root . --file examples/hello/orch.pkl
 bin/orch schema > /tmp/Application.pkl
-~~~
-
-Install the CLI on Linux or macOS, and on each cluster host:
-
-~~~console
-curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
-~~~
-
-On Windows, in PowerShell:
-
-~~~console
-irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
 ~~~
 
 For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
@@ -200,13 +205,20 @@ bin/orch app watch runtime-demo --timeout 10m
 bin/orch app diff runtime-demo REVISION_ID
 bin/orch rollback runtime-demo REVISION_ID --wait
 
-bin/orch logs runtime-demo worker --replica 1 --tail 100
+bin/orch logs runtime-demo worker --replica 1 --tail 100 -f
+
+# Restart replicas one at a time, waiting for each to run again.
+bin/orch restart runtime-demo worker
 
 bin/orch exec runtime-demo worker --replica 1 -- /bin/echo ok
 
 bin/orch remove runtime-demo
 
 bin/orch events
+
+# Back up a local volume on its node now; list shows schedules and backups.
+bin/orch volume list runtime-demo
+bin/orch volume backup runtime-demo data
 
 bin/orch cluster backup \
   --data-dir "$PWD/.orch-controller" \
@@ -246,6 +258,11 @@ bin/orch target transport production ssh --host prod-controller
 
 Use `--target staging` for a one-off override or `ORCH_TARGET=staging` in a
 shell or script. `--context FILE` remains supported for compatibility.
+
+An installed controller backs itself up every day and keeps the newest 7
+backups in `/var/lib/orch-controller/backups`; see
+[backups](docs/operations.md#backups). Local volumes can carry their own backup
+schedule; see [volume backups](docs/operations.md#volume-backups).
 
 Use `orch cluster backup inspect --backup FILE` to check a snapshot and
 `orch cluster restore --backup FILE --pki-dir DIR --secret-key FILE --data-dir NEW_DIR`
@@ -331,8 +348,9 @@ Work is split into reviewable vertical slices:
 5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 
-Tagging `vX.Y.Z` publishes a GitHub release with a stamped Linux amd64 binary
-and `SHA256SUMS`.
+Tagging `vX.Y.Z` publishes a GitHub release with stamped CLI binaries for Linux,
+macOS and Windows on amd64 and arm64, plus `SHA256SUMS`, and pushes the matching
+`orch dev` node image to `ghcr.io`. v0.1.0 is the first release.
 
 ## License
 
