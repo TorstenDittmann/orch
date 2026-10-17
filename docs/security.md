@@ -41,7 +41,7 @@ certificates expire, as long as the cluster CA is still valid. The CA does not
 change, so workers and existing backups are unaffected:
 
 ```console
-sudo /opt/orch-controller/bin/orch cluster certificates renew \
+sudo orch cluster certificates renew \
   --data-dir /var/lib/orch-controller \
   --admin-dir /root/orch-production-admin-2027
 sudo systemctl restart orch-controller
@@ -107,7 +107,7 @@ needed. Remove unused values with `orch secret delete`. See
 recovery directory. It is only a snapshot. Create newer backups after configuration changes and on a schedule:
 
 ```console
-sudo /opt/orch-controller/bin/orch cluster backup \
+sudo orch cluster backup \
   --data-dir /var/lib/orch-controller \
   --output /secure/orch-backups/production.db \
   --secret-key-output /secure/orch-backups/production.key

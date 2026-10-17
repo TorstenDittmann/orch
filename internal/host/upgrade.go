@@ -98,6 +98,10 @@ func UpgradeController(ctx context.Context, options UpgradeOptions) (UpgradeResu
 	if err != nil {
 		return result, err
 	}
+	if !options.DryRun {
+		// Hosts installed before orch linked itself onto PATH get the link here.
+		ensureCommandLink(ControllerPrefix+"/bin/orch", true, options.Progress)
+	}
 	if result.CandidateHash == state.BinaryHash {
 		result.Ready, result.Phase = true, "ready"
 		return result, nil
@@ -272,6 +276,10 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 	result, state, candidate, err := nodeUpgradePreflight(ctx, options.Binary)
 	if err != nil {
 		return result, err
+	}
+	if !options.DryRun {
+		// Hosts installed before orch linked itself onto PATH get the link here.
+		ensureCommandLink(Prefix+"/bin/orch", false, options.Progress)
 	}
 	if result.CandidateHash == state.BinaryHash {
 		result.Ready, result.Phase = true, "ready"

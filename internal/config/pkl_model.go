@@ -25,6 +25,7 @@ type pklService struct {
 	SecretFiles []pklSecretFile   `pkl:"secretFiles"`
 	Constraints map[string]string `pkl:"constraints"`
 	Mounts      []pklMount        `pkl:"mounts"`
+	StopGrace   *string           `pkl:"stopGracePeriod"`
 }
 
 type pklResources struct {
@@ -149,6 +150,10 @@ func resolvePkl(doc pklDocument) *Manifest {
 		for index, mount := range input.Mounts {
 			mounts[index] = Mount{Source: mount.Source, Target: mount.Target, ReadOnly: mount.ReadOnly}
 		}
+		stopGrace := ""
+		if input.StopGrace != nil {
+			stopGrace = *input.StopGrace
+		}
 		manifest.Services[name] = Service{
 			Image:       input.Image,
 			Command:     append([]string(nil), input.Command...),
@@ -165,6 +170,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			SecretFiles: secretFiles,
 			Constraints: cloneMap(input.Constraints),
 			Mounts:      mounts,
+			StopGrace:   stopGrace,
 		}
 	}
 	for name, input := range doc.CronJobs {

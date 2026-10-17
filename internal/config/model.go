@@ -39,6 +39,9 @@ type Service struct {
 	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
 	Constraints map[string]string `json:"constraints,omitempty"`
 	Mounts      []Mount           `json:"mounts,omitempty"`
+	// StopGrace is empty when the service keeps the default grace period, so
+	// manifests that never set it keep their canonical digest.
+	StopGrace string `json:"stop_grace_period,omitempty"`
 }
 
 type Resources struct {

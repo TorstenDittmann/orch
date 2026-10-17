@@ -142,6 +142,7 @@ func Install(ctx context.Context, options InstallOptions) (InstallResult, error)
 	if err := phase("artifacts", func() error { return i.installArtifacts(ctx, executable) }); err != nil {
 		return result(), err
 	}
+	ensureCommandLink(Prefix+"/bin/orch", false, options.Progress)
 	if err := phase("configuration", func() error { return i.configure(ctx) }); err != nil {
 		return result(), err
 	}

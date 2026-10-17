@@ -138,6 +138,7 @@ type RollbackSpec struct {
 	NetworkGeneration     uint64                       `json:"network_generation"`
 	AutoRollback          bool                         `json:"auto_rollback"`
 	StartBeforeStop       bool                         `json:"start_before_stop"`
+	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 }
 
 type NetworkConfig struct {
@@ -197,6 +198,7 @@ type AllocationDesired struct {
 	NetworkGeneration     uint64                       `json:"network_generation"`
 	MaxSurge              uint32                       `json:"max_surge"`
 	MaxUnavailable        uint32                       `json:"max_unavailable"`
+	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
 	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
 	// the agent decrypts its cache and are never serialized into assignments.
@@ -441,11 +443,12 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		SecretFiles          []SecretFileDesired        `json:"secret_files,omitempty"`
 		NetworkGeneration    uint64                     `json:"network_generation"`
 		UDP                  *UDPDesired                `json:"udp,omitempty"`
+		StopGraceSeconds     uint32                     `json:"stop_grace_seconds,omitempty"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
 		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
-		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP}
+		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)

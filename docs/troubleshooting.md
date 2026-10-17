@@ -33,8 +33,8 @@ sudo journalctl -u orch-agent -u orch-containerd --since '-10 min'    # worker
 And the host checks:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11
-sudo /opt/orch-controller/bin/orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo orch node doctor --advertise-address 10.0.0.11
+sudo orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
 ```
 
 `orch tui` and `orch web` show the same information live.
@@ -78,7 +78,7 @@ sudo ./orch node doctor --advertise-address 10.0.0.11
 If an install already started, use the installed copy and look at the agent:
 
 ```console
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11 --json
+sudo orch node doctor --advertise-address 10.0.0.11 --json
 sudo systemctl status orch-containerd orch-agent
 sudo journalctl -u orch-containerd -u orch-agent --since '-10 min'
 ```
@@ -113,7 +113,7 @@ same binary, address, and token or join file. If enrollment already finished,
 you can resume without the token:
 
 ```console
-sudo /opt/orch/bin/orch node install --advertise-address 10.0.0.11
+sudo orch node install --advertise-address 10.0.0.11
 ```
 
 When the agent times out, read its journal. Common causes:
@@ -286,7 +286,8 @@ revision on purpose, see [rollbacks](runtime.md#rollbacks).
 
 | Replica reason | Meaning |
 | --- | --- |
-| `process_start_backoff` | The container could not be created or started within `deploy.healthDeadline`, for example because the image could not be pulled on the node, the pull took too long, or the command does not exist. orch retries with a growing delay and counts each attempt in `restarts=`. See [disk is full or images fail to pull](#disk-is-full-or-images-fail-to-pull). |
+| `image_pull_failed` | The node could not pull the image. `orch app status` prints the registry error under the replica. orch retries with a growing delay. See [disk is full or images fail to pull](#disk-is-full-or-images-fail-to-pull). |
+| `process_start_backoff` | The container could not be created or started within `deploy.healthDeadline`, for example because the pull took too long or the command does not exist. orch retries with a growing delay and counts each attempt in `restarts=`. See [disk is full or images fail to pull](#disk-is-full-or-images-fail-to-pull). |
 | `process_start_failed` | The container could not start and `restart = "never"`. |
 | `process_exit_backoff` | The process exited and is waiting to restart. Read its logs. |
 | `restart_policy_complete` | The process exited and its restart policy does not restart it. |
@@ -513,14 +514,14 @@ On the controller:
 ```console
 sudo systemctl status orch-controller
 sudo journalctl -u orch-controller --since '-10 min'
-sudo /opt/orch-controller/bin/orch status
-sudo /opt/orch-controller/bin/orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo orch status
+sudo orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
 ```
 
 On the controller host, root can run any `orch` command against the local
 administrator socket, so `orch status` there works even when the network path
 from your workstation does not. The installed binary is
-`/opt/orch-controller/bin/orch`.
+`/opt/orch-controller/bin/orch`, linked as `/usr/local/bin/orch`.
 
 ### Fix
 
@@ -552,7 +553,7 @@ On the worker:
 ```console
 sudo systemctl status orch-agent orch-containerd
 sudo journalctl -u orch-agent --since '-10 min'
-sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11
+sudo orch node doctor --advertise-address 10.0.0.11
 ```
 
 ### Fix
@@ -571,10 +572,20 @@ sudo /opt/orch/bin/orch node doctor --advertise-address 10.0.0.11
 ### What it looks like
 
 Replicas alternate between `ALLOCATION_PHASE_STARTING` and
-`ALLOCATION_PHASE_BACKOFF` with `reason=process_start_backoff` and a growing
-`restarts=` count, or the host runs out of space. The image pull happens while
-the replica is starting, and the runtime error itself is not recorded in the
-status, so check the likely causes below one by one.
+`ALLOCATION_PHASE_BACKOFF` with a growing `restarts=` count, or the host runs
+out of space. When the registry refuses or cannot serve the image, the reason
+is `image_pull_failed` and `orch app status` prints the registry's error under
+the replica, for example:
+
+```text
+  game/1  ALLOCATION_PHASE_BACKOFF  ... reason=image_pull_failed
+    pulling ghcr.io/acme/game@sha256:... failed: ... 401 Unauthorized; waiting before retry
+```
+
+A `401` or `403` usually means a missing or wrong registry credential; see
+[secrets and registry credentials](secrets.md). With
+`reason=process_start_backoff` the image was available but the container did
+not start, so check the likely causes below one by one.
 
 ### Inspect
 

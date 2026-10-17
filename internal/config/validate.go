@@ -145,6 +145,11 @@ func Validate(manifest *Manifest) error {
 		default:
 			add(base+".restart", "must be one of always, on-failure, or never")
 		}
+		if service.StopGrace != "" {
+			if duration, err := time.ParseDuration(service.StopGrace); err != nil || duration < time.Second || duration > 10*time.Minute || duration%time.Second != 0 {
+				add(base+".stop_grace_period", "must be a whole-second duration between 1s and 10m")
+			}
+		}
 		if !validCPU(service.Resources.CPU) {
 			add(base+".resources.cpu", "must be a positive whole CPU count or millicpu value such as 500m")
 		}

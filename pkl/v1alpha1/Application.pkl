@@ -61,6 +61,10 @@ class Service {
   constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
 
   mounts: Listing<Mount>(length <= 64) = new {}
+
+  /// How long a replica may take to exit after SIGTERM before it is killed,
+  /// from "1s" to "10m". Unset means 10 seconds.
+  stopGracePeriod: String? = null
 }
 
 class Resources {

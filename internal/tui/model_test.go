@@ -277,8 +277,9 @@ func TestBoundedSnapshotRenderBudget(t *testing.T) {
 		model.view = view
 		started := time.Now()
 		_ = model.View()
-		if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
-			t.Fatalf("view %v rendered in %s, over 50ms budget", view, elapsed)
+		elapsed, budget := time.Since(started), renderBudgetScale*50*time.Millisecond
+		if elapsed > budget {
+			t.Fatalf("view %v rendered in %s, over %s budget", view, elapsed, budget)
 		}
 	}
 }

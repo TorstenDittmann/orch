@@ -25,6 +25,10 @@ type Fake struct {
 	NetworkError    error
 	Operations      []string
 	PreparedNetwork model.NetworkConfig
+	// StopGraces records the grace period of the last Stop call per object.
+	StopGraces map[string]time.Duration
+	// StopHook, when set, runs at the start of every Stop call.
+	StopHook func(id string)
 	// Now overrides the clock used for StartedAt; nil uses time.Now.
 	Now         func() time.Time
 	nextAddress netip.Addr
@@ -133,7 +137,7 @@ func (f *Fake) Ensure(_ context.Context, allocation model.AllocationDesired) (Ob
 		address = f.nextAddress.String()
 		f.nextAddress = f.nextAddress.Next()
 	}
-	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: f.now(), Address: address, NetworkGeneration: allocation.NetworkGeneration}
+	object := Object{ID: id, AllocationID: allocation.ID, SpecDigest: allocation.SpecDigest, Running: true, StartedAt: f.now(), Address: address, NetworkGeneration: allocation.NetworkGeneration, StopGrace: time.Duration(allocation.StopGraceSeconds) * time.Second}
 	f.Objects[id] = object
 	f.Allocations[id] = allocation
 	f.Operations = append(f.Operations, "ensure:"+id)
@@ -164,9 +168,16 @@ func (f *Fake) Wait(ctx context.Context, id string) (<-chan Object, error) {
 	return output, nil
 }
 
-func (f *Fake) Stop(_ context.Context, id string, _ time.Duration) error {
+func (f *Fake) Stop(_ context.Context, id string, grace time.Duration) error {
+	if f.StopHook != nil {
+		f.StopHook(id)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.StopGraces == nil {
+		f.StopGraces = make(map[string]time.Duration)
+	}
+	f.StopGraces[id] = grace
 	object, ok := f.Objects[id]
 	if !ok {
 		return nil
@@ -324,4 +335,12 @@ func (f *Fake) notifyWaiters(id string, object Object) {
 		close(waiter)
 	}
 	delete(f.waiters, id)
+}
+
+// LastStopGrace returns the grace period of the last Stop call for id.
+func (f *Fake) LastStopGrace(id string) (time.Duration, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	grace, ok := f.StopGraces[id]
+	return grace, ok
 }
