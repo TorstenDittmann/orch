@@ -175,6 +175,8 @@ http://orch/metrics` prints the same metrics as root.
 | `orch_allocation_restarts` | `application`, `service` | Restarts of the current instances |
 | `orch_routes` | `application`, `kind`, `state` | HTTP and TCP routes per ingress node by `state` (`active`, `pending`, `failed`) |
 | `orch_cron_job_last_run_failed` | `application`, `job` | 1 when the last run failed or timed out |
+| `orch_controller_backup_timestamp_seconds` | | Unix time of the newest automatic controller backup |
+| `orch_controller_backup_failed` | | 1 when the last automatic backup attempt failed |
 
 Suggested alerts:
 
@@ -196,11 +198,38 @@ groups:
       - alert: OrchRouteFailed
         expr: orch_routes{state="failed"} > 0
         for: 10m
+      - alert: OrchControllerBackupStale
+        expr: time() - orch_controller_backup_timestamp_seconds > 2 * 86400
 ```
 
 ## Backups
 
-Create backups regularly and copy them off the controller:
+The controller backs itself up once a day, starting on its first start, and
+keeps the newest 7 backups in `/var/lib/orch-controller/backups`. Each backup
+is a directory named by its UTC time, such as `20261017T030000Z`, holding a
+consistent copy of the database, the secret-encryption key, and the
+controller identity. `orch status` shows the newest one and warns when it is
+older than 2 days or the last attempt failed.
+
+Those backups protect against a bad change or a damaged database, not against
+losing the host. Copy them off the controller regularly, for example:
+
+```console
+sudo rsync -a /var/lib/orch-controller/backups/ backup-host:/srv/orch-backups/
+```
+
+Restore one into a new data directory, then start the controller from it as
+described in [recovery](security.md#recovery):
+
+```console
+sudo orch cluster restore \
+  --backup /var/lib/orch-controller/backups/20261017T030000Z \
+  --data-dir /var/lib/orch-controller.restored
+```
+
+To keep a different number of daily backups, or none, pass
+`--backups-keep N` to `orch controller serve` (`0` turns them off). For an
+extra copy at any time:
 
 ```console
 sudo orch cluster backup \
@@ -212,6 +241,52 @@ sudo orch cluster backup \
 Protect backups like administrator credentials: they contain controller state,
 PKI, and the secret-encryption key. See [security and recovery](security.md)
 before restoring a controller.
+
+## Volume backups
+
+Give a local volume a `backup` block and its worker archives it on that
+schedule, keeping the newest `keep` backups:
+
+```pkl
+volumes {
+  ["world"] {
+    backup = new VolumeBackup {
+      schedule = "0 */6 * * *"
+      keep = 8
+      before { "rcon-cli"; "save-all" }
+    }
+  }
+}
+```
+
+The first backup is taken as soon as the worker gets the policy. A worker that
+was down when a backup was due takes it when it comes back. `before` runs in
+the service's container first, to flush or save state; if it fails, that
+backup is skipped and retried an hour later. SQLite and libSQL databases in the
+volume are copied with SQLite's online backup, so a running writer cannot leave
+a torn copy. Other files are copied as they are, so prefer `before` to make an
+application write a consistent snapshot.
+
+Backups are kept on the worker in `/var/lib/orch-agent/volume-backups/APP/VOLUME`.
+
+```console
+orch volume list
+orch volume backups game world
+orch volume backup game world
+orch volume restore game world 20261017T030000Z
+orch volume download game world 20261017T030000Z
+```
+
+`orch volume list` shows `LAST BACKUP FAILED` with the reason when the last
+scheduled backup failed. Restoring stops the service that mounts the volume,
+swaps in the backup, and starts the service again; the previous contents are
+kept as a `-before-restore` backup. Backups taken with `orch volume backup` or
+before a restore are never pruned; delete them from the backup directory when
+you no longer need them.
+
+Like controller backups, these protect against mistakes and damaged data, not
+against losing the worker. Copy them off the worker, for example with `rsync`,
+or download them with `orch volume download`.
 
 ## Upgrades
 
@@ -227,6 +302,11 @@ sudo ./new-orch node upgrade --binary ./new-orch
 
 Keep the recovery path reported by each operation until normal traffic and a
 test deployment have succeeded.
+
+Upgrade every worker before deploying a manifest that uses a field the old
+version did not have, such as `stopGracePeriod` or a volume `backup`. An older
+worker cannot accept such an assignment and keeps running its previous one.
+`orch volume` and `orch restart` also need upgraded workers.
 
 ## Controller outages
 

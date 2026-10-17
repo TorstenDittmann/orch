@@ -322,12 +322,14 @@ func insertContext(cleaned []string, reference string) []string {
 
 func isRemoteCommand(args []string) bool {
 	switch args[0] {
-	case "join-token", "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "remove", "secret", "registry", "tui", "web":
+	case "join-token", "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "restart", "remove", "secret", "registry", "tui", "web":
 		return true
+	case "volume":
+		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "app":
 		return len(args) > 1 && (args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")
 	case "cron":
-		return len(args) > 1 && (args[1] == "runs" || args[1] == "logs")
+		return len(args) > 1 && (args[1] == "runs" || args[1] == "logs" || args[1] == "run")
 	case "network":
 		return len(args) > 1 && args[1] == "configure"
 	case "node":

@@ -31,6 +31,8 @@ type metricsInput struct {
 	// adminNotAfter is the scraper's own administrator certificate; zero on
 	// the admin socket, where there is none.
 	adminNotAfter time.Time
+	// backups is nil when automatic controller backups are off.
+	backups *backupStatus
 }
 
 // metricsHandler serves the Prometheus text exposition format. Every value is
@@ -72,6 +74,10 @@ func (s *service) metricsHandler(controllerNotAfter time.Time) http.Handler {
 
 func (s *service) collectMetrics(ctx context.Context) (metricsInput, error) {
 	input := metricsInput{now: s.now()}
+	if s.backups != nil {
+		status := s.backups.status()
+		input.backups = &status
+	}
 	nodes, err := s.state.Nodes(ctx)
 	if err != nil {
 		return input, err
@@ -119,6 +125,18 @@ func renderMetrics(input metricsInput) []byte {
 		}
 	}
 	out.family("orch_certificate_expiry_seconds", "Seconds until a cluster certificate expires; admin is the scraper's own certificate.", certificates)
+	if input.backups != nil {
+		latest := []metricSample{}
+		if !input.backups.Latest.CreatedAt.IsZero() {
+			latest = append(latest, metricSample{value: float64(input.backups.Latest.CreatedAt.Unix())})
+		}
+		out.family("orch_controller_backup_timestamp_seconds", "Unix time of the newest automatic controller backup.", latest)
+		failed := 0.0
+		if input.backups.Failure != "" {
+			failed = 1
+		}
+		out.family("orch_controller_backup_failed", "1 when the last automatic controller backup attempt failed.", []metricSample{{value: failed}})
+	}
 
 	nodeCounts := metricCounter{}
 	connected := []metricSample{}

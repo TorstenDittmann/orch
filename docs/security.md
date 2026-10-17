@@ -103,8 +103,12 @@ needed. Remove unused values with `orch secret delete`. See
 
 ## Backups
 
-`orch init --recovery-dir DIR` and `orch cluster install` can write a day-zero
-recovery directory. It is only a snapshot. Create newer backups after configuration changes and on a schedule:
+The controller writes a complete backup once a day into
+`/var/lib/orch-controller/backups`, including the secret-encryption key and the
+`pki` directory, and keeps the newest 7; see
+[backups](operations.md#backups). Copy that directory off the host on a
+schedule. `orch init --recovery-dir DIR` and `orch cluster install` can also
+write a day-zero recovery directory. For an extra copy at any time:
 
 ```console
 sudo orch cluster backup \

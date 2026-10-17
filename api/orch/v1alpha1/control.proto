@@ -9,6 +9,7 @@ option go_package = "github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alp
 
 service ControlService {
   rpc RunJob(RunJobRequest) returns (RunJobResponse);
+  rpc RunCronJob(RunCronJobRequest) returns (RunCronJobResponse);
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
   rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
@@ -31,6 +32,11 @@ service ControlService {
   rpc RemoveApplication(RemoveApplicationRequest) returns (RemoveApplicationResponse);
   rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
   rpc Exec(ExecRequest) returns (stream ExecResponse);
+  rpc RestartService(RestartServiceRequest) returns (RestartServiceResponse);
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+  rpc BackupVolume(BackupVolumeRequest) returns (BackupVolumeResponse);
+  rpc RestoreVolume(RestoreVolumeRequest) returns (RestoreVolumeResponse);
+  rpc DownloadVolumeBackup(DownloadVolumeBackupRequest) returns (stream DownloadVolumeBackupResponse);
   rpc ConfigureNetwork(ConfigureNetworkRequest) returns (ConfigureNetworkResponse);
   rpc ListCronRuns(ListCronRunsRequest) returns (ListCronRunsResponse);
   rpc TailCronLogs(TailCronLogsRequest) returns (stream TailCronLogsResponse);
@@ -167,6 +173,17 @@ message GetClusterResponse {
   Cluster cluster = 1;
   // PEM cluster CA, so administrators can mint join tokens that pin it.
   bytes ca_certificate_pem = 2;
+  ControllerBackup backup = 3;
+}
+
+// ControllerBackup describes the controller's automatic daily backups.
+message ControllerBackup {
+  // False when automatic backups are turned off.
+  bool enabled = 1;
+  google.protobuf.Timestamp latest_at = 2;
+  string latest_path = 3;
+  google.protobuf.Timestamp failed_at = 4;
+  string failure = 5;
 }
 
 message GetApplicationRequest {
@@ -408,6 +425,75 @@ message ExecRequest {
   uint32 timeout_seconds = 5;
 }
 
+// RestartServiceRequest restarts every replica of a service one at a time, or
+// one replica when replica is set.
+message RestartServiceRequest {
+  string application = 1;
+  string service = 2;
+  uint32 replica = 3;
+}
+
+message RestartServiceResponse {
+  repeated uint32 replicas = 1;
+}
+
+message ListVolumesRequest {
+  string application = 1;
+  // When set, only this volume is listed, with all of its backups.
+  string volume = 2;
+}
+
+message VolumeSummary {
+  string application = 1;
+  string volume = 2;
+  string service = 3;
+  string node = 4;
+  string backup_schedule = 5;
+  uint32 backup_keep = 6;
+  // False when the volume's node could not be asked for its backups.
+  bool reachable = 7;
+  // Newest first. Without a volume filter only the newest backup is listed.
+  repeated VolumeBackupInfo backups = 8;
+  google.protobuf.Timestamp backup_failed_at = 9;
+  string backup_failure = 10;
+  uint32 backup_count = 11;
+}
+
+message ListVolumesResponse {
+  repeated VolumeSummary volumes = 1;
+}
+
+message BackupVolumeRequest {
+  string application = 1;
+  string volume = 2;
+}
+
+message BackupVolumeResponse {
+  VolumeBackupInfo backup = 1;
+}
+
+message RestoreVolumeRequest {
+  string application = 1;
+  string volume = 2;
+  string backup = 3;
+}
+
+message RestoreVolumeResponse {
+  // The volume's contents just before the restore, kept as a backup.
+  VolumeBackupInfo previous = 1;
+}
+
+message DownloadVolumeBackupRequest {
+  string application = 1;
+  string volume = 2;
+  string backup = 3;
+}
+
+message DownloadVolumeBackupResponse {
+  bytes data = 1;
+  uint64 size_bytes = 2;
+}
+
 message ListCronRunsRequest {
   string application = 1;
   string job = 2;
@@ -642,6 +728,16 @@ message RunJobRequest {
   string idempotency_key = 7;
 }
 message RunJobResponse {
+  OneOffJob job = 1;
+}
+// RunCronJobRequest starts one run of a scheduled job now, on the node that
+// owns the schedule, outside its schedule.
+message RunCronJobRequest {
+  string application = 1;
+  string job = 2;
+  string idempotency_key = 3;
+}
+message RunCronJobResponse {
   OneOffJob job = 1;
 }
 message GetJobRequest {

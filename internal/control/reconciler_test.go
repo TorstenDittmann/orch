@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net/netip"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1258,5 +1259,49 @@ func TestPlanApplicationCarriesTheStopGracePeriod(t *testing.T) {
 	planned, blocked, err := planApplication("cluster-one", node, application)
 	if err != nil || blocked != nil || len(planned) != 1 || planned[0].StopGraceSeconds != 120 {
 		t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+	}
+}
+
+func TestPlanApplicationCarriesVolumeBackupsOutsideTheSpecDigest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, _ := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	node := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	plan := func(backup *config.VolumeBackup, revision string) model.AllocationDesired {
+		t.Helper()
+		manifest := runtimeManifest(executableImage, func(service *config.Service) {
+			service.Mounts = []config.Mount{{Source: "data", Target: "/data"}}
+		})
+		manifest.Volumes = map[string]config.Volume{"data": {Driver: "local", Backup: backup}}
+		applyManifest(t, state, manifest, revision, "application-key-"+revision, reconcilerTestTime)
+		application, err := state.Application(ctx, "hello")
+		if err != nil {
+			t.Fatal(err)
+		}
+		planned, blocked, err := planApplication("cluster-one", node, application)
+		if err != nil || blocked != nil || len(planned) != 1 {
+			t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+		}
+		return planned[0]
+	}
+	plain := plan(nil, "one")
+	if len(plain.VolumeBackups) != 0 {
+		t.Fatalf("volume backups without a policy = %#v", plain.VolumeBackups)
+	}
+	backedUp := plan(&config.VolumeBackup{Schedule: "0 3 * * *", Keep: 7, Before: []string{"save"}}, "two")
+	want := []model.VolumeBackupDesired{{Volume: "data", Schedule: "0 3 * * *", Keep: 7, Before: []string{"save"}}}
+	if !reflect.DeepEqual(backedUp.VolumeBackups, want) {
+		t.Fatalf("volume backups = %#v", backedUp.VolumeBackups)
+	}
+	if backedUp.SpecDigest != plain.SpecDigest {
+		t.Fatal("adding a backup policy changes the spec digest and would restart the service")
 	}
 }

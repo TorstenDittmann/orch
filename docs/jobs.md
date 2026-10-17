@@ -527,9 +527,10 @@ printf '%s' "$AWS_SECRET_ACCESS_KEY" |
   orch secret set shop backup-aws-secret --from-stdin --target production
 ```
 
-Then check the first runs:
+Run it once right away to check it, then watch the scheduled runs:
 
 ```console
+orch cron run shop nightly-backup --wait --target production
 orch cron runs shop nightly-backup --target production
 orch cron logs shop nightly-backup RUN_ID --target production
 ```

@@ -35,6 +35,9 @@ type Options struct {
 	AdminSocket   string
 	Now           func() time.Time
 	ImageResolver ImageResolver
+	// BackupKeep is how many daily backups to keep in DATA_DIR/backups. Zero
+	// keeps DefaultBackupKeep; a negative value turns automatic backups off.
+	BackupKeep int
 }
 
 type Server struct {
@@ -52,6 +55,7 @@ type Server struct {
 	shutdownErr     error
 	reconcileCancel context.CancelFunc
 	reconcileDone   chan struct{}
+	backupDone      chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -118,6 +122,13 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	sessions := newSessionManager(now)
 	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, secretBox, sessions, now)
 	implementation.imageResolver = options.ImageResolver
+	keep := options.BackupKeep
+	if keep == 0 {
+		keep = DefaultBackupKeep
+	}
+	if keep > 0 {
+		implementation.backups = newBackupScheduler(state, dataDir, keep, now)
+	}
 	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
 	reconciler.secretBox = secretBox
 	reconciler.sessions = sessions
@@ -190,8 +201,14 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	server := &Server{
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
-		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}),
+		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
 	}
+	go func() {
+		defer close(server.backupDone)
+		if backups := implementation.backups; backups != nil {
+			backups.run(reconcileContext)
+		}
+	}()
 	if adminListener != nil {
 		protocols := new(http.Protocols)
 		protocols.SetHTTP1(true)
@@ -269,6 +286,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		defer close(server.shutdownDone)
 		server.reconcileCancel()
 		<-server.reconcileDone
+		<-server.backupDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

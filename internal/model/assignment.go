@@ -52,6 +52,16 @@ const (
 	PublicHTTPRoute = "*"
 )
 
+// VolumeBackupDesired archives one local volume on the node that owns it. It
+// is not part of the allocation spec digest, so changing it never restarts
+// the workload.
+type VolumeBackupDesired struct {
+	Volume   string   `json:"volume"`
+	Schedule string   `json:"schedule"`
+	Keep     uint32   `json:"keep"`
+	Before   []string `json:"before,omitempty"`
+}
+
 type VolumeMount struct {
 	Name     string `json:"name"`
 	Target   string `json:"target"`
@@ -199,6 +209,7 @@ type AllocationDesired struct {
 	MaxSurge              uint32                       `json:"max_surge"`
 	MaxUnavailable        uint32                       `json:"max_unavailable"`
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
+	VolumeBackups         []VolumeBackupDesired        `json:"volume_backups,omitempty"`
 	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
 	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
 	// the agent decrypts its cache and are never serialized into assignments.

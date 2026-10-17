@@ -580,17 +580,29 @@ Prints cluster events with their sequence number, time, kind, and JSON payload.
 ### orch logs
 
 ```text
-orch logs APP SERVICE [--replica 1] [--tail 100] [--target NAME]
+orch logs APP SERVICE [--replica 1] [--tail 100] [-f] [--target NAME]
 ```
 
-Prints the most recent log lines of one service replica and exits.
+Prints the most recent log lines of one service replica and exits. With `-f`
+it keeps printing new output until you press Ctrl-C, and carries on through
+restarts and short disconnects, noting them on stderr.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--replica` | `1` | Replica ordinal |
 | `--tail` | `100` | Maximum lines per stream, 1 to 10000 |
+| `-f`, `--follow` | `false` | Keep printing new output |
 
-For logs that keep following, use `orch tui` or `orch web`.
+### orch restart
+
+```text
+orch restart APP [SERVICE] [--replica N] [--target NAME]
+```
+
+Restarts a service, or every service of the application, with the same spec.
+Replicas restart one at a time, and each must be running again before the next
+one stops. Each replica gets its `stopGracePeriod` to shut down. `--replica`
+restarts just one replica.
 
 ### orch exec
 
@@ -611,6 +623,29 @@ The command takes 1 to 64 non-empty arguments and at most 8 KiB in total.
 ```console
 orch exec hello web --replica 1 -- ./bin/healthcheck --verbose
 ```
+
+### orch volume
+
+```text
+orch volume list [APP] [--target NAME] [--json]
+orch volume backups APP VOLUME [--target NAME] [--json]
+orch volume backup APP VOLUME [--target NAME] [--json]
+orch volume restore APP VOLUME BACKUP [--target NAME] [--json]
+orch volume download APP VOLUME BACKUP [--output FILE|-] [--target NAME]
+```
+
+`list` shows each local volume, its worker, its backup schedule, the newest
+backup, and whether the last scheduled backup failed. `backups` lists every
+backup of one volume. `backup` takes one now, running the volume's `before`
+command first; it is labeled `-manual` and never pruned.
+
+`restore` stops the service that mounts the volume, replaces the volume with
+the backup, and starts the service again. The volume's previous contents are
+kept as a `-before-restore` backup, and the command prints how to restore it.
+
+`download` copies a backup archive (`.tar.gz`) to this machine, by default as
+`APP-VOLUME-BACKUP.tar.gz`; `--output -` writes it to standard output. See
+[volume backups](operations.md#volume-backups).
 
 ## Jobs
 
@@ -651,15 +686,23 @@ See [jobs](jobs.md) for pre-deploy hooks and retry behavior.
 ### orch cron
 
 ```text
+orch cron run APP JOB [--wait] [--wait-timeout 20m] [--idempotency-key KEY] [--target NAME] [--json]
 orch cron runs APP JOB [--limit 20] [--target NAME] [--json]
 orch cron logs APP JOB RUN_ID [--tail 100] [--target NAME]
 ```
 
-Lists recent runs of a scheduled job with their scheduled time, state, and
-reason, and prints the logs of one run.
+`run` starts the scheduled job once now, with the same image, command,
+secrets, and read-only volume mounts as its schedule and on the node that owns
+the schedule. Use it to check that a backup job works without waiting for its
+next run. The run is a job: follow it with `orch job logs ID`, and with
+`--wait` the command exits nonzero unless it succeeds. `runs` lists recent
+scheduled runs with their scheduled time, state, and reason; `logs` prints the
+logs of one.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
+| `--wait` | `false` | Wait for the run started by `run` to finish |
+| `--wait-timeout` | `20m` | Maximum time `--wait` waits, 1s to 24h |
 | `--limit` | `20` | Maximum runs, 1 to 100 |
 | `--tail` | `100` | Maximum lines per stream, 1 to 10000 |
 | `--json` | `false` | Emit machine-readable JSON (`runs` only) |
@@ -816,14 +859,18 @@ material.
 ### orch cluster restore
 
 ```text
-orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+orch cluster restore --backup FILE|DIR [--pki-dir DIR] [--secret-key FILE] --data-dir NEW_DIR [--json]
 ```
 
 Restores a backup into a new controller directory, which must not exist.
+`--backup` also takes one of the controller's automatic backup directories
+from `DATA_DIR/backups`, which already holds the PKI and secret key, so the
+other two flags are not needed. `orch cluster backup inspect` accepts the
+same.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--backup` | required | Standalone database backup |
+| `--backup` | required | Standalone database backup, or an automatic backup directory |
 | `--pki-dir` | none | Saved controller PKI directory |
 | `--secret-key` | none | Saved secret-encryption key |
 | `--data-dir` | required | New controller directory |
@@ -879,16 +926,18 @@ the install commands create. You rarely run them yourself.
 ### orch controller serve
 
 ```text
-orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off]
+orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off] [--backups-keep 7]
 ```
 
-Runs the controller process.
+Runs the controller process. It writes a backup into `DATA_DIR/backups` once a
+day; see [backups](operations.md#backups).
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--data-dir` | required | Initialized controller state directory |
 | `--listen` | required | TCP listen address, for example `0.0.0.0:9443` |
 | `--admin-socket` | `DATA_DIR/admin.sock` | Local administrator socket; `off` disables it |
+| `--backups-keep` | `7` | Daily backups to keep, 0 to 365; `0` turns automatic backups off |
 
 ### orch agent init
 

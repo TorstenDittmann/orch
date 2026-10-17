@@ -35,6 +35,9 @@ const (
 const (
 	// ControlServiceRunJobProcedure is the fully-qualified name of the ControlService's RunJob RPC.
 	ControlServiceRunJobProcedure = "/orch.v1alpha1.ControlService/RunJob"
+	// ControlServiceRunCronJobProcedure is the fully-qualified name of the ControlService's RunCronJob
+	// RPC.
+	ControlServiceRunCronJobProcedure = "/orch.v1alpha1.ControlService/RunCronJob"
 	// ControlServiceGetJobProcedure is the fully-qualified name of the ControlService's GetJob RPC.
 	ControlServiceGetJobProcedure = "/orch.v1alpha1.ControlService/GetJob"
 	// ControlServiceListJobsProcedure is the fully-qualified name of the ControlService's ListJobs RPC.
@@ -90,6 +93,21 @@ const (
 	ControlServiceTailLogsProcedure = "/orch.v1alpha1.ControlService/TailLogs"
 	// ControlServiceExecProcedure is the fully-qualified name of the ControlService's Exec RPC.
 	ControlServiceExecProcedure = "/orch.v1alpha1.ControlService/Exec"
+	// ControlServiceRestartServiceProcedure is the fully-qualified name of the ControlService's
+	// RestartService RPC.
+	ControlServiceRestartServiceProcedure = "/orch.v1alpha1.ControlService/RestartService"
+	// ControlServiceListVolumesProcedure is the fully-qualified name of the ControlService's
+	// ListVolumes RPC.
+	ControlServiceListVolumesProcedure = "/orch.v1alpha1.ControlService/ListVolumes"
+	// ControlServiceBackupVolumeProcedure is the fully-qualified name of the ControlService's
+	// BackupVolume RPC.
+	ControlServiceBackupVolumeProcedure = "/orch.v1alpha1.ControlService/BackupVolume"
+	// ControlServiceRestoreVolumeProcedure is the fully-qualified name of the ControlService's
+	// RestoreVolume RPC.
+	ControlServiceRestoreVolumeProcedure = "/orch.v1alpha1.ControlService/RestoreVolume"
+	// ControlServiceDownloadVolumeBackupProcedure is the fully-qualified name of the ControlService's
+	// DownloadVolumeBackup RPC.
+	ControlServiceDownloadVolumeBackupProcedure = "/orch.v1alpha1.ControlService/DownloadVolumeBackup"
 	// ControlServiceConfigureNetworkProcedure is the fully-qualified name of the ControlService's
 	// ConfigureNetwork RPC.
 	ControlServiceConfigureNetworkProcedure = "/orch.v1alpha1.ControlService/ConfigureNetwork"
@@ -137,6 +155,7 @@ const (
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
 type ControlServiceClient interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error)
 	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
 	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
 	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
@@ -158,6 +177,11 @@ type ControlServiceClient interface {
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error)
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error)
+	RestartService(context.Context, *connect.Request[v1alpha1.RestartServiceRequest]) (*connect.Response[v1alpha1.RestartServiceResponse], error)
+	ListVolumes(context.Context, *connect.Request[v1alpha1.ListVolumesRequest]) (*connect.Response[v1alpha1.ListVolumesResponse], error)
+	BackupVolume(context.Context, *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error)
+	RestoreVolume(context.Context, *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error)
+	DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadVolumeBackupResponse], error)
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailCronLogsResponse], error)
@@ -189,6 +213,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceRunJobProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+			connect.WithClientOptions(opts...),
+		),
+		runCronJob: connect.NewClient[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse](
+			httpClient,
+			baseURL+ControlServiceRunCronJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RunCronJob")),
 			connect.WithClientOptions(opts...),
 		),
 		getJob: connect.NewClient[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse](
@@ -311,6 +341,36 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("Exec")),
 			connect.WithClientOptions(opts...),
 		),
+		restartService: connect.NewClient[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse](
+			httpClient,
+			baseURL+ControlServiceRestartServiceProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RestartService")),
+			connect.WithClientOptions(opts...),
+		),
+		listVolumes: connect.NewClient[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse](
+			httpClient,
+			baseURL+ControlServiceListVolumesProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListVolumes")),
+			connect.WithClientOptions(opts...),
+		),
+		backupVolume: connect.NewClient[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse](
+			httpClient,
+			baseURL+ControlServiceBackupVolumeProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("BackupVolume")),
+			connect.WithClientOptions(opts...),
+		),
+		restoreVolume: connect.NewClient[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse](
+			httpClient,
+			baseURL+ControlServiceRestoreVolumeProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RestoreVolume")),
+			connect.WithClientOptions(opts...),
+		),
+		downloadVolumeBackup: connect.NewClient[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse](
+			httpClient,
+			baseURL+ControlServiceDownloadVolumeBackupProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("DownloadVolumeBackup")),
+			connect.WithClientOptions(opts...),
+		),
 		configureNetwork: connect.NewClient[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse](
 			httpClient,
 			baseURL+ControlServiceConfigureNetworkProcedure,
@@ -400,46 +460,57 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	runJob              *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
-	getJob              *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
-	listJobs            *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
-	cancelJob           *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
-	retryJob            *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
-	getCluster          *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
-	getApplication      *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
-	listDeployments     *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
-	getDeployment       *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
-	compareDeployments  *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
-	rollbackApplication *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
-	listApplications    *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
-	listRuntimes        *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
-	listEvents          *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
-	listRecentEvents    *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
-	applyApplication    *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
-	enrollAgent         *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
-	listNodes           *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
-	removeApplication   *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
-	tailLogs            *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
-	exec                *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	configureNetwork    *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
-	listCronRuns        *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
-	tailCronLogs        *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
-	setSecret           *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
-	listSecrets         *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
-	deleteSecret        *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
-	loginRegistry       *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
-	listRegistries      *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
-	logoutRegistry      *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
-	updateNode          *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
-	removeNode          *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
-	createJoinToken     *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
-	listJoinTokens      *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
-	revokeJoinToken     *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+	runJob               *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
+	runCronJob           *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
+	getJob               *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
+	listJobs             *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
+	cancelJob            *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
+	retryJob             *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
+	getCluster           *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
+	getApplication       *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listDeployments      *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
+	getDeployment        *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
+	compareDeployments   *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
+	rollbackApplication  *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
+	listApplications     *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
+	listRuntimes         *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
+	listEvents           *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	listRecentEvents     *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
+	applyApplication     *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	enrollAgent          *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
+	listNodes            *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	removeApplication    *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
+	tailLogs             *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
+	exec                 *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	restartService       *connect.Client[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse]
+	listVolumes          *connect.Client[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse]
+	backupVolume         *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
+	restoreVolume        *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
+	downloadVolumeBackup *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
+	configureNetwork     *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
+	listCronRuns         *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
+	tailCronLogs         *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
+	setSecret            *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
+	listSecrets          *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
+	deleteSecret         *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
+	loginRegistry        *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
+	listRegistries       *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
+	logoutRegistry       *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	updateNode           *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
+	removeNode           *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	createJoinToken      *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
+	listJoinTokens       *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
+	revokeJoinToken      *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
 func (c *controlServiceClient) RunJob(ctx context.Context, req *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
 	return c.runJob.CallUnary(ctx, req)
+}
+
+// RunCronJob calls orch.v1alpha1.ControlService.RunCronJob.
+func (c *controlServiceClient) RunCronJob(ctx context.Context, req *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error) {
+	return c.runCronJob.CallUnary(ctx, req)
 }
 
 // GetJob calls orch.v1alpha1.ControlService.GetJob.
@@ -544,6 +615,31 @@ func (c *controlServiceClient) Exec(ctx context.Context, req *connect.Request[v1
 	return c.exec.CallServerStream(ctx, req)
 }
 
+// RestartService calls orch.v1alpha1.ControlService.RestartService.
+func (c *controlServiceClient) RestartService(ctx context.Context, req *connect.Request[v1alpha1.RestartServiceRequest]) (*connect.Response[v1alpha1.RestartServiceResponse], error) {
+	return c.restartService.CallUnary(ctx, req)
+}
+
+// ListVolumes calls orch.v1alpha1.ControlService.ListVolumes.
+func (c *controlServiceClient) ListVolumes(ctx context.Context, req *connect.Request[v1alpha1.ListVolumesRequest]) (*connect.Response[v1alpha1.ListVolumesResponse], error) {
+	return c.listVolumes.CallUnary(ctx, req)
+}
+
+// BackupVolume calls orch.v1alpha1.ControlService.BackupVolume.
+func (c *controlServiceClient) BackupVolume(ctx context.Context, req *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error) {
+	return c.backupVolume.CallUnary(ctx, req)
+}
+
+// RestoreVolume calls orch.v1alpha1.ControlService.RestoreVolume.
+func (c *controlServiceClient) RestoreVolume(ctx context.Context, req *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error) {
+	return c.restoreVolume.CallUnary(ctx, req)
+}
+
+// DownloadVolumeBackup calls orch.v1alpha1.ControlService.DownloadVolumeBackup.
+func (c *controlServiceClient) DownloadVolumeBackup(ctx context.Context, req *connect.Request[v1alpha1.DownloadVolumeBackupRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadVolumeBackupResponse], error) {
+	return c.downloadVolumeBackup.CallServerStream(ctx, req)
+}
+
 // ConfigureNetwork calls orch.v1alpha1.ControlService.ConfigureNetwork.
 func (c *controlServiceClient) ConfigureNetwork(ctx context.Context, req *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {
 	return c.configureNetwork.CallUnary(ctx, req)
@@ -617,6 +713,7 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error)
 	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
 	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
 	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
@@ -638,6 +735,11 @@ type ControlServiceHandler interface {
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error
+	RestartService(context.Context, *connect.Request[v1alpha1.RestartServiceRequest]) (*connect.Response[v1alpha1.RestartServiceResponse], error)
+	ListVolumes(context.Context, *connect.Request[v1alpha1.ListVolumesRequest]) (*connect.Response[v1alpha1.ListVolumesResponse], error)
+	BackupVolume(context.Context, *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error)
+	RestoreVolume(context.Context, *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error)
+	DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest], *connect.ServerStream[v1alpha1.DownloadVolumeBackupResponse]) error
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error
@@ -665,6 +767,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceRunJobProcedure,
 		svc.RunJob,
 		connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRunCronJobHandler := connect.NewUnaryHandler(
+		ControlServiceRunCronJobProcedure,
+		svc.RunCronJob,
+		connect.WithSchema(controlServiceMethods.ByName("RunCronJob")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceGetJobHandler := connect.NewUnaryHandler(
@@ -787,6 +895,36 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("Exec")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceRestartServiceHandler := connect.NewUnaryHandler(
+		ControlServiceRestartServiceProcedure,
+		svc.RestartService,
+		connect.WithSchema(controlServiceMethods.ByName("RestartService")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListVolumesHandler := connect.NewUnaryHandler(
+		ControlServiceListVolumesProcedure,
+		svc.ListVolumes,
+		connect.WithSchema(controlServiceMethods.ByName("ListVolumes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceBackupVolumeHandler := connect.NewUnaryHandler(
+		ControlServiceBackupVolumeProcedure,
+		svc.BackupVolume,
+		connect.WithSchema(controlServiceMethods.ByName("BackupVolume")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRestoreVolumeHandler := connect.NewUnaryHandler(
+		ControlServiceRestoreVolumeProcedure,
+		svc.RestoreVolume,
+		connect.WithSchema(controlServiceMethods.ByName("RestoreVolume")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceDownloadVolumeBackupHandler := connect.NewServerStreamHandler(
+		ControlServiceDownloadVolumeBackupProcedure,
+		svc.DownloadVolumeBackup,
+		connect.WithSchema(controlServiceMethods.ByName("DownloadVolumeBackup")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceConfigureNetworkHandler := connect.NewUnaryHandler(
 		ControlServiceConfigureNetworkProcedure,
 		svc.ConfigureNetwork,
@@ -875,6 +1013,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
 			controlServiceRunJobHandler.ServeHTTP(w, r)
+		case ControlServiceRunCronJobProcedure:
+			controlServiceRunCronJobHandler.ServeHTTP(w, r)
 		case ControlServiceGetJobProcedure:
 			controlServiceGetJobHandler.ServeHTTP(w, r)
 		case ControlServiceListJobsProcedure:
@@ -915,6 +1055,16 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceTailLogsHandler.ServeHTTP(w, r)
 		case ControlServiceExecProcedure:
 			controlServiceExecHandler.ServeHTTP(w, r)
+		case ControlServiceRestartServiceProcedure:
+			controlServiceRestartServiceHandler.ServeHTTP(w, r)
+		case ControlServiceListVolumesProcedure:
+			controlServiceListVolumesHandler.ServeHTTP(w, r)
+		case ControlServiceBackupVolumeProcedure:
+			controlServiceBackupVolumeHandler.ServeHTTP(w, r)
+		case ControlServiceRestoreVolumeProcedure:
+			controlServiceRestoreVolumeHandler.ServeHTTP(w, r)
+		case ControlServiceDownloadVolumeBackupProcedure:
+			controlServiceDownloadVolumeBackupHandler.ServeHTTP(w, r)
 		case ControlServiceConfigureNetworkProcedure:
 			controlServiceConfigureNetworkHandler.ServeHTTP(w, r)
 		case ControlServiceListCronRunsProcedure:
@@ -954,6 +1104,10 @@ type UnimplementedControlServiceHandler struct{}
 
 func (UnimplementedControlServiceHandler) RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RunJob is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RunCronJob is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error) {
@@ -1034,6 +1188,26 @@ func (UnimplementedControlServiceHandler) TailLogs(context.Context, *connect.Req
 
 func (UnimplementedControlServiceHandler) Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.Exec is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RestartService(context.Context, *connect.Request[v1alpha1.RestartServiceRequest]) (*connect.Response[v1alpha1.RestartServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RestartService is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListVolumes(context.Context, *connect.Request[v1alpha1.ListVolumesRequest]) (*connect.Response[v1alpha1.ListVolumesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListVolumes is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) BackupVolume(context.Context, *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.BackupVolume is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RestoreVolume(context.Context, *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RestoreVolume is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest], *connect.ServerStream[v1alpha1.DownloadVolumeBackupResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DownloadVolumeBackup is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {

@@ -77,6 +77,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runLogs(ctx, args[1:], stdout, stderr)
 	case "exec":
 		return runExec(ctx, args[1:], stdout, stderr)
+	case "restart":
+		return runRestart(ctx, args[1:], stdout, stderr)
+	case "volume":
+		return runVolume(ctx, args[1:], stdout, stderr)
 	case "job":
 		return runJob(ctx, args[1:], stdout, stderr)
 	case "cron":
@@ -160,6 +164,7 @@ func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Wr
 	flags.StringVar(&dataDir, "data-dir", "", "initialized controller state directory")
 	flags.StringVar(&listen, "listen", "", "TCP listen address")
 	flags.StringVar(&adminSocket, "admin-socket", "", "local administrator socket (default DATA_DIR/admin.sock, \"off\" disables)")
+	backupsKeep := flags.Int("backups-keep", control.DefaultBackupKeep, "daily backups to keep in DATA_DIR/backups (0 disables)")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
@@ -186,7 +191,15 @@ func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Wr
 	case "off":
 		adminSocket = ""
 	}
-	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen, AdminSocket: adminSocket}, func(address net.Addr) {
+	if *backupsKeep < 0 || *backupsKeep > 365 {
+		writeError(stderr, errors.New("--backups-keep must be between 0 and 365"), false)
+		return ExitInvalid
+	}
+	keep := *backupsKeep
+	if keep == 0 {
+		keep = -1
+	}
+	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen, AdminSocket: adminSocket, BackupKeep: keep}, func(address net.Addr) {
 		fmt.Fprintf(stdout, "Controller listening on https://%s\n", address.String())
 	})
 	if err != nil {
@@ -220,7 +233,7 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	cluster, err := remote.GetCluster(ctx)
+	cluster, backup, err := remote.GetClusterStatus(ctx)
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
@@ -233,17 +246,19 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	administratorNotAfter, controllerNotAfter := remote.CertificateExpiry()
 	if jsonOutput {
 		return writeJSON(stdout, stderr, struct {
-			ClusterID                   string     `json:"cluster_id"`
-			Name                        string     `json:"name"`
-			Server                      string     `json:"server"`
-			Generation                  uint64     `json:"generation"`
-			CreatedAt                   time.Time  `json:"created_at"`
-			WorkloadCIDR                string     `json:"workload_cidr"`
-			NetworkGeneration           uint64     `json:"network_generation"`
-			NetworkFrozen               bool       `json:"network_frozen"`
-			AdministratorCertificateEnd *time.Time `json:"administrator_certificate_not_after,omitempty"`
-			ControllerCertificateEnd    *time.Time `json:"controller_certificate_not_after,omitempty"`
+			ClusterID                   string        `json:"cluster_id"`
+			Name                        string        `json:"name"`
+			Server                      string        `json:"server"`
+			Generation                  uint64        `json:"generation"`
+			CreatedAt                   time.Time     `json:"created_at"`
+			WorkloadCIDR                string        `json:"workload_cidr"`
+			NetworkGeneration           uint64        `json:"network_generation"`
+			NetworkFrozen               bool          `json:"network_frozen"`
+			AdministratorCertificateEnd *time.Time    `json:"administrator_certificate_not_after,omitempty"`
+			ControllerCertificateEnd    *time.Time    `json:"controller_certificate_not_after,omitempty"`
+			Backup                      *backupStatus `json:"backup,omitempty"`
 		}{
+			Backup:    backupStatusJSON(backup),
 			ClusterID: cluster.GetId(), Name: cluster.GetName(), Server: cluster.GetEndpoint(),
 			Generation: cluster.GetGeneration(), CreatedAt: createdAt, WorkloadCIDR: cluster.GetWorkloadCidr(),
 			NetworkGeneration: cluster.GetNetworkGeneration(), NetworkFrozen: cluster.GetNetworkFrozen(),
@@ -271,7 +286,55 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if !controllerNotAfter.IsZero() {
 		fmt.Fprintf(stdout, "Controller: %s\n", certificateExpirySummary(controllerNotAfter, now))
 	}
+	if backup != nil {
+		fmt.Fprintf(stdout, "Backups:    %s\n", backupSummary(backup, now))
+	}
 	return ExitOK
+}
+
+// backupStaleAfter is when status starts warning about the daily backup.
+const backupStaleAfter = 48 * time.Hour
+
+type backupStatus struct {
+	Enabled    bool       `json:"enabled"`
+	LatestAt   *time.Time `json:"latest_at,omitempty"`
+	LatestPath string     `json:"latest_path,omitempty"`
+	FailedAt   *time.Time `json:"failed_at,omitempty"`
+	Failure    string     `json:"failure,omitempty"`
+}
+
+func backupStatusJSON(backup *orchv1alpha1.ControllerBackup) *backupStatus {
+	if backup == nil {
+		return nil
+	}
+	status := &backupStatus{Enabled: backup.GetEnabled(), LatestPath: backup.GetLatestPath(), Failure: backup.GetFailure()}
+	if value := backup.GetLatestAt(); value != nil && value.CheckValid() == nil {
+		latest := value.AsTime()
+		status.LatestAt = &latest
+	}
+	if value := backup.GetFailedAt(); value != nil && value.CheckValid() == nil {
+		failed := value.AsTime()
+		status.FailedAt = &failed
+	}
+	return status
+}
+
+func backupSummary(backup *orchv1alpha1.ControllerBackup, now time.Time) string {
+	if !backup.GetEnabled() {
+		return "automatic backups are off"
+	}
+	summary := "none yet"
+	if value := backup.GetLatestAt(); value != nil && value.CheckValid() == nil {
+		latest := value.AsTime()
+		summary = "latest " + latest.UTC().Format(time.RFC3339) + " in " + backup.GetLatestPath()
+		if now.Sub(latest) > backupStaleAfter {
+			summary += " (older than 2 days)"
+		}
+	}
+	if backup.GetFailure() != "" {
+		summary += "; last attempt failed: " + backup.GetFailure()
+	}
+	return summary
 }
 
 // certificateRenewalWindow is when status starts recommending renewal.
@@ -1021,9 +1084,12 @@ Usage:
   orch rollback APP REVISION [--expected-generation N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch logs APP SERVICE --replica N --tail N [--target NAME]
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
+  orch restart APP [SERVICE] [--replica N] [--target NAME]
+  orch volume list|backups|backup|restore|download ... [--target NAME]
   orch job run APP SERVICE [--target NAME] [--wait] -- COMMAND [ARG...]
   orch job list [APP] [--target NAME] [--limit N] [--before ID] [--json]
   orch job show|logs|cancel|retry|wait ID [--target NAME]
+  orch cron run APP JOB [--wait] [--target NAME] [--json]
   orch cron runs APP JOB [--target NAME] [--limit N] [--json]
   orch cron logs APP JOB RUN_ID [--target NAME] [--tail N]
   orch secret set APP NAME --from-stdin [--target NAME] [--json]

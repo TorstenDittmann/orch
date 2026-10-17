@@ -120,10 +120,22 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	if err != nil {
 		return err
 	}
+	volumes := newVolumeBackups(dataDir, supervisor, cache, options.Now)
 	runner := sessionRunner{
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
+		volumes: volumes,
 	}
+	backupContext, stopBackups := context.WithCancel(ctx)
+	backupsDone := make(chan struct{})
+	go func() {
+		defer close(backupsDone)
+		volumes.run(backupContext)
+	}()
+	defer func() {
+		stopBackups()
+		<-backupsDone
+	}()
 	// run reconciles the cached assignment before its first connection
 	// attempt. A reconcile failure there is logged and retried instead of
 	// exiting, so the agent can still receive the assignment that fixes it.

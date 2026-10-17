@@ -109,7 +109,15 @@ type Mount struct {
 }
 
 type Volume struct {
-	Driver string `json:"driver"`
+	Driver string        `json:"driver"`
+	Backup *VolumeBackup `json:"backup,omitempty"`
+}
+
+// VolumeBackup archives a local volume on its node on a UTC cron schedule.
+type VolumeBackup struct {
+	Schedule string   `json:"schedule"`
+	Keep     int      `json:"keep"`
+	Before   []string `json:"before,omitempty"`
 }
 
 type PreDeployHook struct {

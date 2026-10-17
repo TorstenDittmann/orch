@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	agentctl "github.com/TorstenDittmann/orch/internal/agent"
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
@@ -391,18 +392,85 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 func runCron(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		fmt.Fprintln(stderr, "usage: orch cron run|runs|logs ...")
 		return ExitInvalid
 	}
 	switch args[0] {
+	case "run":
+		return runCronRun(ctx, args[1:], stdout, stderr)
 	case "runs":
 		return runCronRuns(ctx, args[1:], stdout, stderr)
 	case "logs":
 		return runCronLogs(ctx, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		fmt.Fprintln(stderr, "usage: orch cron run|runs|logs ...")
 		return ExitInvalid
 	}
+}
+
+// runCronRun starts one run of a scheduled job now, with the settings and on
+// the node its schedule uses.
+func runCronRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cron run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath, key string
+	var wait, jsonOutput bool
+	var waitTimeout time.Duration
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.StringVar(&key, "idempotency-key", "", "stable key for safe retries")
+	flags.BoolVar(&wait, "wait", false, "wait for the run to finish")
+	flags.DurationVar(&waitTimeout, "wait-timeout", 20*time.Minute, "maximum time --wait waits (1s-24h)")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-idempotency-key": true, "--idempotency-key": true, "-wait-timeout": true, "--wait-timeout": true})
+	if err := flags.Parse(reordered); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 2 || contextPath == "" || waitTimeout < time.Second || waitTimeout > 24*time.Hour {
+		fmt.Fprintln(stderr, "cron run requires APP JOB, --context, and --wait-timeout from 1s to 24h")
+		return ExitInvalid
+	}
+	if err := validateApplicationService(flags.Arg(0), flags.Arg(1)); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitInvalid
+	}
+	if key == "" {
+		var err error
+		if key, err = newIdempotencyKey(rand.Reader); err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+	}
+	fmt.Fprintf(stderr, "Idempotency key: %s\n", key)
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	job, err := remote.RunCronJob(ctx, flags.Arg(0), flags.Arg(1), key)
+	if err == nil && wait {
+		waitContext, cancel := context.WithTimeout(ctx, waitTimeout)
+		job, err = remote.WaitJob(waitContext, job.GetId())
+		cancel()
+	}
+	if job != nil {
+		if jsonOutput {
+			if code := writeJSON(stdout, stderr, job); code != ExitOK {
+				return code
+			}
+		} else {
+			printJob(stdout, job)
+			fmt.Fprintf(stdout, "Logs: orch job logs %s\n", job.GetId())
+		}
+	}
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	if wait && job.GetStatus().GetState() != orchv1alpha1.JobRunState_JOB_RUN_STATE_SUCCEEDED {
+		return ExitRuntime
+	}
+	return ExitOK
 }
 
 func runCronRuns(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -511,9 +579,12 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	var contextPath string
 	var replica, tail uint
+	var follow bool
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.UintVar(&replica, "replica", 1, "replica ordinal")
 	flags.UintVar(&tail, "tail", 100, "maximum lines per stream")
+	flags.BoolVar(&follow, "follow", false, "keep printing new output until interrupted")
+	flags.BoolVar(&follow, "f", false, "keep printing new output until interrupted")
 	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-replica": true, "--replica": true, "-tail": true, "--tail": true})
 	if err := flags.Parse(reordered); err != nil {
 		return ExitInvalid
@@ -532,6 +603,9 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
+	if follow {
+		return followLogs(ctx, remote, flags.Arg(0), flags.Arg(1), uint32(replica), uint32(tail), stdout, stderr)
+	}
 	stream, err := remote.TailLogs(ctx, flags.Arg(0), flags.Arg(1), uint32(replica), uint32(tail))
 	if err != nil {
 		writeError(stderr, err, false)
@@ -554,6 +628,64 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+// logFollowInterval is how often orch logs -f asks for new output.
+var logFollowInterval = time.Second
+
+// followLogs prints a replica's output as it arrives until ctx ends. It keeps
+// going through restarts and short disconnects, saying so on stderr.
+func followLogs(ctx context.Context, remote *controlclient.Client, application, service string, replica, tail uint32, stdout, stderr io.Writer) int {
+	cursor := ""
+	waiting := ""
+	for {
+		stream, err := remote.TailLogsAfter(ctx, application, service, replica, tail, cursor)
+		if err == nil {
+			for stream.Receive() {
+				frame := stream.Msg()
+				if waiting != "" {
+					fmt.Fprintln(stderr, "--- logs resumed ---")
+					waiting = ""
+				}
+				if frame.GetCursorReset() && cursor != "" {
+					fmt.Fprintln(stderr, "--- the replica restarted ---")
+				}
+				if frame.GetNextCursor() != "" {
+					cursor = frame.GetNextCursor()
+				}
+				output := stdout
+				if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
+					output = stderr
+				}
+				if _, err := output.Write(frame.GetData()); err != nil {
+					_ = stream.Close()
+					writeError(stderr, err, false)
+					return ExitRuntime
+				}
+			}
+			err = stream.Err()
+			_ = stream.Close()
+		}
+		if ctx.Err() != nil {
+			return ExitOK
+		}
+		if err != nil {
+			code := connect.CodeOf(err)
+			if code != connect.CodeNotFound && code != connect.CodeUnavailable && code != connect.CodeDeadlineExceeded {
+				writeError(stderr, err, false)
+				return ExitRuntime
+			}
+			if message := err.Error(); message != waiting {
+				fmt.Fprintf(stderr, "--- waiting for logs: %s ---\n", message)
+				waiting = message
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ExitOK
+		case <-time.After(logFollowInterval):
+		}
+	}
 }
 
 func runExec(ctx context.Context, args []string, stdout, stderr io.Writer) int {

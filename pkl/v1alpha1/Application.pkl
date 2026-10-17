@@ -150,6 +150,22 @@ class Mount {
 
 class Volume {
   driver: "local" = "local"
+
+  /// Archives this volume on its node on a schedule. The volume must be
+  /// mounted by a service.
+  backup: VolumeBackup? = null
+}
+
+class VolumeBackup {
+  /// Five-field cron schedule in UTC.
+  schedule: String(!isBlank, length <= 256) = "0 3 * * *"
+
+  /// How many archives to keep on the node.
+  keep: Int(isBetween(1, 365)) = 7
+
+  /// Command run in the owning service's container before each archive, for
+  /// example to flush or save state. A failing command skips that backup.
+  before: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
 }
 
 class PreDeployHook {

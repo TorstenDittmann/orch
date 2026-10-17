@@ -136,6 +136,19 @@ volumes {
 If that worker is lost, orch reports `volume_node_lost`. It does not create an
 empty replacement volume on another worker until you remove the lost worker.
 
+Add `backup` to have the worker archive the volume on a schedule:
+
+```pkl
+volumes {
+  ["database"] {
+    backup = new VolumeBackup {}
+  }
+}
+```
+
+That keeps 7 daily backups, taken at 03:00 UTC. See
+[volume backups](operations.md#volume-backups).
+
 ## Schedules
 
 Schedules use five UTC cron fields:
@@ -161,8 +174,8 @@ Overlapping runs are skipped and missed runs are not replayed.
 
 ### Reading a local volume
 
-A cron job can mount a service's local volume read-only, for example to back
-it up. Each run is placed on the worker that holds the volume:
+A cron job can mount a service's local volume read-only, for example to copy
+it somewhere else. Each run is placed on the worker that holds the volume:
 
 ```pkl
 cronJobs {

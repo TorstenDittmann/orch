@@ -45,6 +45,7 @@ type sessionRunner struct {
 	reportSeq              uint64
 	assignmentAcknowledged bool
 	dataDir                string
+	volumes                *volumeBackups
 	renewalRetryAt         time.Time
 	renewalBackoff         time.Duration
 	// keepalive sends a heartbeat on the connected stream. It is set while a
@@ -436,6 +437,7 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		if _, err := r.cache.CommitAssignment(ctx, assignment); err != nil {
 			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("durably cache assignment: %w", err))
 		}
+		r.volumes.assignmentChanged()
 		statuses, err := r.reconcile(ctx, assignment)
 		if err != nil && !errors.Is(err, ErrAllocationReconcile) {
 			return fmt.Errorf("reconcile assignment: %w", err)
@@ -514,6 +516,39 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		go func() {
 			defer operations.finish(command.GetRequestId(), operation)
 			r.runExec(operationContext, ctx, command, operationOutbound)
+		}()
+	case *orchv1alpha1.ConnectResponse_Volume:
+		command := message.Volume
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			len(command.GetRequestId()) > 128 || command.GetAction() == orchv1alpha1.VolumeAction_VOLUME_ACTION_UNSPECIFIED ||
+			!validVolumeName(command.GetApplication()) || !validVolumeName(command.GetVolume()) || r.volumes == nil {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid volume command"))
+		}
+		operationContext, cancel := context.WithCancel(ctx)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runVolume(operationContext, command, operationOutbound)
+		}()
+	case *orchv1alpha1.ConnectResponse_Restart:
+		command := message.Restart
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			len(command.GetRequestId()) > 128 || command.GetAllocationId() == "" {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid restart command"))
+		}
+		operationContext, cancel := context.WithCancel(ctx)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runRestart(operationContext, command, operationOutbound)
 		}()
 	case *orchv1alpha1.ConnectResponse_CancelOperation:
 		if message.CancelOperation == nil || len(message.CancelOperation.ProtoReflect().GetUnknown()) != 0 || message.CancelOperation.GetRequestId() == "" {
@@ -768,6 +803,11 @@ func rejectAssignmentUnknownFields(snapshot *orchv1alpha1.AssignmentSnapshot) er
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment volume mount contains unknown fields"))
 			}
 		}
+		for _, backup := range allocation.GetVolumeBackups() {
+			if backup == nil || len(backup.ProtoReflect().GetUnknown()) != 0 {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("assignment volume backup contains unknown fields"))
+			}
+		}
 		if err := rejectSecretReferences(allocation.GetSecretEnvironment(), allocation.GetSecretFiles(), allocation.GetRegistryCredential()); err != nil {
 			return err
 		}
@@ -919,6 +959,15 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 		allocation.SecretEnvironment = secretEnvironmentModel(item.GetSecretEnvironment())
 		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
 		allocation.RegistryCredential = registryCredentialModel(item.GetRegistryCredential())
+		for _, backup := range item.GetVolumeBackups() {
+			var before []string
+			if len(backup.GetBefore()) != 0 {
+				before = append(before, backup.GetBefore()...)
+			}
+			allocation.VolumeBackups = append(allocation.VolumeBackups, model.VolumeBackupDesired{
+				Volume: backup.GetVolume(), Schedule: backup.GetSchedule(), Keep: backup.GetKeep(), Before: before,
+			})
+		}
 		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
 			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Public: desiredHTTP.GetPublic(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps()}
 		}
@@ -1086,6 +1135,10 @@ func operationResult(result any) *orchv1alpha1.ConnectRequest {
 	case *orchv1alpha1.AgentOperationResult_Exec:
 		operation.Result = value
 	case *orchv1alpha1.AgentOperationResult_Error:
+		operation.Result = value
+	case *orchv1alpha1.AgentOperationResult_Volume:
+		operation.Result = value
+	case *orchv1alpha1.AgentOperationResult_Restart:
 		operation.Result = value
 	default:
 		panic("unsupported agent operation result")

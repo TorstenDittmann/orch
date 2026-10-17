@@ -237,6 +237,7 @@ without upgrading the rest of the host:
 | `/var/lib/orch-agent/agent.db` | Local cache of the assignment, so workloads survive a controller outage |
 | `/var/lib/orch-agent/logs/` | Workload logs |
 | `/var/lib/orch-agent/volumes/APPLICATION/VOLUME/` | Local volume data; kept when the application is removed |
+| `/var/lib/orch-agent/volume-backups/APPLICATION/VOLUME/` | Volume backups taken on this node |
 | `/var/lib/orch-agent/runtime-secrets/` | Secret files projected into containers |
 | `/var/lib/orch-agent/network/` | CNI and WireGuard state and the containers' `resolv.conf` |
 | `/var/lib/orch-containerd/` | containerd content store and snapshots (images) |
@@ -244,9 +245,11 @@ without upgrading the rest of the host:
 | `/var/lib/orch-ingress/` | Caddy data (certificates), admin socket, `caddy.pid`, and `caddy.log`; owned by `orch-ingress` |
 | `/run/lock/orch-install.lock` | Lock held while an install runs |
 
-Local volume data and workload logs live under `/var/lib/orch-agent`. Size the
-file system that holds `/var/lib` for images, logs, and volumes, not only for
-the 2 GiB the installer checks.
+Local volume data, volume backups, and workload logs live under
+`/var/lib/orch-agent`. Size the file system that holds `/var/lib` for images,
+logs, volumes, and their backups, not only for the 2 GiB the installer checks.
+Each volume backup is a compressed copy of the whole volume, and `keep` of
+them are retained.
 
 ### Account
 

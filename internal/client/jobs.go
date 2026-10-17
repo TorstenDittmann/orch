@@ -16,6 +16,13 @@ func (c *Client) RunJob(ctx context.Context, req *orchv1alpha1.RunJobRequest) (*
 	}
 	return r.Msg.GetJob(), nil
 }
+func (c *Client) RunCronJob(ctx context.Context, application, job, key string) (*orchv1alpha1.OneOffJob, error) {
+	r, err := c.service.RunCronJob(ctx, connect.NewRequest(&orchv1alpha1.RunCronJobRequest{Application: application, Job: job, IdempotencyKey: key}))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg.GetJob(), nil
+}
 func (c *Client) GetJob(ctx context.Context, id string) (*orchv1alpha1.OneOffJob, error) {
 	r, err := c.service.GetJob(ctx, connect.NewRequest(&orchv1alpha1.GetJobRequest{Id: id}))
 	if err != nil {

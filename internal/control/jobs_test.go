@@ -19,6 +19,11 @@ import (
 
 func jobTestService(t *testing.T) (*service, context.Context, *time.Time) {
 	t.Helper()
+	return jobTestServiceWith(t, newTestManifest("hello", map[string]config.Service{"web": {Image: executableImage, Env: map[string]string{"MODE": "private-setting"}}}))
+}
+
+func jobTestServiceWith(t *testing.T, manifest *config.Manifest) (*service, context.Context, *time.Time) {
+	t.Helper()
 	state, cluster := reconcilerStore(t)
 	ctx := context.WithValue(context.Background(), principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}})
 	enrollCompatibleNode(t, state)
@@ -27,7 +32,6 @@ func jobTestService(t *testing.T) (*service, context.Context, *time.Time) {
 	}
 	now := reconcilerTestTime.Add(91 * time.Second)
 	r := NewReconciler(state, cluster, func() time.Time { return now }, nil)
-	manifest := newTestManifest("hello", map[string]config.Service{"web": {Image: executableImage, Env: map[string]string{"MODE": "private-setting"}}})
 	applyManifest(t, state, manifest, "revision-first", "first-application-key", now)
 	if err := r.Reconcile(ctx); err != nil {
 		t.Fatal(err)
@@ -241,5 +245,50 @@ func TestSupersededHookWaitsForCancellation(t *testing.T) {
 	next, err := s.state.HookJob(ctx, "hello", "revision-third")
 	if err != nil || next.ID == old.ID {
 		t.Fatalf("replacement did not start after acknowledgement: %+v %v", next, err)
+	}
+}
+
+func TestRunCronJobStartsTheScheduledJobNowOnItsNode(t *testing.T) {
+	manifest := newTestManifest("hello", map[string]config.Service{"web": {Image: executableImage}})
+	manifest.CronJobs = map[string]config.CronJob{"nightly": {
+		Image: executableImage, Schedule: "0 3 * * *", Command: []string{"/bin/backup"},
+		Resources: config.Resources{CPU: "100m", Memory: "64Mi"}, StartDeadline: "1m", Timeout: "30m",
+	}}
+	s, ctx, now := jobTestServiceWith(t, manifest)
+	request := connect.NewRequest(&orchv1alpha1.RunCronJobRequest{Application: "hello", Job: "nightly", IdempotencyKey: "cron-run-first-key"})
+	response, err := s.RunCronJob(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.state.Job(ctx, response.Msg.Job.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.NodeID != "node-one" || job.Service != "cron/nightly" || job.Template.Schedule != "" ||
+		len(job.Template.Command) != 1 || job.Template.Command[0] != "/bin/backup" || job.Template.TimeoutSeconds != 1800 {
+		t.Fatalf("job = %+v", job)
+	}
+	if replay, err := s.RunCronJob(ctx, request); err != nil || replay.Msg.Job.Id != job.ID {
+		t.Fatalf("replay = %v, %v", replay, err)
+	}
+	assignment, err := s.state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range assignment.CronJobs {
+		found = found || item.RunID == job.ID
+	}
+	if !found {
+		t.Fatalf("run not assigned: %+v", assignment.CronJobs)
+	}
+	*now = now.Add(time.Second)
+	reportJobResult(t, s, ctx, job.ID, 1, *now)
+	retry, err := s.RetryJob(ctx, connect.NewRequest(&orchv1alpha1.RetryJobRequest{Id: job.ID, IdempotencyKey: "cron-run-retry-key"}))
+	if err != nil || retry.Msg.Job.RetryOf != job.ID || retry.Msg.Job.Service != "cron/nightly" || retry.Msg.Job.NodeId != "node-one" {
+		t.Fatalf("retry = %+v, %v", retry, err)
+	}
+	if _, err := s.RunCronJob(ctx, connect.NewRequest(&orchv1alpha1.RunCronJobRequest{Application: "hello", Job: "missing", IdempotencyKey: "cron-run-missing-key"})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("missing job = %v", err)
 	}
 }
