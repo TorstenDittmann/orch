@@ -20,6 +20,7 @@ const (
 	maxCronJobs              = 100
 	maxDependencies          = 64
 	maxVolumes               = 100
+	maxVolumeBackups         = 365
 	maxTotalReplicas         = 200
 	maxDomainsPerService     = 100
 	maxTotalDomains          = 1000
@@ -377,6 +378,18 @@ func Validate(manifest *Manifest) error {
 		validateDNSLabel(base, volumeName, add)
 		if volume.Driver != "local" {
 			add(base+".driver", "only local is supported in v1alpha1")
+		}
+		if backup := volume.Backup; backup != nil {
+			if _, owned := volumeOwners[volumeName]; !owned {
+				add(base+".backup", "the volume must be mounted by a service to be backed up")
+			}
+			if _, err := orchschedule.Next(backup.Schedule, time.Now()); err != nil {
+				add(base+".backup.schedule", "must be a valid five-field UTC cron schedule")
+			}
+			if backup.Keep < 1 || backup.Keep > maxVolumeBackups {
+				add(base+".backup.keep", fmt.Sprintf("must be between 1 and %d", maxVolumeBackups))
+			}
+			validateStringList(base+".backup.before", backup.Before, add)
 		}
 	}
 

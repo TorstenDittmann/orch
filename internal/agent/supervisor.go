@@ -1331,6 +1331,58 @@ func (s *Supervisor) stopAndRemove(ctx context.Context, object orchruntime.Objec
 	return nil
 }
 
+// whileStopped stops and removes every runtime object of one allocation, runs
+// fn, and returns. Reconciliation is held off meanwhile; its next pass starts
+// the allocation again from its desired spec.
+func (s *Supervisor) whileStopped(ctx context.Context, allocationID string, fn func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	objects, err := s.runtime.ListOwned(ctx)
+	if err != nil {
+		return fmt.Errorf("list owned runtime objects: %w", err)
+	}
+	for _, object := range objects {
+		if object.AllocationID != allocationID {
+			continue
+		}
+		if err := s.stopAndRemove(ctx, object); err != nil {
+			return err
+		}
+	}
+	delete(s.serving, allocationID)
+	delete(s.lastProbes, allocationID)
+	// The next process has to pass readiness again before it counts as ready.
+	states, err := s.state.AllocationStates(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range states {
+		if item.ID != allocationID {
+			continue
+		}
+		if item.HealthStatus != "" && item.HealthStatus != model.HealthNotConfigured {
+			item.HealthStatus = model.HealthChecking
+		}
+		item.Phase, item.Reason, item.Message = model.AllocationStarting, "restarting", "the process is restarting"
+		item.NextAttemptAt, item.ReadyAt, item.LastProbeAt, item.Address = nil, nil, nil, ""
+		item.ConsecutiveSuccesses, item.ConsecutiveFailures = 0, 0
+		item.UpdatedAt = s.now().UTC()
+		if err := s.state.SaveAllocationState(ctx, item); err != nil {
+			return err
+		}
+	}
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+// Restart stops one allocation's process; the next reconciliation pass starts
+// a fresh one with the same spec.
+func (s *Supervisor) Restart(ctx context.Context, allocationID string) error {
+	return s.whileStopped(ctx, allocationID, nil)
+}
+
 func (s *Supervisor) TailLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32) ([]orchruntime.LogFrame, error) {
 	batch, err := s.ReadLogs(ctx, allocation, lines, "")
 	return batch.Frames, err

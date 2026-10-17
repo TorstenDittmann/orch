@@ -390,6 +390,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			}
 			return mounts[i].Target < mounts[j].Target
 		})
+		backups := volumeBackups(&manifest, mounts)
 		for replica := 1; replica <= service.Replicas; replica++ {
 			allocation := model.AllocationDesired{
 				ID:          allocationID(clusterID, application.Name, serviceName, uint32(replica)),
@@ -406,6 +407,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				MaxSurge:             uint32(manifest.Deploy.MaxSurge),
 				MaxUnavailable:       uint32(manifest.Deploy.MaxUnavailable),
 				StopGraceSeconds:     uint32(stopGrace / time.Second),
+				VolumeBackups:        append([]model.VolumeBackupDesired(nil), backups...),
 			}
 			if service.HTTP != nil {
 				allocation.HTTP = &model.HTTPDesired{
@@ -555,6 +557,24 @@ func nodeBlocker(node model.Node) *blockReason {
 		return nodeBlock("", "caddy_unavailable", "the enrolled agent does not report Caddy "+ingress.RequiredCaddyVersion)
 	}
 	return nil
+}
+
+// volumeBackups returns the backup policies of the local volumes a service
+// mounts, sorted by volume. Each volume has exactly one owning service.
+func volumeBackups(manifest *config.Manifest, mounts []model.VolumeMount) []model.VolumeBackupDesired {
+	var backups []model.VolumeBackupDesired
+	for _, mount := range mounts {
+		backup := manifest.Volumes[mount.Name].Backup
+		if backup == nil {
+			continue
+		}
+		backups = append(backups, model.VolumeBackupDesired{
+			Volume: mount.Name, Schedule: backup.Schedule, Keep: uint32(backup.Keep),
+			Before: append([]string(nil), backup.Before...),
+		})
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].Volume < backups[j].Volume })
+	return backups
 }
 
 func nodeBlock(status, reason, message string) *blockReason {

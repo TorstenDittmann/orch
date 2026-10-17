@@ -559,17 +559,29 @@ Prints cluster events with their sequence number, time, kind, and JSON payload.
 ### orch logs
 
 ```text
-orch logs APP SERVICE [--replica 1] [--tail 100] [--target NAME]
+orch logs APP SERVICE [--replica 1] [--tail 100] [-f] [--target NAME]
 ```
 
-Prints the most recent log lines of one service replica and exits.
+Prints the most recent log lines of one service replica and exits. With `-f`
+it keeps printing new output until you press Ctrl-C, and carries on through
+restarts and short disconnects, noting them on stderr.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--replica` | `1` | Replica ordinal |
 | `--tail` | `100` | Maximum lines per stream, 1 to 10000 |
+| `-f`, `--follow` | `false` | Keep printing new output |
 
-For logs that keep following, use `orch tui` or `orch web`.
+### orch restart
+
+```text
+orch restart APP [SERVICE] [--replica N] [--target NAME]
+```
+
+Restarts a service, or every service of the application, with the same spec.
+Replicas restart one at a time, and each must be running again before the next
+one stops. Each replica gets its `stopGracePeriod` to shut down. `--replica`
+restarts just one replica.
 
 ### orch exec
 
@@ -590,6 +602,29 @@ The command takes 1 to 64 non-empty arguments and at most 8 KiB in total.
 ```console
 orch exec hello web --replica 1 -- ./bin/healthcheck --verbose
 ```
+
+### orch volume
+
+```text
+orch volume list [APP] [--target NAME] [--json]
+orch volume backups APP VOLUME [--target NAME] [--json]
+orch volume backup APP VOLUME [--target NAME] [--json]
+orch volume restore APP VOLUME BACKUP [--target NAME] [--json]
+orch volume download APP VOLUME BACKUP [--output FILE|-] [--target NAME]
+```
+
+`list` shows each local volume, its worker, its backup schedule, the newest
+backup, and whether the last scheduled backup failed. `backups` lists every
+backup of one volume. `backup` takes one now, running the volume's `before`
+command first; it is labeled `-manual` and never pruned.
+
+`restore` stops the service that mounts the volume, replaces the volume with
+the backup, and starts the service again. The volume's previous contents are
+kept as a `-before-restore` backup, and the command prints how to restore it.
+
+`download` copies a backup archive (`.tar.gz`) to this machine, by default as
+`APP-VOLUME-BACKUP.tar.gz`; `--output -` writes it to standard output. See
+[volume backups](operations.md#volume-backups).
 
 ## Jobs
 

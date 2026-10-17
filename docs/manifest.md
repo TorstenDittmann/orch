@@ -426,6 +426,7 @@ deploy {
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
 | `driver` | `"local"` | `"local"` | Only `local` exists in `v1alpha1` |
+| `backup` | `VolumeBackup?` | `null` | The volume must be mounted by a service |
 
 A local volume lives on one worker. It is created there by the first replica
 of the service that mounts it and stays bound to that worker. orch never
@@ -437,6 +438,29 @@ volumes {
   ["database"] {}
 }
 ```
+
+### VolumeBackup
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `schedule` | String | `"0 3 * * *"` | Five UTC cron fields |
+| `keep` | Int | `7` | 1 to 365 scheduled backups kept on the worker |
+| `before` | `Listing<String>` | empty | Command run in the owning service's container first |
+
+```pkl
+volumes {
+  ["world"] {
+    backup = new VolumeBackup {
+      schedule = "0 */6 * * *"
+      keep = 8
+      before { "rcon-cli"; "save-all" }
+    }
+  }
+}
+```
+
+Changing `backup` never restarts the service. See
+[volume backups](operations.md#volume-backups).
 
 ## CronJob
 

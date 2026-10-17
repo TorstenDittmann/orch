@@ -303,6 +303,16 @@ func operationMetadata(result *orchv1alpha1.AgentOperationResult) (requestID str
 			return "", false, 0, errors.New("exec result is required")
 		}
 		return value.Exec.GetRequestId(), value.Exec.GetExited(), len(value.Exec.GetData()), nil
+	case *orchv1alpha1.AgentOperationResult_Volume:
+		if value.Volume == nil || len(value.Volume.ProtoReflect().GetUnknown()) != 0 || value.Volume.GetRequestId() == "" {
+			return "", false, 0, errors.New("volume result is required")
+		}
+		return value.Volume.GetRequestId(), value.Volume.GetComplete(), len(value.Volume.GetData()), nil
+	case *orchv1alpha1.AgentOperationResult_Restart:
+		if value.Restart == nil || len(value.Restart.ProtoReflect().GetUnknown()) != 0 || value.Restart.GetRequestId() == "" {
+			return "", false, 0, errors.New("restart result is required")
+		}
+		return value.Restart.GetRequestId(), true, 0, nil
 	case *orchv1alpha1.AgentOperationResult_Error:
 		if value.Error == nil || len(value.Error.ProtoReflect().GetUnknown()) != 0 || value.Error.GetRequestId() == "" {
 			return "", false, 0, errors.New("operation error is required")
@@ -368,6 +378,11 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 		item.DependsOn = append([]string(nil), allocation.DependsOn...)
 		item.SecretEnvironment = secretEnvironmentMessage(allocation.SecretEnvironment)
 		item.SecretFiles = secretFilesMessage(allocation.SecretFiles)
+		for _, backup := range allocation.VolumeBackups {
+			item.VolumeBackups = append(item.VolumeBackups, &orchv1alpha1.VolumeBackupDesired{
+				Volume: backup.Volume, Schedule: backup.Schedule, Keep: backup.Keep, Before: append([]string(nil), backup.Before...),
+			})
+		}
 		item.RegistryCredential = registryCredentialMessage(allocation.RegistryCredential)
 		item.Rollback = rollbackSpecMessage(allocation.Rollback)
 		for _, mount := range allocation.Mounts {

@@ -203,6 +203,15 @@ message AllocationDesired {
   RegistryCredentialReference registry_credential = 28;
   UDPDesired udp = 29;
   uint32 stop_grace_seconds = 30;
+  repeated VolumeBackupDesired volume_backups = 31;
+}
+
+// VolumeBackupDesired archives one local volume the allocation owns.
+message VolumeBackupDesired {
+  string volume = 1;
+  string schedule = 2;
+  uint32 keep = 3;
+  repeated string before = 4;
 }
 
 message CronJobDesired {
@@ -439,6 +448,56 @@ message CancelOperation {
   string request_id = 1;
 }
 
+enum VolumeAction {
+  VOLUME_ACTION_UNSPECIFIED = 0;
+  VOLUME_ACTION_LIST = 1;
+  VOLUME_ACTION_BACKUP = 2;
+  VOLUME_ACTION_RESTORE = 3;
+  VOLUME_ACTION_READ = 4;
+}
+
+// VolumeCommand lists, takes, restores or reads the backups of one local
+// volume on the node that holds it. READ returns at most one window of an
+// archive from offset, so the controller paces downloads.
+message VolumeCommand {
+  string request_id = 1;
+  VolumeAction action = 2;
+  string application = 3;
+  string volume = 4;
+  string backup = 5;
+  uint64 offset = 6;
+}
+
+message VolumeBackupInfo {
+  string name = 1;
+  google.protobuf.Timestamp created_at = 2;
+  uint64 size_bytes = 3;
+}
+
+message VolumeResponse {
+  string request_id = 1;
+  repeated VolumeBackupInfo backups = 2;
+  VolumeBackupInfo backup = 3;
+  bytes data = 4;
+  uint64 size_bytes = 5;
+  bool complete = 6;
+  google.protobuf.Timestamp failed_at = 7;
+  string failure = 8;
+}
+
+// RestartCommand stops one allocation's process so the agent starts a fresh
+// one with the same spec.
+message RestartCommand {
+  string request_id = 1;
+  string allocation_id = 2;
+}
+
+message RestartResponse {
+  string request_id = 1;
+  // When the agent stopped the old process, by the agent's clock.
+  google.protobuf.Timestamp stopped_at = 2;
+}
+
 message TailLogsResponse {
   string request_id = 1;
   LogStream stream = 2;
@@ -470,6 +529,8 @@ message AgentOperationResult {
     TailLogsResponse log = 1;
     ExecResponse exec = 2;
     OperationError error = 3;
+    VolumeResponse volume = 4;
+    RestartResponse restart = 5;
   }
 }
 
@@ -490,5 +551,7 @@ message ConnectResponse {
     ExecCommand exec = 3;
     CancelOperation cancel_operation = 4;
     TailCronLogsCommand tail_cron_logs = 5;
+    VolumeCommand volume = 6;
+    RestartCommand restart = 7;
   }
 }

@@ -593,7 +593,7 @@ On the worker:
 
 ```console
 df -h /var/lib
-sudo du -sh /var/lib/orch-containerd /var/lib/orch-agent/logs /var/lib/orch-agent/volumes
+sudo du -sh /var/lib/orch-containerd /var/lib/orch-agent/logs /var/lib/orch-agent/volumes /var/lib/orch-agent/volume-backups
 curl -sSI https://ghcr.io/v2/
 ```
 
@@ -602,15 +602,17 @@ your registry's host name. Any HTTP response, including `401`, means the
 connection works.
 
 Images live in `/var/lib/orch-containerd`, workload logs in
-`/var/lib/orch-agent/logs`, and local volumes in
-`/var/lib/orch-agent/volumes`. See the [host reference](host.md) for every
-path.
+`/var/lib/orch-agent/logs`, local volumes in `/var/lib/orch-agent/volumes`,
+and their backups in `/var/lib/orch-agent/volume-backups`. See the
+[host reference](host.md) for every path.
 
 ### Fix
 
 - **Space.** Grow the file system that holds `/var/lib`, or move data off it.
   Volumes are never deleted by orch, including after `orch remove`; delete the
-  directories of applications you have removed and no longer need. Do not
+  directories of applications you have removed and no longer need. Lower a
+  volume's backup `keep`, or delete `-manual` and `-before-restore` backups
+  you no longer need, which orch never prunes. Do not
   delete files under `/var/lib/orch-containerd` by hand; orch's containerd
   owns them.
 - **Registry access.** Workers pull images directly from the registry, so each

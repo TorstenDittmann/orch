@@ -77,6 +77,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runLogs(ctx, args[1:], stdout, stderr)
 	case "exec":
 		return runExec(ctx, args[1:], stdout, stderr)
+	case "restart":
+		return runRestart(ctx, args[1:], stdout, stderr)
+	case "volume":
+		return runVolume(ctx, args[1:], stdout, stderr)
 	case "job":
 		return runJob(ctx, args[1:], stdout, stderr)
 	case "cron":
@@ -1077,9 +1081,12 @@ Usage:
   orch rollback APP REVISION [--expected-generation N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch logs APP SERVICE --replica N --tail N [--target NAME]
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
+  orch restart APP [SERVICE] [--replica N] [--target NAME]
+  orch volume list|backups|backup|restore|download ... [--target NAME]
   orch job run APP SERVICE [--target NAME] [--wait] -- COMMAND [ARG...]
   orch job list [APP] [--target NAME] [--limit N] [--before ID] [--json]
   orch job show|logs|cancel|retry|wait ID [--target NAME]
+  orch cron run APP JOB [--wait] [--target NAME] [--json]
   orch cron runs APP JOB [--target NAME] [--limit N] [--json]
   orch cron logs APP JOB RUN_ID [--target NAME] [--tail N]
   orch secret set APP NAME --from-stdin [--target NAME] [--json]

@@ -242,6 +242,52 @@ Protect backups like administrator credentials: they contain controller state,
 PKI, and the secret-encryption key. See [security and recovery](security.md)
 before restoring a controller.
 
+## Volume backups
+
+Give a local volume a `backup` block and its worker archives it on that
+schedule, keeping the newest `keep` backups:
+
+```pkl
+volumes {
+  ["world"] {
+    backup = new VolumeBackup {
+      schedule = "0 */6 * * *"
+      keep = 8
+      before { "rcon-cli"; "save-all" }
+    }
+  }
+}
+```
+
+The first backup is taken as soon as the worker gets the policy. A worker that
+was down when a backup was due takes it when it comes back. `before` runs in
+the service's container first, to flush or save state; if it fails, that
+backup is skipped and retried an hour later. SQLite and libSQL databases in the
+volume are copied with SQLite's online backup, so a running writer cannot leave
+a torn copy. Other files are copied as they are, so prefer `before` to make an
+application write a consistent snapshot.
+
+Backups are kept on the worker in `/var/lib/orch-agent/volume-backups/APP/VOLUME`.
+
+```console
+orch volume list
+orch volume backups game world
+orch volume backup game world
+orch volume restore game world 20261017T030000Z
+orch volume download game world 20261017T030000Z
+```
+
+`orch volume list` shows `LAST BACKUP FAILED` with the reason when the last
+scheduled backup failed. Restoring stops the service that mounts the volume,
+swaps in the backup, and starts the service again; the previous contents are
+kept as a `-before-restore` backup. Backups taken with `orch volume backup` or
+before a restore are never pruned; delete them from the backup directory when
+you no longer need them.
+
+Like controller backups, these protect against mistakes and damaged data, not
+against losing the worker. Copy them off the worker, for example with `rsync`,
+or download them with `orch volume download`.
+
 ## Upgrades
 
 Upgrade the controller first, then workers:
@@ -256,6 +302,11 @@ sudo ./new-orch node upgrade --binary ./new-orch
 
 Keep the recovery path reported by each operation until normal traffic and a
 test deployment have succeeded.
+
+Upgrade every worker before deploying a manifest that uses a field the old
+version did not have, such as `stopGracePeriod` or a volume `backup`. An older
+worker cannot accept such an assignment and keeps running its previous one.
+`orch volume` and `orch restart` also need upgraded workers.
 
 ## Controller outages
 

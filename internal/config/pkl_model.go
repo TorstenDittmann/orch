@@ -80,7 +80,14 @@ type pklMount struct {
 }
 
 type pklVolume struct {
-	Driver string `pkl:"driver"`
+	Driver string           `pkl:"driver"`
+	Backup *pklVolumeBackup `pkl:"backup"`
+}
+
+type pklVolumeBackup struct {
+	Schedule string   `pkl:"schedule"`
+	Keep     int      `pkl:"keep"`
+	Before   []string `pkl:"before"`
 }
 
 type pklPreDeployHook struct {
@@ -194,7 +201,11 @@ func resolvePkl(doc pklDocument) *Manifest {
 		}
 	}
 	for name, input := range doc.Volumes {
-		manifest.Volumes[name] = Volume{Driver: input.Driver}
+		volume := Volume{Driver: input.Driver}
+		if backup := input.Backup; backup != nil {
+			volume.Backup = &VolumeBackup{Schedule: backup.Schedule, Keep: backup.Keep, Before: append([]string(nil), backup.Before...)}
+		}
+		manifest.Volumes[name] = volume
 	}
 	return manifest
 }
