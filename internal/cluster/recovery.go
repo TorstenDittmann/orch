@@ -121,6 +121,10 @@ var controllerPKIFiles = []string{"ca.pem", "ca-key.pem", "controller.pem", "con
 
 func prepareRecovery(ctx context.Context, options RecoveryOptions, stage string) (result RecoveryResult, finalErr error) {
 	result.Missing = []string{}
+	options, err := resolveBackupSet(options)
+	if err != nil {
+		return result, err
+	}
 	if strings.TrimSpace(options.Backup) == "" {
 		return result, fmt.Errorf("%w: --backup is required", ErrInvalidOptions)
 	}

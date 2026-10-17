@@ -238,18 +238,36 @@ func (client *Client) GetCluster(ctx context.Context) (*orchv1alpha1.Cluster, er
 
 // GetClusterIdentity returns the cluster and its PEM CA certificate.
 func (client *Client) GetClusterIdentity(ctx context.Context) (*orchv1alpha1.Cluster, []byte, error) {
-	response, err := client.service.GetCluster(ctx, connect.NewRequest(&orchv1alpha1.GetClusterRequest{}))
+	response, err := client.getCluster(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	return response.GetCluster(), response.GetCaCertificatePem(), nil
+}
+
+// GetClusterStatus returns the cluster and the state of the controller's
+// automatic backups. Controllers that predate automatic backups return nil.
+func (client *Client) GetClusterStatus(ctx context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error) {
+	response, err := client.getCluster(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return response.GetCluster(), response.GetBackup(), nil
+}
+
+func (client *Client) getCluster(ctx context.Context) (*orchv1alpha1.GetClusterResponse, error) {
+	response, err := client.service.GetCluster(ctx, connect.NewRequest(&orchv1alpha1.GetClusterRequest{}))
+	if err != nil {
+		return nil, err
+	}
 	cluster := response.Msg.GetCluster()
 	if cluster == nil {
-		return nil, nil, fmt.Errorf("controller returned an empty cluster")
+		return nil, fmt.Errorf("controller returned an empty cluster")
 	}
 	if client.context.Cluster.ID != "" && (cluster.GetId() != client.context.Cluster.ID || cluster.GetName() != client.context.Cluster.Name) {
-		return nil, nil, fmt.Errorf("controller cluster identity does not match administrator context")
+		return nil, fmt.Errorf("controller cluster identity does not match administrator context")
 	}
-	return cluster, response.Msg.GetCaCertificatePem(), nil
+	return response.Msg, nil
 }
 
 func (client *Client) GetApplication(ctx context.Context, name string) (*orchv1alpha1.Application, error) {

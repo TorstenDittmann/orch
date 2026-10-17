@@ -175,6 +175,8 @@ http://orch/metrics` prints the same metrics as root.
 | `orch_allocation_restarts` | `application`, `service` | Restarts of the current instances |
 | `orch_routes` | `application`, `kind`, `state` | HTTP and TCP routes per ingress node by `state` (`active`, `pending`, `failed`) |
 | `orch_cron_job_last_run_failed` | `application`, `job` | 1 when the last run failed or timed out |
+| `orch_controller_backup_timestamp_seconds` | | Unix time of the newest automatic controller backup |
+| `orch_controller_backup_failed` | | 1 when the last automatic backup attempt failed |
 
 Suggested alerts:
 
@@ -196,11 +198,38 @@ groups:
       - alert: OrchRouteFailed
         expr: orch_routes{state="failed"} > 0
         for: 10m
+      - alert: OrchControllerBackupStale
+        expr: time() - orch_controller_backup_timestamp_seconds > 2 * 86400
 ```
 
 ## Backups
 
-Create backups regularly and copy them off the controller:
+The controller backs itself up once a day, starting on its first start, and
+keeps the newest 7 backups in `/var/lib/orch-controller/backups`. Each backup
+is a directory named by its UTC time, such as `20261017T030000Z`, holding a
+consistent copy of the database, the secret-encryption key, and the
+controller identity. `orch status` shows the newest one and warns when it is
+older than 2 days or the last attempt failed.
+
+Those backups protect against a bad change or a damaged database, not against
+losing the host. Copy them off the controller regularly, for example:
+
+```console
+sudo rsync -a /var/lib/orch-controller/backups/ backup-host:/srv/orch-backups/
+```
+
+Restore one into a new data directory, then start the controller from it as
+described in [recovery](security.md#recovery):
+
+```console
+sudo orch cluster restore \
+  --backup /var/lib/orch-controller/backups/20261017T030000Z \
+  --data-dir /var/lib/orch-controller.restored
+```
+
+To keep a different number of daily backups, or none, pass
+`--backups-keep N` to `orch controller serve` (`0` turns them off). For an
+extra copy at any time:
 
 ```console
 sudo orch cluster backup \

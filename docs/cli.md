@@ -795,14 +795,18 @@ material.
 ### orch cluster restore
 
 ```text
-orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+orch cluster restore --backup FILE|DIR [--pki-dir DIR] [--secret-key FILE] --data-dir NEW_DIR [--json]
 ```
 
 Restores a backup into a new controller directory, which must not exist.
+`--backup` also takes one of the controller's automatic backup directories
+from `DATA_DIR/backups`, which already holds the PKI and secret key, so the
+other two flags are not needed. `orch cluster backup inspect` accepts the
+same.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--backup` | required | Standalone database backup |
+| `--backup` | required | Standalone database backup, or an automatic backup directory |
 | `--pki-dir` | none | Saved controller PKI directory |
 | `--secret-key` | none | Saved secret-encryption key |
 | `--data-dir` | required | New controller directory |
@@ -858,16 +862,18 @@ the install commands create. You rarely run them yourself.
 ### orch controller serve
 
 ```text
-orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off]
+orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off] [--backups-keep 7]
 ```
 
-Runs the controller process.
+Runs the controller process. It writes a backup into `DATA_DIR/backups` once a
+day; see [backups](operations.md#backups).
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--data-dir` | required | Initialized controller state directory |
 | `--listen` | required | TCP listen address, for example `0.0.0.0:9443` |
 | `--admin-socket` | `DATA_DIR/admin.sock` | Local administrator socket; `off` disables it |
+| `--backups-keep` | `7` | Daily backups to keep, 0 to 365; `0` turns automatic backups off |
 
 ### orch agent init
 

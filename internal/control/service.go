@@ -52,6 +52,7 @@ type service struct {
 	sessions      *sessionManager
 	reconciler    *Reconciler
 	imageResolver ImageResolver
+	backups       *backupScheduler
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -76,7 +77,22 @@ func (s *service) GetCluster(ctx context.Context, request *connect.Request[orchv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("read cluster state"))
 	}
-	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(cluster), CaCertificatePem: append([]byte(nil), s.caPEM...)}), nil
+	return connect.NewResponse(&orchv1alpha1.GetClusterResponse{Cluster: clusterMessage(cluster), CaCertificatePem: append([]byte(nil), s.caPEM...), Backup: s.backupMessage()}), nil
+}
+
+func (s *service) backupMessage() *orchv1alpha1.ControllerBackup {
+	if s.backups == nil {
+		return &orchv1alpha1.ControllerBackup{}
+	}
+	status := s.backups.status()
+	message := &orchv1alpha1.ControllerBackup{Enabled: true, LatestPath: status.Latest.Path, Failure: status.Failure}
+	if !status.Latest.CreatedAt.IsZero() {
+		message.LatestAt = timestamppb.New(status.Latest.CreatedAt)
+	}
+	if !status.FailedAt.IsZero() {
+		message.FailedAt = timestamppb.New(status.FailedAt)
+	}
+	return message
 }
 
 func (s *service) ConfigureNetwork(ctx context.Context, request *connect.Request[orchv1alpha1.ConfigureNetworkRequest]) (*connect.Response[orchv1alpha1.ConfigureNetworkResponse], error) {

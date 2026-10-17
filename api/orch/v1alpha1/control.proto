@@ -167,6 +167,17 @@ message GetClusterResponse {
   Cluster cluster = 1;
   // PEM cluster CA, so administrators can mint join tokens that pin it.
   bytes ca_certificate_pem = 2;
+  ControllerBackup backup = 3;
+}
+
+// ControllerBackup describes the controller's automatic daily backups.
+message ControllerBackup {
+  // False when automatic backups are turned off.
+  bool enabled = 1;
+  google.protobuf.Timestamp latest_at = 2;
+  string latest_path = 3;
+  google.protobuf.Timestamp failed_at = 4;
+  string failure = 5;
 }
 
 message GetApplicationRequest {
