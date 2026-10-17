@@ -426,8 +426,12 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				return plannedApplication{}, nil, err
 			}
 			if previous := previousByID[allocation.ID]; previous.SpecDigest != "" {
+				// The same revision keeps its rollback authority even when a
+				// secret rotation changes the spec: a rollback to the generation
+				// the agent is already running is invalid and the agent rejects
+				// the whole assignment.
 				sameDesiredRevision := previous.ApplicationGeneration == allocation.ApplicationGeneration &&
-					previous.RevisionID == allocation.RevisionID && previous.SpecDigest == allocation.SpecDigest
+					previous.RevisionID == allocation.RevisionID && previous.NetworkGeneration == allocation.NetworkGeneration
 				if sameDesiredRevision {
 					allocation.Rollback = cloneRollbackSpec(previous.Rollback)
 				} else if previous.Rollback != nil &&
