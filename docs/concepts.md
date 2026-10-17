@@ -41,9 +41,9 @@ You create a cluster once with `orch init` on the controller host and add
 nodes with `orch join-token` and `orch join`:
 
 ```console
-sudo ./orch init                     # on the controller
+sudo orch init                     # on the controller
 orch join-token worker-1             # prints the join command
-sudo ./orch join orch1....           # on the worker
+sudo orch join orch1....           # on the worker
 ```
 
 `orch status` shows the cluster name, address, workload network, and

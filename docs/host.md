@@ -41,8 +41,8 @@ fails on an existing `orch-controller` account or controller path.
 Check a host before installing anything:
 
 ```console
-sudo ./orch node doctor --advertise-address 10.0.0.11
-sudo ./orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
+sudo orch node doctor --advertise-address 10.0.0.11
+sudo orch cluster doctor --server https://10.0.0.10:9443 --listen 0.0.0.0:9443
 ```
 
 Both commands only inspect. Each check prints a state (`pass`, `warn`, `fail`
@@ -160,7 +160,8 @@ write access only to `/var/lib/orch-controller`.
 
 1. Creates the `orch-controller` account.
 2. Copies the running orch binary to `/opt/orch-controller/bin/orch` and links
-   it as `/usr/local/bin/orch` unless a file that orch did not create is there.
+   it as `/usr/local/bin/orch`, replacing a copy of the same binary but no other
+   file that orch did not create.
 3. Creates the cluster identity: CA, controller certificate, database, and
    secret key, plus the administrator context.
 4. Writes and verifies the systemd unit (`systemd-analyze verify`). On Fedora
@@ -187,7 +188,7 @@ Preview the plan, including every package, artifact, and file, without
 changing the host or reading join credentials:
 
 ```console
-sudo ./orch node install --advertise-address 10.0.0.11 --dry-run
+sudo orch node install --advertise-address 10.0.0.11 --dry-run
 ```
 
 ### Installed dependencies

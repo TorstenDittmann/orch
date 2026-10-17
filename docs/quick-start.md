@@ -5,25 +5,32 @@ Set up a cluster and deploy a web service. Complete the
 
 ## Controller
 
-Download the Linux amd64 `orch` binary and its checksum from the
-[latest release](https://github.com/TorstenDittmann/orch/releases/latest), verify
-it, and copy it to the controller:
+Install `orch` on the controller. The script downloads the binary for the
+host from the [latest release](https://github.com/TorstenDittmann/orch/releases/latest),
+verifies its checksum and puts it in `/usr/local/bin`:
 
 ```console
-curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/orch-linux-amd64
-curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS
-install -m 0755 orch-linux-amd64 orch
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
 ```
 
 Then run, as root:
 
 ```console
-sudo ./orch init
+sudo orch init
 ```
 
-Allow TCP 9443 from trusted workers and operators. On your workstation, add a
-target that reaches the controller over SSH as root:
+Allow TCP 9443 from trusted workers and operators. Install the CLI on your
+workstation:
+
+```console
+# Linux and macOS
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
+```
+
+Then add a target that reaches the controller over SSH as root:
 
 ```console
 orch target add production ssh://root@10.0.0.10
@@ -37,10 +44,10 @@ Create a join token on your workstation (or as root on the controller):
 orch join-token worker-1
 ```
 
-Copy the `orch` executable to the worker and run the printed command there:
+Install `orch` on the worker the same way and run the printed command there:
 
 ```console
-sudo ./orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
+sudo orch join orch1.eyJlIjoiaHR0cHM6Ly8xMC4wLjAuMTA6OTQ0MyIs...
 ```
 
 Allow UDP 51820 between workers. For public ingress, route DNS to an

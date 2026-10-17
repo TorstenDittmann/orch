@@ -50,9 +50,9 @@ account can open it. On that host, root can run any command without adding a
 target:
 
 ```console
-sudo ./orch status
-sudo ./orch nodes
-sudo ./orch join-token worker-1
+sudo orch status
+sudo orch nodes
+sudo orch join-token worker-1
 ```
 
 This fallback only applies while no target is selected. Being able to log in
@@ -126,7 +126,7 @@ are on. This is useful on the controller host when you want a named target
 instead of the implicit fallback:
 
 ```console
-sudo ./orch target add local unix:///var/lib/orch-controller/admin.sock
+sudo orch target add local unix:///var/lib/orch-controller/admin.sock
 ```
 
 ## Certificate targets

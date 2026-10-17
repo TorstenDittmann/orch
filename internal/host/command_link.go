@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -16,8 +17,8 @@ var commandLinkPath = "/usr/local/bin/orch"
 
 // linkCommand points commandLinkPath at an installed orch binary. A link to
 // another orch install is replaced only when preferred is set or its target is
-// gone, so the controller's binary wins on a host that runs both. Anything
-// that orch did not create is left alone.
+// gone, so the controller's binary wins on a host that runs both. A copy of
+// the target is replaced too. Anything else is left alone.
 func linkCommand(target string, preferred bool) (bool, error) {
 	current, err := os.Readlink(commandLinkPath)
 	switch {
@@ -33,11 +34,15 @@ func linkCommand(target string, preferred bool) (bool, error) {
 		}
 	case errors.Is(err, fs.ErrNotExist):
 	default:
-		// A regular file or directory belongs to the operator.
-		if _, lstatErr := os.Lstat(commandLinkPath); lstatErr == nil {
+		info, lstatErr := os.Lstat(commandLinkPath)
+		if lstatErr != nil {
+			return false, err
+		}
+		// A copy of the installed binary, such as the one install.sh puts on
+		// PATH, gives way to the link. Any other file belongs to the operator.
+		if !info.Mode().IsRegular() || !sameContents(commandLinkPath, target) {
 			return false, nil
 		}
-		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(commandLinkPath), 0755); err != nil {
 		return false, err
@@ -52,6 +57,15 @@ func linkCommand(target string, preferred bool) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func sameContents(a, b string) bool {
+	left, err := os.ReadFile(a)
+	if err != nil {
+		return false
+	}
+	right, err := os.ReadFile(b)
+	return err == nil && bytes.Equal(left, right)
 }
 
 func ownedCommandTarget(target string) bool {

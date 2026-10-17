@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"sync"
 
-	"golang.org/x/sys/unix"
+	"github.com/TorstenDittmann/orch/internal/filelock"
 )
 
 const lockFilename = "agent.lock"
@@ -54,9 +54,9 @@ func acquireDataLock(dataDir string) (*dataLock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := filelock.TryLock(file); err != nil {
 		_ = file.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+		if errors.Is(err, filelock.ErrLocked) {
 			return nil, ErrAgentRunning
 		}
 		return nil, err
@@ -82,7 +82,7 @@ func (lock *dataLock) Close() error {
 		return nil
 	}
 	lock.once.Do(func() {
-		lock.err = errors.Join(unix.Flock(int(lock.file.Fd()), unix.LOCK_UN), lock.file.Close())
+		lock.err = errors.Join(filelock.Unlock(lock.file), lock.file.Close())
 		forgetAgentLock(lock.path)
 	})
 	return lock.err
