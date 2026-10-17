@@ -33,7 +33,7 @@ it, and copy it to the controller:
 ```console
 curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/orch-linux-amd64
 curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
 install -m 0755 orch-linux-amd64 orch
 ```
 

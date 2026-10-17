@@ -108,6 +108,9 @@ func (b *linuxWireGuardBackend) CreateLink(name, alias string) error {
 	// Label the materialized interface explicitly before ownership verification.
 	candidate := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name}, LinkType: "wireguard"}
 	if err := links.Add(candidate); err != nil {
+		if errors.Is(err, unix.EOPNOTSUPP) {
+			return fmt.Errorf("%w: the kernel has no WireGuard support", ErrWireGuardUnavailable)
+		}
 		return err
 	}
 	created, err := links.ByName(name)

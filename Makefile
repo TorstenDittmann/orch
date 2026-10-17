@@ -8,7 +8,7 @@ VERSION ?= 0.1.0-dev
 BUILD_ID ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo development)
 LDFLAGS := -s -w -X github.com/TorstenDittmann/orch/internal/buildinfo.Version=$(VERSION) -X github.com/TorstenDittmann/orch/internal/buildinfo.BuildID=$(BUILD_ID)
 
-.PHONY: all build check clean containerd-e2e release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
+.PHONY: all build check clean containerd-e2e dev-context dev-image dev-image-release release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
 
 all: check
 
@@ -16,11 +16,38 @@ build:
 	mkdir -p bin
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/orch ./cmd/orch
 
-# Release binaries are static Linux amd64 builds with a SHA-256 checksum file.
+# Release binaries are static builds with a SHA-256 checksum file. Nodes run
+# Linux amd64; the other platforms are for workstations and orch dev.
+RELEASE_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+
 release:
 	rm -rf dist && mkdir -p dist
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-linux-amd64 ./cmd/orch
-	cd dist && sha256sum orch-linux-amd64 > SHA256SUMS
+	for platform in $(RELEASE_PLATFORMS); do \
+		os=$${platform%/*}; arch=$${platform#*/}; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-$$os-$$arch ./cmd/orch || exit 1; \
+	done
+	cd dist && sha256sum orch-* > SHA256SUMS
+
+# orch-dev:local is the one-node image `orch dev` runs; DEV_ARCH defaults to this machine.
+DEV_ARCH ?= $(shell $(GO) env GOARCH)
+DEV_ENGINE ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
+DEV_IMAGE_REPOSITORY ?= ghcr.io/torstendittmann/orch-dev
+
+dev-image:
+	$(MAKE) dev-context DEV_ARCHES=$(DEV_ARCH)
+	$(DEV_ENGINE) build $(DEV_BUILD_ARGS) --platform linux/$(DEV_ARCH) -t orch-dev:local dist/dev
+
+# Publishes the multi-architecture image matching a release CLI.
+dev-image-release:
+	$(MAKE) dev-context DEV_ARCHES="amd64 arm64"
+	docker buildx build --platform linux/amd64,linux/arm64 --push -t $(DEV_IMAGE_REPOSITORY):$(VERSION) dist/dev
+
+dev-context:
+	rm -rf dist/dev && mkdir -p dist/dev
+	for arch in $(DEV_ARCHES); do \
+		GOOS=linux GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/dev/orch-linux-$$arch ./cmd/orch || exit 1; \
+	done
+	cp packaging/dev/Dockerfile packaging/dev/containerd.toml packaging/dev/entrypoint.sh dist/dev/
 
 generate:
 	$(BUF) generate

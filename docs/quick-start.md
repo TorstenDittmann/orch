@@ -12,7 +12,7 @@ it, and copy it to the controller:
 ```console
 curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/orch-linux-amd64
 curl -fLO https://github.com/TorstenDittmann/orch/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
 install -m 0755 orch-linux-amd64 orch
 ```
 
@@ -92,6 +92,9 @@ orch app status hello --target production
 orch resolves image tags to immutable digests, waits for readiness, and records
 the deployment result. A failed update automatically returns traffic to the
 last healthy revision when `autoRollback` is enabled.
+
+To run the same application on your own machine before deploying it, use
+`orch dev`; see [local development](local-development.md).
 
 Continue with [application configuration](configuration.md), learn the
 [runtime and rollout contract](runtime.md), or review

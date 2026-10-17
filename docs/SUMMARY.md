@@ -6,6 +6,7 @@
   - [Quickstart](quick-start.md)
   - [Core concepts](concepts.md)
   - [Tutorial](tutorial.md)
+  - [Local development](local-development.md)
 - Guides
   - [Applications](configuration.md)
   - [Deployments](runtime.md)

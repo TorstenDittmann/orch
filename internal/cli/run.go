@@ -97,6 +97,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runEvents(ctx, args[1:], stdout, stderr)
 	case "rollback":
 		return runRollback(ctx, args[1:], stdout, stderr)
+	case "dev":
+		return runDev(ctx, args[1:], stdout, stderr)
 	case "deploy":
 		return runDeploy(ctx, args[1:], stdout, stderr)
 	case "tui":
@@ -983,6 +985,7 @@ Getting started:
   orch join-token NODE [--ttl 1h]                         prints the command for a new node
   orch join TOKEN|- [--advertise-address IP]              on each worker, as root
   orch target add NAME ssh://root@CONTROLLER              on your workstation
+  orch dev [-f orch.pkl]                                  runs the application on this machine
 
 Usage:
   orch cluster init --name NAME --server HTTPS_URL --data-dir DIR [--context FILE] [--json]
@@ -1032,6 +1035,8 @@ Usage:
   orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
   orch status [--target NAME] [--json]
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]
+  orch dev [-f orch.pkl] [--root DIR] [--env-file FILE] [--http-port 8080] [--timeout 10m]
+  orch dev down [--volumes]
   orch deploy [-f orch.pkl] [--root DIR] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch validate [-f orch.pkl] [--root DIR] [--json]
   orch plan [-f orch.pkl] [--root DIR] [--against previous.pkl] [--json]
