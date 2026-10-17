@@ -9,6 +9,7 @@ option go_package = "github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alp
 
 service ControlService {
   rpc RunJob(RunJobRequest) returns (RunJobResponse);
+  rpc RunCronJob(RunCronJobRequest) returns (RunCronJobResponse);
   rpc GetJob(GetJobRequest) returns (GetJobResponse);
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
   rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
@@ -653,6 +654,16 @@ message RunJobRequest {
   string idempotency_key = 7;
 }
 message RunJobResponse {
+  OneOffJob job = 1;
+}
+// RunCronJobRequest starts one run of a scheduled job now, on the node that
+// owns the schedule, outside its schedule.
+message RunCronJobRequest {
+  string application = 1;
+  string job = 2;
+  string idempotency_key = 3;
+}
+message RunCronJobResponse {
   OneOffJob job = 1;
 }
 message GetJobRequest {

@@ -21,6 +21,11 @@ import (
 
 var errJobPlacement = errors.New("no connected compatible node has capacity for this job and its service constraints")
 
+// cronRunServicePrefix marks a one-off run of a scheduled job in the job's
+// service name. A slash cannot appear in a service name, so the two never
+// collide.
+const cronRunServicePrefix = "cron/"
+
 func jobRequestHash(message proto.Message) string {
 	data, _ := proto.MarshalOptions{Deterministic: true}.Marshal(message)
 	sum := sha256.Sum256(data)
@@ -51,7 +56,7 @@ func (s *service) RunJob(ctx context.Context, req *connect.Request[orchv1alpha1.
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("job reconciliation is unavailable"))
 	}
 	s.reconciler.mu.Lock()
-	job, err := s.reconciler.createOneOff(ctx, req.Msg.GetApplication(), req.Msg.GetService(), req.Msg.GetExpectedRevisionId(), req.Msg.GetCommand(), req.Msg.GetArgs(), req.Msg.GetTimeoutSeconds(), "manual", "", req.Msg.GetIdempotencyKey(), hash, nil)
+	job, err := s.reconciler.createOneOff(ctx, req.Msg.GetApplication(), req.Msg.GetService(), req.Msg.GetExpectedRevisionId(), req.Msg.GetCommand(), req.Msg.GetArgs(), req.Msg.GetTimeoutSeconds(), "manual", "", req.Msg.GetIdempotencyKey(), hash, nil, "")
 	s.reconciler.mu.Unlock()
 	if err != nil {
 		return nil, jobError(err)
@@ -60,6 +65,67 @@ func (s *service) RunJob(ctx context.Context, req *connect.Request[orchv1alpha1.
 		return nil, connect.NewError(connect.CodeInternal, errors.New("publish job assignment; retry using the same idempotency key"))
 	}
 	return connect.NewResponse(&orchv1alpha1.RunJobResponse{Job: jobMessage(job)}), nil
+}
+
+// RunCronJob starts a scheduled job now with exactly the settings its schedule
+// uses, on the node that owns it, so a job that reads a local volume runs next
+// to that volume.
+func (s *service) RunCronJob(ctx context.Context, req *connect.Request[orchv1alpha1.RunCronJobRequest]) (*connect.Response[orchv1alpha1.RunCronJobResponse], error) {
+	if err := requireAdministrator(ctx); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(req.Msg); err != nil {
+		return nil, err
+	}
+	if !idempotencyKeyPattern.MatchString(req.Msg.GetIdempotencyKey()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("idempotency_key is required"))
+	}
+	hash := jobRequestHash(req.Msg)
+	if job, found, err := s.state.ReplayJob(ctx, req.Msg.GetIdempotencyKey(), hash); err != nil {
+		return nil, jobError(err)
+	} else if found {
+		return connect.NewResponse(&orchv1alpha1.RunCronJobResponse{Job: jobMessage(job)}), nil
+	}
+	if s.reconciler == nil {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("job reconciliation is unavailable"))
+	}
+	s.reconciler.mu.Lock()
+	job, err := func() (model.Job, error) {
+		scheduled, node, err := s.reconciler.assignedCronJob(ctx, req.Msg.GetApplication(), req.Msg.GetJob())
+		if err != nil {
+			return model.Job{}, err
+		}
+		return s.reconciler.createOneOff(ctx, scheduled.Application, cronRunServicePrefix+scheduled.Job, scheduled.RevisionID, nil, nil, scheduled.TimeoutSeconds, "manual", "", req.Msg.GetIdempotencyKey(), hash, &scheduled, node)
+	}()
+	s.reconciler.mu.Unlock()
+	if err != nil {
+		return nil, jobError(err)
+	}
+	if err := s.reconciler.Reconcile(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("publish job assignment; retry using the same idempotency key"))
+	}
+	return connect.NewResponse(&orchv1alpha1.RunCronJobResponse{Job: jobMessage(job)}), nil
+}
+
+// assignedCronJob finds the scheduled job as it is currently assigned and the
+// node that owns it.
+func (r *Reconciler) assignedCronJob(ctx context.Context, application, name string) (model.CronJobDesired, string, error) {
+	nodes, err := r.state.Nodes(ctx)
+	if err != nil {
+		return model.CronJobDesired{}, "", err
+	}
+	for _, node := range nodes {
+		assignment, err := r.state.CurrentAssignment(ctx, node.ID)
+		if err != nil {
+			continue
+		}
+		for _, job := range assignment.CronJobs {
+			if job.RunID == "" && job.Application == application && job.Job == name {
+				return job, node.ID, nil
+			}
+		}
+	}
+	return model.CronJobDesired{}, "", connect.NewError(connect.CodeFailedPrecondition, errors.New("the cron job is not scheduled on any node yet; check orch app status"))
 }
 func (s *service) GetJob(ctx context.Context, req *connect.Request[orchv1alpha1.GetJobRequest]) (*connect.Response[orchv1alpha1.GetJobResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
@@ -149,7 +215,7 @@ func (s *service) RetryJob(ctx context.Context, req *connect.Request[orchv1alpha
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("job reconciliation is unavailable"))
 	}
 	s.reconciler.mu.Lock()
-	job, err := s.reconciler.createOneOff(ctx, source.Template.Application, source.Service, source.Template.RevisionID, source.Template.Command, source.Template.Args, source.Template.TimeoutSeconds, source.Kind, source.ID, req.Msg.GetIdempotencyKey(), hash, &source.Template)
+	job, err := s.reconciler.createOneOff(ctx, source.Template.Application, source.Service, source.Template.RevisionID, source.Template.Command, source.Template.Args, source.Template.TimeoutSeconds, source.Kind, source.ID, req.Msg.GetIdempotencyKey(), hash, &source.Template, retryNode(source))
 	s.reconciler.mu.Unlock()
 	if err != nil {
 		return nil, jobError(err)
@@ -185,8 +251,18 @@ func jobError(err error) error {
 	return connect.NewError(code, errors.New(message))
 }
 
-// Called under the reconciler mutex, including for hook creation.
-func (r *Reconciler) createOneOff(ctx context.Context, application, service, revision string, command, args []string, timeout uint32, kind, retry, key, hash string, frozen *model.CronJobDesired) (model.Job, error) {
+// retryNode keeps a retried scheduled-job run on the node that ran it, next
+// to any volume it reads. Service jobs are placed again.
+func retryNode(source model.Job) string {
+	if strings.HasPrefix(source.Service, cronRunServicePrefix) {
+		return source.NodeID
+	}
+	return ""
+}
+
+// Called under the reconciler mutex, including for hook creation. A non-empty
+// node pins the run to that node.
+func (r *Reconciler) createOneOff(ctx context.Context, application, service, revision string, command, args []string, timeout uint32, kind, retry, key, hash string, frozen *model.CronJobDesired, node string) (model.Job, error) {
 	if job, found, err := r.state.ReplayJob(ctx, key, hash); err != nil || found {
 		return job, err
 	}
@@ -207,11 +283,22 @@ func (r *Reconciler) createOneOff(ctx context.Context, application, service, rev
 	if err := json.Unmarshal(app.CanonicalManifest, &manifest); err != nil {
 		return model.Job{}, err
 	}
-	source, ok := manifest.Services[service]
-	if !ok {
-		return model.Job{}, connect.NewError(connect.CodeInvalidArgument, errors.New("service does not exist in this revision"))
+	var source config.Service
+	var constraints map[string]string
+	if cronJob, isCron := strings.CutPrefix(service, cronRunServicePrefix); isCron {
+		scheduled, ok := manifest.CronJobs[cronJob]
+		if !ok || frozen == nil {
+			return model.Job{}, connect.NewError(connect.CodeInvalidArgument, errors.New("cron job does not exist in this revision"))
+		}
+		constraints = scheduled.Constraints
+	} else {
+		var ok bool
+		if source, ok = manifest.Services[service]; !ok {
+			return model.Job{}, connect.NewError(connect.CodeInvalidArgument, errors.New("service does not exist in this revision"))
+		}
+		constraints = source.Constraints
 	}
-	if len(command) == 0 || len(command) > 256 || len(args) > 256 {
+	if frozen == nil && (len(command) == 0 || len(command) > 256 || len(args) > 256) {
 		return model.Job{}, connect.NewError(connect.CodeInvalidArgument, errors.New("provide 1-256 command entries and at most 256 arguments"))
 	}
 	if timeout == 0 {
@@ -229,6 +316,7 @@ func (r *Reconciler) createOneOff(ctx context.Context, application, service, rev
 		template.Job = "run-" + strings.TrimPrefix(id, "job_")
 		template.RunAt = &now
 		template.CancelRequested = false
+		template.Schedule = ""
 	} else {
 		template.CPUMillis, err = parseCPUMillis(source.Resources.CPU)
 		if err != nil {
@@ -270,7 +358,11 @@ func (r *Reconciler) createOneOff(ctx context.Context, application, service, rev
 		return model.Job{}, err
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Ordinal < nodes[j].Ordinal })
+	pinned := node
 	for _, node := range nodes {
+		if pinned != "" && node.ID != pinned {
+			continue
+		}
 		if node.Lifecycle != model.NodeLifecycleActive || node.LastSeenAt == nil || now.Sub(*node.LastSeenAt) >= distributedLossGrace || nodeBlocker(node) != nil || node.NetworkState != model.NetworkReady || node.DNSState != model.SubsystemReady || node.NetworkGeneration != cluster.NetworkGeneration {
 			continue
 		}
@@ -292,7 +384,7 @@ func (r *Reconciler) createOneOff(ctx context.Context, application, service, rev
 		labels["orch.arch"] = node.Architecture
 		labels["orch.node"] = node.Name
 		matches := true
-		for k, v := range source.Constraints {
+		for k, v := range constraints {
 			if labels[k] != v {
 				matches = false
 				break
@@ -331,7 +423,7 @@ func (r *Reconciler) hookGate(ctx context.Context, app model.Application, manife
 		timeout, _ := time.ParseDuration(hook.Timeout)
 		key := "hook:" + app.RevisionID
 		hash := sha256.Sum256([]byte(key))
-		job, err = r.createOneOff(ctx, app.Name, hook.Service, app.RevisionID, hook.Command, hook.Args, uint32(timeout/time.Second), "pre_deploy", "", key, hex.EncodeToString(hash[:]), nil)
+		job, err = r.createOneOff(ctx, app.Name, hook.Service, app.RevisionID, hook.Command, hook.Args, uint32(timeout/time.Second), "pre_deploy", "", key, hex.EncodeToString(hash[:]), nil, "")
 		if err != nil {
 			state := executionState(model.ExecutionBlocked, app.Generation, "pre_deploy_waiting", "pre-deploy job is waiting for compatible capacity and available secrets", now)
 			state.ActiveGeneration, state.ActiveRevisionID = app.Execution.ActiveGeneration, app.Execution.ActiveRevisionID

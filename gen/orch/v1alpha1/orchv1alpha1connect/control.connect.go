@@ -35,6 +35,9 @@ const (
 const (
 	// ControlServiceRunJobProcedure is the fully-qualified name of the ControlService's RunJob RPC.
 	ControlServiceRunJobProcedure = "/orch.v1alpha1.ControlService/RunJob"
+	// ControlServiceRunCronJobProcedure is the fully-qualified name of the ControlService's RunCronJob
+	// RPC.
+	ControlServiceRunCronJobProcedure = "/orch.v1alpha1.ControlService/RunCronJob"
 	// ControlServiceGetJobProcedure is the fully-qualified name of the ControlService's GetJob RPC.
 	ControlServiceGetJobProcedure = "/orch.v1alpha1.ControlService/GetJob"
 	// ControlServiceListJobsProcedure is the fully-qualified name of the ControlService's ListJobs RPC.
@@ -137,6 +140,7 @@ const (
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
 type ControlServiceClient interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error)
 	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
 	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
 	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
@@ -189,6 +193,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceRunJobProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+			connect.WithClientOptions(opts...),
+		),
+		runCronJob: connect.NewClient[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse](
+			httpClient,
+			baseURL+ControlServiceRunCronJobProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RunCronJob")),
 			connect.WithClientOptions(opts...),
 		),
 		getJob: connect.NewClient[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse](
@@ -401,6 +411,7 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
 	runJob              *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
+	runCronJob          *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
 	getJob              *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
 	listJobs            *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
 	cancelJob           *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
@@ -440,6 +451,11 @@ type controlServiceClient struct {
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
 func (c *controlServiceClient) RunJob(ctx context.Context, req *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
 	return c.runJob.CallUnary(ctx, req)
+}
+
+// RunCronJob calls orch.v1alpha1.ControlService.RunCronJob.
+func (c *controlServiceClient) RunCronJob(ctx context.Context, req *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error) {
+	return c.runCronJob.CallUnary(ctx, req)
 }
 
 // GetJob calls orch.v1alpha1.ControlService.GetJob.
@@ -617,6 +633,7 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
+	RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error)
 	GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error)
 	ListJobs(context.Context, *connect.Request[v1alpha1.ListJobsRequest]) (*connect.Response[v1alpha1.ListJobsResponse], error)
 	CancelJob(context.Context, *connect.Request[v1alpha1.CancelJobRequest]) (*connect.Response[v1alpha1.CancelJobResponse], error)
@@ -665,6 +682,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceRunJobProcedure,
 		svc.RunJob,
 		connect.WithSchema(controlServiceMethods.ByName("RunJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRunCronJobHandler := connect.NewUnaryHandler(
+		ControlServiceRunCronJobProcedure,
+		svc.RunCronJob,
+		connect.WithSchema(controlServiceMethods.ByName("RunCronJob")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceGetJobHandler := connect.NewUnaryHandler(
@@ -875,6 +898,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
 			controlServiceRunJobHandler.ServeHTTP(w, r)
+		case ControlServiceRunCronJobProcedure:
+			controlServiceRunCronJobHandler.ServeHTTP(w, r)
 		case ControlServiceGetJobProcedure:
 			controlServiceGetJobHandler.ServeHTTP(w, r)
 		case ControlServiceListJobsProcedure:
@@ -954,6 +979,10 @@ type UnimplementedControlServiceHandler struct{}
 
 func (UnimplementedControlServiceHandler) RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RunJob is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RunCronJob(context.Context, *connect.Request[v1alpha1.RunCronJobRequest]) (*connect.Response[v1alpha1.RunCronJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RunCronJob is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) GetJob(context.Context, *connect.Request[v1alpha1.GetJobRequest]) (*connect.Response[v1alpha1.GetJobResponse], error) {

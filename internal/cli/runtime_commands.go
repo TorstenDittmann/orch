@@ -391,18 +391,85 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 func runCron(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		fmt.Fprintln(stderr, "usage: orch cron run|runs|logs ...")
 		return ExitInvalid
 	}
 	switch args[0] {
+	case "run":
+		return runCronRun(ctx, args[1:], stdout, stderr)
 	case "runs":
 		return runCronRuns(ctx, args[1:], stdout, stderr)
 	case "logs":
 		return runCronLogs(ctx, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: orch cron runs|logs ...")
+		fmt.Fprintln(stderr, "usage: orch cron run|runs|logs ...")
 		return ExitInvalid
 	}
+}
+
+// runCronRun starts one run of a scheduled job now, with the settings and on
+// the node its schedule uses.
+func runCronRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("cron run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath, key string
+	var wait, jsonOutput bool
+	var waitTimeout time.Duration
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.StringVar(&key, "idempotency-key", "", "stable key for safe retries")
+	flags.BoolVar(&wait, "wait", false, "wait for the run to finish")
+	flags.DurationVar(&waitTimeout, "wait-timeout", 20*time.Minute, "maximum time --wait waits (1s-24h)")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-idempotency-key": true, "--idempotency-key": true, "-wait-timeout": true, "--wait-timeout": true})
+	if err := flags.Parse(reordered); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 2 || contextPath == "" || waitTimeout < time.Second || waitTimeout > 24*time.Hour {
+		fmt.Fprintln(stderr, "cron run requires APP JOB, --context, and --wait-timeout from 1s to 24h")
+		return ExitInvalid
+	}
+	if err := validateApplicationService(flags.Arg(0), flags.Arg(1)); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitInvalid
+	}
+	if key == "" {
+		var err error
+		if key, err = newIdempotencyKey(rand.Reader); err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+	}
+	fmt.Fprintf(stderr, "Idempotency key: %s\n", key)
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	job, err := remote.RunCronJob(ctx, flags.Arg(0), flags.Arg(1), key)
+	if err == nil && wait {
+		waitContext, cancel := context.WithTimeout(ctx, waitTimeout)
+		job, err = remote.WaitJob(waitContext, job.GetId())
+		cancel()
+	}
+	if job != nil {
+		if jsonOutput {
+			if code := writeJSON(stdout, stderr, job); code != ExitOK {
+				return code
+			}
+		} else {
+			printJob(stdout, job)
+			fmt.Fprintf(stdout, "Logs: orch job logs %s\n", job.GetId())
+		}
+	}
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	if wait && job.GetStatus().GetState() != orchv1alpha1.JobRunState_JOB_RUN_STATE_SUCCEEDED {
+		return ExitRuntime
+	}
+	return ExitOK
 }
 
 func runCronRuns(ctx context.Context, args []string, stdout, stderr io.Writer) int {

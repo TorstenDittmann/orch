@@ -630,15 +630,23 @@ See [jobs](jobs.md) for pre-deploy hooks and retry behavior.
 ### orch cron
 
 ```text
+orch cron run APP JOB [--wait] [--wait-timeout 20m] [--idempotency-key KEY] [--target NAME] [--json]
 orch cron runs APP JOB [--limit 20] [--target NAME] [--json]
 orch cron logs APP JOB RUN_ID [--tail 100] [--target NAME]
 ```
 
-Lists recent runs of a scheduled job with their scheduled time, state, and
-reason, and prints the logs of one run.
+`run` starts the scheduled job once now, with the same image, command,
+secrets, and read-only volume mounts as its schedule and on the node that owns
+the schedule. Use it to check that a backup job works without waiting for its
+next run. The run is a job: follow it with `orch job logs ID`, and with
+`--wait` the command exits nonzero unless it succeeds. `runs` lists recent
+scheduled runs with their scheduled time, state, and reason; `logs` prints the
+logs of one.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
+| `--wait` | `false` | Wait for the run started by `run` to finish |
+| `--wait-timeout` | `20m` | Maximum time `--wait` waits, 1s to 24h |
 | `--limit` | `20` | Maximum runs, 1 to 100 |
 | `--tail` | `100` | Maximum lines per stream, 1 to 10000 |
 | `--json` | `false` | Emit machine-readable JSON (`runs` only) |
