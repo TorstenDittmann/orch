@@ -3,19 +3,21 @@
 	import { untrack } from 'svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { api } from '../lib/api';
+	import Segmented from './Segmented.svelte';
 	import { ui } from '../lib/state.svelte';
 	import type { LogLine, LogSource } from '../lib/types';
 
 	const maxLines = 10000;
 
 	let lines = $state<LogLine[]>([]);
-	let status = $state<'loading' | 'following' | 'paused' | 'exited' | 'error'>('loading');
+	let status = $state<'loading' | 'following' | 'paused' | 'exited' | 'error' | 'previous'>('loading');
 	let error = $state('');
 	let filter = $state('');
 	let wrap = $state(true);
 	let paused = $state(false);
 	let atBottom = $state(true);
 	let body = $state<HTMLDivElement>();
+	let instance = $state('current');
 
 	const source = $derived(ui.log);
 	const title = $derived(
@@ -27,8 +29,16 @@
 	});
 
 	$effect(() => {
+		void source;
+		untrack(() => (instance = 'current'));
+	});
+
+	const previous = $derived(source?.kind === 'service' && instance === 'previous');
+
+	$effect(() => {
 		const current = source;
 		if (!current) return;
+		const earlier = previous;
 		let cursor = '';
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -67,7 +77,24 @@
 			timer = setTimeout(() => poll(target), status === 'error' ? 4000 : 1500);
 		}
 
-		untrack(() => poll(current));
+		async function loadPrevious(target: LogSource) {
+			try {
+				const batch = await api.logs(target, '', true);
+				if (stopped) return;
+				const next: LogLine[] = [];
+				for (const line of batch.lines) {
+					for (const text of line.text.replace(/\n$/, '').split('\n')) next.push({ stream: line.stream, text });
+				}
+				lines = next.length > maxLines ? next.slice(next.length - maxLines) : next;
+				status = 'previous';
+			} catch (err) {
+				if (stopped) return;
+				error = (err as Error).message;
+				status = 'error';
+			}
+		}
+
+		untrack(() => (earlier ? loadPrevious(current) : poll(current)));
 		return () => {
 			stopped = true;
 			clearTimeout(timer);
@@ -118,28 +145,36 @@
 				<h2>{title}</h2>
 			</div>
 			<span class="state {status}">
-				<span class="dot"></span>{status === 'loading' ? 'Connecting' : status === 'following' ? 'Live' : status}
+				<span class="dot"></span>{status === 'loading' ? (previous ? 'Loading' : 'Connecting') : status === 'following' ? 'Live' : status === 'previous' ? 'Previous instance' : previous && status === 'error' ? 'Unavailable' : status}
 			</span>
 			<button class="btn icon ghost" aria-label="Close" onclick={close}><X size={18} /></button>
 		</header>
 		<div class="toolbar">
+			{#if source.kind === 'service'}
+				<Segmented options={[{ value: 'current', label: 'Current' }, { value: 'previous', label: 'Previous instance' }]} bind:value={instance} />
+			{/if}
 			<label class="filter">
 				<Search size={14} />
 				<input placeholder="Filter lines" bind:value={filter} />
 				{#if filter}<span class="faint">{visible.length}/{lines.length}</span>{/if}
 			</label>
 			<button class="btn sm ghost" class:on={wrap} title="Wrap lines" aria-pressed={wrap} onclick={() => (wrap = !wrap)}><WrapText size={14} /></button>
-			<button class="btn sm ghost" title={paused ? 'Resume' : 'Pause'} onclick={() => (paused = !paused)}>
+			<button class="btn sm ghost" title={paused ? 'Resume' : 'Pause'} disabled={previous} onclick={() => (paused = !paused)}>
 				{#if paused}<Play size={14} />{:else}<Pause size={14} />{/if}
 			</button>
 			<button class="btn sm ghost" title="Clear" onclick={() => (lines = [])}><Eraser size={14} /></button>
 			<button class="btn sm ghost" title="Download" onclick={download}><Download size={14} /></button>
 		</div>
 		<div class="body" class:wrap bind:this={body} {onscroll}>
-			{#if error}
+			{#if previous && (error || (status === 'previous' && !lines.length))}
+				<div class="quiet">
+					<p>No earlier instance logs kept for this replica (kept 24 hours).</p>
+					{#if error}<p class="reason">{error}</p>{/if}
+				</div>
+			{:else if error}
 				<div class="banner">{error}</div>
 			{/if}
-			{#if !visible.length}
+			{#if !visible.length && !(previous && (error || status === 'previous'))}
 				<div class="quiet">{status === 'loading' ? 'Loading logs…' : filter ? 'No matching lines.' : 'No output yet.'}</div>
 			{/if}
 			{#each visible as line, index (index)}
@@ -303,6 +338,17 @@
 		color: #6b7280;
 		padding: 24px;
 		font-family: var(--font);
+	}
+	.quiet p {
+		margin: 0;
+	}
+	.quiet .reason {
+		margin-top: 6px;
+		font: 12px/1.5 var(--mono);
+		color: #4b5160;
+	}
+	.toolbar :global(.segmented) {
+		margin-right: 6px;
 	}
 	.banner {
 		margin: 0 16px 10px;

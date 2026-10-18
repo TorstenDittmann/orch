@@ -629,8 +629,10 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 // removeLogs keeps a removed service instance's logs for orch logs
 // --previous; cron runs keep their logs through their own run history.
 func (c *runtimeClient) removeLogs(id string) error {
-	if strings.HasPrefix(id, "alloc_") {
-		return retireObjectLogs(c.options.LogsDir, id, time.Now())
+	// Keeping logs is best effort: removing the object must not fail
+	// because they could not be moved aside.
+	if strings.HasPrefix(id, "alloc_") && retireObjectLogs(c.options.LogsDir, id, time.Now()) == nil {
+		return nil
 	}
 	return removeObjectLogs(c.options.LogsDir, id)
 }

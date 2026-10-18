@@ -47,9 +47,11 @@ func (s *Store) RecordNodeUsage(ctx context.Context, nodeID string, usage model.
 
 // LatestNodeUsage returns each node's newest usage report.
 func (s *Store) LatestNodeUsage(ctx context.Context) (map[string]model.NodeUsage, error) {
-	// SQLite takes the bare columns from the row holding the max.
-	rows, err := s.db.QueryContext(ctx, `SELECT node_id, max(observed_at), cpu_used_millis, memory_used_bytes,
-		disk_used_bytes, disk_total_bytes FROM node_usage_samples GROUP BY node_id`)
+	// The correlated max reads one index entry per node instead of a day of
+	// samples.
+	rows, err := s.db.QueryContext(ctx, `SELECT u.node_id, u.observed_at, u.cpu_used_millis, u.memory_used_bytes,
+		u.disk_used_bytes, u.disk_total_bytes FROM nodes n JOIN node_usage_samples u ON u.node_id = n.id
+		AND u.observed_at = (SELECT max(observed_at) FROM node_usage_samples WHERE node_id = n.id)`)
 	if err != nil {
 		return nil, fmt.Errorf("read node usage: %w", err)
 	}
