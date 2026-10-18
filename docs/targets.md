@@ -14,6 +14,7 @@ target and the same administrator access. Pick whichever suits the task:
 | CLI commands | Scripts, CI, and anything you want in shell history; every command supports `--json` |
 | `orch tui` | Watching a cluster from a terminal, following logs, and quick node actions over SSH sessions |
 | `orch web` | Browsing applications, deployment history, diffs, and logs with a mouse on your workstation |
+| `orch mcp` | Letting an AI assistant such as Claude Code operate the cluster; see [AI assistants](ai.md) |
 
 ## How the CLI picks a cluster
 

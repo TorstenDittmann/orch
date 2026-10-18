@@ -301,8 +301,11 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && (args[0] == "history" || args[0] == "diff" || args[0] == "watch") {
 		return runAppDeployments(ctx, args, stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "list" {
+		return runAppList(ctx, args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "status" {
-		fmt.Fprintln(stderr, "usage: orch app status|history|diff|watch ...")
+		fmt.Fprintln(stderr, "usage: orch app list|status|history|diff|watch ...")
 		return ExitInvalid
 	}
 	flags := flag.NewFlagSet("app status", flag.ContinueOnError)
@@ -386,6 +389,52 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "  cron %s  next=%s active=%s last=%s/%s reason=%s\n", job.GetJob(), next,
 			statusValue(job.GetActiveRunId()), statusValue(job.GetLastRunId()), job.GetLastState().String(), statusValue(job.GetReason()))
+	}
+	return ExitOK
+}
+
+// runAppList prints every application on the cluster with its rollout state.
+func runAppList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("app list", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var jsonOutput bool
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
+	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if flags.NArg() != 0 || contextPath == "" {
+		writeError(stderr, errors.New("app list accepts flags only and requires --context"), jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	applications, err := remote.ListApplications(ctx)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	if applications == nil {
+		applications = []*orchv1alpha1.ApplicationSummary{}
+	}
+	if jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			Applications []*orchv1alpha1.ApplicationSummary `json:"applications"`
+		}{Applications: applications})
+	}
+	if len(applications) == 0 {
+		fmt.Fprintln(stdout, "No applications. Deploy one with: orch deploy")
+		return ExitOK
+	}
+	for _, application := range applications {
+		fmt.Fprintf(stdout, "%s  generation=%d revision=%s status=%s reason=%s\n",
+			application.GetName(), application.GetGeneration(), statusValue(application.GetRevisionId()),
+			application.GetExecutionStatus().String(), statusValue(application.GetExecutionReason()))
 	}
 	return ExitOK
 }

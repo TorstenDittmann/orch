@@ -14,6 +14,7 @@
   - [Secrets](secrets.md)
   - [Jobs and schedules](jobs.md)
   - [Targets and interfaces](targets.md)
+  - [AI assistants](ai.md)
 - Operations
   - [Cluster operations](operations.md)
   - [Security and recovery](security.md)

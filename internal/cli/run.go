@@ -119,6 +119,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runSchema(args[1:], stdout, stderr)
 	case "pkl":
 		return runPkl(args[1:], stdout, stderr)
+	case "mcp":
+		return runMCP(ctx, args[1:], os.Stdin, stdout, stderr)
 	case "version":
 		if len(args) == 2 && args[1] == "--json" {
 			return writeJSON(stdout, stderr, buildinfo.Current())
@@ -1077,6 +1079,7 @@ Usage:
   orch node doctor --advertise-address IPV4 [--json]
   orch node install --advertise-address IPV4 [--join-file FILE|-] [--dry-run] [--json]
   orch node upgrade --binary FILE [--dry-run] [--json]
+  orch app list [--target NAME] [--json]
   orch app status NAME [--target NAME] [--json]
   orch app history APP [--limit N] [--before-generation N] [--target NAME] [--json]
   orch app diff APP REVISION [--against REVISION] [--target NAME] [--json]
@@ -1109,6 +1112,7 @@ Usage:
   orch render [-f orch.pkl] [--root DIR]
   orch schema
   orch pkl reader
+  orch mcp [--target NAME] [--read-only]
   orch version
 
 Exit codes:
