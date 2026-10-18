@@ -105,3 +105,13 @@ type RemoveApplicationResult struct {
 	ExecutionStatus string    `json:"execution_status"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
+
+// GitHubTrust lets GitHub Actions runs from one repository, branch and
+// optional environment deploy one application with short-lived credentials.
+type GitHubTrust struct {
+	Repository  string
+	Application string
+	Branch      string
+	Environment string
+	CreatedAt   time.Time
+}

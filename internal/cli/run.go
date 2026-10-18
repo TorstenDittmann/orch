@@ -89,6 +89,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runSecret(ctx, args[1:], stdout, stderr)
 	case "registry":
 		return runRegistry(ctx, args[1:], stdout, stderr)
+	case "github":
+		return runGitHub(ctx, args[1:], stdout, stderr)
 	case "remove":
 		return runRemove(ctx, args[1:], stdout, stderr)
 	case "runtime-log-sink":
@@ -1107,6 +1109,9 @@ Usage:
   orch registry login HOST --username USER --password-stdin [--target NAME] [--json]
   orch registry list [--target NAME] [--json]
   orch registry logout HOST [--target NAME] [--json]
+  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
+  orch github list [--target NAME] [--json]
+  orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
   orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
   orch status [--target NAME] [--json]
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]

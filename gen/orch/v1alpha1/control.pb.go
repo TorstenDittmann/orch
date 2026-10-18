@@ -6935,6 +6935,407 @@ func (x *RetryJobResponse) GetJob() *OneOffJob {
 	return nil
 }
 
+// GitHubTrust lets GitHub Actions runs of one repository deploy one
+// application without stored credentials.
+type GitHubTrust struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// owner/name, lowercase.
+	Repository  string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	Application string `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	Branch      string `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	// Optional GitHub environment the run must use.
+	Environment   string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GitHubTrust) Reset() {
+	*x = GitHubTrust{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[96]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GitHubTrust) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GitHubTrust) ProtoMessage() {}
+
+func (x *GitHubTrust) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[96]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GitHubTrust.ProtoReflect.Descriptor instead.
+func (*GitHubTrust) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{96}
+}
+
+func (x *GitHubTrust) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *GitHubTrust) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *GitHubTrust) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *GitHubTrust) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *GitHubTrust) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+type SetGitHubTrustRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Repository    string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	Branch        string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	Environment   string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetGitHubTrustRequest) Reset() {
+	*x = SetGitHubTrustRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetGitHubTrustRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetGitHubTrustRequest) ProtoMessage() {}
+
+func (x *SetGitHubTrustRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetGitHubTrustRequest.ProtoReflect.Descriptor instead.
+func (*SetGitHubTrustRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *SetGitHubTrustRequest) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *SetGitHubTrustRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *SetGitHubTrustRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *SetGitHubTrustRequest) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+type SetGitHubTrustResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Trust   *GitHubTrust           `protobuf:"bytes,1,opt,name=trust,proto3" json:"trust,omitempty"`
+	Changed bool                   `protobuf:"varint,2,opt,name=changed,proto3" json:"changed,omitempty"`
+	// What a workflow needs to reach and verify this controller.
+	ControllerEndpoint string `protobuf:"bytes,3,opt,name=controller_endpoint,json=controllerEndpoint,proto3" json:"controller_endpoint,omitempty"`
+	ClusterId          string `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	CaFingerprint      []byte `protobuf:"bytes,5,opt,name=ca_fingerprint,json=caFingerprint,proto3" json:"ca_fingerprint,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SetGitHubTrustResponse) Reset() {
+	*x = SetGitHubTrustResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetGitHubTrustResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetGitHubTrustResponse) ProtoMessage() {}
+
+func (x *SetGitHubTrustResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetGitHubTrustResponse.ProtoReflect.Descriptor instead.
+func (*SetGitHubTrustResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *SetGitHubTrustResponse) GetTrust() *GitHubTrust {
+	if x != nil {
+		return x.Trust
+	}
+	return nil
+}
+
+func (x *SetGitHubTrustResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
+func (x *SetGitHubTrustResponse) GetControllerEndpoint() string {
+	if x != nil {
+		return x.ControllerEndpoint
+	}
+	return ""
+}
+
+func (x *SetGitHubTrustResponse) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *SetGitHubTrustResponse) GetCaFingerprint() []byte {
+	if x != nil {
+		return x.CaFingerprint
+	}
+	return nil
+}
+
+type ListGitHubTrustsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGitHubTrustsRequest) Reset() {
+	*x = ListGitHubTrustsRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGitHubTrustsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGitHubTrustsRequest) ProtoMessage() {}
+
+func (x *ListGitHubTrustsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGitHubTrustsRequest.ProtoReflect.Descriptor instead.
+func (*ListGitHubTrustsRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{99}
+}
+
+type ListGitHubTrustsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Trusts        []*GitHubTrust         `protobuf:"bytes,1,rep,name=trusts,proto3" json:"trusts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGitHubTrustsResponse) Reset() {
+	*x = ListGitHubTrustsResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGitHubTrustsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGitHubTrustsResponse) ProtoMessage() {}
+
+func (x *ListGitHubTrustsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGitHubTrustsResponse.ProtoReflect.Descriptor instead.
+func (*ListGitHubTrustsResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *ListGitHubTrustsResponse) GetTrusts() []*GitHubTrust {
+	if x != nil {
+		return x.Trusts
+	}
+	return nil
+}
+
+type DeleteGitHubTrustRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Repository    string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteGitHubTrustRequest) Reset() {
+	*x = DeleteGitHubTrustRequest{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteGitHubTrustRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteGitHubTrustRequest) ProtoMessage() {}
+
+func (x *DeleteGitHubTrustRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteGitHubTrustRequest.ProtoReflect.Descriptor instead.
+func (*DeleteGitHubTrustRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *DeleteGitHubTrustRequest) GetRepository() string {
+	if x != nil {
+		return x.Repository
+	}
+	return ""
+}
+
+func (x *DeleteGitHubTrustRequest) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+type DeleteGitHubTrustResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Changed       bool                   `protobuf:"varint,1,opt,name=changed,proto3" json:"changed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteGitHubTrustResponse) Reset() {
+	*x = DeleteGitHubTrustResponse{}
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[102]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteGitHubTrustResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteGitHubTrustResponse) ProtoMessage() {}
+
+func (x *DeleteGitHubTrustResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_control_proto_msgTypes[102]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteGitHubTrustResponse.ProtoReflect.Descriptor instead.
+func (*DeleteGitHubTrustResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_control_proto_rawDescGZIP(), []int{102}
+}
+
+func (x *DeleteGitHubTrustResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
 var File_orch_v1alpha1_control_proto protoreflect.FileDescriptor
 
 const file_orch_v1alpha1_control_proto_rawDesc = "" +
@@ -7529,7 +7930,40 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x10RetryJobResponse\x12*\n" +
-	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job*\xe5\x02\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\xc4\x01\n" +
+	"\vGitHubTrust\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x01 \x01(\tR\n" +
+	"repository\x12 \n" +
+	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12 \n" +
+	"\venvironment\x18\x04 \x01(\tR\venvironment\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x93\x01\n" +
+	"\x15SetGitHubTrustRequest\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x01 \x01(\tR\n" +
+	"repository\x12 \n" +
+	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12 \n" +
+	"\venvironment\x18\x04 \x01(\tR\venvironment\"\xdb\x01\n" +
+	"\x16SetGitHubTrustResponse\x120\n" +
+	"\x05trust\x18\x01 \x01(\v2\x1a.orch.v1alpha1.GitHubTrustR\x05trust\x12\x18\n" +
+	"\achanged\x18\x02 \x01(\bR\achanged\x12/\n" +
+	"\x13controller_endpoint\x18\x03 \x01(\tR\x12controllerEndpoint\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x04 \x01(\tR\tclusterId\x12%\n" +
+	"\x0eca_fingerprint\x18\x05 \x01(\fR\rcaFingerprint\"\x19\n" +
+	"\x17ListGitHubTrustsRequest\"N\n" +
+	"\x18ListGitHubTrustsResponse\x122\n" +
+	"\x06trusts\x18\x01 \x03(\v2\x1a.orch.v1alpha1.GitHubTrustR\x06trusts\"\\\n" +
+	"\x18DeleteGitHubTrustRequest\x12\x1e\n" +
+	"\n" +
+	"repository\x18\x01 \x01(\tR\n" +
+	"repository\x12 \n" +
+	"\vapplication\x18\x02 \x01(\tR\vapplication\"5\n" +
+	"\x19DeleteGitHubTrustResponse\x12\x18\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged*\xe5\x02\n" +
 	"\x0fExecutionStatus\x12 \n" +
 	"\x1cEXECUTION_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EXECUTION_STATUS_PENDING\x10\x01\x12\x1c\n" +
@@ -7558,7 +7992,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RUNTIME_KIND_SERVICE\x10\x01\x12\x19\n" +
-	"\x15RUNTIME_KIND_CRON_RUN\x10\x022\xfc\x1c\n" +
+	"\x15RUNTIME_KIND_CRON_RUN\x10\x022\xa8\x1f\n" +
 	"\x0eControlService\x12E\n" +
 	"\x06RunJob\x12\x1c.orch.v1alpha1.RunJobRequest\x1a\x1d.orch.v1alpha1.RunJobResponse\x12Q\n" +
 	"\n" +
@@ -7605,7 +8039,10 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"RemoveNode\x12 .orch.v1alpha1.RemoveNodeRequest\x1a!.orch.v1alpha1.RemoveNodeResponse\x12`\n" +
 	"\x0fCreateJoinToken\x12%.orch.v1alpha1.CreateJoinTokenRequest\x1a&.orch.v1alpha1.CreateJoinTokenResponse\x12]\n" +
 	"\x0eListJoinTokens\x12$.orch.v1alpha1.ListJoinTokensRequest\x1a%.orch.v1alpha1.ListJoinTokensResponse\x12`\n" +
-	"\x0fRevokeJoinToken\x12%.orch.v1alpha1.RevokeJoinTokenRequest\x1a&.orch.v1alpha1.RevokeJoinTokenResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\x0fRevokeJoinToken\x12%.orch.v1alpha1.RevokeJoinTokenRequest\x1a&.orch.v1alpha1.RevokeJoinTokenResponse\x12]\n" +
+	"\x0eSetGitHubTrust\x12$.orch.v1alpha1.SetGitHubTrustRequest\x1a%.orch.v1alpha1.SetGitHubTrustResponse\x12c\n" +
+	"\x10ListGitHubTrusts\x12&.orch.v1alpha1.ListGitHubTrustsRequest\x1a'.orch.v1alpha1.ListGitHubTrustsResponse\x12f\n" +
+	"\x11DeleteGitHubTrust\x12'.orch.v1alpha1.DeleteGitHubTrustRequest\x1a(.orch.v1alpha1.DeleteGitHubTrustResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_control_proto_rawDescOnce sync.Once
@@ -7620,7 +8057,7 @@ func file_orch_v1alpha1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 98)
+var file_orch_v1alpha1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 105)
 var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(ExecutionStatus)(0),                 // 0: orch.v1alpha1.ExecutionStatus
 	(NodeConnectionStatus)(0),            // 1: orch.v1alpha1.NodeConnectionStatus
@@ -7722,103 +8159,110 @@ var file_orch_v1alpha1_control_proto_goTypes = []any{
 	(*CancelJobResponse)(nil),            // 97: orch.v1alpha1.CancelJobResponse
 	(*RetryJobRequest)(nil),              // 98: orch.v1alpha1.RetryJobRequest
 	(*RetryJobResponse)(nil),             // 99: orch.v1alpha1.RetryJobResponse
-	nil,                                  // 100: orch.v1alpha1.Node.LabelsEntry
-	nil,                                  // 101: orch.v1alpha1.UpdateNodeRequest.LabelsEntry
-	(*timestamppb.Timestamp)(nil),        // 102: google.protobuf.Timestamp
-	(*AllocationStatus)(nil),             // 103: orch.v1alpha1.AllocationStatus
-	(*RouteStatus)(nil),                  // 104: orch.v1alpha1.RouteStatus
-	(*TCPRouteStatus)(nil),               // 105: orch.v1alpha1.TCPRouteStatus
-	(*CronJobStatus)(nil),                // 106: orch.v1alpha1.CronJobStatus
-	(*NodePortStatus)(nil),               // 107: orch.v1alpha1.NodePortStatus
-	(AllocationPhase)(0),                 // 108: orch.v1alpha1.AllocationPhase
-	(JobRunState)(0),                     // 109: orch.v1alpha1.JobRunState
-	(HealthStatus)(0),                    // 110: orch.v1alpha1.HealthStatus
-	(*VolumeBackupInfo)(nil),             // 111: orch.v1alpha1.VolumeBackupInfo
-	(*JobRunStatus)(nil),                 // 112: orch.v1alpha1.JobRunStatus
-	(LogStream)(0),                       // 113: orch.v1alpha1.LogStream
-	(*TailLogsResponse)(nil),             // 114: orch.v1alpha1.TailLogsResponse
-	(*ExecResponse)(nil),                 // 115: orch.v1alpha1.ExecResponse
+	(*GitHubTrust)(nil),                  // 100: orch.v1alpha1.GitHubTrust
+	(*SetGitHubTrustRequest)(nil),        // 101: orch.v1alpha1.SetGitHubTrustRequest
+	(*SetGitHubTrustResponse)(nil),       // 102: orch.v1alpha1.SetGitHubTrustResponse
+	(*ListGitHubTrustsRequest)(nil),      // 103: orch.v1alpha1.ListGitHubTrustsRequest
+	(*ListGitHubTrustsResponse)(nil),     // 104: orch.v1alpha1.ListGitHubTrustsResponse
+	(*DeleteGitHubTrustRequest)(nil),     // 105: orch.v1alpha1.DeleteGitHubTrustRequest
+	(*DeleteGitHubTrustResponse)(nil),    // 106: orch.v1alpha1.DeleteGitHubTrustResponse
+	nil,                                  // 107: orch.v1alpha1.Node.LabelsEntry
+	nil,                                  // 108: orch.v1alpha1.UpdateNodeRequest.LabelsEntry
+	(*timestamppb.Timestamp)(nil),        // 109: google.protobuf.Timestamp
+	(*AllocationStatus)(nil),             // 110: orch.v1alpha1.AllocationStatus
+	(*RouteStatus)(nil),                  // 111: orch.v1alpha1.RouteStatus
+	(*TCPRouteStatus)(nil),               // 112: orch.v1alpha1.TCPRouteStatus
+	(*CronJobStatus)(nil),                // 113: orch.v1alpha1.CronJobStatus
+	(*NodePortStatus)(nil),               // 114: orch.v1alpha1.NodePortStatus
+	(AllocationPhase)(0),                 // 115: orch.v1alpha1.AllocationPhase
+	(JobRunState)(0),                     // 116: orch.v1alpha1.JobRunState
+	(HealthStatus)(0),                    // 117: orch.v1alpha1.HealthStatus
+	(*VolumeBackupInfo)(nil),             // 118: orch.v1alpha1.VolumeBackupInfo
+	(*JobRunStatus)(nil),                 // 119: orch.v1alpha1.JobRunStatus
+	(LogStream)(0),                       // 120: orch.v1alpha1.LogStream
+	(*TailLogsResponse)(nil),             // 121: orch.v1alpha1.TailLogsResponse
+	(*ExecResponse)(nil),                 // 122: orch.v1alpha1.ExecResponse
 }
 var file_orch_v1alpha1_control_proto_depIdxs = []int32{
-	102, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
+	109, // 0: orch.v1alpha1.Cluster.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 1: orch.v1alpha1.Application.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	102, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
-	102, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
-	103, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	104, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
-	105, // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	106, // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
-	107, // 9: orch.v1alpha1.Application.node_ports:type_name -> orch.v1alpha1.NodePortStatus
+	109, // 2: orch.v1alpha1.Application.created_at:type_name -> google.protobuf.Timestamp
+	109, // 3: orch.v1alpha1.Application.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 4: orch.v1alpha1.Application.execution_updated_at:type_name -> google.protobuf.Timestamp
+	110, // 5: orch.v1alpha1.Application.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	111, // 6: orch.v1alpha1.Application.routes:type_name -> orch.v1alpha1.RouteStatus
+	112, // 7: orch.v1alpha1.Application.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	113, // 8: orch.v1alpha1.Application.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	114, // 9: orch.v1alpha1.Application.node_ports:type_name -> orch.v1alpha1.NodePortStatus
 	1,   // 10: orch.v1alpha1.Node.connection_status:type_name -> orch.v1alpha1.NodeConnectionStatus
-	102, // 11: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
-	102, // 12: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
+	109, // 11: orch.v1alpha1.Node.created_at:type_name -> google.protobuf.Timestamp
+	109, // 12: orch.v1alpha1.Node.last_seen_at:type_name -> google.protobuf.Timestamp
 	2,   // 13: orch.v1alpha1.Node.lifecycle:type_name -> orch.v1alpha1.NodeLifecycle
-	100, // 14: orch.v1alpha1.Node.labels:type_name -> orch.v1alpha1.Node.LabelsEntry
-	102, // 15: orch.v1alpha1.Node.certificate_not_after:type_name -> google.protobuf.Timestamp
-	102, // 16: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
+	107, // 14: orch.v1alpha1.Node.labels:type_name -> orch.v1alpha1.Node.LabelsEntry
+	109, // 15: orch.v1alpha1.Node.certificate_not_after:type_name -> google.protobuf.Timestamp
+	109, // 16: orch.v1alpha1.Event.created_at:type_name -> google.protobuf.Timestamp
 	4,   // 17: orch.v1alpha1.GetClusterResponse.cluster:type_name -> orch.v1alpha1.Cluster
 	10,  // 18: orch.v1alpha1.GetClusterResponse.backup:type_name -> orch.v1alpha1.ControllerBackup
-	102, // 19: orch.v1alpha1.ControllerBackup.latest_at:type_name -> google.protobuf.Timestamp
-	102, // 20: orch.v1alpha1.ControllerBackup.failed_at:type_name -> google.protobuf.Timestamp
+	109, // 19: orch.v1alpha1.ControllerBackup.latest_at:type_name -> google.protobuf.Timestamp
+	109, // 20: orch.v1alpha1.ControllerBackup.failed_at:type_name -> google.protobuf.Timestamp
 	5,   // 21: orch.v1alpha1.GetApplicationResponse.application:type_name -> orch.v1alpha1.Application
 	0,   // 22: orch.v1alpha1.ApplicationSummary.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	102, // 23: orch.v1alpha1.ApplicationSummary.created_at:type_name -> google.protobuf.Timestamp
-	102, // 24: orch.v1alpha1.ApplicationSummary.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 25: orch.v1alpha1.ApplicationSummary.execution_updated_at:type_name -> google.protobuf.Timestamp
+	109, // 23: orch.v1alpha1.ApplicationSummary.created_at:type_name -> google.protobuf.Timestamp
+	109, // 24: orch.v1alpha1.ApplicationSummary.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 25: orch.v1alpha1.ApplicationSummary.execution_updated_at:type_name -> google.protobuf.Timestamp
 	13,  // 26: orch.v1alpha1.ListApplicationsResponse.applications:type_name -> orch.v1alpha1.ApplicationSummary
 	3,   // 27: orch.v1alpha1.RuntimeSummary.kind:type_name -> orch.v1alpha1.RuntimeKind
 	1,   // 28: orch.v1alpha1.RuntimeSummary.node_connection:type_name -> orch.v1alpha1.NodeConnectionStatus
-	108, // 29: orch.v1alpha1.RuntimeSummary.allocation_phase:type_name -> orch.v1alpha1.AllocationPhase
-	109, // 30: orch.v1alpha1.RuntimeSummary.job_run_state:type_name -> orch.v1alpha1.JobRunState
-	110, // 31: orch.v1alpha1.RuntimeSummary.health_status:type_name -> orch.v1alpha1.HealthStatus
-	102, // 32: orch.v1alpha1.RuntimeSummary.scheduled_at:type_name -> google.protobuf.Timestamp
-	102, // 33: orch.v1alpha1.RuntimeSummary.started_at:type_name -> google.protobuf.Timestamp
-	102, // 34: orch.v1alpha1.RuntimeSummary.ready_at:type_name -> google.protobuf.Timestamp
-	102, // 35: orch.v1alpha1.RuntimeSummary.finished_at:type_name -> google.protobuf.Timestamp
-	102, // 36: orch.v1alpha1.RuntimeSummary.updated_at:type_name -> google.protobuf.Timestamp
+	115, // 29: orch.v1alpha1.RuntimeSummary.allocation_phase:type_name -> orch.v1alpha1.AllocationPhase
+	116, // 30: orch.v1alpha1.RuntimeSummary.job_run_state:type_name -> orch.v1alpha1.JobRunState
+	117, // 31: orch.v1alpha1.RuntimeSummary.health_status:type_name -> orch.v1alpha1.HealthStatus
+	109, // 32: orch.v1alpha1.RuntimeSummary.scheduled_at:type_name -> google.protobuf.Timestamp
+	109, // 33: orch.v1alpha1.RuntimeSummary.started_at:type_name -> google.protobuf.Timestamp
+	109, // 34: orch.v1alpha1.RuntimeSummary.ready_at:type_name -> google.protobuf.Timestamp
+	109, // 35: orch.v1alpha1.RuntimeSummary.finished_at:type_name -> google.protobuf.Timestamp
+	109, // 36: orch.v1alpha1.RuntimeSummary.updated_at:type_name -> google.protobuf.Timestamp
 	16,  // 37: orch.v1alpha1.ListRuntimesResponse.runtimes:type_name -> orch.v1alpha1.RuntimeSummary
 	7,   // 38: orch.v1alpha1.ListEventsResponse.events:type_name -> orch.v1alpha1.Event
 	7,   // 39: orch.v1alpha1.ListRecentEventsResponse.events:type_name -> orch.v1alpha1.Event
 	24,  // 40: orch.v1alpha1.ApplyApplicationRequest.source:type_name -> orch.v1alpha1.DeploymentSource
 	0,   // 41: orch.v1alpha1.ApplyApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	102, // 42: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
-	102, // 43: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 44: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	109, // 42: orch.v1alpha1.ApplyApplicationResponse.created_at:type_name -> google.protobuf.Timestamp
+	109, // 43: orch.v1alpha1.ApplyApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 44: orch.v1alpha1.EnrollAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
 	6,   // 45: orch.v1alpha1.ListNodesResponse.nodes:type_name -> orch.v1alpha1.Node
-	101, // 46: orch.v1alpha1.UpdateNodeRequest.labels:type_name -> orch.v1alpha1.UpdateNodeRequest.LabelsEntry
+	108, // 46: orch.v1alpha1.UpdateNodeRequest.labels:type_name -> orch.v1alpha1.UpdateNodeRequest.LabelsEntry
 	2,   // 47: orch.v1alpha1.UpdateNodeRequest.lifecycle:type_name -> orch.v1alpha1.NodeLifecycle
 	6,   // 48: orch.v1alpha1.UpdateNodeResponse.node:type_name -> orch.v1alpha1.Node
-	102, // 49: orch.v1alpha1.JoinTokenMetadata.created_at:type_name -> google.protobuf.Timestamp
-	102, // 50: orch.v1alpha1.JoinTokenMetadata.expires_at:type_name -> google.protobuf.Timestamp
-	102, // 51: orch.v1alpha1.CreateJoinTokenRequest.expires_at:type_name -> google.protobuf.Timestamp
+	109, // 49: orch.v1alpha1.JoinTokenMetadata.created_at:type_name -> google.protobuf.Timestamp
+	109, // 50: orch.v1alpha1.JoinTokenMetadata.expires_at:type_name -> google.protobuf.Timestamp
+	109, // 51: orch.v1alpha1.CreateJoinTokenRequest.expires_at:type_name -> google.protobuf.Timestamp
 	34,  // 52: orch.v1alpha1.CreateJoinTokenResponse.token:type_name -> orch.v1alpha1.JoinTokenMetadata
 	34,  // 53: orch.v1alpha1.ListJoinTokensResponse.tokens:type_name -> orch.v1alpha1.JoinTokenMetadata
 	34,  // 54: orch.v1alpha1.RevokeJoinTokenResponse.token:type_name -> orch.v1alpha1.JoinTokenMetadata
 	0,   // 55: orch.v1alpha1.RemoveApplicationResponse.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	102, // 56: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
-	111, // 57: orch.v1alpha1.VolumeSummary.backups:type_name -> orch.v1alpha1.VolumeBackupInfo
-	102, // 58: orch.v1alpha1.VolumeSummary.backup_failed_at:type_name -> google.protobuf.Timestamp
+	109, // 56: orch.v1alpha1.RemoveApplicationResponse.updated_at:type_name -> google.protobuf.Timestamp
+	118, // 57: orch.v1alpha1.VolumeSummary.backups:type_name -> orch.v1alpha1.VolumeBackupInfo
+	109, // 58: orch.v1alpha1.VolumeSummary.backup_failed_at:type_name -> google.protobuf.Timestamp
 	48,  // 59: orch.v1alpha1.ListVolumesResponse.volumes:type_name -> orch.v1alpha1.VolumeSummary
-	111, // 60: orch.v1alpha1.BackupVolumeResponse.backup:type_name -> orch.v1alpha1.VolumeBackupInfo
-	111, // 61: orch.v1alpha1.RestoreVolumeResponse.previous:type_name -> orch.v1alpha1.VolumeBackupInfo
-	112, // 62: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
-	113, // 63: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	102, // 64: orch.v1alpha1.SecretMetadata.created_at:type_name -> google.protobuf.Timestamp
-	102, // 65: orch.v1alpha1.SecretMetadata.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 66: orch.v1alpha1.SetSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	118, // 60: orch.v1alpha1.BackupVolumeResponse.backup:type_name -> orch.v1alpha1.VolumeBackupInfo
+	118, // 61: orch.v1alpha1.RestoreVolumeResponse.previous:type_name -> orch.v1alpha1.VolumeBackupInfo
+	119, // 62: orch.v1alpha1.ListCronRunsResponse.runs:type_name -> orch.v1alpha1.JobRunStatus
+	120, // 63: orch.v1alpha1.TailCronLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	109, // 64: orch.v1alpha1.SecretMetadata.created_at:type_name -> google.protobuf.Timestamp
+	109, // 65: orch.v1alpha1.SecretMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 66: orch.v1alpha1.SetSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
 	60,  // 67: orch.v1alpha1.ListSecretsResponse.secrets:type_name -> orch.v1alpha1.SecretMetadata
-	102, // 68: orch.v1alpha1.DeleteSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 69: orch.v1alpha1.RegistryCredentialMetadata.created_at:type_name -> google.protobuf.Timestamp
-	102, // 70: orch.v1alpha1.RegistryCredentialMetadata.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 71: orch.v1alpha1.LoginRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 68: orch.v1alpha1.DeleteSecretResponse.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 69: orch.v1alpha1.RegistryCredentialMetadata.created_at:type_name -> google.protobuf.Timestamp
+	109, // 70: orch.v1alpha1.RegistryCredentialMetadata.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 71: orch.v1alpha1.LoginRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
 	67,  // 72: orch.v1alpha1.ListRegistriesResponse.registries:type_name -> orch.v1alpha1.RegistryCredentialMetadata
-	102, // 73: orch.v1alpha1.LogoutRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 74: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 75: orch.v1alpha1.Deployment.created_at:type_name -> google.protobuf.Timestamp
+	109, // 73: orch.v1alpha1.LogoutRegistryResponse.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 74: orch.v1alpha1.ConfigureNetworkResponse.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 75: orch.v1alpha1.Deployment.created_at:type_name -> google.protobuf.Timestamp
 	0,   // 76: orch.v1alpha1.Deployment.execution_status:type_name -> orch.v1alpha1.ExecutionStatus
-	102, // 77: orch.v1alpha1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
-	102, // 78: orch.v1alpha1.Deployment.finished_at:type_name -> google.protobuf.Timestamp
+	109, // 77: orch.v1alpha1.Deployment.updated_at:type_name -> google.protobuf.Timestamp
+	109, // 78: orch.v1alpha1.Deployment.finished_at:type_name -> google.protobuf.Timestamp
 	77,  // 79: orch.v1alpha1.Deployment.images:type_name -> orch.v1alpha1.DeploymentImage
 	24,  // 80: orch.v1alpha1.Deployment.source:type_name -> orch.v1alpha1.DeploymentSource
 	76,  // 81: orch.v1alpha1.ListDeploymentsResponse.deployments:type_name -> orch.v1alpha1.Deployment
@@ -7827,100 +8271,109 @@ var file_orch_v1alpha1_control_proto_depIdxs = []int32{
 	76,  // 84: orch.v1alpha1.CompareDeploymentsResponse.to:type_name -> orch.v1alpha1.Deployment
 	83,  // 85: orch.v1alpha1.CompareDeploymentsResponse.changes:type_name -> orch.v1alpha1.DeploymentChange
 	25,  // 86: orch.v1alpha1.RollbackApplicationResponse.deployment:type_name -> orch.v1alpha1.ApplyApplicationResponse
-	112, // 87: orch.v1alpha1.OneOffJob.status:type_name -> orch.v1alpha1.JobRunStatus
+	119, // 87: orch.v1alpha1.OneOffJob.status:type_name -> orch.v1alpha1.JobRunStatus
 	87,  // 88: orch.v1alpha1.RunJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
 	87,  // 89: orch.v1alpha1.RunCronJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
 	87,  // 90: orch.v1alpha1.GetJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
 	87,  // 91: orch.v1alpha1.ListJobsResponse.jobs:type_name -> orch.v1alpha1.OneOffJob
 	87,  // 92: orch.v1alpha1.CancelJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
 	87,  // 93: orch.v1alpha1.RetryJobResponse.job:type_name -> orch.v1alpha1.OneOffJob
-	88,  // 94: orch.v1alpha1.ControlService.RunJob:input_type -> orch.v1alpha1.RunJobRequest
-	90,  // 95: orch.v1alpha1.ControlService.RunCronJob:input_type -> orch.v1alpha1.RunCronJobRequest
-	92,  // 96: orch.v1alpha1.ControlService.GetJob:input_type -> orch.v1alpha1.GetJobRequest
-	94,  // 97: orch.v1alpha1.ControlService.ListJobs:input_type -> orch.v1alpha1.ListJobsRequest
-	96,  // 98: orch.v1alpha1.ControlService.CancelJob:input_type -> orch.v1alpha1.CancelJobRequest
-	98,  // 99: orch.v1alpha1.ControlService.RetryJob:input_type -> orch.v1alpha1.RetryJobRequest
-	8,   // 100: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
-	11,  // 101: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
-	78,  // 102: orch.v1alpha1.ControlService.ListDeployments:input_type -> orch.v1alpha1.ListDeploymentsRequest
-	80,  // 103: orch.v1alpha1.ControlService.GetDeployment:input_type -> orch.v1alpha1.GetDeploymentRequest
-	82,  // 104: orch.v1alpha1.ControlService.CompareDeployments:input_type -> orch.v1alpha1.CompareDeploymentsRequest
-	85,  // 105: orch.v1alpha1.ControlService.RollbackApplication:input_type -> orch.v1alpha1.RollbackApplicationRequest
-	14,  // 106: orch.v1alpha1.ControlService.ListApplications:input_type -> orch.v1alpha1.ListApplicationsRequest
-	17,  // 107: orch.v1alpha1.ControlService.ListRuntimes:input_type -> orch.v1alpha1.ListRuntimesRequest
-	19,  // 108: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
-	21,  // 109: orch.v1alpha1.ControlService.ListRecentEvents:input_type -> orch.v1alpha1.ListRecentEventsRequest
-	23,  // 110: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
-	26,  // 111: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
-	28,  // 112: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
-	41,  // 113: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
-	43,  // 114: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
-	44,  // 115: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
-	45,  // 116: orch.v1alpha1.ControlService.RestartService:input_type -> orch.v1alpha1.RestartServiceRequest
-	47,  // 117: orch.v1alpha1.ControlService.ListVolumes:input_type -> orch.v1alpha1.ListVolumesRequest
-	50,  // 118: orch.v1alpha1.ControlService.BackupVolume:input_type -> orch.v1alpha1.BackupVolumeRequest
-	52,  // 119: orch.v1alpha1.ControlService.RestoreVolume:input_type -> orch.v1alpha1.RestoreVolumeRequest
-	54,  // 120: orch.v1alpha1.ControlService.DownloadVolumeBackup:input_type -> orch.v1alpha1.DownloadVolumeBackupRequest
-	74,  // 121: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
-	56,  // 122: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
-	58,  // 123: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
-	61,  // 124: orch.v1alpha1.ControlService.SetSecret:input_type -> orch.v1alpha1.SetSecretRequest
-	63,  // 125: orch.v1alpha1.ControlService.ListSecrets:input_type -> orch.v1alpha1.ListSecretsRequest
-	65,  // 126: orch.v1alpha1.ControlService.DeleteSecret:input_type -> orch.v1alpha1.DeleteSecretRequest
-	68,  // 127: orch.v1alpha1.ControlService.LoginRegistry:input_type -> orch.v1alpha1.LoginRegistryRequest
-	70,  // 128: orch.v1alpha1.ControlService.ListRegistries:input_type -> orch.v1alpha1.ListRegistriesRequest
-	72,  // 129: orch.v1alpha1.ControlService.LogoutRegistry:input_type -> orch.v1alpha1.LogoutRegistryRequest
-	30,  // 130: orch.v1alpha1.ControlService.UpdateNode:input_type -> orch.v1alpha1.UpdateNodeRequest
-	32,  // 131: orch.v1alpha1.ControlService.RemoveNode:input_type -> orch.v1alpha1.RemoveNodeRequest
-	35,  // 132: orch.v1alpha1.ControlService.CreateJoinToken:input_type -> orch.v1alpha1.CreateJoinTokenRequest
-	37,  // 133: orch.v1alpha1.ControlService.ListJoinTokens:input_type -> orch.v1alpha1.ListJoinTokensRequest
-	39,  // 134: orch.v1alpha1.ControlService.RevokeJoinToken:input_type -> orch.v1alpha1.RevokeJoinTokenRequest
-	89,  // 135: orch.v1alpha1.ControlService.RunJob:output_type -> orch.v1alpha1.RunJobResponse
-	91,  // 136: orch.v1alpha1.ControlService.RunCronJob:output_type -> orch.v1alpha1.RunCronJobResponse
-	93,  // 137: orch.v1alpha1.ControlService.GetJob:output_type -> orch.v1alpha1.GetJobResponse
-	95,  // 138: orch.v1alpha1.ControlService.ListJobs:output_type -> orch.v1alpha1.ListJobsResponse
-	97,  // 139: orch.v1alpha1.ControlService.CancelJob:output_type -> orch.v1alpha1.CancelJobResponse
-	99,  // 140: orch.v1alpha1.ControlService.RetryJob:output_type -> orch.v1alpha1.RetryJobResponse
-	9,   // 141: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
-	12,  // 142: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
-	79,  // 143: orch.v1alpha1.ControlService.ListDeployments:output_type -> orch.v1alpha1.ListDeploymentsResponse
-	81,  // 144: orch.v1alpha1.ControlService.GetDeployment:output_type -> orch.v1alpha1.GetDeploymentResponse
-	84,  // 145: orch.v1alpha1.ControlService.CompareDeployments:output_type -> orch.v1alpha1.CompareDeploymentsResponse
-	86,  // 146: orch.v1alpha1.ControlService.RollbackApplication:output_type -> orch.v1alpha1.RollbackApplicationResponse
-	15,  // 147: orch.v1alpha1.ControlService.ListApplications:output_type -> orch.v1alpha1.ListApplicationsResponse
-	18,  // 148: orch.v1alpha1.ControlService.ListRuntimes:output_type -> orch.v1alpha1.ListRuntimesResponse
-	20,  // 149: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
-	22,  // 150: orch.v1alpha1.ControlService.ListRecentEvents:output_type -> orch.v1alpha1.ListRecentEventsResponse
-	25,  // 151: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
-	27,  // 152: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
-	29,  // 153: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
-	42,  // 154: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
-	114, // 155: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
-	115, // 156: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
-	46,  // 157: orch.v1alpha1.ControlService.RestartService:output_type -> orch.v1alpha1.RestartServiceResponse
-	49,  // 158: orch.v1alpha1.ControlService.ListVolumes:output_type -> orch.v1alpha1.ListVolumesResponse
-	51,  // 159: orch.v1alpha1.ControlService.BackupVolume:output_type -> orch.v1alpha1.BackupVolumeResponse
-	53,  // 160: orch.v1alpha1.ControlService.RestoreVolume:output_type -> orch.v1alpha1.RestoreVolumeResponse
-	55,  // 161: orch.v1alpha1.ControlService.DownloadVolumeBackup:output_type -> orch.v1alpha1.DownloadVolumeBackupResponse
-	75,  // 162: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
-	57,  // 163: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
-	59,  // 164: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
-	62,  // 165: orch.v1alpha1.ControlService.SetSecret:output_type -> orch.v1alpha1.SetSecretResponse
-	64,  // 166: orch.v1alpha1.ControlService.ListSecrets:output_type -> orch.v1alpha1.ListSecretsResponse
-	66,  // 167: orch.v1alpha1.ControlService.DeleteSecret:output_type -> orch.v1alpha1.DeleteSecretResponse
-	69,  // 168: orch.v1alpha1.ControlService.LoginRegistry:output_type -> orch.v1alpha1.LoginRegistryResponse
-	71,  // 169: orch.v1alpha1.ControlService.ListRegistries:output_type -> orch.v1alpha1.ListRegistriesResponse
-	73,  // 170: orch.v1alpha1.ControlService.LogoutRegistry:output_type -> orch.v1alpha1.LogoutRegistryResponse
-	31,  // 171: orch.v1alpha1.ControlService.UpdateNode:output_type -> orch.v1alpha1.UpdateNodeResponse
-	33,  // 172: orch.v1alpha1.ControlService.RemoveNode:output_type -> orch.v1alpha1.RemoveNodeResponse
-	36,  // 173: orch.v1alpha1.ControlService.CreateJoinToken:output_type -> orch.v1alpha1.CreateJoinTokenResponse
-	38,  // 174: orch.v1alpha1.ControlService.ListJoinTokens:output_type -> orch.v1alpha1.ListJoinTokensResponse
-	40,  // 175: orch.v1alpha1.ControlService.RevokeJoinToken:output_type -> orch.v1alpha1.RevokeJoinTokenResponse
-	135, // [135:176] is the sub-list for method output_type
-	94,  // [94:135] is the sub-list for method input_type
-	94,  // [94:94] is the sub-list for extension type_name
-	94,  // [94:94] is the sub-list for extension extendee
-	0,   // [0:94] is the sub-list for field type_name
+	109, // 94: orch.v1alpha1.GitHubTrust.created_at:type_name -> google.protobuf.Timestamp
+	100, // 95: orch.v1alpha1.SetGitHubTrustResponse.trust:type_name -> orch.v1alpha1.GitHubTrust
+	100, // 96: orch.v1alpha1.ListGitHubTrustsResponse.trusts:type_name -> orch.v1alpha1.GitHubTrust
+	88,  // 97: orch.v1alpha1.ControlService.RunJob:input_type -> orch.v1alpha1.RunJobRequest
+	90,  // 98: orch.v1alpha1.ControlService.RunCronJob:input_type -> orch.v1alpha1.RunCronJobRequest
+	92,  // 99: orch.v1alpha1.ControlService.GetJob:input_type -> orch.v1alpha1.GetJobRequest
+	94,  // 100: orch.v1alpha1.ControlService.ListJobs:input_type -> orch.v1alpha1.ListJobsRequest
+	96,  // 101: orch.v1alpha1.ControlService.CancelJob:input_type -> orch.v1alpha1.CancelJobRequest
+	98,  // 102: orch.v1alpha1.ControlService.RetryJob:input_type -> orch.v1alpha1.RetryJobRequest
+	8,   // 103: orch.v1alpha1.ControlService.GetCluster:input_type -> orch.v1alpha1.GetClusterRequest
+	11,  // 104: orch.v1alpha1.ControlService.GetApplication:input_type -> orch.v1alpha1.GetApplicationRequest
+	78,  // 105: orch.v1alpha1.ControlService.ListDeployments:input_type -> orch.v1alpha1.ListDeploymentsRequest
+	80,  // 106: orch.v1alpha1.ControlService.GetDeployment:input_type -> orch.v1alpha1.GetDeploymentRequest
+	82,  // 107: orch.v1alpha1.ControlService.CompareDeployments:input_type -> orch.v1alpha1.CompareDeploymentsRequest
+	85,  // 108: orch.v1alpha1.ControlService.RollbackApplication:input_type -> orch.v1alpha1.RollbackApplicationRequest
+	14,  // 109: orch.v1alpha1.ControlService.ListApplications:input_type -> orch.v1alpha1.ListApplicationsRequest
+	17,  // 110: orch.v1alpha1.ControlService.ListRuntimes:input_type -> orch.v1alpha1.ListRuntimesRequest
+	19,  // 111: orch.v1alpha1.ControlService.ListEvents:input_type -> orch.v1alpha1.ListEventsRequest
+	21,  // 112: orch.v1alpha1.ControlService.ListRecentEvents:input_type -> orch.v1alpha1.ListRecentEventsRequest
+	23,  // 113: orch.v1alpha1.ControlService.ApplyApplication:input_type -> orch.v1alpha1.ApplyApplicationRequest
+	26,  // 114: orch.v1alpha1.ControlService.EnrollAgent:input_type -> orch.v1alpha1.EnrollAgentRequest
+	28,  // 115: orch.v1alpha1.ControlService.ListNodes:input_type -> orch.v1alpha1.ListNodesRequest
+	41,  // 116: orch.v1alpha1.ControlService.RemoveApplication:input_type -> orch.v1alpha1.RemoveApplicationRequest
+	43,  // 117: orch.v1alpha1.ControlService.TailLogs:input_type -> orch.v1alpha1.TailLogsRequest
+	44,  // 118: orch.v1alpha1.ControlService.Exec:input_type -> orch.v1alpha1.ExecRequest
+	45,  // 119: orch.v1alpha1.ControlService.RestartService:input_type -> orch.v1alpha1.RestartServiceRequest
+	47,  // 120: orch.v1alpha1.ControlService.ListVolumes:input_type -> orch.v1alpha1.ListVolumesRequest
+	50,  // 121: orch.v1alpha1.ControlService.BackupVolume:input_type -> orch.v1alpha1.BackupVolumeRequest
+	52,  // 122: orch.v1alpha1.ControlService.RestoreVolume:input_type -> orch.v1alpha1.RestoreVolumeRequest
+	54,  // 123: orch.v1alpha1.ControlService.DownloadVolumeBackup:input_type -> orch.v1alpha1.DownloadVolumeBackupRequest
+	74,  // 124: orch.v1alpha1.ControlService.ConfigureNetwork:input_type -> orch.v1alpha1.ConfigureNetworkRequest
+	56,  // 125: orch.v1alpha1.ControlService.ListCronRuns:input_type -> orch.v1alpha1.ListCronRunsRequest
+	58,  // 126: orch.v1alpha1.ControlService.TailCronLogs:input_type -> orch.v1alpha1.TailCronLogsRequest
+	61,  // 127: orch.v1alpha1.ControlService.SetSecret:input_type -> orch.v1alpha1.SetSecretRequest
+	63,  // 128: orch.v1alpha1.ControlService.ListSecrets:input_type -> orch.v1alpha1.ListSecretsRequest
+	65,  // 129: orch.v1alpha1.ControlService.DeleteSecret:input_type -> orch.v1alpha1.DeleteSecretRequest
+	68,  // 130: orch.v1alpha1.ControlService.LoginRegistry:input_type -> orch.v1alpha1.LoginRegistryRequest
+	70,  // 131: orch.v1alpha1.ControlService.ListRegistries:input_type -> orch.v1alpha1.ListRegistriesRequest
+	72,  // 132: orch.v1alpha1.ControlService.LogoutRegistry:input_type -> orch.v1alpha1.LogoutRegistryRequest
+	30,  // 133: orch.v1alpha1.ControlService.UpdateNode:input_type -> orch.v1alpha1.UpdateNodeRequest
+	32,  // 134: orch.v1alpha1.ControlService.RemoveNode:input_type -> orch.v1alpha1.RemoveNodeRequest
+	35,  // 135: orch.v1alpha1.ControlService.CreateJoinToken:input_type -> orch.v1alpha1.CreateJoinTokenRequest
+	37,  // 136: orch.v1alpha1.ControlService.ListJoinTokens:input_type -> orch.v1alpha1.ListJoinTokensRequest
+	39,  // 137: orch.v1alpha1.ControlService.RevokeJoinToken:input_type -> orch.v1alpha1.RevokeJoinTokenRequest
+	101, // 138: orch.v1alpha1.ControlService.SetGitHubTrust:input_type -> orch.v1alpha1.SetGitHubTrustRequest
+	103, // 139: orch.v1alpha1.ControlService.ListGitHubTrusts:input_type -> orch.v1alpha1.ListGitHubTrustsRequest
+	105, // 140: orch.v1alpha1.ControlService.DeleteGitHubTrust:input_type -> orch.v1alpha1.DeleteGitHubTrustRequest
+	89,  // 141: orch.v1alpha1.ControlService.RunJob:output_type -> orch.v1alpha1.RunJobResponse
+	91,  // 142: orch.v1alpha1.ControlService.RunCronJob:output_type -> orch.v1alpha1.RunCronJobResponse
+	93,  // 143: orch.v1alpha1.ControlService.GetJob:output_type -> orch.v1alpha1.GetJobResponse
+	95,  // 144: orch.v1alpha1.ControlService.ListJobs:output_type -> orch.v1alpha1.ListJobsResponse
+	97,  // 145: orch.v1alpha1.ControlService.CancelJob:output_type -> orch.v1alpha1.CancelJobResponse
+	99,  // 146: orch.v1alpha1.ControlService.RetryJob:output_type -> orch.v1alpha1.RetryJobResponse
+	9,   // 147: orch.v1alpha1.ControlService.GetCluster:output_type -> orch.v1alpha1.GetClusterResponse
+	12,  // 148: orch.v1alpha1.ControlService.GetApplication:output_type -> orch.v1alpha1.GetApplicationResponse
+	79,  // 149: orch.v1alpha1.ControlService.ListDeployments:output_type -> orch.v1alpha1.ListDeploymentsResponse
+	81,  // 150: orch.v1alpha1.ControlService.GetDeployment:output_type -> orch.v1alpha1.GetDeploymentResponse
+	84,  // 151: orch.v1alpha1.ControlService.CompareDeployments:output_type -> orch.v1alpha1.CompareDeploymentsResponse
+	86,  // 152: orch.v1alpha1.ControlService.RollbackApplication:output_type -> orch.v1alpha1.RollbackApplicationResponse
+	15,  // 153: orch.v1alpha1.ControlService.ListApplications:output_type -> orch.v1alpha1.ListApplicationsResponse
+	18,  // 154: orch.v1alpha1.ControlService.ListRuntimes:output_type -> orch.v1alpha1.ListRuntimesResponse
+	20,  // 155: orch.v1alpha1.ControlService.ListEvents:output_type -> orch.v1alpha1.ListEventsResponse
+	22,  // 156: orch.v1alpha1.ControlService.ListRecentEvents:output_type -> orch.v1alpha1.ListRecentEventsResponse
+	25,  // 157: orch.v1alpha1.ControlService.ApplyApplication:output_type -> orch.v1alpha1.ApplyApplicationResponse
+	27,  // 158: orch.v1alpha1.ControlService.EnrollAgent:output_type -> orch.v1alpha1.EnrollAgentResponse
+	29,  // 159: orch.v1alpha1.ControlService.ListNodes:output_type -> orch.v1alpha1.ListNodesResponse
+	42,  // 160: orch.v1alpha1.ControlService.RemoveApplication:output_type -> orch.v1alpha1.RemoveApplicationResponse
+	121, // 161: orch.v1alpha1.ControlService.TailLogs:output_type -> orch.v1alpha1.TailLogsResponse
+	122, // 162: orch.v1alpha1.ControlService.Exec:output_type -> orch.v1alpha1.ExecResponse
+	46,  // 163: orch.v1alpha1.ControlService.RestartService:output_type -> orch.v1alpha1.RestartServiceResponse
+	49,  // 164: orch.v1alpha1.ControlService.ListVolumes:output_type -> orch.v1alpha1.ListVolumesResponse
+	51,  // 165: orch.v1alpha1.ControlService.BackupVolume:output_type -> orch.v1alpha1.BackupVolumeResponse
+	53,  // 166: orch.v1alpha1.ControlService.RestoreVolume:output_type -> orch.v1alpha1.RestoreVolumeResponse
+	55,  // 167: orch.v1alpha1.ControlService.DownloadVolumeBackup:output_type -> orch.v1alpha1.DownloadVolumeBackupResponse
+	75,  // 168: orch.v1alpha1.ControlService.ConfigureNetwork:output_type -> orch.v1alpha1.ConfigureNetworkResponse
+	57,  // 169: orch.v1alpha1.ControlService.ListCronRuns:output_type -> orch.v1alpha1.ListCronRunsResponse
+	59,  // 170: orch.v1alpha1.ControlService.TailCronLogs:output_type -> orch.v1alpha1.TailCronLogsResponse
+	62,  // 171: orch.v1alpha1.ControlService.SetSecret:output_type -> orch.v1alpha1.SetSecretResponse
+	64,  // 172: orch.v1alpha1.ControlService.ListSecrets:output_type -> orch.v1alpha1.ListSecretsResponse
+	66,  // 173: orch.v1alpha1.ControlService.DeleteSecret:output_type -> orch.v1alpha1.DeleteSecretResponse
+	69,  // 174: orch.v1alpha1.ControlService.LoginRegistry:output_type -> orch.v1alpha1.LoginRegistryResponse
+	71,  // 175: orch.v1alpha1.ControlService.ListRegistries:output_type -> orch.v1alpha1.ListRegistriesResponse
+	73,  // 176: orch.v1alpha1.ControlService.LogoutRegistry:output_type -> orch.v1alpha1.LogoutRegistryResponse
+	31,  // 177: orch.v1alpha1.ControlService.UpdateNode:output_type -> orch.v1alpha1.UpdateNodeResponse
+	33,  // 178: orch.v1alpha1.ControlService.RemoveNode:output_type -> orch.v1alpha1.RemoveNodeResponse
+	36,  // 179: orch.v1alpha1.ControlService.CreateJoinToken:output_type -> orch.v1alpha1.CreateJoinTokenResponse
+	38,  // 180: orch.v1alpha1.ControlService.ListJoinTokens:output_type -> orch.v1alpha1.ListJoinTokensResponse
+	40,  // 181: orch.v1alpha1.ControlService.RevokeJoinToken:output_type -> orch.v1alpha1.RevokeJoinTokenResponse
+	102, // 182: orch.v1alpha1.ControlService.SetGitHubTrust:output_type -> orch.v1alpha1.SetGitHubTrustResponse
+	104, // 183: orch.v1alpha1.ControlService.ListGitHubTrusts:output_type -> orch.v1alpha1.ListGitHubTrustsResponse
+	106, // 184: orch.v1alpha1.ControlService.DeleteGitHubTrust:output_type -> orch.v1alpha1.DeleteGitHubTrustResponse
+	141, // [141:185] is the sub-list for method output_type
+	97,  // [97:141] is the sub-list for method input_type
+	97,  // [97:97] is the sub-list for extension type_name
+	97,  // [97:97] is the sub-list for extension extendee
+	0,   // [0:97] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_control_proto_init() }
@@ -7935,7 +8388,7 @@ func file_orch_v1alpha1_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_control_proto_rawDesc), len(file_orch_v1alpha1_control_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   98,
+			NumMessages:   105,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

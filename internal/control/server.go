@@ -38,6 +38,9 @@ type Options struct {
 	// BackupKeep is how many daily backups to keep in DATA_DIR/backups. Zero
 	// keeps DefaultBackupKeep; a negative value turns automatic backups off.
 	BackupKeep int
+
+	// GitHubKeysURL replaces GitHub's Actions signing key set; tests only.
+	GitHubKeysURL string
 }
 
 type Server struct {
@@ -158,6 +161,16 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithSendMaxBytes(64<<10),
 	)
 	mux.Handle(enrollmentPath, http.MaxBytesHandler(enrollmentHandler, 64<<10))
+	credentialImplementation := newCredentialService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, now)
+	if options.GitHubKeysURL != "" {
+		credentialImplementation.github.jwksURL = options.GitHubKeysURL
+	}
+	credentialPath, credentialHandler := orchv1alpha1connect.NewCredentialServiceHandler(
+		credentialImplementation,
+		connect.WithReadMaxBytes(64<<10),
+		connect.WithSendMaxBytes(64<<10),
+	)
+	mux.Handle(credentialPath, http.MaxBytesHandler(credentialHandler, 64<<10))
 	agentPath, agentHandler := orchv1alpha1connect.NewAgentServiceHandler(
 		agentImplementation,
 		connect.WithReadMaxBytes(maxAgentMessageBytes),

@@ -760,6 +760,21 @@ orch registry logout HOST [--idempotency-key KEY] [--target NAME] [--json]
 Stores, lists, and removes credentials for private image registries. The
 password or token is read from stdin and accepts 1 byte to 1 MiB.
 
+### orch github
+
+```text
+orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
+orch github list [--target NAME] [--json]
+orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
+```
+
+Lets GitHub Actions runs of a repository deploy one application without stored
+credentials. `trust` prints a ready-to-use workflow and the `ORCH_CLUSTER`
+value it needs. When `ORCH_CLUSTER` is set and no target is given, remote
+commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
+application when the repository is trusted for several. See
+[deploy from GitHub](github.md).
+
 ## Nodes
 
 ### orch node label and unlabel

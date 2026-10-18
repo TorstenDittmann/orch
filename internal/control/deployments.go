@@ -55,7 +55,7 @@ func deploymentSource(message *orchv1alpha1.DeploymentSource) (*model.Deployment
 }
 
 func validateDeploymentRequest(ctx context.Context, msg proto.Message, name string) error {
-	if err := requireAdministrator(ctx); err != nil {
+	if err := requireApplicationAccess(ctx, name); err != nil {
 		return err
 	}
 	if err := rejectUnknownFields(msg); err != nil {
