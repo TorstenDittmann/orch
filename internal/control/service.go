@@ -393,6 +393,10 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	source, err := deploymentSource(request.Msg.GetSource())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	replayed, found, err := s.state.ReplayApplication(ctx, idempotencyKey, canonical)
 	if errors.Is(err, store.ErrIdempotencyConflict) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, err)
@@ -412,7 +416,7 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: manifest.Name, RevisionID: revisionID, Digest: digest,
 		CanonicalManifest: resolved, RequestedManifest: canonical, IdempotencyKey: idempotencyKey,
-		CreatedAt: s.now().UTC(),
+		CreatedAt: s.now().UTC(), Source: source,
 	})
 	if errors.Is(err, store.ErrIdempotencyConflict) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, err)

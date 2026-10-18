@@ -109,6 +109,15 @@ export interface Deployment {
 	current: boolean;
 	active: boolean;
 	images: DeploymentImage[];
+	source?: DeploymentSource;
+}
+
+export interface DeploymentSource {
+	repository?: string;
+	commit?: string;
+	ref?: string;
+	runUrl?: string;
+	actor?: string;
 }
 
 export interface DeploymentChange {

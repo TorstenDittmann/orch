@@ -352,6 +352,9 @@ func (m *Model) deploymentDetailLines(width int) []string {
 	if d.GetRollbackFromRevisionId() != "" {
 		lines = append(lines, "Rollback source: "+d.GetRollbackFromRevisionId())
 	}
+	if d.GetSource() != nil {
+		lines = append(lines, "Deployed from: "+deploymentSourceLine(d.GetSource()))
+	}
 	lines = append(lines, "", "Images")
 	for _, image := range d.GetImages() {
 		lines = append(lines, image.GetKind()+" "+image.GetName()+": "+deploymentImageReference(image))
@@ -420,4 +423,14 @@ func deploymentImageReference(image *orchv1alpha1.DeploymentImage) string {
 		return image.GetRequestedImage() + " -> " + image.GetImage()
 	}
 	return image.GetImage()
+}
+
+func deploymentSourceLine(source *orchv1alpha1.DeploymentSource) string {
+	parts := []string{}
+	for _, value := range []string{source.GetRepository(), source.GetCommit(), source.GetRef(), source.GetActor(), source.GetRunUrl()} {
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " · ")
 }

@@ -37,13 +37,14 @@ type Deployment struct {
 	FinishedAt             *time.Time
 	Current                bool
 	Active                 bool
+	Source                 *model.DeploymentSource
 }
 
 const deploymentSelect = `SELECT r.application_name, r.id, r.generation, r.digest,
  r.canonical_manifest, COALESCE(r.requested_manifest, r.canonical_manifest), r.created_at, COALESCE(h.rollback_from_revision_id, ''),
  h.outcome, h.status, h.reason, h.message, h.updated_at, h.finished_at,
  (r.generation = a.generation AND a.deleted_at IS NULL),
- (r.id = COALESCE(x.active_revision_id, '') AND a.deleted_at IS NULL)
+ (r.id = COALESCE(x.active_revision_id, '') AND a.deleted_at IS NULL), h.source
  FROM application_revisions r JOIN deployment_records h ON h.revision_id = r.id
  JOIN applications a ON a.name = r.application_name
  LEFT JOIN application_execution x ON x.application_name = a.name`
@@ -91,9 +92,9 @@ func (s *Store) Deployments(ctx context.Context, name string, before uint64, lim
 func scanDeployment(row applicationScanner) (Deployment, error) {
 	var d Deployment
 	var canonical, requested, created, updated string
-	var finished sql.NullString
+	var finished, source sql.NullString
 	err := row.Scan(&d.Application, &d.RevisionID, &d.Generation, &d.Digest, &canonical, &requested, &created,
-		&d.RollbackFromRevisionID, &d.Outcome, &d.Status, &d.Reason, &d.Message, &updated, &finished, &d.Current, &d.Active)
+		&d.RollbackFromRevisionID, &d.Outcome, &d.Status, &d.Reason, &d.Message, &updated, &finished, &d.Current, &d.Active, &source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrRevisionNotFound
 	}
@@ -115,6 +116,12 @@ func scanDeployment(row applicationScanner) (Deployment, error) {
 		}
 		d.FinishedAt = &stamp
 	}
+	if source.Valid {
+		d.Source = &model.DeploymentSource{}
+		if err := json.Unmarshal([]byte(source.String), d.Source); err != nil {
+			return d, err
+		}
+	}
 	return d, nil
 }
 
@@ -124,13 +131,20 @@ func startDeploymentTx(ctx context.Context, tx *sql.Tx, input model.ApplyApplica
 			return err
 		}
 	}
-	var source any
+	var rollbackFrom, source any
 	if input.RollbackFromRevisionID != "" {
-		source = input.RollbackFromRevisionID
+		rollbackFrom = input.RollbackFromRevisionID
+	}
+	if input.Source != nil {
+		data, err := json.Marshal(input.Source)
+		if err != nil {
+			return err
+		}
+		source = string(data)
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO deployment_records
- (revision_id, rollback_from_revision_id, outcome, status, reason, message, updated_at)
- VALUES (?, ?, 'IN_PROGRESS', 'PENDING', 'accepted', 'desired state accepted', ?)`, input.RevisionID, source, now.UTC().Format(time.RFC3339Nano))
+ (revision_id, rollback_from_revision_id, outcome, status, reason, message, updated_at, source)
+ VALUES (?, ?, 'IN_PROGRESS', 'PENDING', 'accepted', 'desired state accepted', ?, ?)`, input.RevisionID, rollbackFrom, now.UTC().Format(time.RFC3339Nano), source)
 	return err
 }
 

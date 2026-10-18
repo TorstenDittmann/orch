@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
+	"unicode"
 
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
@@ -16,6 +19,40 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const maxSourceFieldBytes = 256
+
+// deploymentSource validates optional history metadata supplied by the client.
+func deploymentSource(message *orchv1alpha1.DeploymentSource) (*model.DeploymentSource, error) {
+	if message == nil {
+		return nil, nil
+	}
+	source := &model.DeploymentSource{
+		Repository: message.GetRepository(), Commit: message.GetCommit(), Ref: message.GetRef(),
+		RunURL: message.GetRunUrl(), Actor: message.GetActor(),
+	}
+	fields := []struct{ name, value string }{
+		{"repository", source.Repository}, {"commit", source.Commit}, {"ref", source.Ref},
+		{"run_url", source.RunURL}, {"actor", source.Actor},
+	}
+	empty := true
+	for _, field := range fields {
+		if len(field.value) > maxSourceFieldBytes || strings.IndexFunc(field.value, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+			return nil, fmt.Errorf("source.%s must be printable and at most %d bytes", field.name, maxSourceFieldBytes)
+		}
+		empty = empty && field.value == ""
+	}
+	if empty {
+		return nil, nil
+	}
+	if source.RunURL != "" {
+		parsed, err := url.Parse(source.RunURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return nil, errors.New("source.run_url must be an https URL")
+		}
+	}
+	return source, nil
+}
 
 func validateDeploymentRequest(ctx context.Context, msg proto.Message, name string) error {
 	if err := requireAdministrator(ctx); err != nil {
@@ -230,6 +267,12 @@ func deploymentMessage(d store.Deployment) *orchv1alpha1.Deployment {
 	}
 	if d.FinishedAt != nil {
 		result.FinishedAt = timestamppb.New(*d.FinishedAt)
+	}
+	if d.Source != nil {
+		result.Source = &orchv1alpha1.DeploymentSource{
+			Repository: d.Source.Repository, Commit: d.Source.Commit, Ref: d.Source.Ref,
+			RunUrl: d.Source.RunURL, Actor: d.Source.Actor,
+		}
 	}
 	var manifest struct {
 		Services map[string]struct {

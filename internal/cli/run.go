@@ -420,6 +420,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	var file, root, contextPath, idempotencyKey string
 	var jsonOutput, wait bool
 	var timeout time.Duration
+	var images stringList
 	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
@@ -427,6 +428,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	flags.StringVar(&idempotencyKey, "idempotency-key", "", "stable key for safe retries")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flags.BoolVar(&wait, "wait", false, "wait for this revision to become ready")
+	flags.Var(&images, "image", "deploy this image instead of the manifest's: NAME=REF for one service or cron job, or REF for every workload using that repository (repeatable)")
 	flags.DurationVar(&timeout, "timeout", 10*time.Minute, "rollout wait deadline")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
@@ -445,6 +447,10 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	manifest, err := config.Load(ctx, file, config.LoadOptions{RootDir: root})
 	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitInvalid
+	}
+	if err := config.OverrideImages(manifest, images); err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
@@ -470,7 +476,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	response, err := remote.ApplyApplication(ctx, canonical, idempotencyKey)
+	response, err := remote.ApplyApplicationFrom(ctx, canonical, idempotencyKey, ciDeploymentSource(os.Getenv))
 	if err != nil {
 		writeError(stderr, fmt.Errorf("deploy request failed; retry with --idempotency-key %s: %w", idempotencyKey, err), jsonOutput)
 		return ExitRuntime

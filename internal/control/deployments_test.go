@@ -216,3 +216,26 @@ func TestManualRollbackReconcilesAndBecomesReadyAsANewRevision(t *testing.T) {
 		t.Fatalf("rollback result=%+v %v", d, err)
 	}
 }
+
+func TestDeploymentSourceValidation(t *testing.T) {
+	if source, err := deploymentSource(nil); source != nil || err != nil {
+		t.Fatalf("nil source: %+v %v", source, err)
+	}
+	if source, err := deploymentSource(&orchv1alpha1.DeploymentSource{}); source != nil || err != nil {
+		t.Fatalf("empty source: %+v %v", source, err)
+	}
+	valid := &orchv1alpha1.DeploymentSource{Repository: "acme/hello", Commit: "abc", RunUrl: "https://github.com/acme/hello/actions/runs/1"}
+	if source, err := deploymentSource(valid); err != nil || source.RunURL != valid.RunUrl {
+		t.Fatalf("valid source: %+v %v", source, err)
+	}
+	for _, invalid := range []*orchv1alpha1.DeploymentSource{
+		{RunUrl: "javascript:alert(1)"},
+		{RunUrl: "http://github.com/run"},
+		{Actor: "bad\nactor"},
+		{Commit: strings.Repeat("a", maxSourceFieldBytes+1)},
+	} {
+		if _, err := deploymentSource(invalid); err == nil {
+			t.Fatalf("accepted %+v", invalid)
+		}
+	}
+}
