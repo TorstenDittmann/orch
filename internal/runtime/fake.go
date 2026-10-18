@@ -15,11 +15,13 @@ import (
 )
 
 type Fake struct {
-	mu              sync.Mutex
-	Capabilities    Capabilities
-	Objects         map[string]Object
-	Allocations     map[string]model.AllocationDesired
-	Logs            map[string][]LogFrame
+	mu           sync.Mutex
+	Capabilities Capabilities
+	Objects      map[string]Object
+	Allocations  map[string]model.AllocationDesired
+	Logs         map[string][]LogFrame
+	// Previous maps an allocation to its most recently removed object.
+	Previous        map[string]string
 	ExecFrames      map[string][]ExecFrame
 	EnsureErrors    map[string]error
 	NetworkError    error
@@ -44,7 +46,7 @@ func NewFake() *Fake {
 			CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true,
 		},
 		Objects: make(map[string]Object), Allocations: make(map[string]model.AllocationDesired),
-		Logs: make(map[string][]LogFrame), ExecFrames: make(map[string][]ExecFrame),
+		Logs: make(map[string][]LogFrame), Previous: make(map[string]string), ExecFrames: make(map[string][]ExecFrame),
 		EnsureErrors: make(map[string]error), waiters: make(map[string][]chan Object),
 	}
 }
@@ -205,8 +207,28 @@ func (f *Fake) Remove(_ context.Context, id string) error {
 	}
 	delete(f.Objects, id)
 	delete(f.Allocations, id)
+	if object.AllocationID != "" {
+		f.Previous[object.AllocationID] = id
+	}
 	f.Operations = append(f.Operations, "remove:"+id)
 	return nil
+}
+
+func (f *Fake) ReadPreviousLogs(_ context.Context, allocationID string, _ uint32, cursor string) (LogBatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id, ok := f.Previous[allocationID]
+	if !ok {
+		return LogBatch{}, ErrNotFound
+	}
+	frames := append([]LogFrame(nil), f.Logs[id]...)
+	for index := range frames {
+		frames[index].Data = append([]byte(nil), frames[index].Data...)
+	}
+	if cursor != "" {
+		frames = nil
+	}
+	return LogBatch{Frames: frames, NextCursor: "fake:" + id, Exited: true}, nil
 }
 
 func (f *Fake) TailLogs(_ context.Context, id string, _ uint32) ([]LogFrame, error) {

@@ -268,6 +268,10 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stdout, "  capacity=%dm/%dB allocatable=%dm/%dB assigned=%dm/%dB labels=%s\n",
 			node.GetTotalCpuMillis(), node.GetTotalMemoryBytes(), node.GetAllocatableCpuMillis(), node.GetAllocatableMemoryBytes(),
 			node.GetAssignedCpuMillis(), node.GetAssignedMemoryBytes(), formatNodeLabels(node.GetLabels()))
+		if usage := node.GetUsage(); usage != nil {
+			fmt.Fprintf(stdout, "  usage cpu=%dm memory=%dB disk=%dB/%dB\n",
+				usage.GetCpuUsedMillis(), usage.GetMemoryUsedBytes(), usage.GetDiskUsedBytes(), usage.GetDiskTotalBytes())
+		}
 		fmt.Fprintf(stdout, "  network=%s reason=%s subnet=%s mesh=%s:%d key=%t cni=%s plugins=%s nftables=%t dns-capable=%t dns=%s ingress-role=%t caddy=%s ingress=%s draining=%d\n",
 			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetAdvertiseAddress(), node.GetWireguardListenPort(), node.GetWireguardPublicKey() != "", node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
 			node.GetDnsAvailable(), node.GetDnsState(), node.GetIngress(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
@@ -628,18 +632,24 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	var contextPath string
 	var replica, tail uint
-	var follow bool
+	var follow, previous bool
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.UintVar(&replica, "replica", 1, "replica ordinal")
 	flags.UintVar(&tail, "tail", 100, "maximum lines per stream")
 	flags.BoolVar(&follow, "follow", false, "keep printing new output until interrupted")
 	flags.BoolVar(&follow, "f", false, "keep printing new output until interrupted")
+	flags.BoolVar(&previous, "previous", false, "show the replica's previous instance, kept for 24 hours after it was replaced")
+	flags.BoolVar(&previous, "p", false, "show the replica's previous instance, kept for 24 hours after it was replaced")
 	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-replica": true, "--replica": true, "-tail": true, "--tail": true})
 	if err := flags.Parse(reordered); err != nil {
 		return ExitInvalid
 	}
 	if flags.NArg() != 2 || contextPath == "" || replica == 0 || replica > math.MaxUint32 || tail == 0 || tail > 10_000 {
 		fmt.Fprintln(stderr, "logs requires APP SERVICE, --context, and bounded --replica/--tail values")
+		return ExitInvalid
+	}
+	if follow && previous {
+		fmt.Fprintln(stderr, "logs --previous cannot be combined with --follow")
 		return ExitInvalid
 	}
 	if err := validateApplicationService(flags.Arg(0), flags.Arg(1)); err != nil {
@@ -655,7 +665,11 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if follow {
 		return followLogs(ctx, remote, flags.Arg(0), flags.Arg(1), uint32(replica), uint32(tail), stdout, stderr)
 	}
-	stream, err := remote.TailLogs(ctx, flags.Arg(0), flags.Arg(1), uint32(replica), uint32(tail))
+	tailLogs := remote.TailLogs
+	if previous {
+		tailLogs = remote.TailPreviousLogs
+	}
+	stream, err := tailLogs(ctx, flags.Arg(0), flags.Arg(1), uint32(replica), uint32(tail))
 	if err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime

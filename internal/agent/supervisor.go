@@ -1403,6 +1403,14 @@ func (s *Supervisor) TailCronLogs(ctx context.Context, runID string, lines uint3
 	return batch.Frames, err
 }
 
+// ReadPreviousLogs reads the logs of the allocation's most recently removed
+// runtime object, such as the one a deploy or restart replaced.
+func (s *Supervisor) ReadPreviousLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32, cursor string) (orchruntime.LogBatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runtime.ReadPreviousLogs(ctx, allocation.ID, lines, cursor)
+}
+
 func (s *Supervisor) ReadCronLogs(ctx context.Context, runID string, lines uint32, cursor string) (orchruntime.LogBatch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

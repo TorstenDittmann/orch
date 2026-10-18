@@ -421,6 +421,16 @@ message AllocationReport {
 message AgentHeartbeat {
   string boot_id = 1;
   uint64 acknowledged_assignment_generation = 2;
+  NodeResourceUsage usage = 3;
+}
+
+// NodeResourceUsage is the node's usage since the previous heartbeat; disk
+// covers the filesystem holding the agent's data directory.
+message NodeResourceUsage {
+  uint64 cpu_used_millis = 1;
+  uint64 memory_used_bytes = 2;
+  uint64 disk_used_bytes = 3;
+  uint64 disk_total_bytes = 4;
 }
 
 message TailLogsCommand {
@@ -428,6 +438,7 @@ message TailLogsCommand {
   string allocation_id = 2;
   uint32 tail_lines = 3;
   string cursor = 4;
+  bool previous = 5;
 }
 
 message TailCronLogsCommand {

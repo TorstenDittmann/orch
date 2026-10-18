@@ -97,6 +97,7 @@ func New(provider Provider, target, transport, token string) (*Server, error) {
 	s.mux.HandleFunc("GET /api/logs", s.logs)
 	s.mux.HandleFunc("GET /api/jobs", s.jobs)
 	s.mux.HandleFunc("POST /api/jobs/{id}/{action}", s.jobAction)
+	s.mux.HandleFunc("GET /api/nodes/{name}/usage", s.nodeUsage)
 	s.mux.HandleFunc("POST /api/nodes/{name}", s.updateNode)
 	s.mux.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
 	s.mux.HandleFunc("GET /api/", func(w http.ResponseWriter, _ *http.Request) {
@@ -336,7 +337,11 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errors.New("service and replica are required"))
 			return
 		}
-		batch, err = s.provider.LoadLogs(ctx, application, query.Get("service"), uint32(replica), 500, cursor)
+		if query.Get("previous") == "1" {
+			batch, err = s.provider.LoadPreviousLogs(ctx, application, query.Get("service"), uint32(replica), 500)
+		} else {
+			batch, err = s.provider.LoadLogs(ctx, application, query.Get("service"), uint32(replica), 500, cursor)
+		}
 	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -347,6 +352,17 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 		lines = append(lines, map[string]string{"stream": line.Stream, "text": line.Text})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "nextCursor": batch.NextCursor, "cursorReset": batch.CursorReset, "exited": batch.Exited})
+}
+
+func (s *Server) nodeUsage(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	value, err := s.provider.GetNodeUsage(ctx, r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, message(value))
 }
 
 func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {

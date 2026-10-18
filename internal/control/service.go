@@ -511,6 +511,9 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("read nodes"))
 	}
+	if err := s.decorateNodeUsage(ctx, nodes); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read node usage"))
+	}
 	response := &orchv1alpha1.ListNodesResponse{Nodes: make([]*orchv1alpha1.Node, 0, len(nodes))}
 	for _, node := range nodes {
 		store.DecorateCertificateState(&node, s.now())
@@ -822,6 +825,7 @@ func (s *service) TailLogs(ctx context.Context, request *connect.Request[orchv1a
 	_, frames, cancelOperation, err := s.sessions.beginOperation(operationContext, node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_TailLogs{TailLogs: &orchv1alpha1.TailLogsCommand{
 			RequestId: requestID, AllocationId: allocation.ID, TailLines: tailLines, Cursor: request.Msg.GetCursor(),
+			Previous: request.Msg.GetPrevious(),
 		}}}
 	})
 	if err != nil {
@@ -1451,6 +1455,9 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 	}
 	if node.LastSeenAt != nil {
 		message.LastSeenAt = timestamppb.New(*node.LastSeenAt)
+	}
+	if node.Usage != nil {
+		message.Usage = nodeUsageMessage(*node.Usage)
 	}
 	switch node.ConnectionStatus {
 	case model.NodeConnected:

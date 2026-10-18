@@ -347,6 +347,14 @@ func (client *Client) ListNodes(ctx context.Context) ([]*orchv1alpha1.Node, erro
 	return response.Msg.GetNodes(), nil
 }
 
+func (client *Client) GetNodeUsage(ctx context.Context, name string) (*orchv1alpha1.GetNodeUsageResponse, error) {
+	response, err := client.service.GetNodeUsage(ctx, connect.NewRequest(&orchv1alpha1.GetNodeUsageRequest{Name: name}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 func (client *Client) UpdateNode(ctx context.Context, request *orchv1alpha1.UpdateNodeRequest) (*orchv1alpha1.UpdateNodeResponse, error) {
 	response, err := client.service.UpdateNode(ctx, connect.NewRequest(request))
 	if err != nil {
@@ -414,6 +422,14 @@ func (client *Client) TailLogs(ctx context.Context, application, service string,
 func (client *Client) TailLogsAfter(ctx context.Context, application, service string, replica, tailLines uint32, cursor string) (*connect.ServerStreamForClient[orchv1alpha1.TailLogsResponse], error) {
 	return client.service.TailLogs(ctx, connect.NewRequest(&orchv1alpha1.TailLogsRequest{
 		Application: application, Service: service, Replica: replica, TailLines: tailLines, Cursor: cursor,
+	}))
+}
+
+// TailPreviousLogs reads the logs of the replica's most recently removed
+// instance.
+func (client *Client) TailPreviousLogs(ctx context.Context, application, service string, replica, tailLines uint32) (*connect.ServerStreamForClient[orchv1alpha1.TailLogsResponse], error) {
+	return client.service.TailLogs(ctx, connect.NewRequest(&orchv1alpha1.TailLogsRequest{
+		Application: application, Service: service, Replica: replica, TailLines: tailLines, Previous: true,
 	}))
 }
 

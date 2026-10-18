@@ -48,6 +48,7 @@ type sessionRunner struct {
 	volumes                *volumeBackups
 	renewalRetryAt         time.Time
 	renewalBackoff         time.Duration
+	usage                  *usageSampler
 	// keepalive sends a heartbeat on the connected stream. It is set while a
 	// session is connected so a long reconcile, such as a replica given minutes
 	// to stop, cannot let the controller time the session out.
@@ -191,7 +192,7 @@ func (r *sessionRunner) heartbeatRequest(ctx context.Context) *orchv1alpha1.Conn
 		assignmentGeneration = assignment.Generation
 	}
 	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
-		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration,
+		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration, Usage: r.usage.Sample(),
 	}}}
 }
 
@@ -661,9 +662,13 @@ func (r *sessionRunner) runTailLogs(ctx context.Context, command *orchv1alpha1.T
 		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "allocation is not in the cached assignment")
 		return
 	}
-	batch, err := r.supervisor.ReadLogs(ctx, allocation, command.GetTailLines(), command.GetCursor())
+	readLogs, unavailable := r.supervisor.ReadLogs, "running allocation logs are unavailable"
+	if command.GetPrevious() {
+		readLogs, unavailable = r.supervisor.ReadPreviousLogs, "no earlier instance of this replica left logs on its node in the last 24 hours"
+	}
+	batch, err := readLogs(ctx, allocation, command.GetTailLines(), command.GetCursor())
 	if err != nil {
-		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", "running allocation logs are unavailable")
+		enqueueOperationError(ctx, outbound, command.GetRequestId(), "not_found", unavailable)
 		return
 	}
 	var finalOffset uint64

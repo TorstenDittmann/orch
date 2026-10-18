@@ -601,18 +601,25 @@ Prints cluster events with their sequence number, time, kind, and JSON payload.
 ### orch logs
 
 ```text
-orch logs APP SERVICE [--replica 1] [--tail 100] [-f] [--target NAME]
+orch logs APP SERVICE [--replica 1] [--tail 100] [-f | --previous] [--target NAME]
 ```
 
 Prints the most recent log lines of one service replica and exits. With `-f`
 it keeps printing new output until you press Ctrl-C, and carries on through
 restarts and short disconnects, noting them on stderr.
 
+With `--previous` it prints the logs of the replica's previous instance: the
+one a deploy, `orch restart`, or a failed start replaced. Nodes keep a
+replaced instance's logs for 24 hours, up to 256 MiB per node with the oldest
+dropped first. They stay on the node that ran it, so they are not found once
+the replica has moved to another node.
+
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--replica` | `1` | Replica ordinal |
 | `--tail` | `100` | Maximum lines per stream, 1 to 10000 |
 | `-f`, `--follow` | `false` | Keep printing new output |
+| `-p`, `--previous` | `false` | Show the previous instance's logs |
 
 ### orch restart
 

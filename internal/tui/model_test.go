@@ -19,6 +19,7 @@ type fakeProvider struct {
 	nodes        []*orchv1alpha1.Node
 	runtimes     []*orchv1alpha1.RuntimeSummary
 	events       []*orchv1alpha1.Event
+	usage        []*orchv1alpha1.NodeUsage
 	update       *orchv1alpha1.UpdateNodeRequest
 	err          error
 }
@@ -60,6 +61,12 @@ func (f *fakeProvider) UpdateNode(_ context.Context, request *orchv1alpha1.Updat
 }
 func (f *fakeProvider) LoadLogs(context.Context, string, string, uint32, uint32, string) (LogBatch, error) {
 	return LogBatch{Lines: []LogLine{{Stream: "stdout", Text: "ready\nmatched output\n"}, {Stream: "stderr", Text: "matched warning\n"}}, NextCursor: "next"}, f.err
+}
+func (f *fakeProvider) GetNodeUsage(context.Context, string) (*orchv1alpha1.GetNodeUsageResponse, error) {
+	return &orchv1alpha1.GetNodeUsageResponse{StepSeconds: 300, Samples: f.usage}, f.err
+}
+func (f *fakeProvider) LoadPreviousLogs(context.Context, string, string, uint32, uint32) (LogBatch, error) {
+	return LogBatch{Lines: []LogLine{{Stream: "stdout", Text: "previous instance output\n"}}, Exited: true}, f.err
 }
 func (f *fakeProvider) LoadCronLogs(context.Context, string, string, string, uint32, string) (LogBatch, error) {
 	return LogBatch{Lines: []LogLine{{Stream: "stdout", Text: "backup complete\n"}}, NextCursor: "next", Exited: true}, f.err

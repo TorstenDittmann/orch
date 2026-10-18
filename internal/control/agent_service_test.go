@@ -230,7 +230,8 @@ func TestAgentStreamSurvivesReconcileFailure(t *testing.T) {
 				ClusterCidr: network.GetClusterCidr(), NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(),
 				DnsState: model.SubsystemReady, IngressState: ingressState}}}},
 		{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
-			BootId: "boot-one", AcknowledgedAssignmentGeneration: assignment.GetGeneration()}}},
+			BootId: "boot-one", AcknowledgedAssignmentGeneration: assignment.GetGeneration(),
+			Usage: &orchv1alpha1.NodeResourceUsage{CpuUsedMillis: 250, MemoryUsedBytes: 1 << 30, DiskUsedBytes: 5 << 30, DiskTotalBytes: 20 << 30}}}},
 	}
 	for _, message := range messages {
 		if err := stream.Send(message); err != nil {
@@ -255,6 +256,16 @@ func TestAgentStreamSurvivesReconcileFailure(t *testing.T) {
 	nodes, err := admin.ListNodes(context.Background())
 	if err != nil || len(nodes) != 1 || nodes[0].GetConnectionStatus() != orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED {
 		t.Fatalf("nodes after failed reconcile = %#v, %v", nodes, err)
+	}
+	if usage := nodes[0].GetUsage(); usage.GetCpuUsedMillis() != 250 || usage.GetDiskTotalBytes() != 20<<30 {
+		t.Fatalf("node usage = %#v", usage)
+	}
+	history, err := admin.GetNodeUsage(context.Background(), "node-1")
+	if err != nil || len(history.GetSamples()) != 1 || history.GetSamples()[0].GetMemoryUsedBytes() != 1<<30 || history.GetStepSeconds() != 300 {
+		t.Fatalf("node usage history = %#v, %v", history, err)
+	}
+	if _, err := admin.GetNodeUsage(context.Background(), "missing"); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("missing node usage = %v", err)
 	}
 }
 

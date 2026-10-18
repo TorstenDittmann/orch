@@ -86,6 +86,9 @@ const (
 	// ControlServiceListNodesProcedure is the fully-qualified name of the ControlService's ListNodes
 	// RPC.
 	ControlServiceListNodesProcedure = "/orch.v1alpha1.ControlService/ListNodes"
+	// ControlServiceGetNodeUsageProcedure is the fully-qualified name of the ControlService's
+	// GetNodeUsage RPC.
+	ControlServiceGetNodeUsageProcedure = "/orch.v1alpha1.ControlService/GetNodeUsage"
 	// ControlServiceRemoveApplicationProcedure is the fully-qualified name of the ControlService's
 	// RemoveApplication RPC.
 	ControlServiceRemoveApplicationProcedure = "/orch.v1alpha1.ControlService/RemoveApplication"
@@ -174,6 +177,7 @@ type ControlServiceClient interface {
 	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
 	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
+	GetNodeUsage(context.Context, *connect.Request[v1alpha1.GetNodeUsageRequest]) (*connect.Response[v1alpha1.GetNodeUsageResponse], error)
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailLogsResponse], error)
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest]) (*connect.ServerStreamForClient[v1alpha1.ExecResponse], error)
@@ -321,6 +325,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceListNodesProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("ListNodes")),
+			connect.WithClientOptions(opts...),
+		),
+		getNodeUsage: connect.NewClient[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse](
+			httpClient,
+			baseURL+ControlServiceGetNodeUsageProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetNodeUsage")),
 			connect.WithClientOptions(opts...),
 		),
 		removeApplication: connect.NewClient[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse](
@@ -479,6 +489,7 @@ type controlServiceClient struct {
 	applyApplication     *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
 	enrollAgent          *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
 	listNodes            *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	getNodeUsage         *connect.Client[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse]
 	removeApplication    *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
 	tailLogs             *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
 	exec                 *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
@@ -598,6 +609,11 @@ func (c *controlServiceClient) EnrollAgent(ctx context.Context, req *connect.Req
 // ListNodes calls orch.v1alpha1.ControlService.ListNodes.
 func (c *controlServiceClient) ListNodes(ctx context.Context, req *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error) {
 	return c.listNodes.CallUnary(ctx, req)
+}
+
+// GetNodeUsage calls orch.v1alpha1.ControlService.GetNodeUsage.
+func (c *controlServiceClient) GetNodeUsage(ctx context.Context, req *connect.Request[v1alpha1.GetNodeUsageRequest]) (*connect.Response[v1alpha1.GetNodeUsageResponse], error) {
+	return c.getNodeUsage.CallUnary(ctx, req)
 }
 
 // RemoveApplication calls orch.v1alpha1.ControlService.RemoveApplication.
@@ -732,6 +748,7 @@ type ControlServiceHandler interface {
 	// Deprecated: do not use.
 	EnrollAgent(context.Context, *connect.Request[v1alpha1.EnrollAgentRequest]) (*connect.Response[v1alpha1.EnrollAgentResponse], error)
 	ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error)
+	GetNodeUsage(context.Context, *connect.Request[v1alpha1.GetNodeUsageRequest]) (*connect.Response[v1alpha1.GetNodeUsageResponse], error)
 	RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error)
 	TailLogs(context.Context, *connect.Request[v1alpha1.TailLogsRequest], *connect.ServerStream[v1alpha1.TailLogsResponse]) error
 	Exec(context.Context, *connect.Request[v1alpha1.ExecRequest], *connect.ServerStream[v1alpha1.ExecResponse]) error
@@ -875,6 +892,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceListNodesProcedure,
 		svc.ListNodes,
 		connect.WithSchema(controlServiceMethods.ByName("ListNodes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetNodeUsageHandler := connect.NewUnaryHandler(
+		ControlServiceGetNodeUsageProcedure,
+		svc.GetNodeUsage,
+		connect.WithSchema(controlServiceMethods.ByName("GetNodeUsage")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceRemoveApplicationHandler := connect.NewUnaryHandler(
@@ -1049,6 +1072,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceEnrollAgentHandler.ServeHTTP(w, r)
 		case ControlServiceListNodesProcedure:
 			controlServiceListNodesHandler.ServeHTTP(w, r)
+		case ControlServiceGetNodeUsageProcedure:
+			controlServiceGetNodeUsageHandler.ServeHTTP(w, r)
 		case ControlServiceRemoveApplicationProcedure:
 			controlServiceRemoveApplicationHandler.ServeHTTP(w, r)
 		case ControlServiceTailLogsProcedure:
@@ -1176,6 +1201,10 @@ func (UnimplementedControlServiceHandler) EnrollAgent(context.Context, *connect.
 
 func (UnimplementedControlServiceHandler) ListNodes(context.Context, *connect.Request[v1alpha1.ListNodesRequest]) (*connect.Response[v1alpha1.ListNodesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListNodes is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetNodeUsage(context.Context, *connect.Request[v1alpha1.GetNodeUsageRequest]) (*connect.Response[v1alpha1.GetNodeUsageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetNodeUsage is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) RemoveApplication(context.Context, *connect.Request[v1alpha1.RemoveApplicationRequest]) (*connect.Response[v1alpha1.RemoveApplicationResponse], error) {

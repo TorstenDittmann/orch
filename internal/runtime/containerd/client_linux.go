@@ -587,7 +587,7 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 			if err := c.deleteOwnedLease(ctx, id); err != nil {
 				return err
 			}
-			return errors.Join(removeObjectLogs(c.options.LogsDir, id), c.removeSecretProjection(id))
+			return errors.Join(c.removeLogs(id), c.removeSecretProjection(id))
 		}
 		return err
 	}
@@ -623,7 +623,20 @@ func (c *runtimeClient) Remove(ctx context.Context, id string) error {
 	if err := c.deleteOwnedLease(ctx, id); err != nil {
 		return err
 	}
-	return errors.Join(removeObjectLogs(c.options.LogsDir, id), c.removeSecretProjection(id))
+	return errors.Join(c.removeLogs(id), c.removeSecretProjection(id))
+}
+
+// removeLogs keeps a removed service instance's logs for orch logs
+// --previous; cron runs keep their logs through their own run history.
+func (c *runtimeClient) removeLogs(id string) error {
+	if strings.HasPrefix(id, "alloc_") {
+		return retireObjectLogs(c.options.LogsDir, id, time.Now())
+	}
+	return removeObjectLogs(c.options.LogsDir, id)
+}
+
+func (c *runtimeClient) ReadPreviousLogs(_ context.Context, allocationID string, lines uint32, cursor string) (orchruntime.LogBatch, error) {
+	return readPreviousLogs(c.options.LogsDir, allocationID, lines, cursor, time.Now())
 }
 
 func (c *runtimeClient) removeSecretProjection(objectID string) error {

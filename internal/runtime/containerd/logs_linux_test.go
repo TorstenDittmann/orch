@@ -9,7 +9,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func TestRotatingLogBoundsFilesAndTailKeepsStreamsSeparate(t *testing.T) {
@@ -183,5 +187,79 @@ func TestTaskLogCreatorUsesOrchBinaryV2Sink(t *testing.T) {
 	}
 	if parsed.Scheme != "binary-v2" || parsed.Path != "/usr/local/bin/orch" || parsed.Query().Get("runtime-log-sink") != "/var/lib/orch-agent/logs/object" {
 		t.Fatalf("logger URI = %s", configuration.Stdout)
+	}
+}
+
+func TestRetiredLogsServePreviousInstanceAndExpire(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeObject := func(id, line string) {
+		t.Helper()
+		prefix, err := ensureLogFiles(directory, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(prefix+".stdout.log", []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	allocation := "alloc_" + strings.Repeat("a", 32)
+	writeObject(allocation+"-111111111111", "first")
+	writeObject(allocation+"-222222222222", "second")
+	writeObject("alloc_"+strings.Repeat("b", 32)+"-333333333333", "other")
+	if _, err := readPreviousLogs(directory, allocation, 10, "", now); !errors.Is(err, orchruntime.ErrNotFound) {
+		t.Fatalf("previous logs before any removal = %v", err)
+	}
+	if err := retireObjectLogs(directory, allocation+"-111111111111", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := retireObjectLogs(directory, allocation+"-222222222222", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(directory, allocation+"-222222222222.stdout.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retired log is still in the live directory: %v", err)
+	}
+	batch, err := readPreviousLogs(directory, allocation, 10, "", now.Add(2*time.Minute))
+	if err != nil || len(batch.Frames) != 1 || string(batch.Frames[0].Data) != "second\n" || !batch.Exited {
+		t.Fatalf("previous logs = %#v, %v", batch, err)
+	}
+	if _, err := readPreviousLogs(directory, "alloc_"+strings.Repeat("b", 32), 10, "", now); !errors.Is(err, orchruntime.ErrNotFound) {
+		t.Fatalf("another allocation's previous logs = %v", err)
+	}
+	if _, err := readPreviousLogs(directory, allocation, 10, "", now.Add(retiredLogRetention+2*time.Minute)); !errors.Is(err, orchruntime.ErrNotFound) {
+		t.Fatalf("previous logs after the retention = %v", err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(directory, retiredLogsDirectory)); err != nil || len(entries) != 0 {
+		t.Fatalf("expired retired logs = %v, %v", entries, err)
+	}
+}
+
+func TestRetiredLogsStayWithinBudget(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	large := bytes.Repeat([]byte("x"), retiredLogBudget/2+1)
+	for index, id := range []string{"alloc_one-111111111111", "alloc_two-222222222222", "alloc_three-333333333333"} {
+		prefix, err := ensureLogFiles(directory, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(prefix+".stdout.log", large, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := retireObjectLogs(directory, id, now.Add(time.Duration(index)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	objects, err := retiredObjects(filepath.Join(directory, retiredLogsDirectory))
+	if err != nil || len(objects) != 1 || objects[0].id != "alloc_three-333333333333" {
+		t.Fatalf("retired objects within budget = %#v, %v", objects, err)
 	}
 }

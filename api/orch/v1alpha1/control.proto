@@ -29,6 +29,7 @@ service ControlService {
     option deprecated = true;
   }
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc GetNodeUsage(GetNodeUsageRequest) returns (GetNodeUsageResponse);
   rpc RemoveApplication(RemoveApplicationRequest) returns (RemoveApplicationResponse);
   rpc TailLogs(TailLogsRequest) returns (stream TailLogsResponse);
   rpc Exec(ExecRequest) returns (stream ExecResponse);
@@ -158,6 +159,16 @@ message Node {
   google.protobuf.Timestamp certificate_not_after = 38;
   string certificate_state = 39;
   string certificate_reason = 40;
+  // The newest usage the agent reported; unset until it has reported one.
+  NodeUsage usage = 41;
+}
+
+message NodeUsage {
+  google.protobuf.Timestamp observed_at = 1;
+  uint64 cpu_used_millis = 2;
+  uint64 memory_used_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
 }
 
 message Event {
@@ -340,6 +351,18 @@ message ListNodesResponse {
   repeated Node nodes = 1;
 }
 
+message GetNodeUsageRequest {
+  string name = 1;
+}
+
+// GetNodeUsageResponse covers the last 24 hours in step_seconds buckets,
+// oldest first; each sample averages the reports inside its bucket and
+// buckets without reports are left out.
+message GetNodeUsageResponse {
+  repeated NodeUsage samples = 1;
+  uint32 step_seconds = 2;
+}
+
 message UpdateNodeRequest {
   string name = 1;
   map<string, string> labels = 2;
@@ -428,6 +451,9 @@ message TailLogsRequest {
   uint32 replica = 3;
   uint32 tail_lines = 4;
   string cursor = 5;
+  // previous reads the logs of the replica's most recently removed instance
+  // on its node, kept for 24 hours after removal.
+  bool previous = 6;
 }
 
 message ExecRequest {
