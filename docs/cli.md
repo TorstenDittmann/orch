@@ -393,7 +393,7 @@ To compare against what is deployed, use `orch app diff`.
 ### orch deploy
 
 ```text
-orch deploy [-f orch.pkl] [--root DIR] [--wait] [--timeout 10m] [--idempotency-key KEY] [--target NAME] [--json]
+orch deploy [-f orch.pkl] [--root DIR] [--image [NAME=]REF]... [--wait] [--timeout 10m] [--idempotency-key KEY] [--target NAME] [--json]
 ```
 
 Submits the application as desired state. Without `--wait` it returns as soon
@@ -403,6 +403,7 @@ as the controller accepts it; the rollout continues in the background.
 | --- | --- | --- |
 | `-f`, `--file` | `orch.pkl` | Pkl manifest path |
 | `--root` | manifest directory | Pkl evaluation root |
+| `--image` | none | Deploy this image instead of the manifest's; repeatable |
 | `--wait` | `false` | Wait for this revision to become ready, printing progress |
 | `--timeout` | `10m` | Rollout wait deadline |
 | `--idempotency-key` | generated | Stable key for safe retries |
@@ -412,6 +413,16 @@ Submitting the same configuration again reports that the desired state is
 already current. With `--wait`, the result is `READY`, `FAILED`, `TIMED_OUT`,
 or `CANCELED`. Stopping the watcher does not cancel the deployment; resume
 watching with `orch app watch`.
+
+`--image NAME=REF` replaces the image of the service or cron job called
+`NAME` for this deployment. A bare `--image REF` replaces it for every service
+and cron job whose image has the same repository, which is what CI usually
+wants after building one image. Each override must match something. History
+records the deployed image like any other.
+
+Inside GitHub Actions, the deployment also records the repository, commit,
+branch, actor and run link, shown by `orch app history`. See
+[deploy from GitHub](github.md).
 
 ### orch dev
 
@@ -459,8 +470,9 @@ node ports, and cron jobs with their next run.
 orch app history APP [--limit 20] [--before-generation N] [--target NAME] [--json]
 ```
 
-Lists deployments, newest first, with revision, outcome, and resolved images.
-The current and active deployments are marked.
+Lists deployments, newest first, with revision, outcome, resolved images, and
+for deployments from GitHub Actions the commit and run that deployed them. The
+current and active deployments are marked.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |

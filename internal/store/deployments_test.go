@@ -325,3 +325,34 @@ func TestConcurrentRollbackRequestsOnlyAdvanceOnce(t *testing.T) {
 		t.Fatalf("concurrent history: %+v %v", history, err)
 	}
 }
+
+func TestDeploymentRecordsSourceWithoutChangingReplay(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	first := applicationInput(`{"name":"hello","services":{"web":{"replicas":1,"image":"first"}}}`, "revision-one", "idempotency-key-one", testCreatedAt)
+	if _, err := state.ApplyApplication(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := applicationInput(`{"name":"hello","services":{"web":{"replicas":1,"image":"second"}}}`, "revision-two", "idempotency-key-two", testCreatedAt.Add(time.Minute))
+	second.Source = &model.DeploymentSource{Repository: "acme/hello", Commit: "abc123", Ref: "main", RunURL: "https://github.com/acme/hello/actions/runs/1", Actor: "octocat"}
+	accepted, err := state.ApplyApplication(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := second
+	retry.Source = &model.DeploymentSource{Repository: "acme/other"}
+	if replayed, err := state.ApplyApplication(ctx, retry); err != nil || replayed.RevisionID != accepted.RevisionID {
+		t.Fatalf("replay with different source: %+v %v", replayed, err)
+	}
+	history, _, err := state.Deployments(ctx, "hello", 0, 10)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("history: %+v %v", history, err)
+	}
+	if !reflect.DeepEqual(history[0].Source, second.Source) || history[1].Source != nil {
+		t.Fatalf("sources = %+v, %+v", history[0].Source, history[1].Source)
+	}
+}

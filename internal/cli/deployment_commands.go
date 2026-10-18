@@ -88,6 +88,9 @@ func runAppDeployments(ctx context.Context, args []string, stdout, stderr io.Wri
 			if d.GetRollbackFromRevisionId() != "" {
 				fmt.Fprintf(stdout, "  rollback from %s\n", d.GetRollbackFromRevisionId())
 			}
+			if source := deploymentSourceSummary(d.GetSource()); source != "" {
+				fmt.Fprintf(stdout, "  from %s\n", source)
+			}
 			for _, image := range d.GetImages() {
 				fmt.Fprintf(stdout, "  %s %s  %s\n", image.GetKind(), image.GetName(), deploymentImageReference(image))
 			}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -308,9 +309,20 @@ func (client *Client) ListRecentEvents(ctx context.Context, limit uint32) (*orch
 }
 
 func (client *Client) ApplyApplication(ctx context.Context, canonicalManifest []byte, idempotencyKey string) (*orchv1alpha1.ApplyApplicationResponse, error) {
+	return client.ApplyApplicationFrom(ctx, canonicalManifest, idempotencyKey, nil)
+}
+
+// ApplyApplicationFrom applies a manifest and records where it came from in
+// deployment history. A nil source records nothing.
+func (client *Client) ApplyApplicationFrom(ctx context.Context, canonicalManifest []byte, idempotencyKey string, source *orchv1alpha1.DeploymentSource) (*orchv1alpha1.ApplyApplicationResponse, error) {
 	response, err := client.service.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
-		CanonicalManifestJson: append([]byte(nil), canonicalManifest...), IdempotencyKey: idempotencyKey,
+		CanonicalManifestJson: append([]byte(nil), canonicalManifest...), IdempotencyKey: idempotencyKey, Source: source,
 	}))
+	if source != nil && connect.CodeOf(err) == connect.CodeInvalidArgument && strings.Contains(err.Error(), "request contains unknown fields") {
+		// Controllers older than deployment sources reject the field before
+		// persisting anything, so the same key is safe to retry without it.
+		return client.ApplyApplicationFrom(ctx, canonicalManifest, idempotencyKey, nil)
+	}
 	if err != nil {
 		return nil, err
 	}

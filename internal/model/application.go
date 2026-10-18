@@ -68,6 +68,18 @@ type ApplyApplication struct {
 	// Rollback requests are guarded against concurrent desired-state changes.
 	ExpectedGeneration     uint64
 	RollbackFromRevisionID string
+	// Source records where the deployment came from. It is history metadata
+	// and never part of the digest or idempotent replay.
+	Source *DeploymentSource
+}
+
+// DeploymentSource describes the commit and CI run behind a deployment.
+type DeploymentSource struct {
+	Repository string `json:"repository,omitempty"`
+	Commit     string `json:"commit,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	RunURL     string `json:"run_url,omitempty"`
+	Actor      string `json:"actor,omitempty"`
 }
 
 // ApplyApplicationResult is persisted as the exact idempotency response.

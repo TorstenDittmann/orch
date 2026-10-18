@@ -287,6 +287,19 @@ message ApplyApplicationRequest {
   bytes manifest_toml = 1 [deprecated = true];
   string idempotency_key = 2;
   bytes canonical_manifest_json = 3;
+  // Where this deployment came from, such as a CI run. Recorded in history
+  // only; it never changes the manifest digest or idempotent replay.
+  DeploymentSource source = 4;
+}
+
+message DeploymentSource {
+  // owner/name of the source repository.
+  string repository = 1;
+  string commit = 2;
+  string ref = 3;
+  // HTTPS link to the CI run that deployed.
+  string run_url = 4;
+  string actor = 5;
 }
 
 // digest identifies the submitted canonical manifest. Read Deployment.digest
@@ -643,6 +656,7 @@ message Deployment {
   bool current = 13;
   bool active = 14;
   repeated DeploymentImage images = 15;
+  DeploymentSource source = 16;
 }
 
 message DeploymentImage {

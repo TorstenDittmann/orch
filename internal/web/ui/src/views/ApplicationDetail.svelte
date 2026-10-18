@@ -349,6 +349,13 @@
 									<div class="faint meta">
 										<span class="mono">{short(deployment.revisionId)}</span> · {datetime(deployment.createdAt)} ({ago(deployment.createdAt, live.now)})
 									</div>
+									{#if deployment.source}
+										{@const source = deployment.source}
+										<div class="faint meta">
+											From <span class="mono">{source.repository}{source.commit ? '@' + short(source.commit, 7) : ''}</span>{source.ref ? ` (${source.ref})` : ''}{source.actor ? ` by ${source.actor}` : ''}
+											{#if source.runUrl}· <a class="link" href={source.runUrl} target="_blank" rel="noreferrer noopener">run <ExternalLink size={12} /></a>{/if}
+										</div>
+									{/if}
 									{#if deployment.message}<div class="muted">{deployment.message}</div>{/if}
 									{#if deployment.images?.length}
 										<div class="images">

@@ -10,6 +10,7 @@
 - Guides
   - [Applications](configuration.md)
   - [Deployments](runtime.md)
+  - [Deploy from GitHub](github.md)
   - [Networking](networking.md)
   - [Secrets](secrets.md)
   - [Jobs and schedules](jobs.md)
