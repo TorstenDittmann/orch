@@ -116,7 +116,7 @@ func (m *Model) renderFooter(t theme, width int) string {
 	} else if m.view == ViewEvents {
 		left = " ↑↓/jk inspect   / filter   x clear   ctrl+p commands   ? help"
 	} else if m.view == ViewLogs {
-		left = " ↑↓/jk navigate   enter logs   h/l pane   / search   g group   s stream   p follow   G live"
+		left = " ↑↓/jk navigate   enter logs   h/l pane   / search   g group   s stream   p follow   P previous   G live"
 	}
 	right := ""
 	if m.loading {
@@ -298,12 +298,13 @@ func (m *Model) renderNodes(t theme, width, height int) string {
 	detailLines := []string{
 		heading(t, sanitize(node.GetName())),
 		statusStyle(t, node.GetConnectionStatus().String()) + "  " + enumLabel(node.GetLifecycle().String()), "",
-		labelValue(t, "CPU", fmt.Sprintf("%dm / %dm", node.GetAssignedCpuMillis(), node.GetAllocatableCpuMillis())),
-		labelValue(t, "Memory", fmt.Sprintf("%s / %s", bytesLabel(node.GetAssignedMemoryBytes()), bytesLabel(node.GetAllocatableMemoryBytes()))),
+		labelValue(t, "CPU reserved", fmt.Sprintf("%dm / %dm", node.GetAssignedCpuMillis(), node.GetAllocatableCpuMillis())),
+		labelValue(t, "Mem reserved", fmt.Sprintf("%s / %s", bytesLabel(node.GetAssignedMemoryBytes()), bytesLabel(node.GetAllocatableMemoryBytes()))),
 		labelValue(t, "Network", node.GetNetworkState()), labelValue(t, "Ingress", fmt.Sprint(node.GetIngress())),
 		labelValue(t, "Subnet", node.GetNodeSubnet()), labelValue(t, "Labels", sortedLabels(node.GetLabels())), "",
-		muted(t, "c cordon · u uncordon · d drain · i ingress"),
 	}
+	detailLines = append(detailLines, m.usageLines(t, node, width-listWidth-6)...)
+	detailLines = append(detailLines, "", muted(t, "c cordon · u uncordon · d drain · i ingress"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, list, panel(t, strings.Join(detailLines, "\n"), width-listWidth, height))
 }
 
@@ -488,6 +489,9 @@ func (m *Model) renderRuntimeLogPane(t theme, width, height int, runtime *orchv1
 	if m.logExited {
 		state = "exited"
 	}
+	if m.logPrevious {
+		state = "previous instance"
+	}
 	header := heading(t, "Logs"+focus) + "  " + muted(t, fmt.Sprintf("%s · %s · wrap %t", m.logStream, state, m.logWrap))
 	if m.logsLoading && !selectedSource {
 		return panel(t, header+"\n\n"+muted(t, "Opening "+source.application+"/"+source.resource+runtimeSuffix(runtime)+" logs…"), width, height)
@@ -568,6 +572,7 @@ Node actions               Runtime workspace
   i           toggle ingress  s           stdout/stderr/all
                               w           toggle wrapping
                               p           pause/resume follow
+                              P           previous instance
                               g           group app/node
                               h / l       tree/log pane
                               G           jump to live output

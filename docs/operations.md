@@ -136,6 +136,11 @@ according to your retention policy.
 
 ## Monitoring
 
+Every agent reports its node's CPU, memory, and disk usage with each
+heartbeat, and the controller keeps the last 24 hours of it. `orch nodes`
+prints the current usage, and the TUI and `orch web` show it with a 24-hour
+chart per node. Nothing needs to be installed or enabled.
+
 The controller serves Prometheus metrics at `/metrics`, computed from cluster
 state on each scrape. There is nothing to enable. The endpoint takes the same
 credentials as the administrator API: an administrator certificate on the
@@ -169,6 +174,9 @@ http://orch/metrics` prints the same metrics as root.
 | `orch_nodes` | `lifecycle`, `connection` | Node count; `connection` is `connected`, `disconnected`, `unreachable` (no heartbeat for 45s) or `enrolled` |
 | `orch_node_connected` | `node`, `lifecycle` | 1 when the node's agent is connected |
 | `orch_node_certificate_expiry_seconds` | `node` | Until the worker certificate expires (renewed automatically 90 days ahead) |
+| `orch_node_cpu_used_cores` | `node` | CPU cores in use, averaged over the last heartbeat interval |
+| `orch_node_memory_used_bytes` | `node` | Memory in use, excluding reclaimable cache |
+| `orch_node_disk_used_bytes`, `orch_node_disk_total_bytes` | `node` | Used and total bytes of the filesystem holding the agent's data |
 | `orch_certificate_expiry_seconds` | `certificate` | Until the `ca`, `controller` or `admin` certificate expires; `admin` is the scraper's own certificate |
 | `orch_application_status` | `application`, `status` | Always 1; `status` is e.g. `healthy`, `running`, `degraded`, `failed`, `blocked` |
 | `orch_allocations` | `application`, `service`, `phase`, `health` | Instance count; `phase="backoff"` is crash-looping |
