@@ -78,6 +78,15 @@ func (s *credentialService) ExchangeGitHubToken(ctx context.Context, request *co
 	}), nil
 }
 
+// githubDeployEvents are the workflow triggers that run the trusted branch's
+// own code, so a matching ref means the deploy comes from that branch.
+var githubDeployEvents = map[string]bool{
+	"push":                true,
+	"workflow_dispatch":   true,
+	"schedule":            true,
+	"repository_dispatch": true,
+}
+
 // matchGitHubTrust finds the rule that admits this run. Without an explicit
 // application, the repository must be trusted for exactly one.
 func (s *credentialService) matchGitHubTrust(ctx context.Context, repository, application string, claims githubClaims) (model.GitHubTrust, error) {
@@ -100,9 +109,10 @@ func (s *credentialService) matchGitHubTrust(ctx context.Context, repository, ap
 		return model.GitHubTrust{}, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is trusted for several applications; set ORCH_APP to the one to deploy", repository))
 	}
 	trust := candidates[0]
-	if claims.EventName == "pull_request_target" {
-		// These runs carry the base branch ref but often build untrusted pull request code.
-		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, errors.New("pull_request_target runs may not deploy"))
+	if !githubDeployEvents[claims.EventName] {
+		// Events such as pull_request_target and workflow_run carry the base
+		// branch ref but often build untrusted pull request code.
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s runs may not deploy; deploy from push, workflow_dispatch, schedule or repository_dispatch", claims.EventName))
 	}
 	if claims.Ref != "refs/heads/"+trust.Branch {
 		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s may deploy %s only from branch %s, not %s", repository, trust.Application, trust.Branch, claims.Ref))

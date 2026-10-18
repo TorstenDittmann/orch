@@ -101,6 +101,11 @@ nodes, registries or other applications, or trust more repositories. Deploying
 does run code you choose with that application's secrets, so protect the
 branch the way you would protect production.
 
+Only runs started by `push`, `workflow_dispatch`, `schedule` or
+`repository_dispatch` can deploy. The controller refuses
+`pull_request_target`, `workflow_run` and other events that run on the
+trusted branch but may build code from a pull request.
+
 The controller needs outbound HTTPS to `token.actions.githubusercontent.com`
 to fetch GitHub's signing keys, and GitHub-hosted runners must reach the
 controller port. A cluster that runners cannot reach can deploy from a

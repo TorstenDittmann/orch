@@ -52,7 +52,7 @@ func (f *fakeGitHub) token(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	base := map[string]any{
 		"iss": githubActionsIssuer, "exp": time.Now().Add(5 * time.Minute).Unix(), "nbf": time.Now().Add(-time.Minute).Unix(),
-		"repository": "Acme/Hello", "ref": "refs/heads/main", "sha": "abc", "actor": "octocat", "run_id": "1",
+		"repository": "Acme/Hello", "ref": "refs/heads/main", "event_name": "push", "sha": "abc", "actor": "octocat", "run_id": "1",
 	}
 	for key, value := range claims {
 		if value == nil {
@@ -155,6 +155,9 @@ func TestGitHubTrustIssuesCredentialsLimitedToOneApplication(t *testing.T) {
 	}
 	if _, _, err := issue(map[string]any{"event_name": "pull_request_target"}, ""); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("pull_request_target = %v", err)
+	}
+	if _, _, err := issue(map[string]any{"event_name": "workflow_run"}, ""); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("workflow_run = %v", err)
 	}
 	if _, _, err := issue(map[string]any{"repository": "acme/other"}, ""); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("untrusted repository = %v", err)
