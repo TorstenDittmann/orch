@@ -4,16 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"strings"
 	"time"
 
@@ -114,56 +109,15 @@ func ResolveJoinToken(ctx context.Context, value string, now time.Time) (JoinArt
 }
 
 func fetchPinnedCA(ctx context.Context, token joinToken) ([]byte, error) {
-	server, err := url.Parse(token.Endpoint)
-	if err != nil || server.Scheme != "https" || server.Hostname() == "" {
-		return nil, errors.New("join token controller endpoint must be an HTTPS origin")
-	}
-	port := server.Port()
-	if port == "" {
-		port = "443"
-	}
-	var caPEM []byte
-	config := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		ServerName: server.Hostname(),
-		// The chain is verified below against the CA pinned by the token.
-		InsecureSkipVerify: true,
-		VerifyConnection: func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) == 0 {
-				return errors.New("controller presented no certificate")
-			}
-			var ca *x509.Certificate
-			for _, candidate := range state.PeerCertificates[1:] {
-				digest := sha256.Sum256(candidate.Raw)
-				if subtle.ConstantTimeCompare(digest[:], token.CAFingerprint) == 1 {
-					ca = candidate
-					break
-				}
-			}
-			if ca == nil || !ca.IsCA {
-				return errors.New("controller CA does not match the join token; check the controller address")
-			}
-			roots := x509.NewCertPool()
-			roots.AddCert(ca)
-			leaf := state.PeerCertificates[0]
-			if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, DNSName: server.Hostname(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
-				return fmt.Errorf("verify controller certificate: %w", err)
-			}
-			if err := security.VerifyPeerIdentity(leaf, token.ClusterID, security.RoleController); err != nil {
-				return fmt.Errorf("validate controller identity: %w", err)
-			}
-			caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})
-			return nil
-		},
-	}
-	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: config}
-	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(server.Hostname(), port))
+	caPEM, clusterID, err := security.FetchPinnedCA(ctx, token.Endpoint, token.CAFingerprint)
 	if err != nil {
-		return nil, fmt.Errorf("reach controller %s: %w", token.Endpoint, err)
+		if errors.Is(err, security.ErrPinnedCAMismatch) {
+			return nil, errors.New("controller CA does not match the join token; check the controller address")
+		}
+		return nil, err
 	}
-	_ = connection.Close()
-	if caPEM == nil {
-		return nil, errors.New("controller CA was not verified")
+	if clusterID != token.ClusterID {
+		return nil, fmt.Errorf("validate controller identity: controller serves cluster %s, not %s", clusterID, token.ClusterID)
 	}
 	return caPEM, nil
 }

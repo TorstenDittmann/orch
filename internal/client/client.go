@@ -50,6 +50,9 @@ const LocalReference = "local://"
 // or connects to an administrator socket for socket targets and LocalReference.
 func New(contextPath string) (*Client, error) {
 	endpoint := Endpoint{ContextPath: contextPath, Transport: target.Transport{Type: target.TransportDirect}}
+	if address, ok := strings.CutPrefix(contextPath, GitHubReferencePrefix); ok {
+		return NewGitHubActions(context.Background(), address, os.Getenv("ORCH_APP"))
+	}
 	if contextPath == LocalReference {
 		return NewEndpoint(Endpoint{Target: "local", Transport: target.Transport{Type: target.TransportSocket, Socket: target.DefaultAdminSocket}})
 	}
@@ -100,6 +103,12 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newCertificateClient(endpoint, credentials)
+}
+
+// newCertificateClient connects over mTLS with already loaded credentials.
+func newCertificateClient(endpoint Endpoint, credentials clusterctl.AdministratorCredentials) (*Client, error) {
+	var err error
 	controllerNotAfter := &certificateExpiry{}
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS13,

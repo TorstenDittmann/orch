@@ -51,6 +51,9 @@ service ControlService {
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
   rpc ListJoinTokens(ListJoinTokensRequest) returns (ListJoinTokensResponse);
   rpc RevokeJoinToken(RevokeJoinTokenRequest) returns (RevokeJoinTokenResponse);
+  rpc SetGitHubTrust(SetGitHubTrustRequest) returns (SetGitHubTrustResponse);
+  rpc ListGitHubTrusts(ListGitHubTrustsRequest) returns (ListGitHubTrustsResponse);
+  rpc DeleteGitHubTrust(DeleteGitHubTrustRequest) returns (DeleteGitHubTrustResponse);
 }
 
 enum ExecutionStatus {
@@ -781,4 +784,47 @@ message RetryJobRequest {
 }
 message RetryJobResponse {
   OneOffJob job = 1;
+}
+
+// GitHubTrust lets GitHub Actions runs of one repository deploy one
+// application without stored credentials.
+message GitHubTrust {
+  // owner/name, lowercase.
+  string repository = 1;
+  string application = 2;
+  string branch = 3;
+  // Optional GitHub environment the run must use.
+  string environment = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message SetGitHubTrustRequest {
+  string repository = 1;
+  string application = 2;
+  string branch = 3;
+  string environment = 4;
+}
+
+message SetGitHubTrustResponse {
+  GitHubTrust trust = 1;
+  bool changed = 2;
+  // What a workflow needs to reach and verify this controller.
+  string controller_endpoint = 3;
+  string cluster_id = 4;
+  bytes ca_fingerprint = 5;
+}
+
+message ListGitHubTrustsRequest {}
+
+message ListGitHubTrustsResponse {
+  repeated GitHubTrust trusts = 1;
+}
+
+message DeleteGitHubTrustRequest {
+  string repository = 1;
+  string application = 2;
+}
+
+message DeleteGitHubTrustResponse {
+  bool changed = 1;
 }
