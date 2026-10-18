@@ -16,7 +16,20 @@ import (
 
 const maxSecretInput = 1 << 20
 
-var secretInput = func() io.Reader { return os.Stdin }
+type commandInputKey struct{}
+
+// withCommandInput makes commands that read a value from stdin read input
+// instead; orch mcp uses it because its own stdin carries the protocol.
+func withCommandInput(ctx context.Context, input io.Reader) context.Context {
+	return context.WithValue(ctx, commandInputKey{}, input)
+}
+
+func secretInput(ctx context.Context) io.Reader {
+	if input, ok := ctx.Value(commandInputKey{}).(io.Reader); ok {
+		return input
+	}
+	return os.Stdin
+}
 
 func runSecret(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -57,7 +70,7 @@ func runSecretSet(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
-	value, err := io.ReadAll(io.LimitReader(secretInput(), maxSecretInput+1))
+	value, err := io.ReadAll(io.LimitReader(secretInput(ctx), maxSecretInput+1))
 	if err != nil || len(value) == 0 || len(value) > maxSecretInput {
 		writeError(stderr, errors.New("secret stdin must contain 1-1048576 bytes"), jsonOutput)
 		return ExitInvalid
@@ -213,7 +226,7 @@ func runRegistryLogin(ctx context.Context, args []string, stdout, stderr io.Writ
 		writeError(stderr, errors.New("registry login requires HOST, --username, --password-stdin, and --context"), jsonOutput)
 		return ExitInvalid
 	}
-	secret, err := io.ReadAll(io.LimitReader(secretInput(), maxSecretInput+1))
+	secret, err := io.ReadAll(io.LimitReader(secretInput(ctx), maxSecretInput+1))
 	if err != nil || len(secret) == 0 || len(secret) > maxSecretInput {
 		writeError(stderr, errors.New("registry secret stdin must contain 1-1048576 bytes"), jsonOutput)
 		return ExitInvalid

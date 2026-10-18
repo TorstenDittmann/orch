@@ -41,7 +41,7 @@ compatibility and cannot be combined with `--target`. See
 
 These are the remote commands: `join-token`, `status`, `events`, `deploy`,
 `rollback`, `nodes`, `logs`, `exec`, `remove`, `job`, `secret`, `registry`,
-`tui`, `web`, `app status|history|diff|watch`, `cron runs|logs`,
+`tui`, `web`, `app list|status|history|diff|watch`, `cron runs|logs`,
 `network configure`, and every `node` subcommand except `node install` and
 `node doctor`. All other commands run locally.
 
@@ -433,6 +433,15 @@ manifest to it with HTTP services at `http://SERVICE.APP.localhost:8080`. See
 | `--http-port` | `8080` | Local port for HTTP services |
 | `--timeout` | `10m` | Rollout wait deadline |
 | `--volumes` | `false` | With `down`, also delete the dev node's data |
+
+### orch app list
+
+```text
+orch app list [--target NAME] [--json]
+```
+
+Lists every application on the cluster with its desired generation, revision,
+and rollout status.
 
 ### orch app status
 
@@ -917,6 +926,21 @@ a one-time URL. Press Ctrl+C to stop it.
 | `--no-open` | `false` | Print the URL without opening a browser |
 
 See [targets and interfaces](targets.md) for both interfaces.
+
+### orch mcp
+
+```text
+orch mcp [--target NAME] [--read-only]
+```
+
+Serves the cluster to AI assistants over the Model Context Protocol on stdin
+and stdout. Clients such as Claude Code start it themselves; see
+[AI assistants](ai.md) for setup and the list of tools.
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--target` | selected target | Cluster that remote tools use when a call names none |
+| `--read-only` | `false` | Offer only tools that do not change the cluster |
 
 ## Services and internals
 

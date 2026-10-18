@@ -327,7 +327,7 @@ func isRemoteCommand(args []string) bool {
 	case "volume":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "app":
-		return len(args) > 1 && (args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")
+		return len(args) > 1 && (args[1] == "list" || args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")
 	case "cron":
 		return len(args) > 1 && (args[1] == "runs" || args[1] == "logs" || args[1] == "run")
 	case "network":
