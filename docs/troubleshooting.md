@@ -151,8 +151,8 @@ cannot check from the host itself, such as provider firewalls.
 
 | Check | Failure | Fix |
 | --- | --- | --- |
-| `platform` | Not running on Linux | Run on Ubuntu 24.04 LTS or Fedora 44, amd64. |
-| `distribution` | Unsupported OS, version, or architecture, or ostree-based Fedora | Use Ubuntu 24.04 LTS or Fedora 44 amd64. ostree-based Fedora editions are not supported. |
+| `platform` | Not running on Linux | Run on Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, amd64. |
+| `distribution` | Unsupported OS, version older than the minimum, or architecture, or ostree-based Fedora | Use Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64. ostree-based Fedora editions are not supported. |
 | `privilege` | `unknown`: not running as root | Run doctor with `sudo`; several checks need root. |
 | `systemd` | systemd is not PID 1 | Use a VM or machine booted with systemd, not a plain container. |
 | `cgroups` | cgroups v2 with `cpu`, `memory`, and `pids` is missing | Boot with the unified cgroup hierarchy (the default on both supported distributions) and reboot. |

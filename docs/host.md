@@ -13,7 +13,7 @@ symptoms and fixes, see [troubleshooting](troubleshooting.md).
 
 | Requirement | Supported |
 | --- | --- |
-| Operating system | Ubuntu 24.04 LTS, or Fedora 44 (any edition except ostree-based ones such as Silverblue or CoreOS, whose `/usr` is read-only) |
+| Operating system | Ubuntu 24.04 LTS or newer, or Fedora 42 or newer (any edition except ostree-based ones such as Silverblue or CoreOS, whose `/usr` is read-only) |
 | Architecture | amd64 |
 | Init system | systemd running as PID 1 |
 | Control groups | Unified cgroups v2 with the `cpu`, `memory`, and `pids` controllers |
@@ -215,8 +215,8 @@ without upgrading the rest of the host:
 
 | Distribution | Packages |
 | --- | --- |
-| Ubuntu 24.04 | `ca-certificates`, `nftables`, `iproute2`, `libcap2-bin`, `kmod`, `passwd`, `udev` |
-| Fedora 44 | `ca-certificates`, `nftables`, `iproute`, `libcap`, `kmod`, `shadow-utils`, `container-selinux`, `policycoreutils-python-utils`, `systemd-udev` |
+| Ubuntu 24.04+ | `ca-certificates`, `nftables`, `iproute2`, `libcap2-bin`, `kmod`, `passwd`, `udev` |
+| Fedora 42+ | `ca-certificates`, `nftables`, `iproute`, `libcap`, `kmod`, `shadow-utils`, `container-selinux`, `policycoreutils-python-utils`, `systemd-udev` |
 
 ### Files and directories
 

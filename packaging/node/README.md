@@ -1,7 +1,8 @@
 # Node bundle
 
 `orch node install` embeds these service/configuration templates and the immutable
-artifact manifest. It installs Ubuntu 24.04 LTS amd64 and Fedora 44 amd64.
+artifact manifest. It installs Ubuntu 24.04 LTS or newer and Fedora 42 or newer,
+on amd64.
 The existing manual runtime path remains available for other supported hosts.
 
 Artifacts are downloaded directly from the upstream GitHub releases in
