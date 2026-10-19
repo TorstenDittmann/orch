@@ -524,6 +524,7 @@ The `deploy` block controls rolling updates.
 | `maxUnavailable` | Int | `0` | 0 to 100 replicas that may be unavailable |
 | `healthDeadline` | Duration | `"2m"` | 10s to 1h for replacements to become ready |
 | `autoRollback` | Boolean | `true` | Restore the last healthy revision on failure |
+| `autoUpdate` | Boolean | `false` | Redeploy when an image tag points to a new digest; see [automatic image updates](runtime.md#automatic-image-updates) |
 | `preDeploy` | `PreDeployHook?` | `null` | Job that must succeed before rollout |
 
 `maxSurge` and `maxUnavailable` cannot both be `0`. An application that

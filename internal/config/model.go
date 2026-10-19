@@ -133,4 +133,6 @@ type Deployment struct {
 	MaxUnavailable int            `json:"max_unavailable"`
 	HealthDeadline string         `json:"health_deadline"`
 	AutoRollback   bool           `json:"auto_rollback"`
+	// AutoUpdate lets the controller redeploy when an image tag moves.
+	AutoUpdate bool `json:"auto_update,omitempty"`
 }

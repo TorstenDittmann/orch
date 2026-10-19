@@ -60,6 +60,7 @@ type Server struct {
 	reconcileDone   chan struct{}
 	backupDone      chan struct{}
 	upgradesDone    chan struct{}
+	imagesDone      chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -219,11 +220,15 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
-		upgradesDone: make(chan struct{}),
+		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}),
 	}
 	go func() {
 		defer close(server.upgradesDone)
 		upgrades.run(reconcileContext)
+	}()
+	go func() {
+		defer close(server.imagesDone)
+		implementation.runImageUpdates(reconcileContext)
 	}()
 	go func() {
 		defer close(server.backupDone)
@@ -310,6 +315,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.reconcileDone
 		<-server.backupDone
 		<-server.upgradesDone
+		<-server.imagesDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

@@ -185,4 +185,8 @@ class Deployment {
   healthDeadline: String = "2m"
 
   autoRollback: Boolean = true
+
+  /// Redeploy when an image tag points to a new digest. The controller checks
+  /// the registry every few minutes.
+  autoUpdate: Boolean = false
 }

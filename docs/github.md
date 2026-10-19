@@ -139,8 +139,10 @@ trusted branch but may build code from a pull request.
 The controller needs outbound HTTPS to `token.actions.githubusercontent.com`
 to fetch GitHub's signing keys, and GitHub-hosted runners must reach the
 controller port. A cluster that runners cannot reach can deploy from a
-self-hosted runner, or with an [SSH target](#deploy-with-an-ssh-key) from
-inside its network.
+self-hosted runner, with an [SSH target](#deploy-with-an-ssh-key) from
+inside its network, or by pulling new images itself with
+[`autoUpdate`](runtime.md#automatic-image-updates) while the workflow only
+pushes the image.
 
 ## What history shows
 
