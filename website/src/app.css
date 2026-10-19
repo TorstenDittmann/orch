@@ -66,19 +66,35 @@ pre {
 	padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px));
 }
 
-/* Syntax colors for the Shiki CSS variables theme: mostly ink, one accent. */
+/* Syntax colors for the Shiki CSS variables theme, tuned per color scheme. */
 :root {
 	--code-foreground: var(--fg);
 	--code-background: transparent;
-	--code-token-keyword: var(--accent);
-	--code-token-constant: var(--fg);
-	--code-token-string: var(--dim);
-	--code-token-string-expression: var(--dim);
-	--code-token-comment: color-mix(in srgb, var(--dim) 75%, var(--bg));
-	--code-token-function: var(--fg);
-	--code-token-parameter: var(--fg);
+	--code-token-keyword: #0f766e;
+	--code-token-constant: #1d4ed8;
+	--code-token-string: #a3480b;
+	--code-token-string-expression: #a3480b;
+	--code-token-comment: #8a8f91;
+	--code-token-function: #7c3aed;
+	--code-token-parameter: #9a3412;
 	--code-token-punctuation: var(--dim);
 	--code-token-link: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--code-token-keyword: #43b6a9;
+		--code-token-constant: #7fa8ff;
+		--code-token-string: #e3a86b;
+		--code-token-string-expression: #e3a86b;
+		--code-token-comment: #6b7072;
+		--code-token-function: #c4a5ff;
+		--code-token-parameter: #f0a37a;
+	}
+}
+
+.codeblock {
+	position: relative;
 }
 
 .shiki {
@@ -90,4 +106,61 @@ pre {
 	line-height: 1.75;
 	overflow-x: auto;
 	background: var(--bg) !important;
+}
+
+.shiki .prompt {
+	color: var(--dim);
+	user-select: none;
+}
+
+.shiki .output {
+	color: var(--dim);
+}
+
+.copy {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 0;
+	background: var(--bg);
+	color: var(--dim);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+
+.copy::before {
+	content: "";
+	width: 14px;
+	height: 14px;
+	background: currentColor;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.copy[data-copied]::before {
+	mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+
+.copy:hover,
+.copy[data-copied] {
+	color: var(--fg);
+}
+
+.codeblock:hover .copy,
+.copy:focus-visible,
+.copy[data-copied] {
+	opacity: 1;
+}
+
+/* Touch screens have no hover, so the button stays visible. */
+@media (hover: none) {
+	.copy {
+		opacity: 1;
+	}
 }

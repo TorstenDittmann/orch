@@ -3,10 +3,32 @@
 	import "@fontsource-variable/geist-mono";
 	import "../app.css";
 	import { page } from "$app/state";
+	import { onMount } from "svelte";
 
 	let { data, children } = $props();
 
 	const isDocs = $derived(page.url.pathname !== "/");
+
+	// Code blocks are server-rendered HTML, so their copy buttons are handled by delegation.
+	onMount(() => {
+		async function copy(event: MouseEvent) {
+			const button = (event.target as Element).closest<HTMLButtonElement>("button.copy");
+			if (!button) return;
+			try {
+				await navigator.clipboard.writeText(button.dataset.copy ?? "");
+			} catch {
+				return;
+			}
+			button.dataset.copied = "";
+			button.ariaLabel = "Copied";
+			setTimeout(() => {
+				delete button.dataset.copied;
+				button.ariaLabel = "Copy code";
+			}, 1500);
+		}
+		document.addEventListener("click", copy);
+		return () => document.removeEventListener("click", copy);
+	});
 </script>
 
 <header class="container">
