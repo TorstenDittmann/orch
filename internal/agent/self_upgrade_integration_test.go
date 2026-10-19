@@ -113,7 +113,8 @@ func TestOlderAgentUpgradesToControllerBuild(t *testing.T) {
 		}
 	case err := <-agentDone:
 		t.Fatalf("agent stopped: %v", err)
-	case <-time.After(30 * time.Second):
+	// The controller streams this test binary, which is large under -race.
+	case <-time.After(3 * time.Minute):
 		t.Fatal("agent did not start orch node upgrade")
 	}
 }
