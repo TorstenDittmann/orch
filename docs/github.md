@@ -66,6 +66,11 @@ When a `Dockerfile` sits next to the manifest and the manifest's workloads all
 use one image repository, the workflow builds that image from the manifest's
 directory. Without one, it deploys the manifest's images as written.
 
+The workflow builds for the architectures of the cluster's nodes. An all-arm64
+cluster builds on GitHub's `ubuntu-24.04-arm` runner, and a cluster that mixes
+amd64 and arm64 nodes builds one image for both with `platforms`. Rerun
+`orch github init --force` after adding nodes of another architecture.
+
 `orch github list` shows every trusted repository. `orch github untrust
 acme/hello --app hello` stops new runs at once; a credential a run already
 received expires within 15 minutes. `orch github trust acme/hello --app hello`
@@ -95,6 +100,7 @@ written workflows so they do not replace each other.
 | `image` | none | Image repository to build and push |
 | `context` | `.` | Docker build context |
 | `dockerfile` | `Dockerfile` in the context | Dockerfile path |
+| `platforms` | the runner's own | Image platforms, such as `linux/amd64,linux/arm64` |
 | `file` | `orch.pkl` | Manifest to deploy |
 | `version` | the action's tag, or the latest release | orch CLI version to install |
 

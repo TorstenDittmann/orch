@@ -33,6 +33,9 @@ type Artifact struct {
 	Files   map[string]string `json:"files"`
 	License string            `json:"license"`
 	Source  string            `json:"source"`
+	// arch is the bundle the entry came from; extraction checks executables
+	// against it. It stays out of JSON so the recorded bundle hash is unchanged.
+	arch string
 }
 type Check struct {
 	ID          string `json:"id"`
@@ -59,14 +62,22 @@ type Plan struct {
 }
 type Command func(context.Context, string, ...string) (string, error)
 
-func Artifacts() ([]Artifact, error) {
+// Artifacts returns the pinned dependency bundle for a Linux architecture. An
+// unsupported architecture has no bundle; the doctor report already blocks it.
+func Artifacts(arch string) ([]Artifact, error) {
 	data, err := nodebundle.Files.ReadFile("artifacts.json")
 	if err != nil {
 		return nil, err
 	}
-	var result []Artifact
-	err = json.Unmarshal(data, &result)
-	return result, err
+	var bundles map[string][]Artifact
+	if err := json.Unmarshal(data, &bundles); err != nil {
+		return nil, err
+	}
+	result := bundles[arch]
+	for i := range result {
+		result[i].arch = arch
+	}
+	return result, nil
 }
 func address(raw string) (netip.Addr, error) {
 	ip, err := netip.ParseAddr(raw)
@@ -100,7 +111,7 @@ func BuildPlan(ctx context.Context, raw string) (Plan, error) {
 		return Plan{}, err
 	}
 	report := Doctor(ctx, ip.String())
-	artifacts, err := Artifacts()
+	artifacts, err := Artifacts(report.Architecture)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -156,7 +167,7 @@ func timeoutCommand(run Command, ctx context.Context, name string, args ...strin
 	return run(ctx, name, args...)
 }
 func supported(osName, version, arch string) bool {
-	return arch == "amd64" && (osName == "ubuntu" && version == "24.04" || osName == "fedora" && version == "44")
+	return (arch == "amd64" || arch == "arm64") && (osName == "ubuntu" && version == "24.04" || osName == "fedora" && version == "44")
 }
 func platform() string { return runtime.GOOS }
 

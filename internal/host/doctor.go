@@ -68,7 +68,7 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 		}
 	}
 	if p.GOOS != "linux" {
-		add("platform", "fail", "Node installation requires Linux", "Run on Ubuntu 24.04 LTS or Fedora 44 amd64", false)
+		add("platform", "fail", "Node installation requires Linux", "Run on Ubuntu 24.04 LTS or Fedora 44 on amd64 or arm64", false)
 		return r
 	}
 	data, err := p.Read("/etc/os-release")
@@ -77,7 +77,7 @@ func Inspect(ctx context.Context, ip string, p Probe) Report {
 	}
 	ostree := p.Exists("/run/ostree-booted")
 	if !supported(r.OS, r.Version, p.Arch) || r.OS == "fedora" && ostree {
-		add("distribution", "fail", distributionDetail(r.OS, r.Version, p.Arch, ostree), "Use Ubuntu 24.04 LTS or Fedora 44 amd64", false)
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, p.Arch, ostree), "Use Ubuntu 24.04 LTS or Fedora 44 on amd64 or arm64", false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}

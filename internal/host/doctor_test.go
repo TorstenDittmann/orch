@@ -34,22 +34,26 @@ func fixtureProbe(distro string) Probe {
 }
 func TestFreshSupportedHostsHaveOnlyInstallableFailures(t *testing.T) {
 	for _, distro := range []string{"ubuntu", "fedora"} {
-		t.Run(distro, func(t *testing.T) {
-			r := Inspect(context.Background(), "10.0.0.11", fixtureProbe(distro))
-			if !r.Installable || r.Ready {
-				t.Fatalf("unexpected report: %+v", r)
-			}
-			for _, c := range r.Checks {
-				if (c.State == "fail" || c.State == "unknown") && !c.Installable {
-					t.Fatalf("unexpected blocker: %+v", c)
+		for _, arch := range []string{"amd64", "arm64"} {
+			t.Run(distro+"/"+arch, func(t *testing.T) {
+				probe := fixtureProbe(distro)
+				probe.Arch = arch
+				r := Inspect(context.Background(), "10.0.0.11", probe)
+				if !r.Installable || r.Ready {
+					t.Fatalf("unexpected report: %+v", r)
 				}
-			}
-		})
+				for _, c := range r.Checks {
+					if (c.State == "fail" || c.State == "unknown") && !c.Installable {
+						t.Fatalf("unexpected blocker: %+v", c)
+					}
+				}
+			})
+		}
 	}
 }
 func TestDoctorRejectsUnsafeHosts(t *testing.T) {
 	cases := map[string]func(*Probe){
-		"architecture":  func(p *Probe) { p.Arch = "arm64" },
+		"architecture":  func(p *Probe) { p.Arch = "riscv64" },
 		"nonroot":       func(p *Probe) { p.UID = 1000 },
 		"address":       func(p *Probe) { p.Addresses = nil },
 		"disk":          func(p *Probe) { p.FreeBytes = 1024 },

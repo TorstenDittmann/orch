@@ -11,7 +11,7 @@ permissions:
 jobs:
   checks:
     name: ${{ matrix.check.name }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.check.runner || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -24,17 +24,25 @@ jobs:
             run: make test
           - name: Run Go race tests
             run: make test-race
-          - name: Build Linux amd64
-            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go build -trimpath -o /tmp/orch-linux-amd64 ./cmd/orch
+          - name: Run Go tests on arm64
+            runner: ubuntu-24.04-arm
+            run: make test
+          - name: Build Linux amd64 and arm64
+            run: |
+              for arch in amd64 arm64; do
+                GOOS=linux GOARCH=$arch CGO_ENABLED=0 mise exec -- go build -trimpath -o /tmp/orch-linux-$arch ./cmd/orch
+              done
           - name: Build CLI for macOS and Windows
             run: |
               for platform in darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
                 GOOS=${platform%/*} GOARCH=${platform#*/} CGO_ENABLED=0 mise exec -- go build -trimpath -o /dev/null ./cmd/orch
               done
-          - name: Compile Linux amd64 network tests
-            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-network-amd64.test ./internal/network
-          - name: Compile Linux amd64 containerd tests
-            run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-containerd-amd64.test ./internal/e2e
+          - name: Compile Linux network and containerd tests
+            run: |
+              for arch in amd64 arm64; do
+                GOOS=linux GOARCH=$arch CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-network-$arch.test ./internal/network
+                GOOS=linux GOARCH=$arch CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-containerd-$arch.test ./internal/e2e
+              done
     env:
       GOTOOLCHAIN: local
     steps:

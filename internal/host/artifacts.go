@@ -87,7 +87,7 @@ func extract(a Artifact, source, destination string) error {
 			return errors.New("raw artifact must select one executable")
 		}
 		for _, name := range a.Files {
-			return extractFile(f, destination, name, maxArtifactBytes)
+			return extractFile(f, destination, name, a.arch, maxArtifactBytes)
 		}
 		return errors.New("raw artifact has no file")
 	}
@@ -139,7 +139,7 @@ func extract(a Artifact, source, destination string) error {
 				return errors.New("duplicate artifact entry")
 			}
 			found[name] = true
-			if err := extractFile(archive, destination, target, h.Size); err != nil {
+			if err := extractFile(archive, destination, target, a.arch, h.Size); err != nil {
 				return err
 			}
 		} else if !knownExtra(a.Name, name) {
@@ -163,7 +163,14 @@ func knownExtra(artifact, name string) bool {
 	}
 	return false
 }
-func extractFile(input io.Reader, root, name string, size int64) error {
+
+var elfMachines = map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}
+
+func extractFile(input io.Reader, root, name, arch string, size int64) error {
+	machine, ok := elfMachines[arch]
+	if !ok {
+		return fmt.Errorf("no executable check for architecture %q", arch)
+	}
 	if path.Clean(name) != name || strings.HasPrefix(name, "../") || path.IsAbs(name) {
 		return errors.New("invalid artifact destination")
 	}
@@ -190,8 +197,8 @@ func extractFile(input io.Reader, root, name string, size int64) error {
 		return fmt.Errorf("artifact is not an ELF executable: %s", name)
 	}
 	defer executable.Close()
-	if executable.Machine != elf.EM_X86_64 || executable.Class != elf.ELFCLASS64 || (executable.Type != elf.ET_EXEC && executable.Type != elf.ET_DYN) {
-		return errors.New("artifact is not an amd64 executable")
+	if executable.Machine != machine || executable.Class != elf.ELFCLASS64 || (executable.Type != elf.ET_EXEC && executable.Type != elf.ET_DYN) {
+		return fmt.Errorf("artifact is not an %s executable", arch)
 	}
 	return nil
 }

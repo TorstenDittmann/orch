@@ -70,8 +70,8 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
 ~~~
 
-For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
-amd64** (any non-ostree edition) hosts, run:
+For a persistent cluster on fresh **Ubuntu 24.04 LTS** or **Fedora 44** (any
+non-ostree edition) hosts, amd64 or arm64, run:
 
 ~~~console
 sudo orch init                        # on the controller
@@ -135,7 +135,7 @@ sudo bin/orch agent serve \
   --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
-For a fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44 amd64** node,
+For a fresh **Ubuntu 24.04 LTS** or **Fedora 44** node on amd64 or arm64,
 [guided installation](docs/installation.md) supplies the pinned dependencies,
 systemd services and enrollment with `orch node install`. Use `orch node doctor`
 or `install --dry-run` first to inspect prerequisites and planned actions.
@@ -331,8 +331,8 @@ Work is split into reviewable vertical slices:
 5. Secrets and operator workflows (implemented ahead of multi-node).
 6. Packaging and release hardening.
 
-Tagging `vX.Y.Z` publishes a GitHub release with a stamped Linux amd64 binary
-and `SHA256SUMS`.
+Tagging `vX.Y.Z` publishes a GitHub release with stamped Linux, macOS and
+Windows binaries for amd64 and arm64, and `SHA256SUMS`.
 
 ## License
 

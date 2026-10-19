@@ -34,6 +34,10 @@ type githubWorkflow struct {
 	// Context and File are relative to the repository root.
 	Context string
 	File    string
+	// RunsOn and Platforms match the build to the cluster's node
+	// architectures; empty means a native ubuntu-latest (amd64) build.
+	RunsOn    string
+	Platforms string
 }
 
 func (w githubWorkflow) render() string {
@@ -45,7 +49,11 @@ func (w githubWorkflow) render() string {
 	}
 	out.WriteString("  id-token: write\n")
 	fmt.Fprintf(&out, "concurrency:\n  group: deploy-%s\n  cancel-in-progress: false\n", w.Application)
-	out.WriteString("jobs:\n  deploy:\n    runs-on: ubuntu-latest\n")
+	runsOn := w.RunsOn
+	if runsOn == "" {
+		runsOn = "ubuntu-latest"
+	}
+	fmt.Fprintf(&out, "jobs:\n  deploy:\n    runs-on: %s\n", runsOn)
 	if w.Environment != "" {
 		fmt.Fprintf(&out, "    environment: %s\n", w.Environment)
 	}
@@ -56,6 +64,9 @@ func (w githubWorkflow) render() string {
 		fmt.Fprintf(&out, "          image: %s\n", w.Image)
 		if w.Context != "" && w.Context != "." {
 			fmt.Fprintf(&out, "          context: %s\n", w.Context)
+		}
+		if w.Platforms != "" {
+			fmt.Fprintf(&out, "          platforms: %s\n", w.Platforms)
 		}
 	}
 	if w.File != "" && w.File != "orch.pkl" {
@@ -158,6 +169,15 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return ExitRuntime
 	}
 	workflow.Cluster = controlclient.ClusterAddress(response.GetControllerEndpoint(), response.GetCaFingerprint())
+	if workflow.Image != "" {
+		if nodes, err := remote.ListNodes(ctx); err == nil {
+			architectures := make([]string, 0, len(nodes))
+			for _, node := range nodes {
+				architectures = append(architectures, node.GetArchitecture())
+			}
+			workflow.RunsOn, workflow.Platforms = buildTarget(architectures)
+		}
+	}
 	content := []byte(workflow.render())
 	if readErr != nil || !bytes.Equal(existing, content) {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -195,6 +215,24 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 		fmt.Fprintln(stdout, "  orch registry login ghcr.io --username USER --password-stdin")
 	}
 	return ExitOK
+}
+
+// buildTarget picks where the workflow builds so every node can run the image:
+// an arm64 runner for an all-arm64 cluster, and a two-platform image when
+// amd64 and arm64 nodes are mixed. Otherwise the default amd64 runner fits.
+func buildTarget(architectures []string) (runsOn, platforms string) {
+	var amd64, arm64 bool
+	for _, architecture := range architectures {
+		amd64 = amd64 || architecture == "amd64"
+		arm64 = arm64 || architecture == "arm64"
+	}
+	switch {
+	case arm64 && amd64:
+		return "", "linux/amd64,linux/arm64"
+	case arm64:
+		return "ubuntu-24.04-arm", ""
+	}
+	return "", ""
 }
 
 func gitOutput(ctx context.Context, args ...string) (string, error) {

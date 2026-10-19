@@ -151,8 +151,8 @@ cannot check from the host itself, such as provider firewalls.
 
 | Check | Failure | Fix |
 | --- | --- | --- |
-| `platform` | Not running on Linux | Run on Ubuntu 24.04 LTS or Fedora 44, amd64. |
-| `distribution` | Unsupported OS, version, or architecture, or ostree-based Fedora | Use Ubuntu 24.04 LTS or Fedora 44 amd64. ostree-based Fedora editions are not supported. |
+| `platform` | Not running on Linux | Run on Ubuntu 24.04 LTS or Fedora 44, amd64 or arm64. |
+| `distribution` | Unsupported OS, version, or architecture, or ostree-based Fedora | Use Ubuntu 24.04 LTS or Fedora 44 on amd64 or arm64. ostree-based Fedora editions are not supported. |
 | `privilege` | `unknown`: not running as root | Run doctor with `sudo`; several checks need root. |
 | `systemd` | systemd is not PID 1 | Use a VM or machine booted with systemd, not a plain container. |
 | `cgroups` | cgroups v2 with `cpu`, `memory`, and `pids` is missing | Boot with the unified cgroup hierarchy (the default on both supported distributions) and reboot. |
@@ -206,7 +206,7 @@ the request.
 | `services.NAME.image: image or tag was not found; check the repository and tag` | The controller could not find the tag. Check the spelling and that the tag was pushed. |
 | `registry authentication failed; update credentials with orch registry login` | The image is private, or the stored credentials are wrong. Run `orch registry login HOST --username USER --password-stdin`. |
 | `registry could not resolve the image; check registry connectivity and TLS` | The controller resolves tags to digests, so the controller host needs outbound HTTPS to the registry. Check its DNS, proxy, and firewall. |
-| `image has no supported Linux amd64 or arm64 platform` | Build or pull an image for `linux/amd64`. |
+| `image has no supported Linux amd64 or arm64 platform` | Build or pull an image for the architecture of your nodes, `linux/amd64` or `linux/arm64`. |
 | `deploy request failed; retry with --idempotency-key KEY` | The request may or may not have reached the controller. Retry with the printed key; a retry with the same key cannot apply the change twice. |
 
 ## A deploy is stuck or blocked
@@ -626,7 +626,8 @@ and their backups in `/var/lib/orch-agent/volume-backups`. See the
   A large image on a new or slow node can take longer. Raise the deadline, for
   example to `"5m"`.
 - **Wrong command or platform.** If the image is fine, check `command`,
-  `args`, and that the image was built for `linux/amd64`. Running the same
+  `args`, and that the image was built for the node's architecture
+  (`linux/amd64` or `linux/arm64`). Running the same
   image and command with `orch job run` shows the job's state and exit
   code.
 - **Upgrades.** `orch node upgrade` needs 256 MiB free and

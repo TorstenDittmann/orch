@@ -17,7 +17,7 @@ build:
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/orch ./cmd/orch
 
 # Release binaries are static builds for each supported platform with a
-# SHA-256 checksum file. Linux amd64 runs clusters; every build runs the CLI.
+# SHA-256 checksum file. Linux amd64 and arm64 run clusters; every build runs the CLI.
 RELEASE_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 release:
