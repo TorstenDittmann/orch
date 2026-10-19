@@ -2,6 +2,14 @@
 	import Seo from "../lib/components/Seo.svelte";
 
 	let { data } = $props();
+
+	const comparison = [
+		{ label: "Setup", swarm: "init and join", kubernetes: "control plane, network plugin, add‑ons", orch: "init and join" },
+		{ label: "App definition", swarm: "Compose file", kubernetes: "many YAML resources", orch: "one typed file, checked before deploy" },
+		{ label: "HTTPS", swarm: "bring your own proxy", kubernetes: "ingress controller and cert‑manager", orch: "built in" },
+		{ label: "Private network", swarm: "overlay, encryption opt‑in", kubernetes: "depends on the network plugin", orch: "WireGuard mesh by default" },
+		{ label: "Deploys", swarm: "rolling updates", kubernetes: "rolling updates, diff with kubectl", orch: "plan first, health‑checked rollout, automatic rollback" },
+	];
 </script>
 
 <Seo title="orch: deploy containers to your own servers" description={data.site.description} />
@@ -40,15 +48,24 @@
 	<p class="sub">Swarm is easy but stopped growing. Kubernetes can do everything but needs a team to run it. orch keeps the easy part and adds what modern apps expect.</p>
 	<div class="table">
 		<table>
+			<colgroup>
+				<col class="label" />
+				<col class="swarm" />
+				<col />
+				<col class="ours" />
+			</colgroup>
 			<thead>
-				<tr><th></th><th>Docker Swarm</th><th>Kubernetes</th><th>orch</th></tr>
+				<tr><td></td><th scope="col">Docker Swarm</th><th scope="col">Kubernetes</th><th scope="col">orch</th></tr>
 			</thead>
 			<tbody>
-				<tr><th>Setup</th><td>init and join</td><td>control plane, network plugin, add-ons</td><td>init and join</td></tr>
-				<tr><th>App definition</th><td>Compose file</td><td>many YAML resources</td><td>one typed file, checked before deploy</td></tr>
-				<tr><th>HTTPS</th><td>bring your own proxy</td><td>ingress controller and cert-manager</td><td>built in</td></tr>
-				<tr><th>Private network</th><td>overlay, encryption opt-in</td><td>depends on the network plugin</td><td>WireGuard mesh by default</td></tr>
-				<tr><th>Deploys</th><td>rolling updates</td><td>rolling updates, diff with kubectl</td><td>plan first, health-checked rollout, automatic rollback</td></tr>
+				{#each comparison as row}
+					<tr>
+						<th scope="row">{row.label}</th>
+						<td data-label="Docker Swarm">{row.swarm}</td>
+						<td data-label="Kubernetes">{row.kubernetes}</td>
+						<td data-label="orch">{row.orch}</td>
+					</tr>
+				{/each}
 			</tbody>
 		</table>
 	</div>
@@ -147,44 +164,79 @@
 		color: var(--dim);
 	}
 
-	.table {
-		overflow-x: auto;
-	}
-
 	table {
 		width: 100%;
-		min-width: 620px;
+		table-layout: fixed;
 		border-collapse: collapse;
-		font-size: 14px;
+		font-size: 15px;
+		line-height: 1.5;
+	}
+
+	col.label {
+		width: 17%;
+	}
+
+	col.swarm {
+		width: 23%;
+	}
+
+	col.ours {
+		width: 29%;
 	}
 
 	th,
 	td {
 		text-align: left;
 		vertical-align: top;
-		padding: 12px 16px 12px 0;
+		padding: 16px 20px;
 		border-bottom: 1px solid var(--line);
+		text-wrap: pretty;
+	}
+
+	th:first-child {
+		padding-left: 0;
 	}
 
 	thead th {
+		padding-block: 12px;
+		font-size: 13px;
 		font-weight: 500;
 		color: var(--dim);
-		font-size: 13px;
+		border-bottom-color: var(--fg);
+	}
+
+	thead td {
+		border-bottom-color: var(--fg);
 	}
 
 	tbody th {
 		font-weight: 500;
-		width: 18%;
+		color: var(--fg);
 	}
 
 	td {
-		color: var(--dim);
+		color: color-mix(in srgb, var(--fg) 72%, var(--bg));
 	}
 
+	/* the orch column reads as a highlighted panel */
 	td:last-child,
 	thead th:last-child {
+		background: color-mix(in srgb, var(--accent) 9%, var(--bg));
 		color: var(--fg);
 		font-weight: 500;
+	}
+
+	thead th:last-child {
+		color: var(--accent);
+		border-radius: 8px 8px 0 0;
+	}
+
+	tbody tr:last-child td:last-child {
+		border-radius: 0 0 8px 8px;
+	}
+
+	tbody tr:last-child > * {
+		border-bottom: 0;
 	}
 
 	.features {
@@ -232,6 +284,62 @@
 
 		.compare {
 			padding-block: 64px 0;
+		}
+
+		/* stack each comparison row into a card on narrow screens */
+		table,
+		tbody,
+		tr,
+		th,
+		td {
+			display: block;
+		}
+
+		colgroup,
+		thead {
+			display: none;
+		}
+
+		tbody {
+			display: grid;
+			gap: 12px;
+		}
+
+		tbody tr {
+			border: 1px solid var(--line);
+			border-radius: 10px;
+			overflow: hidden;
+		}
+
+		tbody th,
+		tbody td,
+		tbody tr:last-child > *,
+		th:first-child {
+			padding: 10px 16px;
+			border-bottom: 1px solid var(--line);
+		}
+
+		tbody th {
+			padding-block: 12px;
+			font-size: 16px;
+		}
+
+		td::before {
+			content: attr(data-label);
+			display: block;
+			font-size: 12px;
+			font-weight: 500;
+			color: var(--dim);
+		}
+
+		td:last-child,
+		tbody tr:last-child td:last-child {
+			border-bottom: 0;
+			border-radius: 0;
+		}
+
+		td:last-child::before {
+			color: var(--accent);
 		}
 
 		.features {
