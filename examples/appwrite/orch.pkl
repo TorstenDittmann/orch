@@ -1,0 +1,317 @@
+// Self-hosted Appwrite 2.5 on orch, adapted from Appwrite's official
+// docker-compose.yml (default "combined" worker topology with PostgreSQL).
+//
+// Before the first deploy, set the domain and bucket below, then create the
+// secrets. The four internal ones are random values nobody has to remember:
+//
+//   for name in openssl-key db-password usage-password geo-secret; do
+//     openssl rand -hex 32 | tr -d '\n' | orch secret set appwrite "$name" --from-stdin
+//   done
+//   printf '%s' "$S3_ACCESS_KEY" | orch secret set appwrite s3-access-key --from-stdin
+//   printf '%s' "$S3_SECRET" | orch secret set appwrite s3-secret --from-stdin
+//
+// Then point the domain at an ingress node, run `orch deploy`, and open
+// https://<domain> to create the first (root) console account.
+//
+// What differs from the compose setup:
+//
+// - Functions and Sites are not available. They need the open-runtimes
+//   executor and orchestrator, which drive the host's Docker socket to start
+//   one container per function, and orch does not hand host sockets to
+//   workloads. Everything else (Auth, Databases, Storage, Messaging, Realtime,
+//   the console) runs.
+// - File storage goes to an S3-compatible bucket. orch local volumes belong to
+//   a single service, while Appwrite's API and worker both read and write
+//   uploads, imports and builds; a bucket gives them one shared store.
+// - orch ingress terminates TLS instead of Traefik. A small Caddy `gateway`
+//   service does Traefik's path routing behind it: realtime, API and console
+//   share one domain.
+// - Not carried over: the MQTT broker (Traefik terminated its TLS on ports 8883
+//   and 8084), the screenshot browser and autogravity (only used by Sites and
+//   image previews with automatic gravity), and ClickHouse's optional
+//   log-retention config files and raised open-file limit.
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+
+local domain = "appwrite.example.com"
+
+local appwriteImage = "docker.io/appwrite/appwrite:2.5.0"
+
+/// Settings shared by the API, realtime, worker and task containers. The
+/// compose file passes the same variables to each of them from `.env`.
+local appwriteEnv = new Mapping<String, String> {
+  ["_APP_ENV"] = "production"
+  ["_APP_EDITION"] = "self-hosted"
+  ["_APP_LOCALE"] = "en"
+  ["_APP_DOMAIN"] = domain
+  ["_APP_CONSOLE_DOMAIN"] = domain
+  ["_APP_DOMAIN_TARGET"] = domain
+  ["_APP_DOMAIN_TARGET_CNAME"] = domain
+  // Only the first account may sign up; invite everyone else.
+  ["_APP_CONSOLE_WHITELIST_ROOT"] = "enabled"
+  ["_APP_OPTIONS_ABUSE"] = "enabled"
+  ["_APP_REDIS_HOST"] = "redis"
+  ["_APP_REDIS_PORT"] = "6379"
+  ["_APP_DB_ADAPTER"] = "postgresql"
+  ["_APP_DB_HOST"] = "postgresql"
+  ["_APP_DB_PORT"] = "5432"
+  ["_APP_DB_SCHEMA"] = "appwrite"
+  ["_APP_DB_USER"] = "appwrite"
+  ["_APP_USAGE_STATS"] = "enabled"
+  ["_APP_GEO_ENDPOINT"] = "http://appwrite-geo/v1"
+  // Any S3-compatible bucket. Set the endpoint for providers other than AWS,
+  // for example "https://<account>.r2.cloudflarestorage.com".
+  ["_APP_STORAGE_DEVICE"] = "s3"
+  ["_APP_STORAGE_S3_BUCKET"] = "appwrite"
+  ["_APP_STORAGE_S3_REGION"] = "us-east-1"
+  ["_APP_STORAGE_S3_ENDPOINT"] = ""
+  ["_APP_SYSTEM_EMAIL_NAME"] = "Appwrite"
+  ["_APP_SYSTEM_EMAIL_ADDRESS"] = "noreply@\(domain)"
+  // Add _APP_SMTP_HOST, _APP_SMTP_PORT, _APP_SMTP_SECURE and _APP_SMTP_USERNAME
+  // here (and _APP_SMTP_PASSWORD as a secret) to send invites and resets.
+}
+
+local appwriteSecrets = new Mapping<String, String> {
+  ["_APP_OPENSSL_KEY_V1"] = "openssl-key"
+  ["_APP_DB_PASS"] = "db-password"
+  ["_APP_USAGE_PASS"] = "usage-password"
+  ["_APP_GEO_SECRET"] = "geo-secret"
+  ["_APP_STORAGE_S3_ACCESS_KEY"] = "s3-access-key"
+  ["_APP_STORAGE_S3_SECRET"] = "s3-secret"
+}
+
+/// Path routing that Traefik labels do in the compose file.
+local caddyfile =
+  """
+  {
+  	admin off
+  	auto_https off
+  	servers {
+  		trusted_proxies static private_ranges
+  	}
+  }
+
+  :8080 {
+  	handle /healthz {
+  		respond "ok"
+  	}
+  	handle /v1/realtime* {
+  		reverse_proxy appwrite-realtime:80
+  	}
+  	handle /v1/* {
+  		reverse_proxy appwrite:80
+  	}
+  	handle /.well-known/* {
+  		reverse_proxy appwrite:80
+  	}
+  	handle {
+  		reverse_proxy appwrite-console:3000
+  	}
+  }
+  """
+
+name = "appwrite"
+
+services {
+  ["gateway"] {
+    image = "docker.io/library/caddy:2.10-alpine"
+    command { "/bin/sh" }
+    args {
+      "-c"
+      #"printf '%s\n' "$CADDYFILE" >/etc/caddy/Caddyfile && exec caddy run --config /etc/caddy/Caddyfile"#
+    }
+    env {
+      ["CADDYFILE"] = caddyfile
+    }
+    dependsOn { "appwrite"; "appwrite-realtime"; "appwrite-console" }
+    http = new Http {
+      port = 8080
+      domains { domain }
+      healthPath = "/healthz"
+    }
+  }
+
+  ["appwrite"] {
+    image = appwriteImage
+    resources {
+      cpu = "500m"
+      memory = "1Gi"
+    }
+    env = appwriteEnv
+    secretEnv = appwriteSecrets
+    mounts {
+      new Mount {
+        source = "appwrite-cache"
+        target = "/storage/cache"
+      }
+    }
+    dependsOn { "redis"; "postgresql"; "clickhouse"; "appwrite-geo" }
+    http = new Http {
+      port = 80
+      healthPath = "/v1/health/version"
+    }
+  }
+
+  ["appwrite-console"] {
+    image = "docker.io/appwrite/new:1.2.74-self-hosted"
+    env {
+      ["VITE_CONSOLE_PROFILE"] = "self-hosted"
+      ["APPWRITE_ENDPOINT_SAME_ORIGIN"] = "true"
+    }
+    resources {
+      memory = "256Mi"
+    }
+    http = new Http { port = 3000 }
+  }
+
+  ["appwrite-realtime"] {
+    image = appwriteImage
+    command { "realtime" }
+    resources {
+      memory = "512Mi"
+    }
+    env = appwriteEnv
+    secretEnv = appwriteSecrets
+    dependsOn { "redis"; "postgresql" }
+    http = new Http { port = 80 }
+  }
+
+  ["appwrite-worker"] {
+    image = appwriteImage
+    command { "worker" }
+    resources {
+      cpu = "250m"
+      memory = "1Gi"
+    }
+    env = appwriteEnv
+    secretEnv = appwriteSecrets
+    dependsOn { "redis"; "postgresql"; "clickhouse" }
+  }
+
+  ["appwrite-task-scheduler"] {
+    image = appwriteImage
+    command { "schedule" }
+    resources {
+      memory = "256Mi"
+    }
+    env = (appwriteEnv) {
+      ["_APP_WORKER_MAX_COROUTINES"] = "8"
+    }
+    secretEnv = appwriteSecrets
+    dependsOn { "redis"; "postgresql" }
+  }
+
+  ["appwrite-task-maintenance"] {
+    image = appwriteImage
+    command { "maintenance" }
+    resources {
+      memory = "256Mi"
+    }
+    env = appwriteEnv
+    secretEnv = appwriteSecrets
+    dependsOn { "redis"; "postgresql" }
+  }
+
+  ["appwrite-task-interval"] {
+    image = appwriteImage
+    command { "interval" }
+    resources {
+      memory = "256Mi"
+    }
+    env = appwriteEnv
+    secretEnv = appwriteSecrets
+    dependsOn { "redis"; "postgresql" }
+  }
+
+  ["appwrite-geo"] {
+    image = "docker.io/appwrite/geo:0.3.2"
+    resources {
+      memory = "256Mi"
+    }
+    secretEnv {
+      ["GEO_SECRET"] = "geo-secret"
+    }
+    http = new Http {
+      port = 80
+      healthPath = "/v1/health"
+    }
+  }
+
+  ["postgresql"] {
+    image = "docker.io/appwrite/postgres:0.1.0"
+    resources {
+      cpu = "250m"
+      memory = "1Gi"
+    }
+    env {
+      ["POSTGRES_DB"] = "appwrite"
+      ["POSTGRES_USER"] = "appwrite"
+    }
+    secretEnv {
+      ["POSTGRES_PASSWORD"] = "db-password"
+    }
+    mounts {
+      new Mount {
+        source = "postgresql"
+        target = "/var/lib/postgresql"
+      }
+    }
+    stopGracePeriod = "1m"
+    tcp = new Tcp { port = 5432 }
+  }
+
+  ["redis"] {
+    image = "docker.io/library/redis:7.4.7-alpine"
+    command { "redis-server" }
+    args { "--maxmemory"; "512mb"; "--maxmemory-policy"; "allkeys-lru"; "--maxmemory-samples"; "5" }
+    resources {
+      memory = "640Mi"
+    }
+    mounts {
+      new Mount {
+        source = "redis"
+        target = "/data"
+      }
+    }
+    tcp = new Tcp { port = 6379 }
+  }
+
+  ["clickhouse"] {
+    image = "docker.io/clickhouse/clickhouse-server:26.4.3-alpine"
+    resources {
+      cpu = "250m"
+      memory = "1Gi"
+    }
+    env {
+      ["CLICKHOUSE_DB"] = "appwrite"
+      ["CLICKHOUSE_USER"] = "appwrite"
+      ["CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT"] = "1"
+    }
+    secretEnv {
+      ["CLICKHOUSE_PASSWORD"] = "usage-password"
+    }
+    mounts {
+      new Mount {
+        source = "clickhouse"
+        target = "/var/lib/clickhouse"
+      }
+    }
+    stopGracePeriod = "1m"
+    http = new Http {
+      port = 8123
+      healthPath = "/ping"
+    }
+  }
+}
+
+volumes {
+  ["appwrite-cache"] {}
+  ["postgresql"] {}
+  ["redis"] {}
+  ["clickhouse"] {}
+}
+
+deploy {
+  // The first deploy pulls several large images, and the API runs its
+  // database setup before it reports healthy.
+  healthDeadline = "10m"
+}
