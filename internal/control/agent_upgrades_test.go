@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func newUpgradeFixture(t *testing.T) *upgradeFixture {
 	f.upgrades = newAgentUpgrades(f.manager, t.TempDir(), func() time.Time { return f.now })
 	f.upgrades.version, f.upgrades.buildID = "0.2.0", "build-two"
 	binary := agentBinary{path: "/controller/orch", sha256: "abc", size: 3}
-	f.upgrades.binaries["amd64"] = binary
+	f.upgrades.binaries[runtime.GOARCH] = binary
 	f.upgrades.byHash[binary.sha256] = binary
 	return f
 }
@@ -83,10 +84,10 @@ func (f *upgradeFixture) command(session *agentSession) *orchv1alpha1.UpgradeCom
 func TestAgentUpgradesRollOneNodeAtATime(t *testing.T) {
 	t.Parallel()
 	f := newUpgradeFixture(t)
-	first := f.connect("node-a", "0.1.0", "amd64", true)
-	second := f.connect("node-b", "0.1.0", "amd64", true)
-	f.connect("node-c", "0.1.0", "amd64", false)
-	f.connect("node-d", "0.3.0", "amd64", true)
+	first := f.connect("node-a", "0.1.0", runtime.GOARCH, true)
+	second := f.connect("node-b", "0.1.0", runtime.GOARCH, true)
+	f.connect("node-c", "0.1.0", runtime.GOARCH, false)
+	f.connect("node-d", "0.3.0", runtime.GOARCH, true)
 
 	f.upgrades.step(context.Background())
 	command := f.command(first)
@@ -104,7 +105,7 @@ func TestAgentUpgradesRollOneNodeAtATime(t *testing.T) {
 		t.Fatal("second node was upgraded before the first reconnected")
 	}
 
-	f.connect("node-a", "0.2.0", "amd64", true)
+	f.connect("node-a", "0.2.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
 	if state := f.upgrades.state("node-a"); state != "" {
 		t.Fatalf("state after success = %q", state)
@@ -112,7 +113,7 @@ func TestAgentUpgradesRollOneNodeAtATime(t *testing.T) {
 	if f.command(second) == nil {
 		t.Fatal("second node was not upgraded after the first succeeded")
 	}
-	f.connect("node-b", "0.2.0", "amd64", true)
+	f.connect("node-b", "0.2.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
 	f.upgrades.step(context.Background())
 	for _, nodeID := range []string{"node-c", "node-d"} {
@@ -125,9 +126,9 @@ func TestAgentUpgradesRollOneNodeAtATime(t *testing.T) {
 func TestAgentUpgradesRetryFailedNodeLater(t *testing.T) {
 	t.Parallel()
 	f := newUpgradeFixture(t)
-	f.connect("node-a", "0.1.0", "amd64", true)
+	f.connect("node-a", "0.1.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
-	f.connect("node-a", "0.1.0", "amd64", true)
+	f.connect("node-a", "0.1.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
 	if state := f.upgrades.state("node-a"); state != "failed: agent reconnected on 0.1.0" {
 		t.Fatalf("state = %q", state)
@@ -136,7 +137,7 @@ func TestAgentUpgradesRetryFailedNodeLater(t *testing.T) {
 		t.Fatal("failed node was retried at once")
 	}
 
-	second := f.connect("node-b", "0.1.0", "amd64", true)
+	second := f.connect("node-b", "0.1.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
 	if f.command(second) == nil {
 		t.Fatal("another node was not upgraded after a failure")
@@ -149,7 +150,7 @@ func TestAgentUpgradesRetryFailedNodeLater(t *testing.T) {
 		t.Fatalf("state = %q", state)
 	}
 
-	f.connect("node-b", "0.2.0", "amd64", true)
+	f.connect("node-b", "0.2.0", runtime.GOARCH, true)
 	f.upgrades.step(context.Background())
 	if state := f.upgrades.state("node-b"); state != "" {
 		t.Fatalf("state after a late upgrade = %q", state)
@@ -179,16 +180,26 @@ func TestAgentUpgradesReportMissingBinary(t *testing.T) {
 	}
 }
 
+// otherArchitecture is a supported architecture the test host does not run.
+func otherArchitecture() string {
+	if runtime.GOARCH == "arm64" {
+		return "amd64"
+	}
+	return "arm64"
+}
+
 func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
-	binary := []byte("arm64 orch")
+	other := otherArchitecture()
+	asset := "orch-linux-" + other
+	binary := []byte(other + " orch")
 	digest := sha256.Sum256(binary)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requests++
 		switch request.URL.Path {
 		case "/v0.2.0/SHA256SUMS":
-			fmt.Fprintf(response, "%s  orch-linux-arm64\n%s  orch-linux-amd64\n", hex.EncodeToString(digest[:]), "00")
-		case "/v0.2.0/orch-linux-arm64":
+			fmt.Fprintf(response, "%s  %s\n%s  orch-linux-riscv64\n", hex.EncodeToString(digest[:]), asset, "00")
+		case "/v0.2.0/" + asset:
 			_, _ = response.Write(binary)
 		default:
 			http.NotFound(response, request)
@@ -200,14 +211,14 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 	defer func() { releaseDownloadURL = previous }()
 
 	f := newUpgradeFixture(t)
-	got, err := f.upgrades.binary(context.Background(), "arm64")
+	got, err := f.upgrades.binary(context.Background(), other)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.sha256 != hex.EncodeToString(digest[:]) || got.size != uint64(len(binary)) {
 		t.Fatalf("binary = %#v", got)
 	}
-	data, err := os.ReadFile(filepath.Join(f.upgrades.dataDir, "agent-binaries", "0.2.0", "orch-linux-arm64"))
+	data, err := os.ReadFile(filepath.Join(f.upgrades.dataDir, "agent-binaries", "0.2.0", asset))
 	if err != nil || !bytes.Equal(data, binary) {
 		t.Fatalf("cached binary = %q, %v", data, err)
 	}
@@ -225,7 +236,7 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 	// A tampered checksum file is refused.
 	f2 := newUpgradeFixture(t)
 	digest[0] ^= 0xff
-	if _, err := f2.upgrades.binary(context.Background(), "arm64"); err == nil {
+	if _, err := f2.upgrades.binary(context.Background(), other); err == nil {
 		t.Fatal("binary with a mismatched checksum was accepted")
 	}
 	if requests == 0 {

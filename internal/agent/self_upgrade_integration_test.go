@@ -19,6 +19,16 @@ import (
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
+// hostRuntime is the fake runtime reporting this host's architecture, so the
+// controller offers its own binary.
+type hostRuntime struct{ *orchruntime.Fake }
+
+func (r hostRuntime) Preflight(ctx context.Context) (orchruntime.Capabilities, error) {
+	capabilities, err := r.Fake.Preflight(ctx)
+	capabilities.Architecture = runtime.GOARCH
+	return capabilities, err
+}
+
 // An older agent connecting to a newer controller downloads the controller's
 // binary and hands it to orch node upgrade.
 func TestOlderAgentUpgradesToControllerBuild(t *testing.T) {
@@ -79,7 +89,7 @@ func TestOlderAgentUpgradesToControllerBuild(t *testing.T) {
 	agentDone := make(chan error, 1)
 	go func() {
 		agentDone <- Serve(agentContext, ServeOptions{
-			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: orchruntime.NewFake(), Discovery: discovery.NewFake(),
+			DataDir: agentDir, Snapshotter: "overlayfs", Runtime: hostRuntime{orchruntime.NewFake()}, Discovery: discovery.NewFake(),
 			Ingress: &ingress.Fake{}, Now: time.Now, Random: rand.Reader, UpgradeStagingDir: filepath.Join(root, "staged"),
 		})
 	}()
