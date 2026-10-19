@@ -22,7 +22,7 @@ encode() {
 credentials="$(encode "$_APP_STORAGE_S3_ACCESS_KEY"):$(encode "$_APP_STORAGE_S3_SECRET")"
 region="$_APP_STORAGE_S3_REGION"
 if [ -n "$_APP_STORAGE_S3_ENDPOINT" ]; then
-	storage="s3://$credentials@localhost?region=$region&url=$(encode "$_APP_STORAGE_S3_ENDPOINT")"
+	storage="s3://$credentials@localhost/$_APP_STORAGE_S3_BUCKET?region=$region&url=$(encode "$_APP_STORAGE_S3_ENDPOINT")"
 else
 	storage="s3://$credentials@$_APP_STORAGE_S3_BUCKET.s3.$region.amazonaws.com?region=$region"
 fi
