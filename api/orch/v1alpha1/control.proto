@@ -164,6 +164,10 @@ message Node {
   string certificate_reason = 40;
   // The newest usage the agent reported; unset until it has reported one.
   NodeUsage usage = 41;
+  // The connected agent's version, and its upgrade to the controller's build
+  // when one is in progress or failed.
+  string agent_version = 42;
+  string agent_upgrade = 43;
 }
 
 message NodeUsage {

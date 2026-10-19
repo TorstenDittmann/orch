@@ -12,12 +12,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
 	"github.com/TorstenDittmann/orch/internal/agent/state"
+	"github.com/TorstenDittmann/orch/internal/buildinfo"
 	"github.com/TorstenDittmann/orch/internal/model"
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -53,6 +55,11 @@ type sessionRunner struct {
 	// session is connected so a long reconcile, such as a replica given minutes
 	// to stop, cannot let the controller time the session out.
 	keepalive func(context.Context) error
+	// selfUpgrade is set for managed node installs, which run orch node
+	// upgrade when the controller sends an UpgradeCommand.
+	selfUpgrade       bool
+	upgradeStagingDir string
+	upgrading         atomic.Bool
 }
 
 type controllerMessage struct {
@@ -296,6 +303,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		AllocatableCpuMillis: r.capabilities.AllocatableCPUMillis, AllocatableMemoryBytes: r.capabilities.AllocatableMemoryBytes,
 		AdvertiseAddress: r.capabilities.AdvertiseAddress, WireguardPublicKey: r.capabilities.WireGuardPublicKey,
 		WireguardListenPort: r.capabilities.WireGuardListenPort,
+		AgentVersion:        buildinfo.Version, AgentBuildId: buildinfo.BuildID, SelfUpgrade: r.selfUpgrade,
 	}
 	if cachedErr == nil {
 		hello.CachedAssignmentGeneration = cached.Generation
@@ -551,6 +559,8 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 			defer operations.finish(command.GetRequestId(), operation)
 			r.runRestart(operationContext, command, operationOutbound)
 		}()
+	case *orchv1alpha1.ConnectResponse_Upgrade:
+		return r.handleUpgrade(ctx, message.Upgrade)
 	case *orchv1alpha1.ConnectResponse_CancelOperation:
 		if message.CancelOperation == nil || len(message.CancelOperation.ProtoReflect().GetUnknown()) != 0 || message.CancelOperation.GetRequestId() == "" {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid operation cancellation"))

@@ -298,23 +298,39 @@ or download them with `orch volume download`.
 
 ## Upgrades
 
-Upgrade the controller first, then workers:
+Upgrade on the controller host only. Install the new orch there and run its
+upgrade:
 
 ```console
-sudo ./new-orch cluster upgrade --binary ./new-orch --dry-run --json
-sudo ./new-orch cluster upgrade --binary ./new-orch
-
-sudo ./new-orch node upgrade --binary ./new-orch --dry-run --json
-sudo ./new-orch node upgrade --binary ./new-orch
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+sudo orch cluster upgrade --dry-run   # optional preview
+sudo orch cluster upgrade
 ```
 
-Keep the recovery path reported by each operation until normal traffic and a
-test deployment have succeeded.
+`orch cluster upgrade` upgrades the orch it runs from, unless `--binary FILE`
+names another one. Once the controller is back, it upgrades the workers itself,
+one node at a time. Each worker downloads the controller's binary over its
+agent connection and runs `orch node upgrade` with it, so containers keep
+running and a worker whose new agent does not come back rolls back on its own.
+The next worker starts when the previous one reconnects on the new version.
+Workers on another architecture get the matching release binary, which the
+controller downloads from GitHub and checks against the release's
+`SHA256SUMS`.
 
-Upgrade every worker before deploying a manifest that uses a field the old
-version did not have, such as `stopGracePeriod` or a volume `backup`. An older
-worker cannot accept such an assignment and keeps running its previous one.
-`orch volume` and `orch restart` also need upgraded workers.
+Follow the rollout with `orch nodes`. Each node shows its `agent=` version
+and, while it upgrades or after it failed, `upgrade=`. A failed worker is
+retried an hour later, or upgraded by hand with
+`sudo orch node upgrade --binary ./new-orch` on that worker. Workers installed
+by a version without controller-driven upgrades need that manual upgrade once.
+
+Keep the recovery path reported by the controller upgrade until normal traffic
+and a test deployment have succeeded.
+
+Wait for every worker to report the new version before deploying a manifest
+that uses a field the old version did not have, such as `stopGracePeriod` or a
+volume `backup`. An older worker cannot accept such an assignment and keeps
+running its previous one. `orch volume` and `orch restart` also need upgraded
+workers.
 
 ## Controller outages
 

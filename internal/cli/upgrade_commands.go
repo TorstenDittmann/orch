@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -18,16 +19,26 @@ func runHostUpgrade(ctx context.Context, kind string, args []string, stdout, std
 	var binary string
 	var dryRun, jsonOutput bool
 	var wait time.Duration
-	flags.StringVar(&binary, "binary", "", "trusted local candidate orch executable")
+	flags.StringVar(&binary, "binary", "", "trusted local candidate orch executable (default: this orch)")
 	flags.BoolVar(&dryRun, "dry-run", false, "validate and show the upgrade without changing the host")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flags.DurationVar(&wait, "wait-timeout", 5*time.Minute, "maximum wait for service readiness")
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(binary) == "" || wait <= 0 {
-		writeError(stderr, errors.New("upgrade requires --binary FILE and a positive --wait-timeout"), jsonOutput)
+	if flags.NArg() != 0 || wait <= 0 {
+		writeError(stderr, errors.New("upgrade takes only flags and a positive --wait-timeout"), jsonOutput)
 		return ExitInvalid
+	}
+	if strings.TrimSpace(binary) == "" {
+		// The orch running this command is the candidate, so installing a new
+		// orch and running its upgrade is enough.
+		executable, err := os.Executable()
+		if err != nil {
+			writeError(stderr, fmt.Errorf("locate this orch binary; pass --binary FILE: %w", err), jsonOutput)
+			return ExitRuntime
+		}
+		binary = executable
 	}
 	options := host.UpgradeOptions{Binary: binary, DryRun: dryRun, WaitTimeout: wait, Progress: stderr}
 	var result host.UpgradeResult
@@ -49,6 +60,9 @@ func runHostUpgrade(ctx context.Context, kind string, args []string, stdout, std
 		}
 		if result.RecoveryPath != "" {
 			fmt.Fprintln(stdout, "Recovery:", result.RecoveryPath)
+		}
+		if kind == "cluster" && err == nil && result.Ready {
+			fmt.Fprintf(stdout, "Workers upgrade themselves to %s one at a time. Follow them with: orch nodes\n", result.Candidate.Version)
 		}
 	}
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -30,6 +31,9 @@ type ServeOptions struct {
 	Random                    io.Reader
 	SystemReservedCPUMillis   uint64
 	SystemReservedMemoryBytes uint64
+	// UpgradeStagingDir replaces where a self-upgrade stages its candidate;
+	// tests only.
+	UpgradeStagingDir string
 }
 
 func Serve(ctx context.Context, options ServeOptions) error {
@@ -125,6 +129,15 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
 		volumes: volumes, usage: newUsageSampler(dataDir, capabilities.TotalCPUMillis),
+		selfUpgrade: selfUpgradeAvailable(), upgradeStagingDir: options.UpgradeStagingDir,
+	}
+	if runner.upgradeStagingDir == "" {
+		runner.upgradeStagingDir = upgradeStagingDir
+	}
+	if runner.selfUpgrade {
+		// A staged candidate is not needed once this agent runs: orch node
+		// upgrade copied it into place before starting the agent.
+		_ = os.RemoveAll(runner.upgradeStagingDir)
 	}
 	backupContext, stopBackups := context.WithCancel(ctx)
 	backupsDone := make(chan struct{})

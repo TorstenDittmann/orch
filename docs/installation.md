@@ -159,25 +159,25 @@ On Fedora, inspect recent SELinux denials with
 
 ## Upgrades
 
-Upgrade the controller before workers. Rerun the install script on each host,
-or copy the trusted new binary there, and inspect the change before applying
-it. With the install script the new binary is `/usr/local/bin/orch`:
+Upgrade on the controller host only. Rerun the install script there, or copy
+the trusted new binary, and run its upgrade:
 
 ```console
-sudo orch cluster upgrade --binary /usr/local/bin/orch
-sudo orch node upgrade --binary /usr/local/bin/orch
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
+sudo orch cluster upgrade
 ```
 
 With a copied binary:
 
 ```console
-sudo ./new-orch cluster upgrade --binary ./new-orch --dry-run --json
-sudo ./new-orch cluster upgrade --binary ./new-orch
-
-sudo ./new-orch node upgrade --binary ./new-orch --dry-run --json
-sudo ./new-orch node upgrade --binary ./new-orch
+sudo ./new-orch cluster upgrade --dry-run --json
+sudo ./new-orch cluster upgrade
 ```
 
-Worker upgrades restart the agent while existing workloads continue under
-containerd. Keep the recovery path reported by each upgrade until the cluster
-has been observed under normal traffic.
+The controller then upgrades every worker to its own version, one node at a
+time; follow them with `orch nodes`. Worker upgrades restart the agent
+while existing workloads continue under containerd. Keep the recovery path
+reported by the upgrade until the cluster has been observed under normal
+traffic. See [upgrades](operations.md#upgrades).
+
+Then update the CLI on your workstation the same way you installed it.

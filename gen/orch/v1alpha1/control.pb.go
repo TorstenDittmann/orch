@@ -593,7 +593,11 @@ type Node struct {
 	CertificateState       string                 `protobuf:"bytes,39,opt,name=certificate_state,json=certificateState,proto3" json:"certificate_state,omitempty"`
 	CertificateReason      string                 `protobuf:"bytes,40,opt,name=certificate_reason,json=certificateReason,proto3" json:"certificate_reason,omitempty"`
 	// The newest usage the agent reported; unset until it has reported one.
-	Usage         *NodeUsage `protobuf:"bytes,41,opt,name=usage,proto3" json:"usage,omitempty"`
+	Usage *NodeUsage `protobuf:"bytes,41,opt,name=usage,proto3" json:"usage,omitempty"`
+	// The connected agent's version, and its upgrade to the controller's build
+	// when one is in progress or failed.
+	AgentVersion  string `protobuf:"bytes,42,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	AgentUpgrade  string `protobuf:"bytes,43,opt,name=agent_upgrade,json=agentUpgrade,proto3" json:"agent_upgrade,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -913,6 +917,20 @@ func (x *Node) GetUsage() *NodeUsage {
 		return x.Usage
 	}
 	return nil
+}
+
+func (x *Node) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
+}
+
+func (x *Node) GetAgentUpgrade() string {
+	if x != nil {
+		return x.AgentUpgrade
+	}
+	return ""
 }
 
 type NodeUsage struct {
@@ -7575,7 +7593,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"tcp_routes\x18\x12 \x03(\v2\x1d.orch.v1alpha1.TCPRouteStatusR\ttcpRoutes\x129\n" +
 	"\tcron_jobs\x18\x13 \x03(\v2\x1c.orch.v1alpha1.CronJobStatusR\bcronJobs\x12<\n" +
 	"\n" +
-	"node_ports\x18\x14 \x03(\v2\x1d.orch.v1alpha1.NodePortStatusR\tnodePorts\"\xd3\x0e\n" +
+	"node_ports\x18\x14 \x03(\v2\x1d.orch.v1alpha1.NodePortStatusR\tnodePorts\"\x9d\x0f\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12P\n" +
@@ -7623,7 +7641,9 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x15certificate_not_after\x18& \x01(\v2\x1a.google.protobuf.TimestampR\x13certificateNotAfter\x12+\n" +
 	"\x11certificate_state\x18' \x01(\tR\x10certificateState\x12-\n" +
 	"\x12certificate_reason\x18( \x01(\tR\x11certificateReason\x12.\n" +
-	"\x05usage\x18) \x01(\v2\x18.orch.v1alpha1.NodeUsageR\x05usage\x1a9\n" +
+	"\x05usage\x18) \x01(\v2\x18.orch.v1alpha1.NodeUsageR\x05usage\x12#\n" +
+	"\ragent_version\x18* \x01(\tR\fagentVersion\x12#\n" +
+	"\ragent_upgrade\x18+ \x01(\tR\fagentUpgrade\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xee\x01\n" +

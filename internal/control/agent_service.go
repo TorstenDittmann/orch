@@ -39,6 +39,7 @@ type agentService struct {
 	caPEM      []byte
 	caKey      []byte
 	random     io.Reader
+	upgrades   *agentUpgrades
 }
 
 type receivedAgentMessage struct {
@@ -93,6 +94,11 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	}
 	defer s.sessions.unregister(session)
+	session.mu.Lock()
+	session.version, session.buildID = hello.GetAgentVersion(), hello.GetAgentBuildId()
+	session.architecture, session.selfUpgrade = hello.GetArchitecture(), hello.GetSelfUpgrade()
+	session.mu.Unlock()
+	s.upgrades.kick()
 	if err := s.state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
 		NodeID: nodeID, BootID: hello.GetBootId(), OperatingSystem: hello.GetOperatingSystem(),
 		Architecture: hello.GetArchitecture(), RuntimeVersion: hello.GetRuntimeVersion(),
@@ -332,7 +338,8 @@ func validateHello(hello *orchv1alpha1.AgentHello, nodeID string) error {
 	}
 	for name, value := range map[string]string{
 		"CNI version": hello.GetCniVersion(), "CNI plugins version": hello.GetCniPluginsVersion(),
-		"Caddy version": hello.GetCaddyVersion(),
+		"Caddy version": hello.GetCaddyVersion(), "agent version": hello.GetAgentVersion(),
+		"agent build id": hello.GetAgentBuildId(),
 	} {
 		if len(value) > 128 {
 			return fmt.Errorf("%s must not exceed 128 bytes", name)

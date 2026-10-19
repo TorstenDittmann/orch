@@ -112,7 +112,10 @@ not match. Each container gets:
 - only the bind mounts orch manages (volumes and secret files).
 
 A worker upgrade restarts only the agent. Containers keep running under
-containerd and are adopted again when the new agent starts.
+containerd and are adopted again when the new agent starts. The controller
+starts worker upgrades itself after its own upgrade: it sends each older agent
+an upgrade command naming its binary's SHA-256, one node at a time, and the
+agent downloads that binary from the controller over its mTLS connection.
 
 See [runtime requirements](runtime.md) and [installation](installation.md).
 

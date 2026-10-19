@@ -350,7 +350,11 @@ in place. Before the switch, a controller upgrade writes a recovery set below
 `/var/lib/orch-controller-install/upgrades/` and needs 512 MiB free; a worker
 upgrade copies the agent state below `/var/lib/orch-install/upgrades/` and
 needs 256 MiB free. A worker upgrade restarts the agent while containers keep
-running under containerd. See [upgrades](installation.md#upgrades).
+running under containerd. After a controller upgrade, the controller upgrades
+each worker this way, staging the downloaded binary below
+`/var/lib/orch-install/upgrades/staged/` and running `orch node upgrade` in the
+transient `orch-agent-upgrade` systemd unit. See
+[upgrades](installation.md#upgrades).
 
 ## Removing orch
 
