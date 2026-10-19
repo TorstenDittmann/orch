@@ -11,7 +11,7 @@ import (
 
 func TestNodeLocalHTTPRollbackStillRequiresIngress(t *testing.T) {
 	allocation := model.AllocationDesired{
-		HTTP: &model.HTTPDesired{Port: 8080},
+		HTTP:     &model.HTTPDesired{Port: 8080},
 		Rollback: &model.RollbackSpec{HTTP: &model.HTTPDesired{Port: 8080, NodeLocal: true}},
 	}
 	if !allocationRequiresIngress(allocation) {
