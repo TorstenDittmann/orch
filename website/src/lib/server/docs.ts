@@ -40,11 +40,55 @@ export const pages = nav.flatMap((group) => group.items);
 
 // Token colors are CSS variables defined in app.css, so code follows the site theme.
 const theme = createCssVariablesTheme({ name: "orch", variablePrefix: "--code-" });
+// Bare shell arguments read as plain text; otherwise whole command lines turn string-colored.
+theme.tokenColors!.push({ scope: "string.unquoted.argument", settings: { foreground: "var(--code-foreground)" } });
 
 const highlighter = await createHighlighter({
 	themes: [theme],
-	langs: ["pkl", "console", "shellscript", "text"],
+	langs: ["pkl", "shellscript", "yaml", "json", "text"],
 });
+
+function escapeHtml(text: string): string {
+	return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/**
+ * Highlights a console transcript: "$ " lines as shell commands, the rest as
+ * dimmed output. Shiki's console grammar leaves the commands uncolored.
+ */
+function consoleHtml(code: string): string {
+	const lines = code.split("\n").map((line) => {
+		if (!line.startsWith("$ ")) return `<span class="line"><span class="output">${escapeHtml(line)}</span></span>`;
+		const [tokens] = highlighter.codeToTokens(line.slice(2), { lang: "shellscript", theme: "orch" }).tokens;
+		const spans = tokens.map((token) => `<span style="color:${token.color}">${escapeHtml(token.content)}</span>`);
+		return `<span class="line"><span class="prompt">$ </span>${spans.join("")}</span>`;
+	});
+	return `<pre class="shiki orch" tabindex="0"><code>${lines.join("\n")}</code></pre>`;
+}
+
+/**
+ * Highlights a code block and wraps it with a copy button. Console blocks
+ * without "$ " prompts are plain commands, so they are highlighted as shell;
+ * with prompts, only the commands are copied.
+ */
+function codeBlock(code: string, lang: string): string {
+	const prompts = lang === "console" && /^\$ /m.test(code);
+	let html: string;
+	let copy = code;
+	if (prompts) {
+		html = consoleHtml(code);
+		copy = code
+			.split("\n")
+			.filter((line) => line.startsWith("$ "))
+			.map((line) => line.slice(2))
+			.join("\n");
+	} else {
+		let language = lang === "console" ? "shellscript" : lang;
+		if (!highlighter.getLoadedLanguages().includes(language)) language = "text";
+		html = highlighter.codeToHtml(code, { lang: language, theme: "orch" });
+	}
+	return `<div class="codeblock">${html}<button type="button" class="copy" data-copy="${escapeHtml(copy)}" aria-label="Copy code"></button></div>`;
+}
 
 function slugify(text: string): string {
 	return text
@@ -93,11 +137,7 @@ export function renderDoc(file: string): Doc {
 				return `<h${depth} id="${id}"><a href="#${id}">${html}</a></h${depth}>\n`;
 			},
 			code({ text, lang }) {
-				const language = lang && highlighter.getLoadedLanguages().includes(lang) ? lang : "text";
-				return highlighter.codeToHtml(text, {
-					lang: language,
-					theme: "orch",
-				});
+				return codeBlock(text, lang || "text");
 			},
 		},
 	});
@@ -126,8 +166,5 @@ export function plainDescription(doc: Doc): string {
 
 /** Highlights a standalone snippet, such as the manifest on the landing page. */
 export function highlight(code: string, lang: string): string {
-	return highlighter.codeToHtml(code, {
-		lang,
-		theme: "orch",
-	});
+	return codeBlock(code, lang);
 }
