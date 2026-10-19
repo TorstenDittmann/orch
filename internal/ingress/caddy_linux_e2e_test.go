@@ -142,6 +142,63 @@ func TestCaddyRealHTTPReloadRollbackAndAdoption(t *testing.T) {
 		t.Fatalf("route was not reapplied after candidate failure: %q", body)
 	}
 
+	// Exercise Apply itself: Caddy really accepts the new route, but the
+	// agent loses either the load response or the following ping response.
+	for index, timeoutAt := range []string{"load", "ping"} {
+		t.Run("Apply_recovers_lost_"+timeoutAt+"_response", func(t *testing.T) {
+			before, err := os.ReadFile(filepath.Join(options.StateDir, "accepted-config.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			route.Upstreams = []string{firstAddress}
+			wantBody := "first"
+			if index == 1 {
+				route.Upstreams = []string{secondAddress}
+				wantBody = "second"
+			}
+			transport := caddy.client.Transport
+			loaded, interrupted := false, false
+			caddy.client.Transport = recoveryTransport(func(request *http.Request) (*http.Response, error) {
+				if loaded && timeoutAt == "ping" && !interrupted && request.Method == http.MethodGet {
+					interrupted = true
+					return nil, context.DeadlineExceeded
+				}
+				response, err := transport.RoundTrip(request)
+				if err == nil && request.Method == http.MethodPost && request.URL.Path == "/load" && response.StatusCode < 300 {
+					loaded = true
+					if timeoutAt == "load" && !interrupted {
+						interrupted = true
+						_, _ = io.Copy(io.Discard, response.Body)
+						_ = response.Body.Close()
+						return nil, context.DeadlineExceeded
+					}
+				}
+				return response, err
+			})
+			statuses, applyErr := caddy.Apply(context.Background(), []Route{route}, time.Now())
+			caddy.client.Transport = transport
+			if !interrupted || applyErr != nil || len(statuses) != 1 || statuses[0].State != model.RouteFailed {
+				t.Fatalf("interrupted Apply = %#v, %v, interrupted=%t", statuses, applyErr, interrupted)
+			}
+			candidatePath := filepath.Join(options.StateDir, "candidate-config.json")
+			candidate, err := os.ReadFile(candidatePath)
+			if err != nil || bytes.Equal(candidate, before) {
+				t.Fatalf("Apply did not retain the new candidate fingerprint: %s, %v", candidate, err)
+			}
+			if body := requestManagedRoute(t, route.Domain); body != wantBody {
+				t.Fatalf("Caddy did not actually accept the candidate: %q", body)
+			}
+			assertAppliedRoute(t, caddy, route)
+			accepted, err := os.ReadFile(filepath.Join(options.StateDir, "accepted-config.json"))
+			if err != nil || !bytes.Equal(accepted, candidate) {
+				t.Fatalf("next Apply did not recover the candidate: %s, %v", accepted, err)
+			}
+			if _, err := os.Stat(candidatePath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("candidate was not promoted: %v", err)
+			}
+		})
+	}
+
 	adopter, err := NewCaddy(options)
 	if err != nil {
 		t.Fatal(err)
