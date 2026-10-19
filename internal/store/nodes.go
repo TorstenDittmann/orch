@@ -269,7 +269,13 @@ func (s *Store) NodeAssignedResources(ctx context.Context, nodeID string) (uint6
 	return cpu, memory, nil
 }
 
+// NodeDrainBlockers reports what keeps a draining node from finishing its
+// drain. Active and cordoned nodes have nothing to block, so they report none:
+// a local volume or an in-flight assignment is normal there.
 func (s *Store) NodeDrainBlockers(ctx context.Context, node model.Node) ([]string, error) {
+	if node.Lifecycle != model.NodeLifecycleDraining {
+		return nil, nil
+	}
 	var localVolumes, cronJobs int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM volume_claims v
 		JOIN applications a ON a.name = v.application_name
