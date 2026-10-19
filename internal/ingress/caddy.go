@@ -133,6 +133,10 @@ func (c *Caddy) Preflight(ctx context.Context) (string, error) {
 }
 
 func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]model.RouteStatus, error) {
+	// Reconciliation also services log/control requests. Never let certificate
+	// provisioning or a stuck validation process monopolize that pass.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.identity.uid == 0 {
@@ -535,45 +539,35 @@ func caddyCommandEnvironment(options CaddyOptions) []string {
 // probeRoutes reports every route on its own, so one failing upstream or a
 // certificate that is still being issued never affects the other routes.
 func (c *Caddy) probeRoutes(ctx context.Context, routes []Route, now time.Time) []model.RouteStatus {
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	return probedRoutes(routes, c.waitForRoutes(probeCtx, routes), now)
+	return probedRoutes(routes, c.probeRoutesOnce(probeCtx, routes), now)
 }
 
-// waitForRoutes retries failing routes until each has probed healthy once or
-// the context ends, and returns the last failure of each route.
-func (c *Caddy) waitForRoutes(ctx context.Context, routes []Route) []error {
+// probeRoutesOnce samples each route once. Pending certificates are retried by
+// the next reconciliation, not by sleeping while the supervisor is locked.
+func (c *Caddy) probeRoutesOnce(ctx context.Context, routes []Route) []error {
 	probe := c.options.Probe
 	if probe == nil {
 		probe = probeRoute
 	}
 	failures := make([]error, len(routes))
-	for index := range failures {
-		failures[index] = errors.New("route was not probed")
-	}
-	for {
-		remaining := false
-		for index, route := range routes {
-			if failures[index] == nil {
-				continue
-			}
-			if ctx.Err() != nil {
-				return failures
+	// Probe independently so a slow first hostname cannot starve healthy
+	// routes later in canonical order. Each writer owns one result slot.
+	var probes sync.WaitGroup
+	for index, route := range routes {
+		probes.Add(1)
+		go func() {
+			defer probes.Done()
+			if err := ctx.Err(); err != nil {
+				failures[index] = err
+				return
 			}
 			failures[index] = probe(ctx, route)
-			remaining = remaining || failures[index] != nil
-		}
-		if !remaining {
-			return failures
-		}
-		timer := time.NewTimer(500 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return failures
-		case <-timer.C:
-		}
+		}()
 	}
+	probes.Wait()
+	return failures
 }
 
 // routeStatusError is a probe that reached the route but got a server error.
