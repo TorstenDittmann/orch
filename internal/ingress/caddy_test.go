@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,8 +78,11 @@ func TestProbeRoutesReportsEachRouteIndependently(t *testing.T) {
 		{Application: "app", Service: "err", Domain: "erroring.example.com", HTTPS: true, Upstreams: []string{"10.0.0.5:80"}},
 	}
 	attempts := map[string]int{}
+	var mu sync.Mutex
 	caddy := &Caddy{options: CaddyOptions{Probe: func(_ context.Context, route Route) error {
+		mu.Lock()
 		attempts[route.Domain]++
+		mu.Unlock()
 		switch route.Domain {
 		case "broken.example.com":
 			return &routeStatusError{domain: route.Domain, status: 502}
@@ -107,7 +111,70 @@ func TestProbeRoutesReportsEachRouteIndependently(t *testing.T) {
 	if statuses[3].State != model.RouteFailed || statuses[3].Reason != "route_probe_failed" {
 		t.Fatalf("HTTPS 5xx route = %#v", statuses[3])
 	}
-	if attempts["ok.example.com"] != 1 || attempts["broken.example.com"] < 2 {
-		t.Fatalf("probe attempts = %#v; healthy routes must not be re-probed, failing ones retried", attempts)
+	for domain, count := range attempts {
+		if count != 1 {
+			t.Fatalf("probe attempts for %s = %d, want one per reconciliation", domain, count)
+		}
+	}
+}
+
+func TestPendingCertificateDoesNotStarveOtherRoutes(t *testing.T) {
+	t.Parallel()
+	healthyProbed := make(chan struct{})
+	caddy := &Caddy{options: CaddyOptions{Probe: func(ctx context.Context, route Route) error {
+		if route.Domain == "pending.example.com" {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		close(healthyProbed)
+		return nil
+	}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan []model.RouteStatus, 1)
+	go func() {
+		done <- caddy.probeRoutes(ctx, []Route{
+			{Domain: "pending.example.com", HTTPS: true},
+			{Domain: "healthy.example.com", HTTPS: true},
+		}, time.Now())
+	}()
+	select {
+	case <-healthyProbed:
+	case <-time.After(time.Second):
+		t.Fatal("pending certificate blocked the healthy hostname")
+	}
+	cancel()
+	select {
+	case statuses := <-done:
+		if statuses[0].State != model.RoutePending || statuses[1].State != model.RouteActive {
+			t.Fatalf("independent route states = %#v", statuses)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("route probes did not honor cancellation")
+	}
+}
+
+func TestPendingCertificateRetriesOnNextReconciliation(t *testing.T) {
+	t.Parallel()
+	attempts := 0
+	caddy := &Caddy{options: CaddyOptions{Probe: func(ctx context.Context, _ Route) error {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 2*time.Second {
+			return errors.New("probe budget is missing or too long")
+		}
+		attempts++
+		if attempts == 1 {
+			return errors.New("certificate is still being issued")
+		}
+		return nil
+	}}}
+	routes := []Route{{Domain: "new.example.com", HTTPS: true}}
+	first := caddy.probeRoutes(context.Background(), routes, time.Now())
+	if attempts != 1 || first[0].State != model.RoutePending {
+		t.Fatalf("first pass = %#v, attempts=%d", first, attempts)
+	}
+	second := caddy.probeRoutes(context.Background(), routes, time.Now())
+	if attempts != 2 || second[0].State != model.RouteActive {
+		t.Fatalf("next pass = %#v, attempts=%d", second, attempts)
 	}
 }

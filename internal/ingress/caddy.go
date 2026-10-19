@@ -133,6 +133,10 @@ func (c *Caddy) Preflight(ctx context.Context) (string, error) {
 }
 
 func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]model.RouteStatus, error) {
+	// Reconciliation also services log/control requests. Never let certificate
+	// provisioning or a stuck validation process monopolize that pass.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.identity.uid == 0 {
@@ -166,18 +170,15 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 		_ = os.Remove(candidatePath)
 		return applyFailure(routes, now, "caddy_validation_failed", err)
 	}
-	if err := c.load(ctx, configuration); err != nil {
-		_ = os.Remove(candidatePath)
-		return applyFailure(routes, now, "caddy_load_failed", err)
+	if reason, err := c.loadCandidate(ctx, configuration); err != nil {
+		// A timeout is ambiguous: Caddy may already have applied the config.
+		// Keep its fingerprint so the next pass can authenticate and adopt it.
+		return applyFailure(routes, now, reason, err)
 	}
 	// Caddy accepted the configuration, so it is kept even when individual
 	// routes do not probe healthy yet: reverting would take every other route
 	// on the node down with it and restart pending ACME issuance. Only a Caddy
 	// that stops serving is rolled back, by restarting from the accepted file.
-	if err := c.ping(ctx); err != nil {
-		_ = os.Remove(candidatePath)
-		return applyFailure(routes, now, "caddy_unavailable", err)
-	}
 	if err := publishProcessFile(filepath.Join(c.options.DataDir, "config.json"), configuration, c.identity, 0o600); err != nil {
 		if restoreErr := c.restoreAcceptedConfiguration(acceptedConfiguration); restoreErr != nil {
 			return nil, fmt.Errorf("persist accepted Caddy configuration: %w; restore prior configuration: %v", err, restoreErr)
@@ -422,6 +423,17 @@ func (c *Caddy) validateLiveConfiguration(ctx context.Context) error {
 			return fmt.Errorf("durable Caddy configuration %q is invalid: %w", name, err)
 		}
 		if bytes.Equal(canonicalLive, canonicalDurable) {
+			if name == "candidate-config.json" {
+				// Finish an interrupted load before another candidate can replace
+				// its only durable fingerprint. The live config has been matched
+				// against root-owned state, not adopted from arbitrary admin data.
+				if err := publishProcessFile(filepath.Join(c.options.DataDir, "config.json"), durable, c.identity, 0o600); err != nil {
+					return fmt.Errorf("persist recovered Caddy configuration: %w", err)
+				}
+				if err := promoteAgentFile(filepath.Join(c.options.StateDir, name), filepath.Join(c.options.StateDir, "accepted-config.json")); err != nil {
+					return fmt.Errorf("accept recovered Caddy configuration: %w", err)
+				}
+			}
 			return nil
 		}
 	}
@@ -462,6 +474,16 @@ func (c *Caddy) startFailure(err error) error {
 	}
 	c.nextStart = c.now().UTC().Add(time.Second * time.Duration(1<<exponent))
 	return err
+}
+
+func (c *Caddy) loadCandidate(ctx context.Context, configuration []byte) (string, error) {
+	if err := c.load(ctx, configuration); err != nil {
+		return "caddy_load_failed", err
+	}
+	if err := c.ping(ctx); err != nil {
+		return "caddy_unavailable", err
+	}
+	return "", nil
 }
 
 func (c *Caddy) load(ctx context.Context, configuration []byte) error {
@@ -535,45 +557,35 @@ func caddyCommandEnvironment(options CaddyOptions) []string {
 // probeRoutes reports every route on its own, so one failing upstream or a
 // certificate that is still being issued never affects the other routes.
 func (c *Caddy) probeRoutes(ctx context.Context, routes []Route, now time.Time) []model.RouteStatus {
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	return probedRoutes(routes, c.waitForRoutes(probeCtx, routes), now)
+	return probedRoutes(routes, c.probeRoutesOnce(probeCtx, routes), now)
 }
 
-// waitForRoutes retries failing routes until each has probed healthy once or
-// the context ends, and returns the last failure of each route.
-func (c *Caddy) waitForRoutes(ctx context.Context, routes []Route) []error {
+// probeRoutesOnce samples each route once. Pending certificates are retried by
+// the next reconciliation, not by sleeping while the supervisor is locked.
+func (c *Caddy) probeRoutesOnce(ctx context.Context, routes []Route) []error {
 	probe := c.options.Probe
 	if probe == nil {
 		probe = probeRoute
 	}
 	failures := make([]error, len(routes))
-	for index := range failures {
-		failures[index] = errors.New("route was not probed")
-	}
-	for {
-		remaining := false
-		for index, route := range routes {
-			if failures[index] == nil {
-				continue
-			}
-			if ctx.Err() != nil {
-				return failures
+	// Probe independently so a slow first hostname cannot starve healthy
+	// routes later in canonical order. Each writer owns one result slot.
+	var probes sync.WaitGroup
+	for index, route := range routes {
+		probes.Add(1)
+		go func() {
+			defer probes.Done()
+			if err := ctx.Err(); err != nil {
+				failures[index] = err
+				return
 			}
 			failures[index] = probe(ctx, route)
-			remaining = remaining || failures[index] != nil
-		}
-		if !remaining {
-			return failures
-		}
-		timer := time.NewTimer(500 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return failures
-		case <-timer.C:
-		}
+		}()
 	}
+	probes.Wait()
+	return failures
 }
 
 // routeStatusError is a probe that reached the route but got a server error.

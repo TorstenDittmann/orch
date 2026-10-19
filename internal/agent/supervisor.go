@@ -1416,8 +1416,8 @@ func (s *Supervisor) TailLogs(ctx context.Context, allocation model.AllocationDe
 }
 
 func (s *Supervisor) ReadLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32, cursor string) (orchruntime.LogBatch, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// These reads use the thread-safe state/runtime interfaces, not mutable
+	// supervisor fields. A slow ingress apply must not hold log readers hostage.
 	object, err := s.activeRuntimeObject(ctx, allocation)
 	if err != nil {
 		return orchruntime.LogBatch{}, orchruntime.ErrNotFound
@@ -1433,8 +1433,6 @@ func (s *Supervisor) TailCronLogs(ctx context.Context, runID string, lines uint3
 // ReadPreviousLogs reads the logs of the allocation's most recently removed
 // runtime object, such as the one a deploy or restart replaced.
 func (s *Supervisor) ReadPreviousLogs(ctx context.Context, allocation model.AllocationDesired, lines uint32, cursor string) (orchruntime.LogBatch, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.runtime.ReadPreviousLogs(ctx, allocation.ID, lines, cursor)
 }
 
