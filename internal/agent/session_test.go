@@ -83,6 +83,39 @@ func TestReconcileCachedSurvivesAllocationFailures(t *testing.T) {
 	}
 }
 
+func TestAssignmentRuntimeFaultHoldsACKWithoutDroppingTheSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	runtime.ListError = errors.New("containerd is busy")
+	runner := sessionRunner{bootID: "boot-one", cache: cache, supervisor: NewSupervisor(cache, runtime, func() time.Time { return supervisorTestTime })}
+	runner.credentials.Config.NodeID = "node-one"
+	_, digest, err := model.AssignmentPayloadWithJobs(model.NetworkConfig{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Assignment{Assignment: &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: digest, CreatedAt: timestamppb.New(supervisorTestTime),
+	}}}
+	outbound := make(chan *orchv1alpha1.ConnectRequest, 8)
+
+	if err := runner.handleControllerMessage(ctx, message, outbound, nil, newAgentOperations()); err != nil {
+		t.Fatalf("handleControllerMessage() = %v, want the session kept", err)
+	}
+	if len(outbound) != 0 || !runner.ackPending {
+		t.Fatalf("queued %d messages with ackPending=%t, want the ACK held", len(outbound), runner.ackPending)
+	}
+
+	runtime.ListError = nil
+	if err := runner.handleControllerMessage(ctx, message, outbound, nil, newAgentOperations()); err != nil {
+		t.Fatal(err)
+	}
+	if ack := (<-outbound).GetAssignmentAck(); ack == nil || ack.GetGeneration() != 1 || runner.ackPending {
+		t.Fatalf("first queued message = %v, ackPending=%t, want the generation 1 ACK", ack, runner.ackPending)
+	}
+}
+
 func TestAssignmentModelRejectsNonCanonicalAllocationOrder(t *testing.T) {
 	t.Parallel()
 	snapshot := &orchv1alpha1.AssignmentSnapshot{

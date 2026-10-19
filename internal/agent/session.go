@@ -50,11 +50,16 @@ type sessionRunner struct {
 	random                 io.Reader
 	reportSeq              uint64
 	assignmentAcknowledged bool
-	dataDir                string
-	volumes                *volumeBackups
-	renewalRetryAt         time.Time
-	renewalBackoff         time.Duration
-	usage                  *usageSampler
+	// ackPending is set while the cached assignment received on this
+	// connection has not converged far enough to acknowledge. The reconcile
+	// tick retries it and sends the ACK, so a transient runtime fault does not
+	// cost the session.
+	ackPending     bool
+	dataDir        string
+	volumes        *volumeBackups
+	renewalRetryAt time.Time
+	renewalBackoff time.Duration
+	usage          *usageSampler
 	// keepalive sends a heartbeat on the connected stream. It is set while a
 	// session is connected so a long reconcile, such as a replica given minutes
 	// to stop, cannot let the controller time the session out.
@@ -281,7 +286,7 @@ func reconnectJitter(source io.Reader, maximum time.Duration) (time.Duration, er
 }
 
 func (r *sessionRunner) connect(ctx context.Context) error {
-	r.assignmentAcknowledged = false
+	r.assignmentAcknowledged, r.ackPending = false, false
 	if err := r.writeLocalStatus(nil); err != nil {
 		return err
 	}
@@ -399,6 +404,11 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 					continue
 				}
 			}
+			if r.ackPending {
+				if err := r.enqueueAck(outbound, assignment); err != nil {
+					return err
+				}
+			}
 			if r.assignmentAcknowledged {
 				if err := r.enqueueReport(outbound, assignment, statuses); err != nil {
 					return err
@@ -459,18 +469,23 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		r.volumes.assignmentChanged()
 		statuses, err := r.reconcile(ctx, assignment)
 		if err != nil && !errors.Is(err, ErrAllocationReconcile) {
-			return fmt.Errorf("reconcile assignment: %w", err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Hold the ACK and stay connected: the reconcile tick retries the
+			// cached assignment and acknowledges it once the pass converges.
+			// Reports wait too, since the controller rejects a report for an
+			// assignment it has not seen acknowledged.
+			log.Printf("agent: reconcile assignment %d: %v", assignment.Generation, err)
+			r.ackPending = true
+			return nil
 		}
 		if err != nil {
 			// The pass converged for the assignment as a whole; the failed
 			// allocations are reported as reconcile_failed and retried.
 			log.Printf("agent: reconcile assignment: %v", err)
 		}
-		// Acknowledge only after the durable assignment has actually converged.
-		// This makes a final empty-assignment ACK a reliable removal fence.
-		if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
-			BootId: r.bootID, Generation: assignment.Generation, Digest: assignment.Digest,
-		}}}); err != nil {
+		if err := r.enqueueAck(outbound, assignment); err != nil {
 			return err
 		}
 		return r.enqueueReport(outbound, assignment, statuses)
@@ -804,6 +819,19 @@ func receiveControllerMessages(ctx context.Context, stream *connect.BidiStreamFo
 			return
 		}
 	}
+}
+
+// enqueueAck acknowledges an assignment. Call it only after the durable
+// assignment has actually converged: that makes a final empty-assignment ACK a
+// reliable removal fence.
+func (r *sessionRunner) enqueueAck(outbound chan<- *orchv1alpha1.ConnectRequest, assignment model.Assignment) error {
+	if err := enqueueAgentRequest(outbound, &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_AssignmentAck{AssignmentAck: &orchv1alpha1.AssignmentAck{
+		BootId: r.bootID, Generation: assignment.Generation, Digest: assignment.Digest,
+	}}}); err != nil {
+		return err
+	}
+	r.ackPending = false
+	return nil
 }
 
 func enqueueAgentRequest(outbound chan<- *orchv1alpha1.ConnectRequest, request *orchv1alpha1.ConnectRequest) error {
