@@ -5,6 +5,7 @@ COPY website/package.json website/bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY docs /site/docs
+COPY pkl /site/pkl
 COPY website/tsconfig.json website/vite.config.ts website/serve.ts ./
 COPY website/src ./src
 COPY website/static ./static

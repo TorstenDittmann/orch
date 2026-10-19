@@ -27,7 +27,7 @@ jobs:
         run: mise exec -- ./build.sh
       - name: Verify generated website contract
         run: |
-          for file in index.html quick-start/index.html 404.html sitemap.xml robots.txt llms.txt server/index.js; do
+          for file in index.html quick-start/index.html pkl/v1alpha1/Application.pkl 404.html sitemap.xml robots.txt llms.txt server/index.js; do
             test -f "website/dist/$file"
           done
       - name: Build Dokploy image
@@ -43,5 +43,6 @@ jobs:
           curl -fsS "$base/sitemap.xml" | grep -F 'https://docs.example.com/'
           curl -fsS "$base/robots.txt" | grep -F 'https://docs.example.com/sitemap.xml'
           curl -fsS "$base/quick-start" -o /dev/null
+          curl -fsS "$base/pkl/v1alpha1/Application.pkl" | cmp - pkl/v1alpha1/Application.pkl
           test "$(curl -sS -o missing.html -w '%{http_code}' "$base/this-page-does-not-exist")" = 404
           test "$(curl -sS -o /dev/null -w '%{http_code}' "$base/server/index.js")" = 404

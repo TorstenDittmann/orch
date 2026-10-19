@@ -1,6 +1,9 @@
 **
 !docs/
 !docs/**
+!pkl/
+!pkl/v*/
+!pkl/v*/**
 !website/
 !website/package.json
 !website/bun.lock

@@ -3,7 +3,9 @@
 The public product and documentation site is a prerendered
 [SvelteKit](https://svelte.dev/docs/kit) app. The landing page lives in
 `src/routes/+page.svelte`; documentation pages are rendered from the Markdown in
-`../docs`, with the sidebar order taken from `docs/SUMMARY.md`. Dependencies are
+`../docs`, with the sidebar order taken from `docs/SUMMARY.md`. The versioned
+Pkl schemas in `../pkl/v*/` are published unchanged at `/pkl/`, for example
+`/pkl/v1alpha1/Application.pkl`. Dependencies are
 pinned by `package.json` and `bun.lock`.
 
 From this directory:
@@ -35,7 +37,7 @@ Create a Dokploy application connected to this repository and configure:
 | Domain path | `/` |
 
 Keep the context at the repository root: the site reads Markdown from `docs/`
-as well as assets from `website/`.
+and schemas from `pkl/` as well as assets from `website/`.
 
 Under **Environment → Build Time Arguments**, set the site's public origin:
 
@@ -69,5 +71,5 @@ bun run build:site
 bun run start
 ```
 
-Check `/`, `/quick-start/`, and `/sitemap.xml`. Unknown paths return the
+Check `/`, `/quick-start/`, `/pkl/v1alpha1/Application.pkl`, and `/sitemap.xml`. Unknown paths return the
 generated 404 page with HTTP status 404, rather than the homepage.
