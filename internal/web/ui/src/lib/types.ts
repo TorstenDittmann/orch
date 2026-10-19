@@ -13,6 +13,14 @@ export interface Cluster {
 	networkFrozen: boolean;
 }
 
+export interface ControllerBackup {
+	enabled: boolean;
+	latestAt: Timestamp;
+	latestPath: string;
+	failedAt: Timestamp;
+	failure: string;
+}
+
 export interface ApplicationSummary {
 	name: string;
 	generation: string;
@@ -66,6 +74,19 @@ export interface TCPRoute {
 	nodeName: string;
 }
 
+// A port published directly on the node running the replica (tcp or udp).
+export interface NodePort {
+	service: string;
+	allocationId: string;
+	protocol: string;
+	nodePort: number;
+	targetPort: number;
+	state: string;
+	reason: string;
+	message: string;
+	nodeName: string;
+}
+
 export interface CronJob {
 	job: string;
 	nextRunAt: Timestamp;
@@ -84,6 +105,7 @@ export interface Application extends ApplicationSummary {
 	activeRevisionId: string;
 	routes: Route[];
 	tcpRoutes: TCPRoute[];
+	nodePorts: NodePort[];
 	cronJobs: CronJob[];
 }
 
@@ -169,6 +191,8 @@ export interface Node {
 	certificateNotAfter: Timestamp;
 	certificateState: string;
 	certificateReason: string;
+	agentVersion: string;
+	agentUpgrade: string;
 	// Current usage; null or absent when the node has not reported recently.
 	usage?: NodeUsage | null;
 }
@@ -250,6 +274,8 @@ export interface Snapshot {
 	transport: string;
 	refreshedAt: string;
 	cluster?: Cluster;
+	// Absent when the controller predates automatic backups.
+	backup?: ControllerBackup | null;
 	applications?: ApplicationSummary[];
 	runtimes?: { runtimes: Runtime[]; truncated: boolean };
 	nodes?: Node[];

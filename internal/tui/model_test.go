@@ -15,6 +15,7 @@ import (
 
 type fakeProvider struct {
 	cluster      *orchv1alpha1.Cluster
+	backup       *orchv1alpha1.ControllerBackup
 	applications []*orchv1alpha1.ApplicationSummary
 	nodes        []*orchv1alpha1.Node
 	runtimes     []*orchv1alpha1.RuntimeSummary
@@ -34,8 +35,8 @@ func (f *fakeProvider) RollbackApplication(context.Context, *orchv1alpha1.Rollba
 	return &orchv1alpha1.ApplyApplicationResponse{}, f.err
 }
 
-func (f *fakeProvider) GetCluster(context.Context) (*orchv1alpha1.Cluster, error) {
-	return f.cluster, f.err
+func (f *fakeProvider) GetClusterStatus(context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error) {
+	return f.cluster, f.backup, f.err
 }
 func (f *fakeProvider) ListApplications(context.Context) ([]*orchv1alpha1.ApplicationSummary, error) {
 	return f.applications, f.err
@@ -103,6 +104,9 @@ func TestInitialRefreshAndResponsiveRenders(t *testing.T) {
 			}
 			if !strings.Contains(rendered, "ORCH") || !strings.Contains(rendered, "production") {
 				t.Fatalf("render at %dx%d lacks identity: %q", size[0], size[1], rendered)
+			}
+			if size[0] >= 120 && (view == ViewOverview && !strings.Contains(rendered, "Backups") || view == ViewNodes && !strings.Contains(rendered, "v0.9.0")) {
+				t.Fatalf("view %v lacks backup or agent details: %q", view, rendered)
 			}
 			lines := strings.Split(rendered, "\n")
 			if len(lines) > size[1]+1 {
@@ -304,11 +308,12 @@ func fixtureProvider() *fakeProvider {
 	now := timestamppb.Now()
 	return &fakeProvider{
 		cluster: &orchv1alpha1.Cluster{Name: "demo", Id: "clu_demo"},
+		backup:  &orchv1alpha1.ControllerBackup{Enabled: true, LatestAt: now, LatestPath: "/var/lib/orch/backups/orch.db"},
 		applications: []*orchv1alpha1.ApplicationSummary{
 			{Name: "web", Generation: 2, ObservedGeneration: 2, ActiveGeneration: 2, ExecutionStatus: orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_HEALTHY, ExecutionUpdatedAt: now},
 			{Name: "api", Generation: 3, ObservedGeneration: 2, ActiveGeneration: 2, ExecutionStatus: orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_STARTING, ExecutionUpdatedAt: now},
 		},
-		nodes:    []*orchv1alpha1.Node{{Name: "node-1", ConnectionStatus: orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED, Lifecycle: orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_ACTIVE, AllocatableCpuMillis: 4000, AllocatableMemoryBytes: 8 << 30}},
+		nodes:    []*orchv1alpha1.Node{{Name: "node-1", ConnectionStatus: orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED, Lifecycle: orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_ACTIVE, AllocatableCpuMillis: 4000, AllocatableMemoryBytes: 8 << 30, AgentVersion: "v0.9.0"}},
 		runtimes: []*orchv1alpha1.RuntimeSummary{{Id: "web-web-1", Kind: orchv1alpha1.RuntimeKind_RUNTIME_KIND_SERVICE, Application: "web", Resource: "web", Replica: 1, NodeName: "node-1", NodeConnection: orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED, AllocationPhase: orchv1alpha1.AllocationPhase_ALLOCATION_PHASE_RUNNING, HealthStatus: orchv1alpha1.HealthStatus_HEALTH_STATUS_READY, UpdatedAt: now}},
 		events:   []*orchv1alpha1.Event{{Sequence: 1, Kind: "application.healthy", PayloadJson: `{"name":"web"}`, CreatedAt: now}},
 	}

@@ -53,10 +53,6 @@ type Provider interface {
 // ClientProvider adapts the administrator client used by the TUI.
 type ClientProvider struct{ tui.ClientProvider }
 
-func (p ClientProvider) ListCronRuns(ctx context.Context, application, job string, limit uint32) ([]*orchv1alpha1.JobRunStatus, error) {
-	return p.Client.ListCronRuns(ctx, application, job, limit)
-}
-
 type Server struct {
 	provider  Provider
 	token     string
@@ -265,8 +261,13 @@ func (s *Server) snapshot(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	run("cluster", func() (any, error) {
-		value, err := s.provider.GetCluster(ctx)
-		return message(value), err
+		cluster, backup, err := s.provider.GetClusterStatus(ctx)
+		if err == nil && backup != nil {
+			mu.Lock()
+			response["backup"] = message(backup)
+			mu.Unlock()
+		}
+		return message(cluster), err
 	})
 	run("applications", func() (any, error) {
 		value, err := s.provider.ListApplications(ctx)

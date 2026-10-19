@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -321,6 +323,9 @@ func (m *Model) renderDeployments(t theme, width, height int) string {
 		if d.GetRevisionId() == current.GetActiveRevisionId() {
 			flags += " active"
 		}
+		if d.GetSource().GetActor() == "auto-update" && d.GetSource().GetRepository() == "" {
+			flags += " auto-update"
+		}
 		lines = append(lines, fmt.Sprintf("%s%-4d %-12s %s%s", marker, d.GetGeneration(), d.GetOutcome(), d.GetCreatedAt().AsTime().Format("Jan 02 15:04"), flags))
 	}
 	if len(m.deploymentHistory) == 0 {
@@ -352,8 +357,10 @@ func (m *Model) deploymentDetailLines(width int) []string {
 	if d.GetRollbackFromRevisionId() != "" {
 		lines = append(lines, "Rollback source: "+d.GetRollbackFromRevisionId())
 	}
-	if d.GetSource() != nil {
-		lines = append(lines, "Deployed from: "+deploymentSourceLine(d.GetSource()))
+	if source := d.GetSource(); source.GetActor() == "auto-update" && source.GetRepository() == "" {
+		lines = append(lines, "Deployed by: automatic image update")
+	} else if source != nil {
+		lines = append(lines, "Deployed from: "+deploymentSourceLine(source))
 	}
 	lines = append(lines, "", "Images")
 	for _, image := range d.GetImages() {
@@ -378,6 +385,13 @@ func (m *Model) deploymentDetailLines(width int) []string {
 		if m.deploymentDiff.GetTruncated() {
 			lines = append(lines, "Comparison truncated to 500 changes")
 		}
+	}
+	if manifest := current.GetCanonicalManifestJson(); manifest != "" {
+		var indented bytes.Buffer
+		if json.Indent(&indented, []byte(manifest), "", "  ") == nil {
+			manifest = indented.String()
+		}
+		lines = append(lines, "", "Current desired manifest", manifest)
 	}
 	if m.deploymentError != "" {
 		lines = append([]string{"STALE: " + m.deploymentError}, lines...)

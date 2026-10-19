@@ -43,7 +43,7 @@
 	const tabs = $derived([
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'replicas', label: 'Replicas', count: allocations.length },
-		{ id: 'routes', label: 'Routes', count: (app?.routes?.length ?? 0) + (app?.tcpRoutes?.length ?? 0) },
+		{ id: 'routes', label: 'Routes', count: (app?.routes?.length ?? 0) + (app?.tcpRoutes?.length ?? 0) + (app?.nodePorts?.length ?? 0) },
 		{ id: 'cron', label: 'Cron jobs', count: app?.cronJobs?.length ?? 0 },
 		{ id: 'deployments', label: 'Deployments', count: deployments.length },
 		{ id: 'manifest', label: 'Manifest' }
@@ -164,7 +164,7 @@
 					</section>
 					<section class="panel">
 						<div class="panel-head"><h2>Endpoints</h2></div>
-						{#if app.routes?.length || app.tcpRoutes?.length}
+						{#if app.routes?.length || app.tcpRoutes?.length || app.nodePorts?.length}
 							<ul class="endpoints">
 								{#each app.routes ?? [] as route (route.domain + route.nodeName)}
 									<li>
@@ -180,6 +180,13 @@
 										<span class="mono">tcp :{route.publicPort}</span>
 										<span class="faint">→ {route.service}:{route.targetPort}</span>
 										<Status value={route.state} />
+									</li>
+								{/each}
+								{#each app.nodePorts ?? [] as port (port.allocationId + port.protocol + port.nodePort)}
+									<li>
+										<span class="mono">{port.protocol} {port.nodeName}:{port.nodePort}</span>
+										<span class="faint">→ {port.service}:{port.targetPort}</span>
+										<Status value={port.state} />
 									</li>
 								{/each}
 							</ul>
@@ -276,6 +283,30 @@
 					<Empty title="No TCP routes" />
 				{/if}
 			</section>
+			<section class="panel spaced">
+				<div class="panel-head"><h2>Node ports</h2><span class="hint">UDP and TCP published on the replica's node</span></div>
+				{#if app.nodePorts?.length}
+					<div class="table-wrap">
+						<table class="data">
+							<thead><tr><th>Protocol</th><th>Port</th><th>Service</th><th>State</th><th>Node</th><th>Message</th></tr></thead>
+							<tbody>
+								{#each app.nodePorts as port (port.allocationId + port.protocol + port.nodePort)}
+									<tr>
+										<td><span class="chip mono">{port.protocol}</span></td>
+										<td class="mono">{port.nodePort} <ArrowRight size={12} /> {port.targetPort}</td>
+										<td>{port.service}</td>
+										<td><Status value={port.state} /></td>
+										<td>{#if port.nodeName}<a class="link" href={href('nodes', port.nodeName)}>{port.nodeName}</a>{:else}<span class="faint">unplaced</span>{/if}</td>
+										<td class="wrap">{port.message || port.reason}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else}
+					<Empty title="No node ports" />
+				{/if}
+			</section>
 		{:else if tab === 'cron'}
 			<div class="grid two">
 				<section class="panel">
@@ -349,12 +380,14 @@
 									<div class="faint meta">
 										<span class="mono">{short(deployment.revisionId)}</span> · {datetime(deployment.createdAt)} ({ago(deployment.createdAt, live.now)})
 									</div>
-									{#if deployment.source}
+									{#if deployment.source?.repository}
 										{@const source = deployment.source}
 										<div class="faint meta">
 											From <span class="mono">{source.repository}{source.commit ? '@' + short(source.commit, 7) : ''}</span>{source.ref ? ` (${source.ref})` : ''}{source.actor ? ` by ${source.actor}` : ''}
 											{#if source.runUrl}· <a class="link" href={source.runUrl} target="_blank" rel="noreferrer noopener">run <ExternalLink size={12} /></a>{/if}
 										</div>
+									{:else if deployment.source?.actor}
+										<div class="faint meta">By {deployment.source.actor === 'auto-update' ? 'automatic image update' : deployment.source.actor}</div>
 									{/if}
 									{#if deployment.message}<div class="muted">{deployment.message}</div>{/if}
 									{#if deployment.images?.length}

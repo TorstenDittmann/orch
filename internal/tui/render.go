@@ -106,7 +106,10 @@ func (m *Model) renderTabs(t theme, width int) string {
 func (m *Model) renderFooter(t theme, width int) string {
 	left := " ↑↓/jk navigate   enter open   ctrl+p commands   ? help   q quit"
 	if m.view == ViewJobs {
-		left = " ↑↓ select  enter logs  c cancel  x retry  n older  N latest"
+		left = " ↑↓ select  enter logs  c cancel  x retry  n older  N latest  t cron runs"
+		if m.jobsCron {
+			left = " ↑↓ select  enter logs  t one-off jobs  r refresh  esc back"
+		}
 	} else if m.view == ViewDeployments {
 		left = " ↑↓ scroll  enter compare  b rollback  n older  N latest  esc back"
 	} else if m.view == ViewApplications {
@@ -192,6 +195,13 @@ func (m *Model) renderOverview(t theme, width, height int) string {
 		}
 	}
 	result := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
+	if backup := m.snapshot.Backup; backup != nil {
+		line := labelValue(t, "Backups", backupSummary(backup))
+		if backup.GetFailure() != "" || backupStale(backup) {
+			line = colorize(t, t.warning, "! ") + line
+		}
+		result += "\n" + truncate(line, width)
+	}
 	result += "\n\n" + heading(t, "Recent activity") + "\n"
 	events := m.snapshot.Events
 	start := max(0, len(events)-max(3, height-lipgloss.Height(result)-3))
@@ -301,8 +311,14 @@ func (m *Model) renderNodes(t theme, width, height int) string {
 		labelValue(t, "CPU reserved", fmt.Sprintf("%dm / %dm", node.GetAssignedCpuMillis(), node.GetAllocatableCpuMillis())),
 		labelValue(t, "Mem reserved", fmt.Sprintf("%s / %s", bytesLabel(node.GetAssignedMemoryBytes()), bytesLabel(node.GetAllocatableMemoryBytes()))),
 		labelValue(t, "Network", node.GetNetworkState()), labelValue(t, "Ingress", fmt.Sprint(node.GetIngress())),
-		labelValue(t, "Subnet", node.GetNodeSubnet()), labelValue(t, "Labels", sortedLabels(node.GetLabels())), "",
+		labelValue(t, "Subnet", node.GetNodeSubnet()), labelValue(t, "Address", node.GetAdvertiseAddress()),
+		labelValue(t, "Labels", sortedLabels(node.GetLabels())), labelValue(t, "Agent", agentLabel(node)),
+		labelValue(t, "Certificate", certificateLabel(node)),
 	}
+	if blockers := node.GetDrainBlockers(); len(blockers) > 0 {
+		detailLines = append(detailLines, colorize(t, t.warning, "Drain blocked by "+sanitize(strings.Join(blockers, ", "))))
+	}
+	detailLines = append(detailLines, "")
 	detailLines = append(detailLines, m.usageLines(t, node, width-listWidth-6)...)
 	detailLines = append(detailLines, "", muted(t, "c cordon · u uncordon · d drain · i ingress"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, list, panel(t, strings.Join(detailLines, "\n"), width-listWidth, height))
@@ -580,6 +596,9 @@ Node actions               Runtime workspace
 Deployments (d from Applications)
   enter compare · b rollback · n older · N latest
 
+Jobs (o from Applications)
+  enter logs · c cancel · x retry · t one-off jobs / cron runs
+
 Events
   /           filter kind or payload
   x           clear active filters
@@ -755,6 +774,50 @@ func windowStart(selected, visible, total int) int {
 		return 0
 	}
 	return min(selected-visible/2, total-visible)
+}
+
+// backupStaleAfter matches orch status: a daily backup older than this warns.
+const backupStaleAfter = 48 * time.Hour
+
+func backupStale(backup *orchv1alpha1.ControllerBackup) bool {
+	latest := backup.GetLatestAt()
+	return backup.GetEnabled() && latest != nil && time.Since(latest.AsTime()) > backupStaleAfter
+}
+
+func backupSummary(backup *orchv1alpha1.ControllerBackup) string {
+	if !backup.GetEnabled() {
+		return "automatic backups are off"
+	}
+	summary := "none yet"
+	if latest := backup.GetLatestAt(); latest != nil {
+		summary = "latest " + relativeTime(latest.AsTime()) + " in " + backup.GetLatestPath()
+	}
+	if backup.GetFailure() != "" {
+		summary += " · last attempt failed: " + backup.GetFailure()
+	}
+	return summary
+}
+
+func agentLabel(node *orchv1alpha1.Node) string {
+	value := node.GetAgentVersion()
+	if value == "" {
+		value = "unknown"
+	}
+	if upgrade := node.GetAgentUpgrade(); upgrade != "" {
+		value += " · " + upgrade
+	}
+	return value
+}
+
+func certificateLabel(node *orchv1alpha1.Node) string {
+	value := node.GetCertificateState()
+	if notAfter := node.GetCertificateNotAfter(); notAfter != nil {
+		value = strings.TrimPrefix(value+" · until "+notAfter.AsTime().Format("2006-01-02"), " · ")
+	}
+	if reason := node.GetCertificateReason(); reason != "" {
+		value += " · " + reason
+	}
+	return value
 }
 
 func relativeTime(stamp time.Time) string {

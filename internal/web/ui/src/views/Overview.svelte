@@ -12,6 +12,8 @@
 	const apps = $derived(snapshot.applications ?? []);
 	const nodes = $derived(snapshot.nodes ?? []);
 	const runtimes = $derived(snapshot.runtimes?.runtimes ?? []);
+	const backup = $derived(snapshot.backup);
+	const backupStale = $derived(!!backup?.enabled && !!backup.latestAt && live.now - new Date(backup.latestAt).getTime() > 48 * 3600 * 1000);
 	const events = $derived([...(snapshot.events?.events ?? [])].reverse().slice(0, 12));
 
 	const runningApps = $derived(apps.filter((app) => label(app.executionStatus) === 'running').length);
@@ -27,6 +29,9 @@
 	const memTotal = $derived(sum('allocatableMemoryBytes'));
 
 	const problems = $derived([
+		...(backup?.enabled && (backup.failure || backupStale)
+			? [{ key: 'backup', href: '#/', title: 'Controller backups', kind: 'Backup', status: backup.failure ? 'failed' : 'degraded', detail: backup.failure || `Latest backup ${ago(backup.latestAt, live.now)}` }]
+			: []),
 		...apps
 			.filter((app) => ['bad', 'warn'].includes(tone(app.executionStatus)))
 			.map((app) => ({ key: `a${app.name}`, href: href('apps', app.name), title: app.name, kind: 'Application', status: app.executionStatus, detail: app.executionMessage || app.executionReason })),
@@ -47,6 +52,11 @@
 			<p>
 				{cluster?.endpoint || 'Endpoint unavailable'}
 				{#if cluster?.workloadCidr}<span class="faint"> · workloads {cluster.workloadCidr}</span>{/if}
+				{#if backup}
+					<span class="faint" title={backup.latestPath}>
+						· {!backup.enabled ? 'automatic backups off' : backup.latestAt ? `backed up ${ago(backup.latestAt, live.now)}` : 'no backup yet'}
+					</span>
+				{/if}
 			</p>
 		</div>
 		<span class="chip">Generation {cluster?.generation ?? '0'}</span>

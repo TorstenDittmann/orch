@@ -133,6 +133,7 @@
 				<div class="panel-head"><h2>System</h2></div>
 				<dl class="kv panel-body">
 					<dt>Platform</dt><dd>{node.operatingSystem}/{node.architecture}</dd>
+					<dt>Agent</dt><dd>{node.agentVersion || '—'}{node.agentUpgrade ? ` · ${node.agentUpgrade}` : ''}</dd>
 					<dt>containerd</dt><dd>{node.runtimeVersion || '—'}</dd>
 					<dt>Snapshotter</dt><dd>{node.snapshotter || '—'}</dd>
 					<dt>cgroups v2</dt><dd>{node.cgroupsV2 ? 'yes' : 'no'}</dd>

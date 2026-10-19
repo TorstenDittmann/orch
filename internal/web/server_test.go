@@ -20,8 +20,8 @@ type fakeProvider struct {
 	jobAction  string
 }
 
-func (f *fakeProvider) GetCluster(context.Context) (*orchv1alpha1.Cluster, error) {
-	return &orchv1alpha1.Cluster{Name: "prod", Generation: 3}, nil
+func (f *fakeProvider) GetClusterStatus(context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error) {
+	return &orchv1alpha1.Cluster{Name: "prod", Generation: 3}, &orchv1alpha1.ControllerBackup{Enabled: true, LatestPath: "/var/lib/orch/backups/latest.db"}, nil
 }
 func (f *fakeProvider) ListApplications(context.Context) ([]*orchv1alpha1.ApplicationSummary, error) {
 	return []*orchv1alpha1.ApplicationSummary{{Name: "web", ExecutionStatus: orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING}}, nil
@@ -155,13 +155,14 @@ func TestSnapshotAndIndex(t *testing.T) {
 	}
 	var body struct {
 		Cluster      map[string]any   `json:"cluster"`
+		Backup       map[string]any   `json:"backup"`
 		Applications []map[string]any `json:"applications"`
 		Errors       []string         `json:"errors"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Cluster["name"] != "prod" || len(body.Applications) != 1 || body.Applications[0]["executionStatus"] != "EXECUTION_STATUS_RUNNING" || len(body.Errors) != 0 {
+	if body.Cluster["name"] != "prod" || body.Backup["enabled"] != true || len(body.Applications) != 1 || body.Applications[0]["executionStatus"] != "EXECUTION_STATUS_RUNNING" || len(body.Errors) != 0 {
 		t.Fatalf("body = %s", response.Body)
 	}
 }

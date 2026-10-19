@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,5 +64,44 @@ func TestJobWorkspaceGuardsActionsAndIgnoresStaleReads(t *testing.T) {
 		if m.View().Content == "" {
 			t.Fatal("empty jobs view")
 		}
+	}
+}
+
+type fakeCronProvider struct {
+	*fakeJobProvider
+	runs map[string][]*orchv1alpha1.JobRunStatus
+}
+
+func (p *fakeCronProvider) GetApplication(context.Context, string) (*orchv1alpha1.Application, error) {
+	return &orchv1alpha1.Application{Name: "hello", CronJobs: []*orchv1alpha1.CronJobStatus{{Job: "backup"}, {Job: "report"}}}, nil
+}
+func (p *fakeCronProvider) ListCronRuns(_ context.Context, _, job string, _ uint32) ([]*orchv1alpha1.JobRunStatus, error) {
+	return p.runs[job], nil
+}
+
+func TestJobWorkspaceShowsCronRunsNewestFirst(t *testing.T) {
+	now := time.Now()
+	p := &fakeCronProvider{fakeJobProvider: &fakeJobProvider{fakeProvider: &fakeProvider{}}, runs: map[string][]*orchv1alpha1.JobRunStatus{
+		"backup": {{Id: "run_old", Application: "hello", Job: "backup", ScheduledAt: timestamppb.New(now.Add(-time.Hour))}},
+		"report": {{Id: "run_new", Application: "hello", Job: "report", ScheduledAt: timestamppb.New(now)}},
+	}}
+	m := New(context.Background(), p, "lab", "direct", time.Minute)
+	m.receiveJobs(m.openJobs("hello")().(jobsMsg))
+	_, command := m.handleJobKey("t")
+	m.receiveJobs(command().(jobsMsg))
+	if len(m.cronRuns) != 2 || m.selectedCronRun().GetId() != "run_new" || m.selectedJob() != nil {
+		t.Fatalf("cron runs = %v", m.cronRuns)
+	}
+	m.snapshot.Cluster, m.width, m.height = &orchv1alpha1.Cluster{Name: "lab"}, 100, 30
+	if content := m.View().Content; !strings.Contains(content, "Cron runs · hello") || !strings.Contains(content, "report") {
+		t.Fatalf("view = %s", content)
+	}
+	m.handleJobKey("c")
+	if m.jobsConfirm != nil {
+		t.Fatal("cron runs can be cancelled from the jobs view")
+	}
+	m.handleJobKey("j")
+	if _, command = m.handleJobKey("enter"); command == nil || m.selectedCronRun().GetId() != "run_old" {
+		t.Fatal("enter did not open the selected run's logs")
 	}
 }
