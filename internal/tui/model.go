@@ -34,6 +34,7 @@ var viewNames = []string{"Overview", "Applications", "Nodes", "Events", "Runtime
 
 type Snapshot struct {
 	Cluster           *orchv1alpha1.Cluster
+	Backup            *orchv1alpha1.ControllerBackup
 	Applications      []*orchv1alpha1.ApplicationSummary
 	Runtimes          []*orchv1alpha1.RuntimeSummary
 	RuntimesTruncated bool
@@ -208,8 +209,8 @@ func (m *Model) beginRefresh() tea.Cmd {
 			}()
 		}
 		run(func() error {
-			value, err := m.provider.GetCluster(ctx)
-			snapshot.Cluster = value
+			cluster, backup, err := m.provider.GetClusterStatus(ctx)
+			snapshot.Cluster, snapshot.Backup = cluster, backup
 			return labeledError("cluster", err)
 		})
 		run(func() error {
@@ -574,7 +575,7 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	if m.view == ViewJobs && m.jobs == nil && !m.jobsLoading {
+	if m.view == ViewJobs && m.jobsUnloaded() && !m.jobsLoading {
 		return m, m.refreshJobs()
 	}
 	if m.view == ViewDeployments && m.deploymentApp != "" && m.deploymentHistory == nil && !m.deploymentLoading {
@@ -645,6 +646,7 @@ func (m *Model) applyRefresh(message refreshMsg) {
 	selectedRuntime := m.selectedRuntimeID()
 	if message.snapshot.Cluster != nil {
 		m.snapshot.Cluster = message.snapshot.Cluster
+		m.snapshot.Backup = message.snapshot.Backup
 	}
 	if message.snapshot.Applications != nil {
 		m.snapshot.Applications = message.snapshot.Applications

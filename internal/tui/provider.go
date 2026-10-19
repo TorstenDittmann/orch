@@ -16,7 +16,7 @@ type Provider interface {
 	ListDeployments(context.Context, string, uint64, uint32) (*orchv1alpha1.ListDeploymentsResponse, error)
 	CompareDeployments(context.Context, string, string, string) (*orchv1alpha1.CompareDeploymentsResponse, error)
 	RollbackApplication(context.Context, *orchv1alpha1.RollbackApplicationRequest) (*orchv1alpha1.ApplyApplicationResponse, error)
-	GetCluster(context.Context) (*orchv1alpha1.Cluster, error)
+	GetClusterStatus(context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error)
 	ListApplications(context.Context) ([]*orchv1alpha1.ApplicationSummary, error)
 	ListRuntimes(context.Context, uint32) (*orchv1alpha1.ListRuntimesResponse, error)
 	GetApplication(context.Context, string) (*orchv1alpha1.Application, error)
@@ -44,8 +44,8 @@ type LogBatch struct {
 
 type ClientProvider struct{ Client *controlclient.Client }
 
-func (p ClientProvider) GetCluster(ctx context.Context) (*orchv1alpha1.Cluster, error) {
-	return p.Client.GetCluster(ctx)
+func (p ClientProvider) GetClusterStatus(ctx context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error) {
+	return p.Client.GetClusterStatus(ctx)
 }
 
 func (p ClientProvider) ListApplications(ctx context.Context) ([]*orchv1alpha1.ApplicationSummary, error) {

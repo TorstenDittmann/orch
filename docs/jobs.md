@@ -122,7 +122,8 @@ orch job logs JOB_ID --tail 500 --target production
 - `orch job logs` prints the last `--tail` lines (default 100) of stdout to
   stdout and of stderr to stderr.
 
-The `orch web` dashboard also lists one-off jobs.
+The TUI (press `o` on an application) and the `orch web` dashboard also list
+one-off jobs.
 
 ### Cancel and retry
 

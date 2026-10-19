@@ -22,13 +22,13 @@ orch tui
 orch web
 ```
 
-The TUI provides a keyboard-driven view of applications, instances, workers,
-deployments, events, and live logs.
-
-`orch web` opens a browser dashboard for the selected target: cluster health,
-applications with replicas, routes, cron runs, deployment history, diffs and
-rollback, runtimes, nodes with cordon, drain and ingress controls, one-off jobs,
-events, and live logs. Press `⌘K` or `/` to jump anywhere.
+The TUI and `orch web` show the same things for the selected target: cluster
+health and controller backups, applications with replicas, HTTP and TCP routes,
+UDP and TCP node ports, cron runs, deployment history (including automatic image
+updates), diffs and rollback, runtimes, nodes with usage, agent version,
+certificate and cordon, drain and ingress controls, one-off jobs with cancel and
+retry, events, and live logs. The TUI is keyboard-driven; press `?` for its
+keys. In the browser dashboard, press `⌘K` or `/` to jump anywhere.
 
 The dashboard is served from the `orch` binary on a loopback address. It prints
 a one-time URL; the page only works on this machine and the administrator
