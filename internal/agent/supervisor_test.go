@@ -905,6 +905,13 @@ func TestSupervisorRestartedSlowStartGetsFullHealthDeadline(t *testing.T) {
 	if err != nil || statuses[0].Phase != model.AllocationRunning || statuses[0].HealthStatus != model.HealthChecking {
 		t.Fatalf("restarted process status = %#v, %v", statuses, err)
 	}
+	for range health.UnhealthyFailures + 1 {
+		now = now.Add(health.ProbeInterval)
+		statuses, err = supervisor.Reconcile(ctx, assignment)
+		if err != nil || statuses[0].HealthStatus != model.HealthChecking {
+			t.Fatalf("restarted process lost its startup grace: %#v, %v", statuses, err)
+		}
+	}
 
 	deadline := time.Duration(allocation.StartDeadlineSeconds) * time.Second
 	now = restartedAt.Add(deadline - health.ProbeInterval)
@@ -1111,7 +1118,7 @@ func TestSupervisorDoesNotActivateIngressWhenDNSStartupFails(t *testing.T) {
 	}
 }
 
-func TestSupervisorRollsBackAfterThreeReadinessFailures(t *testing.T) {
+func TestSupervisorRollsBackAfterStartupHealthDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := supervisorCache(t)
@@ -1119,6 +1126,7 @@ func TestSupervisorRollsBackAfterThreeReadinessFailures(t *testing.T) {
 	prober := &health.Fake{}
 	proxy := &ingress.Fake{}
 	now := supervisorTestTime
+	runtime.Now = func() time.Time { return now }
 	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
 		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: proxy})
 	networkConfig, _ := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
@@ -1150,6 +1158,16 @@ func TestSupervisorRollsBackAfterThreeReadinessFailures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if statuses[0].Reason != "readiness_checking" {
+		t.Fatalf("candidate rolled back before its startup deadline: %#v", statuses[0])
+	}
+	object := runtime.SnapshotObjects()[orchruntime.ObjectID(replacement.ID, replacement.SpecDigest)]
+	now = object.StartedAt.Add(time.Duration(replacement.StartDeadlineSeconds) * time.Second)
+	var err error
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if statuses[0].Reason != "health_gate_rollback" || statuses[0].ActiveSpecDigest != old.SpecDigest ||
 		statuses[0].ActiveGeneration != old.ApplicationGeneration || statuses[0].HealthStatus != model.HealthReady {
@@ -1438,6 +1456,7 @@ func TestSupervisorRollsBackEveryReplicaAfterOneCandidateFails(t *testing.T) {
 	runtime := orchruntime.NewFake()
 	prober := &addressFailingProber{}
 	now := supervisorTestTime
+	runtime.Now = func() time.Time { return now }
 	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
 		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}})
 	networkConfig, _ := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
@@ -1502,6 +1521,12 @@ func TestSupervisorRollsBackEveryReplicaAfterOneCandidateFails(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	now = newSecond.StartedAt.Add(time.Duration(updatedSecond.StartDeadlineSeconds) * time.Second)
+	var err error
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if statuses[0].ActiveSpecDigest != updatedFirst.SpecDigest || statuses[1].ActiveSpecDigest != second.SpecDigest {
 		t.Fatalf("first rollback boundary = %#v", statuses)
 	}
@@ -1540,6 +1565,7 @@ func TestSupervisorRollsBackUnchangedServiceMetadataWithoutRestart(t *testing.T)
 	runtime := orchruntime.NewFake()
 	prober := &addressFailingProber{}
 	now := supervisorTestTime
+	runtime.Now = func() time.Time { return now }
 	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now },
 		SupervisorServices{Prober: prober, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}})
 	networkConfig, _ := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
@@ -1589,6 +1615,12 @@ func TestSupervisorRollsBackUnchangedServiceMetadataWithoutRestart(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	now = newWeb.StartedAt.Add(time.Duration(updatedWeb.StartDeadlineSeconds) * time.Second)
+	var err error
+	statuses, err = supervisor.Reconcile(ctx, assignment)
+	if err != nil {
+		t.Fatal(err)
 	}
 	for _, status := range statuses {
 		if status.Reason != "health_gate_rollback" || status.ActiveGeneration != 1 {

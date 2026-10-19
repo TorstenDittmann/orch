@@ -292,6 +292,7 @@ revision on purpose, see [rollbacks](runtime.md#rollbacks).
 | `process_exit_backoff` | The process exited and is waiting to restart. Read its logs. |
 | `restart_policy_complete` | The process exited and its restart policy does not restart it. |
 | `health_deadline_exceeded` | The replica did not become ready within `deploy.healthDeadline` (two minutes by default). |
+| `rollback_health_deadline_exceeded` | The previous revision was started cold and did not become ready within its own health deadline. The replica message includes the last probe error. |
 | `health_gate_rollback`, `rollback_unhealthy`, `replacement_rollback_retained` | The new revision failed and orch kept or restored the previous one. |
 
 ## Health checks fail
@@ -308,8 +309,14 @@ ready upstreams, and rollouts end in `health_deadline_exceeded`.
   seconds. A response from 200 to 399 counts as success. Redirects are not
   followed.
 - Each probe has a one-second timeout.
-- Two consecutive successes make a replica ready. Three consecutive failures
-  make it unhealthy.
+- Two consecutive successes make a replica ready. Until then, failed probes
+  keep it checking for the full `deploy.healthDeadline`, rather than triggering
+  rollback after only a few seconds. A cold rollback gets the previous
+  revision's own deadline, measured from that process's start.
+- Once ready, three consecutive failures make a replica unhealthy. Restarted
+  processes must pass readiness again and receive a fresh startup deadline.
+- While checking or after a failed gate, the replica message includes the last
+  probe error, such as connection refused, timeout, or an HTTP error status.
 - An HTTP service without `healthPath`, and every TCP service, gets a TCP
   connection check on its port instead.
 - The probe connects to the replica's private address, not to `localhost`,
