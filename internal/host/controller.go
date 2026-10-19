@@ -171,7 +171,7 @@ func ControllerDoctor(ctx context.Context, server, listen string) Report {
 	}
 	ostree := pathExistsLocal("/run/ostree-booted")
 	if runtime.GOOS != "linux" || !supported(r.OS, r.Version, runtime.GOARCH) || r.OS == "fedora" && ostree {
-		add("distribution", "fail", distributionDetail(r.OS, r.Version, r.Architecture, ostree), "Use Ubuntu 24.04 LTS or Fedora 44 on amd64 or arm64", false)
+		add("distribution", "fail", distributionDetail(r.OS, r.Version, r.Architecture, ostree), "Use "+supportedRemedy, false)
 	} else {
 		add("distribution", "pass", r.OS+" "+r.Version, "", false)
 	}

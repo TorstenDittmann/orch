@@ -6,7 +6,7 @@ This guide installs a controller and adds workers to the cluster.
 
 | Requirement | Supported setup |
 | --- | --- |
-| Hosts | Ubuntu 24.04 LTS or Fedora 44 (any edition except ostree-based ones) on amd64 or arm64 |
+| Hosts | Ubuntu 24.04 LTS or newer, or Fedora 42 or newer (any edition except ostree-based ones) on amd64 or arm64 |
 | Network | IPv4 connectivity between hosts, over private or public addresses |
 | Controller | A stable HTTPS address |
 | Workstation | A machine for running the orch CLI |

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,8 +167,38 @@ func timeoutCommand(run Command, ctx context.Context, name string, args ...strin
 	defer cancel()
 	return run(ctx, name, args...)
 }
+
+// supportedRemedy names the supported hosts for failed platform checks.
+const supportedRemedy = "Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64 or arm64"
+
+// minimumVersions holds the oldest supported release of each distribution;
+// every newer release is accepted.
+var minimumVersions = map[string][2]int{"ubuntu": {24, 4}, "fedora": {42, 0}}
+
 func supported(osName, version, arch string) bool {
-	return (arch == "amd64" || arch == "arm64") && (osName == "ubuntu" && version == "24.04" || osName == "fedora" && version == "44")
+	minimum, ok := minimumVersions[osName]
+	if arch != "amd64" && arch != "arm64" || !ok {
+		return false
+	}
+	major, minor, ok := releaseNumber(version)
+	return ok && (major > minimum[0] || major == minimum[0] && minor >= minimum[1])
+}
+
+// releaseNumber parses a VERSION_ID such as "24.04" or "44".
+func releaseNumber(version string) (int, int, bool) {
+	majorText, minorText, hasMinor := strings.Cut(version, ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil || major < 0 {
+		return 0, 0, false
+	}
+	if !hasMinor {
+		return major, 0, true
+	}
+	minor, err := strconv.Atoi(minorText)
+	if err != nil || minor < 0 {
+		return 0, 0, false
+	}
+	return major, minor, true
 }
 func platform() string { return runtime.GOOS }
 
@@ -189,7 +220,7 @@ func blockersError(kind string, report Report) error {
 	return fmt.Errorf("host has %s blockers:\n%s", kind, strings.Join(lines, "\n"))
 }
 
-// distributionDetail explains a failed distribution check. Any Fedora 44
+// distributionDetail explains a failed distribution check. Any supported Fedora
 // edition works except ostree-based ones, whose /usr is read-only.
 func distributionDetail(os, version, arch string, ostree bool) string {
 	detail := os + " " + version + " " + arch

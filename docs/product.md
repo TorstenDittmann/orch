@@ -6,7 +6,7 @@ Review these limits before choosing orch for a production workload.
 
 orch is a good fit when:
 
-- you operate Ubuntu 24.04 LTS or Fedora 44 hosts;
+- you operate Ubuntu (24.04 LTS or newer) or Fedora (42 or newer) hosts;
 - one team controls the cluster and its applications;
 - workers can reach each other over IPv4, on private or public addresses;
 - applications run as OCI containers;
