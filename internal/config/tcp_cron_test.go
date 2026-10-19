@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const tcpCronManifest = `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+const tcpCronManifest = `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "platform"
 

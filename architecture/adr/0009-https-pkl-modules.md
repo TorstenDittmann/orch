@@ -36,3 +36,11 @@ so editors and `pkl-lsp` resolve it with no setup. During evaluation orch
 rewrites that URL to a loopback mirror of the embedded schema, so `orch` never
 fetches it and the schema always matches the running CLI. The `orch:` form stays
 accepted for existing manifests.
+
+## Update: schema on the orch website
+
+The schema is now published at
+`https://orch.torsten.work/pkl/v1alpha1/Application.pkl`, built from `pkl/v*/`
+by the website. orch rewrites both that URL and the earlier
+raw.githubusercontent.com URL to the embedded mirror, so existing manifests
+keep evaluating offline.

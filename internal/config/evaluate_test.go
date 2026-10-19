@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const validManifest = `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+const validManifest = `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "hello"
 
@@ -244,7 +244,7 @@ func TestManifestCollectionsHaveExplicitBounds(t *testing.T) {
 }
 
 func TestDuplicateDomainAcrossServicesIsRejected(t *testing.T) {
-	input := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	input := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "duplicate-route"
 services {
@@ -299,7 +299,7 @@ func TestValidateNilManifest(t *testing.T) {
 }
 
 func TestLocalVolumeRequiresSingleReplica(t *testing.T) {
-	input := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	input := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "database"
 services {
@@ -329,7 +329,7 @@ volumes {
 }
 
 func TestUnsafeMountAndSecretTargetsAreRejected(t *testing.T) {
-	input := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	input := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "unsafe"
 services {

@@ -150,7 +150,7 @@ services, optional cron jobs, optional volumes, and a `deploy` block that
 controls rollouts.
 
 ```pkl
-amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "hello"
 

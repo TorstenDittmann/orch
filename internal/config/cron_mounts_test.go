@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const cronMountManifest = `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+const cronMountManifest = `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "nmv"
 

@@ -87,7 +87,7 @@ func TestVolumeRestartAndFollowCLIThroughControllerAndAgent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(volumeDir, "world.dat"), []byte("day one"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	file := writeManifest(t, `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	file := writeManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 name = "game"
 services {
   ["server"] {
