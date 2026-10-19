@@ -132,8 +132,13 @@ func TestSpecOptionsPrivilegedLiftsConfinement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Linux.Seccomp != nil || spec.Process.NoNewPrivileges || len(spec.Process.Capabilities.Bounding) == 0 {
+	if spec.Linux.Seccomp != nil || spec.Process.NoNewPrivileges {
 		t.Fatalf("privileged process = %#v, seccomp = %#v", spec.Process, spec.Linux.Seccomp)
+	}
+	// Privileged replicas get the agent's own capabilities, which only a root
+	// agent has.
+	if os.Geteuid() == 0 && len(spec.Process.Capabilities.Bounding) == 0 {
+		t.Fatalf("privileged capabilities = %#v", spec.Process.Capabilities)
 	}
 	if len(spec.Linux.Resources.Devices) != 1 || !spec.Linux.Resources.Devices[0].Allow || len(spec.Linux.MaskedPaths) != 0 {
 		t.Fatalf("privileged devices = %#v, masked paths = %v", spec.Linux.Resources.Devices, spec.Linux.MaskedPaths)
