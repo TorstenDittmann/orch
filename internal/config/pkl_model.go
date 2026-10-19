@@ -39,6 +39,7 @@ type pklHTTP struct {
 	Domains    []string `pkl:"domains"`
 	HealthPath string   `pkl:"healthPath"`
 	HTTPS      bool     `pkl:"https"`
+	NodeLocal  bool     `pkl:"nodeLocal"`
 }
 
 type pklTCP struct {
@@ -131,6 +132,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 				Domains:    append([]string(nil), input.HTTP.Domains...),
 				HealthPath: input.HTTP.HealthPath,
 				HTTPS:      input.HTTP.HTTPS,
+				NodeLocal:  input.HTTP.NodeLocal,
 			}
 		}
 		var tcpConfig *TCP

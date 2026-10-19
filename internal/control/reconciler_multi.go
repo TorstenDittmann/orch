@@ -26,8 +26,9 @@ func applicationsUseConstraints(applications []model.Application) bool {
 			continue
 		}
 		for _, service := range manifest.Services {
-			// Node-local ports are node resources only the scheduler counts.
-			if len(service.Constraints) != 0 || len(service.NodePorts()) != 0 {
+			// Node-local public endpoints need scheduler admission even without
+			// explicit placement labels.
+			if len(service.Constraints) != 0 || len(service.NodePorts()) != 0 || service.HTTP != nil && service.HTTP.NodeLocal {
 				return true
 			}
 		}
@@ -385,6 +386,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			ID: node.ID, Name: node.Name, Lifecycle: lifecycle, Reachable: reachable,
 			Ready: runtimeCompatible && networkCompatible, RuntimeCompatible: runtimeCompatible,
 			NetworkCompatible: networkCompatible, Labels: labels,
+			Ingress:           node.Ingress,
 			Capacity:          scheduler.Resources{CPUMillis: cpu, MemoryBytes: memory},
 			Reserved:          assignmentResources(preservedAllocations[node.ID], preservedCron[node.ID]),
 			ServicePlacements: servicePlacementCounts(preservedAllocations[node.ID]),
@@ -402,7 +404,8 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			Service: item.allocation.Service, Replica: item.allocation.Replica,
 			Resources:   allocationReservation(item.allocation),
 			Constraints: item.constraints, CurrentNodeID: currentNodeByLogical[logical], VolumeNodeID: item.volumeNodeID,
-			NodePorts: item.nodePorts,
+			NodePorts:       item.nodePorts,
+			RequiresIngress: allocationRequiresIngress(item.allocation),
 		})
 	}
 	cronByLogical := make(map[string]distributedCron, len(plannedCron))
@@ -957,6 +960,11 @@ func filterPlacedEndpoints(endpoints []model.ServiceEndpoint, allocations map[st
 		}
 	}
 	return result
+}
+
+func allocationRequiresIngress(allocation model.AllocationDesired) bool {
+	return allocation.HTTP != nil && allocation.HTTP.NodeLocal ||
+		allocation.Rollback != nil && allocation.Rollback.HTTP != nil && allocation.Rollback.HTTP.NodeLocal
 }
 
 // allocationNodePorts returns the node-local ports an allocation publishes,

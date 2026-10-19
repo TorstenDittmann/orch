@@ -51,6 +51,7 @@ func (s *Store) ReadyServiceEndpoints(ctx context.Context) ([]model.ServiceEndpo
 		if http != nil {
 			endpoint.Domains = append([]string(nil), http.Domains...)
 			endpoint.HTTPPublic = http.Public
+			endpoint.HTTPNodeLocal = http.NodeLocal
 			endpoint.HTTPS = http.HTTPS
 		}
 		if tcp != nil {

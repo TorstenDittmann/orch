@@ -775,6 +775,10 @@ func TestSupervisorHealthGatesIngress(t *testing.T) {
 	if err != nil || statuses[0].HealthStatus != model.HealthChecking {
 		t.Fatalf("first health observation = %#v, %v", statuses, err)
 	}
+	if statuses[0].ActiveSpecDigest != allocation.SpecDigest || statuses[0].ActiveGeneration != allocation.ApplicationGeneration ||
+		statuses[0].ActiveRevisionID != allocation.RevisionID {
+		t.Fatalf("running process is missing revision metadata while warming: %#v", statuses[0])
+	}
 	if len(prober.Targets) != 1 || prober.Targets[0].Host != "web.hello.svc.internal" {
 		t.Fatalf("health targets = %#v", prober.Targets)
 	}
@@ -1202,7 +1206,7 @@ func TestSupervisorDoesNotPublishAnUnacceptedRollbackObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statuses[0].ActiveSpecDigest != "" || len(proxy.Routes) != 0 {
+	if statuses[0].ActiveSpecDigest != replacement.SpecDigest || statuses[0].HealthStatus != model.HealthChecking || len(proxy.Routes) != 0 {
 		t.Fatalf("unaccepted rollback was published: status %#v, routes %#v", statuses[0], proxy.Routes)
 	}
 	if endpoints, err := cache.ServingEndpoints(ctx); err != nil || len(endpoints) != 0 {
@@ -1283,6 +1287,42 @@ func TestRemoteEndpointCatalogFeedsDNSHTTPAndTCP(t *testing.T) {
 	name := discovery.ServiceName("hello", "web")
 	if !reflect.DeepEqual(snapshot.Addresses[name], []netip.Addr{netip.MustParseAddr("10.88.1.2")}) {
 		t.Fatalf("remote DNS snapshot = %#v", snapshot)
+	}
+}
+
+func TestNodeLocalHTTPDoesNotPublishRemoteCertificatesOrCatchAll(t *testing.T) {
+	t.Parallel()
+	for _, public := range []bool{false, true} {
+		endpoint := model.ServiceEndpoint{
+			AllocationID: "alloc-remote", Application: "hello", Service: "web", NodeID: "node-two",
+			Address: "10.88.1.2", Port: 8080, Domains: []string{"game.example.com"}, HTTPS: true,
+			HTTPNodeLocal: true, HTTPPublic: public, TCPPublicPort: 9000,
+		}
+		assignment := model.Assignment{NodeID: "node-one", Network: model.NetworkConfig{
+			Generation: 1, Endpoints: []model.ServiceEndpoint{endpoint},
+		}}
+		allocations, serving, specs := remoteServingView(assignment, nil, nil)
+		routes, pending := desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+		if len(routes) != 0 || len(pending) != 0 {
+			t.Fatalf("another node's HTTP route was published: routes=%#v pending=%#v", routes, pending)
+		}
+		if routes := desiredTCPRoutes(allocations, serving, specs); len(routes) != 1 {
+			t.Fatalf("node-local HTTP changed independent TCP ingress: %#v", routes)
+		}
+		snapshot := discoverySnapshot(nil, nil, assignment.Network.Endpoints)
+		if len(snapshot.Addresses[discovery.ServiceName("hello", "web")]) != 1 {
+			t.Fatal("node-local HTTP removed private cross-node discovery")
+		}
+		assignment.NodeID = endpoint.NodeID
+		allocations, serving, specs = remoteServingView(assignment, nil, nil)
+		routes, _ = desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+		want := 1
+		if public {
+			want++
+		}
+		if len(routes) != want {
+			t.Fatalf("owning node lost its HTTP routes: %#v", routes)
+		}
 	}
 }
 

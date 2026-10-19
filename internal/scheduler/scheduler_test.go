@@ -22,6 +22,23 @@ func TestScheduleRetainsFeasibleCurrentPlacement(t *testing.T) {
 	}
 }
 
+func TestScheduleNodeLocalHTTPRequiresIngress(t *testing.T) {
+	worker := testNode("node-a", "a", 1000, 1024)
+	ingress := testNode("node-b", "b", 1000, 1024)
+	ingress.Ingress = true
+	workload := testWorkload("web-0", "web", 0, 100, 128)
+	workload.RequiresIngress = true
+	workload.CurrentNodeID = worker.ID
+	decision := scheduleOK(t, Input{Nodes: []Node{worker, ingress}, Workloads: []Workload{workload}})[0]
+	if decision.NodeID != ingress.ID {
+		t.Fatalf("node-local HTTP placed without ingress: %#v", decision)
+	}
+	decision = scheduleOK(t, Input{Nodes: []Node{worker}, Workloads: []Workload{workload}})[0]
+	if decision.NodeID != "" || !hasBlocker(decision, BlockerIngressRequired) {
+		t.Fatalf("missing ingress not reported: %#v", decision)
+	}
+}
+
 func TestScheduleSpreadsThenBalancesReplicas(t *testing.T) {
 	input := Input{
 		Nodes: []Node{

@@ -74,6 +74,7 @@ type HTTPDesired struct {
 	Domains    []string `json:"domains,omitempty"`
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
+	NodeLocal  bool     `json:"node_local,omitempty"`
 }
 
 type TCPDesired struct {
@@ -172,6 +173,7 @@ type ServiceEndpoint struct {
 	NodeID        string   `json:"node_id"`
 	Domains       []string `json:"domains,omitempty"`
 	HTTPPublic    bool     `json:"http_public,omitempty"`
+	HTTPNodeLocal bool     `json:"http_node_local,omitempty"`
 	HTTPS         bool     `json:"https,omitempty"`
 	TCPPublicPort uint32   `json:"tcp_public_port,omitempty"`
 }

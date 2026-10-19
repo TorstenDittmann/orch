@@ -868,6 +868,9 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ne
 		if endpoint.Application != route.Application || endpoint.Service != route.Service {
 			continue
 		}
+		if endpoint.HTTPNodeLocal && endpoint.NodeID != nodeID {
+			continue
+		}
 		if route.Domain == model.PublicHTTPRoute && endpoint.HTTPPublic && !route.HTTPS {
 			allowed = true
 			activeContract = true

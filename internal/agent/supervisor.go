@@ -975,6 +975,16 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 ) (model.AllocationStatus, error) {
 	status.Phase = model.AllocationRunning
 	status.Address = object.Address
+	// Running identifies the process, not whether it may receive traffic. The
+	// controller requires this identity even while the first readiness probes
+	// are pending; omitting it rejects the whole report and drops the session.
+	// Keep any accepted fallback identity until the readiness logic below
+	// decides which revision is actually served.
+	if status.ActiveSpecDigest == "" {
+		status.ActiveSpecDigest = allocation.SpecDigest
+		status.ActiveGeneration = allocation.ApplicationGeneration
+		status.ActiveRevisionID = allocation.RevisionID
+	}
 	port, path, endpoint := allocationEndpoint(allocation)
 	if !endpoint {
 		status.HealthStatus = model.HealthNotConfigured
@@ -2211,7 +2221,8 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 			ID: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
 			SpecDigest: "remote", NetworkGeneration: assignment.Network.Generation,
 		}
-		if endpoint.HTTPPublic || len(endpoint.Domains) != 0 {
+		if (endpoint.HTTPPublic || len(endpoint.Domains) != 0) &&
+			(!endpoint.HTTPNodeLocal || endpoint.NodeID == assignment.NodeID) {
 			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
 		}
 		if endpoint.TCPPublicPort != 0 {

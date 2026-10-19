@@ -161,6 +161,7 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("Hello may be sent only once"))
 			}
 			if err := s.handleAgentMessage(ctx, session, item.message); err != nil {
+				slog.Warn("agent message rejected", "node", nodeID, "message_type", fmt.Sprintf("%T", item.message.GetMessage()), "error", err)
 				return err
 			}
 			s.sessions.touch(session)

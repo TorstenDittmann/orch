@@ -65,6 +65,16 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadNodeLocalHTTPIsOptIn(t *testing.T) {
+	if loadManifest(t, validManifest).Services["web"].HTTP.NodeLocal {
+		t.Fatal("HTTP ingress must remain shared by default")
+	}
+	input := strings.Replace(validManifest, "      port = 8080", "      port = 8080\n      nodeLocal = true", 1)
+	if !loadManifest(t, input).Services["web"].HTTP.NodeLocal {
+		t.Fatal("http.nodeLocal was lost during Pkl evaluation")
+	}
+}
+
 func TestPklRejectsTypeLiteralAndBoundErrors(t *testing.T) {
 	tests := map[string]struct {
 		input string

@@ -84,6 +84,10 @@ class Http {
   healthPath: String(length <= 2048) = ""
 
   https: Boolean = true
+
+  /// Publish HTTP routes only on the ingress-enabled node running each replica.
+  /// Use this when a hostname points at that node, rather than shared ingress.
+  nodeLocal: Boolean = false
 }
 
 class Tcp {
