@@ -144,7 +144,7 @@ sections below build the file piece by piece; the complete file follows.
 ### The web service
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "notes"
 
@@ -287,7 +287,7 @@ definition changes.
 ### The complete file
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "notes"
 

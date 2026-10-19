@@ -1,6 +1,8 @@
 package pklschema
 
 import (
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -28,6 +30,42 @@ func TestModuleReaderServesOnlyApplicationSchema(t *testing.T) {
 				t.Fatalf("Read(%q) error = nil", raw)
 			}
 		})
+	}
+}
+
+func TestMirrorServesOnlyApplicationSchema(t *testing.T) {
+	mirror, err := StartMirror()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mirror.Close()
+	base := mirror.Rewrites()[SchemaBaseURL]
+	if !strings.HasPrefix(base, "http://127.0.0.1:") {
+		t.Fatalf("mirror base = %q, want loopback", base)
+	}
+	if !strings.HasSuffix(ApplicationURL, "/pkl/v1alpha1/Application.pkl") || !strings.HasPrefix(ApplicationURL, SchemaBaseURL) {
+		t.Fatalf("ApplicationURL %q does not point at the repository schema", ApplicationURL)
+	}
+
+	response, err := http.Get(base + "v1alpha1/Application.pkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || string(body) != string(ApplicationSource()) {
+		t.Fatalf("schema response = %d, body matches = %v", response.StatusCode, string(body) == string(ApplicationSource()))
+	}
+
+	for _, path := range []string{"v1alpha1/Unknown.pkl", "tests/Application.pkl", "v1alpha1/"} {
+		response, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s = %d, want 404", path, response.StatusCode)
+		}
 	}
 }
 

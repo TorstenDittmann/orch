@@ -46,21 +46,25 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 		return nil, err
 	}
 
+	mirror, err := pklschema.StartMirror()
+	if err != nil {
+		return nil, err
+	}
+	defer mirror.Close()
+
 	evaluator, err := applepkl.NewEvaluatorWithCommand(
 		evaluationContext,
 		[]string{pklCommand},
 		func(evaluatorOptions *applepkl.EvaluatorOptions) {
 			evaluatorOptions.Properties = map[string]string{}
 			evaluatorOptions.Env = map[string]string{}
-			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1alpha1/Application\.pkl$`}
+			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1alpha1/Application\.pkl$`, mirror.AllowedModule()}
 			evaluatorOptions.AllowedResources = []string{`^$`}
 			evaluatorOptions.ModuleReaders = []applepkl.ModuleReader{pklschema.ModuleReader{}}
 			evaluatorOptions.CacheDir = ""
 			evaluatorOptions.RootDir = root
 			evaluatorOptions.Logger = applepkl.NoopLogger
-			if len(options.caCertificates) > 0 {
-				evaluatorOptions.Http = &applepkl.Http{CaCertificates: options.caCertificates}
-			}
+			evaluatorOptions.Http = &applepkl.Http{CaCertificates: options.caCertificates, Rewrites: mirror.Rewrites()}
 		},
 	)
 	if err != nil {

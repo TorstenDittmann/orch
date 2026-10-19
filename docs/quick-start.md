@@ -58,7 +58,7 @@ ingress-enabled node and allow TCP 80 and 443.
 Create `orch.pkl`:
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "hello"
 

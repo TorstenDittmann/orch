@@ -68,7 +68,7 @@ def main():
         assert rerun["ready"] and not rerun["changed"]
         assert remote(host, "systemctl show orch-controller --property=MainPID --value").stdout.strip() == pid
         remote(host, f"/root/orch-test node join create {distro}-worker --ttl 2h --output /root/worker.join --context /root/orch-admin/context.json; /root/orch-test node install --advertise-address {address} --join-file /root/worker.join --wait-timeout 10m")
-        manifest = '''amends "orch:/v1alpha1/Application.pkl"
+        manifest = '''amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 name = "controller-install-smoke"
 services { ["web"] { image = "docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"; command { "/bin/sh" }; args { "-c"; "mkdir -p /www; echo ok >/www/healthz; exec httpd -f -p 8080 -h /www" }; resources { cpu = "100m"; memory = "64Mi" }; http = new Http { port = 8080; healthPath = "/healthz" } } }
 '''

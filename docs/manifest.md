@@ -1,8 +1,9 @@
 # Application manifest reference
 
 An application is described by one Pkl module, usually named `orch.pkl`, that
-amends the versioned schema `orch:/v1alpha1/Application.pkl`. The schema is
-embedded in the `orch` binary. This page lists every field it defines, with
+amends the versioned `v1alpha1/Application.pkl` schema. The schema is
+embedded in the `orch` binary, so `orch` never downloads it; editors fetch the
+same file from GitHub for completion and type checks. This page lists every field it defines, with
 its type, default, and the rules that `orch validate` enforces on top of the
 Pkl types.
 
@@ -10,7 +11,7 @@ For a guided introduction, start with [applications](configuration.md). For
 the commands that read this file, see the [CLI reference](cli.md).
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "shop"
 
@@ -569,7 +570,7 @@ A shared module can export functions or templates:
 
 ```pkl
 // lib/web.pkl
-import "orch:/v1alpha1/Application.pkl"
+import "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 function web(imageRef: String, domain: String): Application.Service = new {
   image = imageRef
@@ -588,7 +589,7 @@ function web(imageRef: String, domain: String): Application.Service = new {
 
 ```pkl
 // orch.pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 import "lib/web.pkl"
 
@@ -606,7 +607,7 @@ services {
 Within one file, a `local` value and Pkl's amend syntax remove repetition:
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "shop"
 
@@ -661,7 +662,7 @@ Modules can also be imported from `https:` URLs, which lets several
 repositories share one set of conventions:
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 import "https://modules.example.com/orch/v3/web.pkl"
 ```
@@ -697,15 +698,16 @@ page:
 orch schema > Application.pkl
 ```
 
-Stock Pkl tools can resolve `orch:` imports through orch's external module
-reader:
+Editors with the Pkl extension (VS Code, IntelliJ, Neovim and others using
+`pkl-lsp`) resolve the `amends` URL directly, so completion, documentation and
+type errors work without any setup. `orch` itself never fetches that URL: it
+evaluates against the schema embedded in the binary, so manifests work offline
+and always match the CLI version you run. Stock `pkl eval` also resolves the
+URL.
 
-```console
-pkl eval \
-  --allowed-modules 'pkl:,file:,orch:' \
-  --external-module-reader 'orch=orch pkl reader' \
-  orch.pkl
-```
+Manifests written as `amends "orch:/v1alpha1/Application.pkl"` keep working
+with `orch`, but editors cannot resolve that scheme. Replace it with the URL
+above to get editor support.
 
 `pkl eval` shows the evaluated module, but only `orch validate` applies orch's
 additional rules. Use `orch render` to see exactly what would be sent to the

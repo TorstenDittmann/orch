@@ -279,7 +279,7 @@ operational failures.
 ## Executable example
 
 ~~~pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "runtime-demo"
 
