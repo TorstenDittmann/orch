@@ -144,13 +144,13 @@ See [targets](targets.md) and
 ## Application
 
 An application is the unit you deploy. It is described by one Pkl file,
-usually `orch.pkl`, that amends the versioned schema
-`orch:/v1alpha1/Application.pkl`. An application has a name and contains
+usually `orch.pkl`, that amends the versioned `v1alpha1/Application.pkl`
+schema. An application has a name and contains
 services, optional cron jobs, optional volumes, and a `deploy` block that
 controls rollouts.
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "hello"
 

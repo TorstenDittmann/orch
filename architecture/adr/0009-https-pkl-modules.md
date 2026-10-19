@@ -27,3 +27,12 @@ releases. The local evaluation root does not constrain HTTPS destinations.
   URLs, redirects, or the import graph.
 - Pkl source still never crosses the apply API, and controllers and agents still
   do not execute Pkl or make module requests.
+
+## Update: published schema URL
+
+Manifests amend the schema by its published URL,
+`https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl`,
+so editors and `pkl-lsp` resolve it with no setup. During evaluation orch
+rewrites that URL to a loopback mirror of the embedded schema, so `orch` never
+fetches it and the schema always matches the running CLI. The `orch:` form stays
+accepted for existing manifests.

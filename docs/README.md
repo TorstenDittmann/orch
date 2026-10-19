@@ -7,7 +7,7 @@ release, and operate them from one CLI.
 > using it in production.
 
 ```pkl
-amends "orch:/v1alpha1/Application.pkl"
+amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "api"
 

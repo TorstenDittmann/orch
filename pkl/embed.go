@@ -6,12 +6,21 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/url"
+	"regexp"
 
 	applepkl "github.com/apple/pkl-go/pkl"
 )
 
 const (
+	// ApplicationURL is the schema URI manifests amend. Editors fetch it over
+	// HTTPS; orch evaluation serves it from the embedded copy instead.
+	ApplicationURL = SchemaBaseURL + "v1alpha1/Application.pkl"
+	// SchemaBaseURL is the published directory that holds versioned schemas.
+	SchemaBaseURL = "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/"
+	// ApplicationURI is the original orch: form, still accepted by orch.
 	ApplicationURI     = "orch:/v1alpha1/Application.pkl"
 	RequiredPklVersion = "0.32.1"
 )
@@ -65,4 +74,42 @@ func RunExternalReader(requests io.Reader, responses io.Writer) error {
 	}
 	// Run owns protocol shutdown; CloseExternalProcess closes the client.
 	return client.Run()
+}
+
+// Mirror serves the embedded schema on a loopback address so evaluation can
+// rewrite ApplicationURL to it, staying offline and pinned to this binary.
+type Mirror struct {
+	server   *http.Server
+	listener net.Listener
+}
+
+func StartMirror() (*Mirror, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("start Pkl schema mirror: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1alpha1/Application.pkl", func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(response, applicationSource)
+	})
+	mirror := &Mirror{server: &http.Server{Handler: mux}, listener: listener}
+	go func() { _ = mirror.server.Serve(listener) }()
+	return mirror, nil
+}
+
+// Rewrites maps the published schema directory to the mirror, in the form
+// Pkl's HTTP rewrite settings expect.
+func (m *Mirror) Rewrites() map[string]string {
+	return map[string]string{SchemaBaseURL: "http://" + m.listener.Addr().String() + "/"}
+}
+
+// AllowedModule matches the rewritten schema URL, since Pkl checks the module
+// allowlist after applying rewrites.
+func (m *Mirror) AllowedModule() string {
+	return `^http://` + regexp.QuoteMeta(m.listener.Addr().String()) + `/v1alpha1/Application\.pkl$`
+}
+
+func (m *Mirror) Close() error {
+	return m.server.Close()
 }

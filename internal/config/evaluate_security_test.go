@@ -20,7 +20,7 @@ import (
 
 func TestLoadSupportsDeterministicLocalComposition(t *testing.T) {
 	root := t.TempDir()
-	base := `amends "orch:/v1alpha1/Application.pkl"
+	base := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "composed"
 services {
@@ -47,7 +47,7 @@ services {
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct := loadManifest(t, `amends "orch:/v1alpha1/Application.pkl"
+	direct := loadManifest(t, `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "composed"
 services {
@@ -181,7 +181,7 @@ func TestLoadSupportsHTTPSModules(t *testing.T) {
 	defer server.Close()
 
 	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	source := strings.Replace(validManifest, "orch:/v1alpha1/Application.pkl", server.URL+"/v1alpha1/Application.pkl", 1)
+	source := strings.Replace(validManifest, pklschema.ApplicationURL, server.URL+"/v1alpha1/Application.pkl", 1)
 	filename := filepath.Join(t.TempDir(), "orch.pkl")
 	writePklFile(t, filename, source)
 	manifest, err := Load(context.Background(), filename, LoadOptions{caCertificates: certificate})
@@ -226,6 +226,32 @@ func TestLoadRejectsHTTPAndDependencyModulesWithoutRequesting(t *testing.T) {
 	}
 	if requests.Load() != 0 {
 		t.Fatalf("denied HTTP import made %d requests", requests.Load())
+	}
+}
+
+func TestLoadServesPublishedSchemaFromEmbeddedCopy(t *testing.T) {
+	// The published URL is rewritten to an in-process mirror; a request that
+	// left the machine would need DNS, which the evaluator does not get here.
+	if !strings.Contains(validManifest, pklschema.ApplicationURL) {
+		t.Fatalf("validManifest does not amend %s", pklschema.ApplicationURL)
+	}
+	if manifest := loadManifest(t, validManifest); manifest.Name != "hello" {
+		t.Fatalf("manifest name = %q, want hello", manifest.Name)
+	}
+}
+
+func TestLoadAcceptsLegacyOrchSchemeURI(t *testing.T) {
+	source := strings.Replace(validManifest, pklschema.ApplicationURL, pklschema.ApplicationURI, 1)
+	if manifest := loadManifest(t, source); manifest.Name != "hello" {
+		t.Fatalf("manifest name = %q, want hello", manifest.Name)
+	}
+}
+
+func TestLoadRejectsUnknownPublishedSchemaModule(t *testing.T) {
+	source := strings.Replace(validManifest, `name = "hello"`, "import \""+pklschema.SchemaBaseURL+"v1alpha1/Unknown.pkl\" as unknown\n\nname = unknown.name", 1)
+	_, err := loadManifestError(t, source)
+	if err == nil || !strings.Contains(err.Error(), "Unknown.pkl") {
+		t.Fatalf("Load() error = %v, want unknown-schema error", err)
 	}
 }
 
@@ -351,7 +377,7 @@ func TestLoadRejectsOversizedPrimaryModule(t *testing.T) {
 }
 
 func TestLoadRejectsOversizedResolvedManifest(t *testing.T) {
-	source := `amends "orch:/v1alpha1/Application.pkl"
+	source := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 local value = "x".repeat(4096)
 

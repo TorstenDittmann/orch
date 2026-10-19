@@ -1,6 +1,6 @@
 import { highlight } from "../lib/server/docs";
 
-const manifest = `amends "orch:/v1alpha1/Application.pkl"
+const manifest = `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 
 name = "api"
 

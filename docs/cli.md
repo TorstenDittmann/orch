@@ -549,8 +549,7 @@ Removes an application's desired state, which stops its workloads.
 orch schema
 ```
 
-Prints the embedded `Application.pkl` schema that `orch:/v1alpha1/Application.pkl`
-refers to.
+Prints the embedded `Application.pkl` schema that manifests amend.
 
 ### orch pkl reader and version
 
@@ -561,9 +560,9 @@ orch pkl version
 
 `version` prints the Pkl version this CLI evaluates manifests with.
 
-Serves the embedded schema over Pkl's external-reader protocol on stdin and
-stdout, so stock Pkl tooling can resolve `orch:` modules. You do not run it by
-hand.
+`reader` serves the embedded schema over Pkl's external-reader protocol on
+stdin and stdout, so stock Pkl tooling can resolve older `orch:` imports. You
+do not run it by hand.
 
 ## Status, events, and logs
 

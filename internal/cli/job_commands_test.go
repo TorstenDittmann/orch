@@ -93,7 +93,7 @@ func TestJobCLIThroughControllerAndAgent(t *testing.T) {
 		}
 		return out.Bytes()
 	}
-	file := writeManifest(t, `amends "orch:/v1alpha1/Application.pkl"
+	file := writeManifest(t, `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
 name = "hello"
 services { ["web"] { image = "example/web@sha256:`+strings.Repeat("a", 64)+`" } }
 `)

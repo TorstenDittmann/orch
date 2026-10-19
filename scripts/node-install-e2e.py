@@ -82,7 +82,7 @@ def main():
     constraints { ["install-os"] = "%s" }
     http = new Http { port = 8080; healthPath = "/healthz" }
   }''' % (distro, distro))
-    manifest.write_text('amends "orch:/v1alpha1/Application.pkl"\nname = "install-smoke"\nservices {\n' + "\n".join(services) + "\n}\n")
+    manifest.write_text('amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"\nname = "install-smoke"\nservices {\n' + "\n".join(services) + "\n}\n")
     record("deploy", cli("deploy", "--root", str(evidence), "--file", str(manifest), "--wait", "--timeout", "10m", "--json"))
     jobs = {}
     for distro, host, _ in nodes:
