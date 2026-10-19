@@ -9,6 +9,7 @@
 //   done
 //   printf '%s' "$S3_ACCESS_KEY" | orch secret set appwrite s3-access-key --from-stdin
 //   printf '%s' "$S3_SECRET" | orch secret set appwrite s3-secret --from-stdin
+//   orch secret set appwrite gateway-caddyfile --from-stdin < Caddyfile
 //
 // Then point the domain at an ingress node, run `orch deploy`, and open
 // https://<domain> to create the first (root) console account.
@@ -24,8 +25,10 @@
 //   a single service, while Appwrite's API and worker both read and write
 //   uploads, imports and builds; a bucket gives them one shared store.
 // - orch ingress terminates TLS instead of Traefik. A small Caddy `gateway`
-//   service does Traefik's path routing behind it: realtime, API and console
-//   share one domain.
+//   service does Traefik's path routing behind it (see ./Caddyfile), so
+//   realtime, API and console share one domain. orch manifests cannot read
+//   plain files, so the Caddyfile is delivered as a secret file; set the
+//   secret again after editing it and orch restarts the gateway.
 // - Not carried over: the MQTT broker (Traefik terminated its TLS on ports 8883
 //   and 8084), the screenshot browser and autogravity (only used by Sites and
 //   image previews with automatic gravity), and ClickHouse's optional
@@ -79,48 +82,18 @@ local appwriteSecrets = new Mapping<String, String> {
   ["_APP_STORAGE_S3_SECRET"] = "s3-secret"
 }
 
-/// Path routing that Traefik labels do in the compose file.
-local caddyfile =
-  """
-  {
-  	admin off
-  	auto_https off
-  	servers {
-  		trusted_proxies static private_ranges
-  	}
-  }
-
-  :8080 {
-  	handle /healthz {
-  		respond "ok"
-  	}
-  	handle /v1/realtime* {
-  		reverse_proxy appwrite-realtime:80
-  	}
-  	handle /v1/* {
-  		reverse_proxy appwrite:80
-  	}
-  	handle /.well-known/* {
-  		reverse_proxy appwrite:80
-  	}
-  	handle {
-  		reverse_proxy appwrite-console:3000
-  	}
-  }
-  """
-
 name = "appwrite"
 
 services {
   ["gateway"] {
     image = "docker.io/library/caddy:2.10-alpine"
-    command { "/bin/sh" }
-    args {
-      "-c"
-      #"printf '%s\n' "$CADDYFILE" >/etc/caddy/Caddyfile && exec caddy run --config /etc/caddy/Caddyfile"#
-    }
-    env {
-      ["CADDYFILE"] = caddyfile
+    command { "caddy"; "run"; "--config"; "/run/secrets/Caddyfile"; "--adapter"; "caddyfile" }
+    // The Caddyfile next to this manifest, stored as the gateway-caddyfile secret.
+    secretFiles {
+      new SecretFile {
+        source = "gateway-caddyfile"
+        target = "/run/secrets/Caddyfile"
+      }
     }
     dependsOn { "appwrite"; "appwrite-realtime"; "appwrite-console" }
     http = new Http {
