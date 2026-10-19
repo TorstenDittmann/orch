@@ -412,7 +412,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			if service.HTTP != nil {
 				allocation.HTTP = &model.HTTPDesired{
 					Port: uint32(service.HTTP.Port), Public: service.HTTP.Public, Domains: append([]string(nil), service.HTTP.Domains...),
-					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS,
+					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS, NodeLocal: service.HTTP.NodeLocal,
 				}
 			}
 			if service.TCP != nil {

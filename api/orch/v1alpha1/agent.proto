@@ -85,6 +85,7 @@ message HTTPDesired {
   string health_path = 3;
   bool https = 4;
   bool public = 5;
+  bool node_local = 6;
 }
 
 message TCPDesired {
@@ -180,6 +181,7 @@ message ServiceEndpoint {
   bool https = 8;
   uint32 tcp_public_port = 9;
   bool http_public = 10;
+  bool http_node_local = 11;
 }
 
 message AllocationDesired {

@@ -50,6 +50,7 @@ type Node struct {
 	Ready             bool
 	RuntimeCompatible bool
 	NetworkCompatible bool
+	Ingress           bool
 	Labels            map[string]string
 	Capacity          Resources
 	Reserved          Resources
@@ -62,16 +63,17 @@ type Node struct {
 // volume claim and is a hard placement constraint. NodePorts are node-local
 // published ports such as "tcp/8787"; a node can hold each one only once.
 type Workload struct {
-	ID            string
-	Kind          Kind
-	Application   string
-	Service       string
-	Replica       uint32
-	Resources     Resources
-	Constraints   map[string]string
-	CurrentNodeID string
-	VolumeNodeID  string
-	NodePorts     []string
+	ID              string
+	Kind            Kind
+	Application     string
+	Service         string
+	Replica         uint32
+	Resources       Resources
+	Constraints     map[string]string
+	CurrentNodeID   string
+	VolumeNodeID    string
+	NodePorts       []string
+	RequiresIngress bool
 }
 
 type Input struct {
@@ -109,6 +111,7 @@ const (
 	BlockerInsufficientCPU      BlockerCode = "insufficient_cpu"
 	BlockerInsufficientMemory   BlockerCode = "insufficient_memory"
 	BlockerNodePortInUse        BlockerCode = "node_port_in_use"
+	BlockerIngressRequired      BlockerCode = "ingress_required"
 )
 
 // Blocker is one stable explanation for rejecting a node. Node fields are
@@ -351,6 +354,9 @@ func feasibilityBlockers(state *nodeState, workload Workload, retaining bool) []
 	}
 	if !node.NetworkCompatible {
 		add(BlockerNetworkIncompatible, "node network is incompatible")
+	}
+	if workload.RequiresIngress && !node.Ingress {
+		add(BlockerIngressRequired, "node-local HTTP requires an ingress-enabled node")
 	}
 	switch node.Lifecycle {
 	case LifecycleCordoned:

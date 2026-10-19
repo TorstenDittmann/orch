@@ -118,7 +118,10 @@ func (t Tracker) Observe(success bool, now time.Time) (Tracker, bool) {
 	} else {
 		t.Failures++
 		t.Successes = 0
-		if t.Failures >= UnhealthyFailures {
+		// Before the first successful readiness gate, the supervisor's startup
+		// deadline is the failure budget. Applying steady-state hysteresis here
+		// would roll back a cold process after only a few seconds.
+		if t.Failures >= UnhealthyFailures && t.Status != model.HealthChecking {
 			t.Status = model.HealthUnhealthy
 			t.ReadyAt = nil
 		}

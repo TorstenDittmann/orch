@@ -975,6 +975,16 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 ) (model.AllocationStatus, error) {
 	status.Phase = model.AllocationRunning
 	status.Address = object.Address
+	// Running identifies the process, not whether it may receive traffic. The
+	// controller requires this identity even while the first readiness probes
+	// are pending; omitting it rejects the whole report and drops the session.
+	// Keep any accepted fallback identity until the readiness logic below
+	// decides which revision is actually served.
+	if status.ActiveSpecDigest == "" {
+		status.ActiveSpecDigest = allocation.SpecDigest
+		status.ActiveGeneration = allocation.ApplicationGeneration
+		status.ActiveRevisionID = allocation.RevisionID
+	}
 	port, path, endpoint := allocationEndpoint(allocation)
 	if !endpoint {
 		status.HealthStatus = model.HealthNotConfigured
@@ -1073,7 +1083,7 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 			readyAt := s.now().UTC()
 			status.ReadyAt = &readyAt
 			status.Reason = "health_gate_rollback"
-			status.Message = "the desired revision failed readiness; the controller-authorized previous revision remains active"
+			status.Message = readinessMessage("the desired revision failed readiness; the controller-authorized previous revision remains active", probeErr)
 			s.setServing(allocation.ID, *old)
 			return status, s.persistStatus(ctx, status, nil)
 		}
@@ -1108,14 +1118,14 @@ func (s *Supervisor) runningStatus(ctx context.Context, allocation model.Allocat
 			status.Phase = model.AllocationFailed
 			status.HealthStatus = model.HealthUnhealthy
 			status.Reason = "health_deadline_exceeded"
-			status.Message = "the desired process did not become ready before its health deadline"
+			status.Message = readinessMessage("the desired process did not become ready before its health deadline", probeErr)
 			return status, s.persistStatus(ctx, status, nil)
 		}
 		status.Reason = "readiness_unhealthy"
-		status.Message = "the desired process failed three consecutive readiness probes"
+		status.Message = readinessMessage("the desired process failed three consecutive readiness probes", probeErr)
 	} else {
 		status.Reason = "readiness_checking"
-		status.Message = "waiting for two consecutive successful readiness probes"
+		status.Message = readinessMessage("waiting for two consecutive successful readiness probes", probeErr)
 	}
 	if old := rollbackObject(allocation, obsolete); old != nil && s.canRetainRollback(allocation, *old) {
 		s.setServing(allocation.ID, *old)
@@ -1190,14 +1200,31 @@ func (s *Supervisor) rollbackStatus(ctx context.Context, allocation model.Alloca
 	status.ConsecutiveSuccesses = tracker.Successes
 	status.ConsecutiveFailures = tracker.Failures
 	status.ReadyAt = tracker.ReadyAt
+	status.UpdatedAt = probeAt
+	deadline := time.Duration(allocation.Rollback.StartDeadlineSeconds) * time.Second
+	deadlineExceeded := deadline > 0 && !object.StartedAt.IsZero() && !probeAt.Before(object.StartedAt.Add(deadline))
 	if tracker.Status == model.HealthReady {
 		s.setServing(allocation.ID, object)
 	} else if tracker.Status == model.HealthUnhealthy {
 		status.Phase = model.AllocationFailed
 		status.Reason = "rollback_unhealthy"
-		status.Message = "the controller-authorized previous revision also failed readiness"
+		status.Message = readinessMessage("the controller-authorized previous revision also failed readiness", probeErr)
+	} else if deadlineExceeded {
+		status.Phase = model.AllocationFailed
+		status.HealthStatus = model.HealthUnhealthy
+		status.Reason = "rollback_health_deadline_exceeded"
+		status.Message = readinessMessage("the controller-authorized previous revision did not become ready before its health deadline", probeErr)
+	} else {
+		status.Message = readinessMessage("the controller-authorized previous revision is starting; waiting for readiness", probeErr)
 	}
 	return status, s.persistStatus(ctx, status, nil)
+}
+
+func readinessMessage(message string, probeErr error) string {
+	if probeErr != nil {
+		message += ": " + probeErr.Error()
+	}
+	return boundedMessage(message)
 }
 
 func markRollbackActive(status *model.AllocationStatus, allocation model.AllocationDesired, object orchruntime.Object, useAddress bool) {
@@ -2211,7 +2238,8 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 			ID: endpoint.AllocationID, Application: endpoint.Application, Service: endpoint.Service,
 			SpecDigest: "remote", NetworkGeneration: assignment.Network.Generation,
 		}
-		if endpoint.HTTPPublic || len(endpoint.Domains) != 0 {
+		if (endpoint.HTTPPublic || len(endpoint.Domains) != 0) &&
+			(!endpoint.HTTPNodeLocal || endpoint.NodeID == assignment.NodeID) {
 			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
 		}
 		if endpoint.TCPPublicPort != 0 {

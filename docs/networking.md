@@ -67,6 +67,29 @@ are requested automatically. Confirm that public DNS resolves to an ingress
 node and that ports 80 and 443 are reachable so certificate issuance can
 succeed.
 
+### Hostnames on separate nodes
+
+By default every ingress node publishes every HTTP route. If a hostname points
+only at the node running its service (for example a regional game server next to
+its UDP node port), opt into node-local HTTP:
+
+```pkl
+http = new Http {
+  port = 8080
+  domains { "eu.game.example.com" }
+  healthPath = "/healthz"
+  nodeLocal = true
+}
+```
+
+Only the replica's own node publishes these HTTP routes or requests their TLS
+certificates. Other nodes still discover the service through private cluster DNS.
+The scheduler requires an ingress-enabled node for the replica. Point the
+hostname at that node and use one replica per region-specific hostname; this
+setting does not coordinate ACME challenges across multiple replicas or nodes.
+Keep `nodeLocal = false` for shared ingress. Upgrade the controller, agents, and
+deploying CLI to a version supporting `nodeLocal` before using it.
+
 ## HTTP
 
 Set `public = true` to create a catch-all listener on port 80:

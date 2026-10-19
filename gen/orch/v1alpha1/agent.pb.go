@@ -694,6 +694,7 @@ type HTTPDesired struct {
 	HealthPath    string                 `protobuf:"bytes,3,opt,name=health_path,json=healthPath,proto3" json:"health_path,omitempty"`
 	Https         bool                   `protobuf:"varint,4,opt,name=https,proto3" json:"https,omitempty"`
 	Public        bool                   `protobuf:"varint,5,opt,name=public,proto3" json:"public,omitempty"`
+	NodeLocal     bool                   `protobuf:"varint,6,opt,name=node_local,json=nodeLocal,proto3" json:"node_local,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -759,6 +760,13 @@ func (x *HTTPDesired) GetHttps() bool {
 func (x *HTTPDesired) GetPublic() bool {
 	if x != nil {
 		return x.Public
+	}
+	return false
+}
+
+func (x *HTTPDesired) GetNodeLocal() bool {
+	if x != nil {
+		return x.NodeLocal
 	}
 	return false
 }
@@ -1539,6 +1547,7 @@ type ServiceEndpoint struct {
 	Https         bool                   `protobuf:"varint,8,opt,name=https,proto3" json:"https,omitempty"`
 	TcpPublicPort uint32                 `protobuf:"varint,9,opt,name=tcp_public_port,json=tcpPublicPort,proto3" json:"tcp_public_port,omitempty"`
 	HttpPublic    bool                   `protobuf:"varint,10,opt,name=http_public,json=httpPublic,proto3" json:"http_public,omitempty"`
+	HttpNodeLocal bool                   `protobuf:"varint,11,opt,name=http_node_local,json=httpNodeLocal,proto3" json:"http_node_local,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1639,6 +1648,13 @@ func (x *ServiceEndpoint) GetTcpPublicPort() uint32 {
 func (x *ServiceEndpoint) GetHttpPublic() bool {
 	if x != nil {
 		return x.HttpPublic
+	}
+	return false
+}
+
+func (x *ServiceEndpoint) GetHttpNodeLocal() bool {
+	if x != nil {
+		return x.HttpNodeLocal
 	}
 	return false
 }
@@ -5233,14 +5249,16 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vVolumeMount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\x8a\x01\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xa9\x01\n" +
 	"\vHTTPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x1f\n" +
 	"\vhealth_path\x18\x03 \x01(\tR\n" +
 	"healthPath\x12\x14\n" +
 	"\x05https\x18\x04 \x01(\bR\x05https\x12\x16\n" +
-	"\x06public\x18\x05 \x01(\bR\x06public\"^\n" +
+	"\x06public\x18\x05 \x01(\bR\x06public\x12\x1d\n" +
+	"\n" +
+	"node_local\x18\x06 \x01(\bR\tnodeLocal\"^\n" +
 	"\n" +
 	"TCPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x1f\n" +
@@ -5325,7 +5343,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"public_key\x18\x02 \x01(\tR\tpublicKey\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12%\n" +
-	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xb2\x02\n" +
+	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xda\x02\n" +
 	"\x0fServiceEndpoint\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5338,7 +5356,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftcp_public_port\x18\t \x01(\rR\rtcpPublicPort\x12\x1f\n" +
 	"\vhttp_public\x18\n" +
 	" \x01(\bR\n" +
-	"httpPublic\"\xaf\f\n" +
+	"httpPublic\x12&\n" +
+	"\x0fhttp_node_local\x18\v \x01(\bR\rhttpNodeLocal\"\xaf\f\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +

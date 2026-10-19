@@ -38,6 +38,7 @@ facts {
   }
   ["HTTP defaults"] {
     !http.public
+    !http.nodeLocal
     http.domains.isEmpty
     http.https
   }

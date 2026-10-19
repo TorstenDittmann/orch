@@ -42,6 +42,30 @@ func TestTrackerHysteresis(t *testing.T) {
 	}
 }
 
+func TestTrackerStartupFailuresStayCheckingUntilReady(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	tracker := Tracker{}
+	for range UnhealthyFailures + 3 {
+		tracker, _ = tracker.Observe(false, now)
+		if tracker.Status != model.HealthChecking || tracker.ReadyAt != nil {
+			t.Fatalf("startup probe failures bypassed the caller's health deadline: %#v", tracker)
+		}
+	}
+	for range ReadySuccesses {
+		tracker, _ = tracker.Observe(true, now)
+	}
+	if tracker.Status != model.HealthReady {
+		t.Fatalf("startup could not recover: %#v", tracker)
+	}
+	for range UnhealthyFailures {
+		tracker, _ = tracker.Observe(false, now)
+	}
+	if tracker.Status != model.HealthUnhealthy {
+		t.Fatalf("startup grace hid a failure after readiness passed: %#v", tracker)
+	}
+}
+
 func TestNetworkProberHTTPDoesNotFollowRedirects(t *testing.T) {
 	redirected := false
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

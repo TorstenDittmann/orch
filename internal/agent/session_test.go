@@ -135,6 +135,47 @@ func TestAssignmentModelRejectsNonCanonicalAllocationOrder(t *testing.T) {
 	}
 }
 
+func TestAssignmentModelPreservesNodeLocalHTTP(t *testing.T) {
+	t.Parallel()
+	wire := validWireAllocation(t, "alloc-local", 1)
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt: timestamppb.New(supervisorTestTime), Allocations: []*orchv1alpha1.AllocationDesired{wire},
+	}
+	seed, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocation := seed.Allocations[0]
+	allocation.NetworkGeneration = 1
+	allocation.HTTP = &model.HTTPDesired{Port: 8080, Domains: []string{"local.example.com"}, HealthPath: "/health", HTTPS: true, NodeLocal: true}
+	wire.NetworkGeneration = 1
+	wire.SpecDigest, err = model.AllocationSpecDigest(allocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire.Http = &orchv1alpha1.HTTPDesired{Port: 8080, Domains: allocation.HTTP.Domains, HealthPath: "/health", Https: true, NodeLocal: true}
+	network, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Network = &orchv1alpha1.NetworkConfig{
+		Generation: network.Generation, ClusterCidr: network.ClusterCIDR, NodeSubnet: network.NodeSubnet,
+		Gateway: network.Gateway, DnsZone: network.DNSZone,
+		Endpoints: []*orchv1alpha1.ServiceEndpoint{{
+			AllocationId: "alloc-local", Application: "hello", Service: "worker", NodeId: "node-one",
+			Address: "10.88.0.2", Port: 8080, Domains: []string{"local.example.com"}, Https: true, HttpNodeLocal: true,
+		}},
+	}
+	decoded, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Allocations[0].HTTP.NodeLocal || !decoded.Network.Endpoints[0].HTTPNodeLocal {
+		t.Fatalf("node-local scope lost decoding assignment: %#v", decoded)
+	}
+}
+
 func TestAssignmentModelRejectsTooManyAllocationsBeforeDecoding(t *testing.T) {
 	t.Parallel()
 	snapshot := &orchv1alpha1.AssignmentSnapshot{

@@ -55,6 +55,7 @@ type HTTP struct {
 	Domains    []string `json:"domains,omitempty"`
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
+	NodeLocal  bool     `json:"node_local,omitempty"`
 }
 
 type TCP struct {
