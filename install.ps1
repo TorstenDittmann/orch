@@ -30,20 +30,38 @@ if ($version -eq 'latest') {
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("orch-" + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    Write-Host "Downloading $asset ($version)"
     $binary = Join-Path $tmp 'orch.exe'
     $sums = Join-Path $tmp 'SHA256SUMS'
-    Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $binary
     Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sums
-
-    $expected = $null
+    $checksums = @{}
     foreach ($line in Get-Content $sums) {
         $fields = $line -split '\s+'
-        if ($fields.Count -ge 2 -and $fields[1].TrimStart('*') -eq $asset) { $expected = $fields[0] }
+        if ($fields.Count -ge 2) { $checksums[$fields[1].TrimStart('*')] = $fields[0] }
     }
+    # The gzipped asset is about a third of the size; releases before it
+    # existed only have the plain binary.
+    if ($checksums.ContainsKey("$asset.gz")) { $asset = "$asset.gz" }
+    $expected = $checksums[$asset]
     if (-not $expected) { throw "orch install: SHA256SUMS has no entry for $asset" }
-    $actual = (Get-FileHash -Algorithm SHA256 -Path $binary).Hash
+
+    Write-Host "Downloading $asset ($version)"
+    $download = Join-Path $tmp $asset
+    Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $download
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $download).Hash
     if ($actual -ne $expected) { throw "orch install: checksum mismatch for $asset" }
+    if ($asset.EndsWith('.gz')) {
+        $in = [IO.File]::OpenRead($download)
+        $out = [IO.File]::Create($binary)
+        try {
+            $gzip = New-Object IO.Compression.GZipStream($in, [IO.Compression.CompressionMode]::Decompress)
+            $gzip.CopyTo($out)
+        } finally {
+            $out.Dispose()
+            $in.Dispose()
+        }
+    } else {
+        Move-Item -Force $download $binary
+    }
 
     $dir = if ($env:ORCH_INSTALL_DIR) { $env:ORCH_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\orch' }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
