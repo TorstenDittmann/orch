@@ -32,6 +32,12 @@ for network in runtimes appwrite; do
 done
 docker rm -f exc1 orchestrator >/dev/null 2>&1 || true
 
+# Appwrite authenticates to the orchestrator with the jobs secret. The
+# orchestrator reads its key only from a file. Docker turns a missing bind
+# source into a directory when it restarts the old container at boot.
+rm -rf /run/orchestrator-api-key
+(umask 077 && printf '%s' "$_APP_JOBS_SECRET" >/run/orchestrator-api-key)
+
 # Port 80 serves the executor and 8080 the orchestrator, both at this
 # service's address. The executor joins the runtimes network itself.
 docker run -d --name exc1 --hostname exc1 --network appwrite --restart unless-stopped \
@@ -50,6 +56,8 @@ docker run -d --name exc1 --hostname exc1 --network appwrite --restart unless-st
 docker run -d --name orchestrator --hostname orchestrator --network appwrite --restart unless-stopped \
 	--user root -p 8080:8080 \
 	-v /var/run/docker.sock:/var/run/docker.sock \
+	-v /run/orchestrator-api-key:/run/secrets/api-key:ro \
+	-e API_KEY_FILE=/run/secrets/api-key \
 	-e ORCHESTRATOR_BACKEND=docker \
 	-e ORCHESTRATOR_NETWORK=appwrite \
 	-e DOCKER_NETWORK=appwrite \

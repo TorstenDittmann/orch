@@ -88,10 +88,11 @@ local appwriteEnv = new Mapping<String, String> {
   ["_APP_STORAGE_DEVICE"] = "s3"
   ...storageEnv
   // The executor listens on port 80 of the functions service and the build
-  // orchestrator on 8080. Build containers call back to the API directly.
+  // orchestrator on 8080. Build containers call back to the API from inside
+  // that service's Docker daemon, which forwards only fully qualified names.
   ["_APP_EXECUTOR_HOST"] = "http://functions/v1"
   ["_APP_JOBS_HOST"] = "http://functions:8080"
-  ["_APP_JOBS_ENDPOINT"] = "http://appwrite"
+  ["_APP_JOBS_ENDPOINT"] = "http://appwrite.\(name).svc.internal"
   ["_APP_DOMAIN_FUNCTIONS"] = "functions.\(domain)"
   ["_APP_DOMAIN_SITES"] = "sites.\(domain)"
   ...runtimesEnv
@@ -248,6 +249,7 @@ services {
     }
     secretEnv {
       ["_APP_EXECUTOR_SECRET"] = "executor-secret"
+      ["_APP_JOBS_SECRET"] = "jobs-secret"
       ...storageSecrets
     }
     // functions.sh next to this manifest, stored as the functions-script secret.
