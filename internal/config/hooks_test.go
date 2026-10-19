@@ -11,7 +11,7 @@ import (
 func TestTypedPreDeployHookAndCanonicalValidation(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "orch.pkl")
-	source := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	source := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 name = "hello"
 services { ["web"] { image = "example/web:latest" } }
 deploy { preDeploy = new PreDeployHook { service = "web"; command { "./migrate" } } }

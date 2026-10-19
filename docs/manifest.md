@@ -11,7 +11,7 @@ For a guided introduction, start with [applications](configuration.md). For
 the commands that read this file, see the [CLI reference](cli.md).
 
 ```pkl
-amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "shop"
 
@@ -571,7 +571,7 @@ A shared module can export functions or templates:
 
 ```pkl
 // lib/web.pkl
-import "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+import "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 function web(imageRef: String, domain: String): Application.Service = new {
   image = imageRef
@@ -590,7 +590,7 @@ function web(imageRef: String, domain: String): Application.Service = new {
 
 ```pkl
 // orch.pkl
-amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 import "lib/web.pkl"
 
@@ -608,7 +608,7 @@ services {
 Within one file, a `local` value and Pkl's amend syntax remove repetition:
 
 ```pkl
-amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "shop"
 
@@ -663,7 +663,7 @@ Modules can also be imported from `https:` URLs, which lets several
 repositories share one set of conventions:
 
 ```pkl
-amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 import "https://modules.example.com/orch/v3/web.pkl"
 ```
@@ -708,7 +708,9 @@ URL.
 
 Manifests written as `amends "orch:/v1alpha1/Application.pkl"` keep working
 with `orch`, but editors cannot resolve that scheme. Replace it with the URL
-above to get editor support.
+above to get editor support. The earlier
+`https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl`
+URL also keeps working.
 
 `pkl eval` shows the evaluated module, but only `orch validate` applies orch's
 additional rules. Use `orch render` to see exactly what would be sent to the

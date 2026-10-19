@@ -19,7 +19,10 @@ const (
 	// HTTPS; orch evaluation serves it from the embedded copy instead.
 	ApplicationURL = SchemaBaseURL + "v1alpha1/Application.pkl"
 	// SchemaBaseURL is the published directory that holds versioned schemas.
-	SchemaBaseURL = "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/"
+	SchemaBaseURL = "https://orch.torsten.work/pkl/"
+	// LegacySchemaBaseURL is the earlier GitHub location, still served from
+	// the embedded copy so existing manifests keep evaluating offline.
+	LegacySchemaBaseURL = "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/"
 	// ApplicationURI is the original orch: form, still accepted by orch.
 	ApplicationURI     = "orch:/v1alpha1/Application.pkl"
 	RequiredPklVersion = "0.32.1"
@@ -98,10 +101,11 @@ func StartMirror() (*Mirror, error) {
 	return mirror, nil
 }
 
-// Rewrites maps the published schema directory to the mirror, in the form
+// Rewrites maps the published schema directories to the mirror, in the form
 // Pkl's HTTP rewrite settings expect.
 func (m *Mirror) Rewrites() map[string]string {
-	return map[string]string{SchemaBaseURL: "http://" + m.listener.Addr().String() + "/"}
+	base := "http://" + m.listener.Addr().String() + "/"
+	return map[string]string{SchemaBaseURL: base, LegacySchemaBaseURL: base}
 }
 
 // AllowedModule matches the rewritten schema URL, since Pkl checks the module

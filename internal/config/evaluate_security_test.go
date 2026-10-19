@@ -20,7 +20,7 @@ import (
 
 func TestLoadSupportsDeterministicLocalComposition(t *testing.T) {
 	root := t.TempDir()
-	base := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	base := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "composed"
 services {
@@ -47,7 +47,7 @@ services {
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct := loadManifest(t, `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	direct := loadManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "composed"
 services {
@@ -247,6 +247,14 @@ func TestLoadAcceptsLegacyOrchSchemeURI(t *testing.T) {
 	}
 }
 
+func TestLoadServesLegacyGitHubSchemaURLFromEmbeddedCopy(t *testing.T) {
+	legacy := pklschema.LegacySchemaBaseURL + "v1alpha1/Application.pkl"
+	source := strings.Replace(validManifest, pklschema.ApplicationURL, legacy, 1)
+	if manifest := loadManifest(t, source); manifest.Name != "hello" {
+		t.Fatalf("manifest name = %q, want hello", manifest.Name)
+	}
+}
+
 func TestLoadRejectsUnknownPublishedSchemaModule(t *testing.T) {
 	source := strings.Replace(validManifest, `name = "hello"`, "import \""+pklschema.SchemaBaseURL+"v1alpha1/Unknown.pkl\" as unknown\n\nname = unknown.name", 1)
 	_, err := loadManifestError(t, source)
@@ -377,7 +385,7 @@ func TestLoadRejectsOversizedPrimaryModule(t *testing.T) {
 }
 
 func TestLoadRejectsOversizedResolvedManifest(t *testing.T) {
-	source := `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+	source := `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 local value = "x".repeat(4096)
 

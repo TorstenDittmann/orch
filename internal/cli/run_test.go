@@ -23,7 +23,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/store"
 )
 
-const cliManifest = `amends "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl"
+const cliManifest = `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 name = "hello"
 services {
