@@ -341,6 +341,32 @@ func TestSessionManagerRejectsHealthyDuplicateAndReplacesStaleSession(t *testing
 	manager.Close()
 }
 
+func TestSessionManagerLetsTheSameAgentReplaceItsOwnSession(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	manager := newSessionManager(func() time.Time { return now })
+	firstContext, cancelFirst := context.WithCancel(context.Background())
+	first, err := manager.register(firstContext, "node-one", "boot-one", cancelFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent's stream died on its side before the controller noticed.
+	second, err := manager.register(context.Background(), "node-one", "boot-one", func() {})
+	if err != nil || second == first {
+		t.Fatalf("same-agent reconnect = %#v, %v", second, err)
+	}
+	select {
+	case <-firstContext.Done():
+	default:
+		t.Fatal("superseded session was not canceled")
+	}
+	manager.unregister(first)
+	if !manager.Connected("node-one") {
+		t.Fatal("old-session cleanup removed the replacement")
+	}
+	manager.Close()
+}
+
 func TestAllocationReportModelRejectsNonCanonicalOrder(t *testing.T) {
 	t.Parallel()
 	stamp := time.Now().UTC()

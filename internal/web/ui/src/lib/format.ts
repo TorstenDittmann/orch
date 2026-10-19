@@ -11,8 +11,8 @@ export function tone(value: string | undefined | null): Tone {
 	const text = label(value);
 	if (!text || text === 'unspecified') return 'neutral';
 	if (/^(running|connected|active|healthy|ready|succeeded|serving|valid|applied|completed)$/.test(text)) return 'ok';
-	if (/(fail|unreachable|disconnected|unhealthy|timed out|error|blocked|expired|rejected)/.test(text)) return 'bad';
-	if (/(pending|starting|degraded|draining|cordoned|stopping|waiting|checking|renew|enrolled|pulling|backoff)/.test(text)) return 'warn';
+	if (/(fail|unreachable|unhealthy|timed out|error|blocked|expired|rejected)/.test(text)) return 'bad';
+	if (/(pending|starting|degraded|draining|cordoned|stopping|waiting|checking|renew|enrolled|pulling|backoff|disconnected)/.test(text)) return 'warn';
 	if (/(skipped|stopped|removed|exited|not configured)/.test(text)) return 'neutral';
 	return 'info';
 }

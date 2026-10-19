@@ -33,6 +33,19 @@ func TestReconnectJitterUsesInjectedRandomSource(t *testing.T) {
 	}
 }
 
+func TestReconnectBackoffStartsOverAfterAHealthySession(t *testing.T) {
+	failed := errors.New("stream reset")
+	if got := reconnectBackoff(maxReconnectBackoff, failed, stableSessionDuration); got != time.Second {
+		t.Fatalf("after a stable session = %s, want 1s", got)
+	}
+	if got := reconnectBackoff(maxReconnectBackoff, nil, 0); got != time.Second {
+		t.Fatalf("after a clean close = %s, want 1s", got)
+	}
+	if got := reconnectBackoff(8*time.Second, failed, time.Second); got != 8*time.Second {
+		t.Fatalf("after a failed attempt = %s, want the current 8s", got)
+	}
+}
+
 func TestReconcileCachedSurvivesAllocationFailures(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

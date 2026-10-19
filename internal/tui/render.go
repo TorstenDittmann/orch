@@ -698,7 +698,10 @@ func statusStyle(t theme, value string) string {
 	label := enumLabel(value)
 	color := t.warning
 	upper := strings.ToUpper(value)
-	if strings.Contains(upper, "HEALTHY") || strings.Contains(upper, "CONNECTED") || strings.Contains(upper, "SUCCEEDED") || strings.Contains(upper, "RUNNING") {
+	if strings.Contains(upper, "DISCONNECTED") {
+		// A node seen within the heartbeat timeout is reconnecting, not lost.
+		color = t.warning
+	} else if strings.Contains(upper, "HEALTHY") || strings.Contains(upper, "CONNECTED") || strings.Contains(upper, "SUCCEEDED") || strings.Contains(upper, "RUNNING") {
 		color = t.good
 	} else if strings.Contains(upper, "FAILED") || strings.Contains(upper, "UNREACHABLE") || strings.Contains(upper, "DEGRADED") {
 		color = t.danger

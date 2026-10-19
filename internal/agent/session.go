@@ -29,7 +29,11 @@ import (
 var heartbeatInterval = 10 * time.Second
 
 const (
-	reconcileInterval      = 2 * time.Second
+	reconcileInterval = 2 * time.Second
+	// stableSessionDuration is how long a session must stay up for its loss to
+	// start a fresh reconnect backoff instead of continuing an earlier one.
+	stableSessionDuration  = 30 * time.Second
+	maxReconnectBackoff    = 30 * time.Second
 	maxOperationChunk      = 64 << 10
 	maxAssignedAllocations = 1000
 	maxAssignedCronJobs    = 132
@@ -149,15 +153,15 @@ func (r *sessionRunner) run(ctx context.Context) error {
 			}
 			continue
 		}
+		started := time.Now()
 		err = r.connect(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err == nil {
-			backoff = time.Second
-		} else if connect.CodeOf(err) == connect.CodePermissionDenied || connect.CodeOf(err) == connect.CodeUnauthenticated {
+		if connect.CodeOf(err) == connect.CodePermissionDenied || connect.CodeOf(err) == connect.CodeUnauthenticated {
 			return err
 		}
+		backoff = reconnectBackoff(backoff, err, time.Since(started))
 		jitter, err := reconnectJitter(r.random, backoff/2)
 		if err != nil {
 			return fmt.Errorf("generate reconnect jitter: %w", err)
@@ -165,13 +169,19 @@ func (r *sessionRunner) run(ctx context.Context) error {
 		if err := r.waitToReconnect(ctx, backoff+jitter); err != nil {
 			return err
 		}
-		if backoff < 30*time.Second {
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
-		}
+		backoff = min(backoff*2, maxReconnectBackoff)
 	}
+}
+
+// reconnectBackoff returns the delay before the next connection attempt. A
+// session that ended cleanly or stayed up for a while was healthy, so its loss
+// starts over at one second; otherwise one brief failure after an earlier run of
+// them would keep the node offline for the full maximum.
+func reconnectBackoff(current time.Duration, err error, lasted time.Duration) time.Duration {
+	if err == nil || lasted >= stableSessionDuration {
+		return time.Second
+	}
+	return current
 }
 
 func (r *sessionRunner) waitToReconnect(ctx context.Context, delay time.Duration) error {
