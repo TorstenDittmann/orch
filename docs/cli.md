@@ -552,11 +552,14 @@ orch schema
 Prints the embedded `Application.pkl` schema that `orch:/v1alpha1/Application.pkl`
 refers to.
 
-### orch pkl reader
+### orch pkl reader and version
 
 ```text
 orch pkl reader
+orch pkl version
 ```
+
+`version` prints the Pkl version this CLI evaluates manifests with.
 
 Serves the embedded schema over Pkl's external-reader protocol on stdin and
 stdout, so stock Pkl tooling can resolve `orch:` modules. You do not run it by
@@ -770,14 +773,20 @@ password or token is read from stdin and accepts 1 byte to 1 MiB.
 ### orch github
 
 ```text
+orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
 orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
 orch github list [--target NAME] [--json]
 orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
 ```
 
 Lets GitHub Actions runs of a repository deploy one application without stored
-credentials. `trust` prints a ready-to-use workflow and the `ORCH_CLUSTER`
-value it needs. When `ORCH_CLUSTER` is set and no target is given, remote
+credentials. Run `init` inside the repository's checkout: it reads the
+repository from the `origin` remote, the application from `orch.pkl`, and the
+branch from the remote's default branch, trusts the repository, and writes
+`.github/workflows/deploy.yml`. When a `Dockerfile` sits next to the manifest
+and its workloads use one image repository, the workflow builds and pushes that
+image before deploying; `--image` names the repository explicitly. `trust` does
+the same without touching the checkout and prints the workflow instead. When `ORCH_CLUSTER` is set and no target is given, remote
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
 application when the repository is trusted for several. See
 [deploy from GitHub](github.md).

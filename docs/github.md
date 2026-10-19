@@ -6,82 +6,106 @@ which repository and branch it runs for with GitHub's OIDC token, and the
 controller gives it a 15-minute credential that can only deploy one
 application.
 
-## Trust the repository once
+## Set it up
 
-From your workstation:
+Run this once from your workstation, inside the repository's checkout:
 
 ```console
-$ orch github trust acme/hello --app hello
+$ orch github init
 Trusted acme/hello to deploy hello from branch main.
+Wrote .github/workflows/deploy.yml: every push to main builds ghcr.io/acme/hello and deploys it.
 
-Deploy on every push with .github/workflows/deploy.yml; no secrets are needed:
-...
-          ORCH_CLUSTER: https://203.0.113.10:9443#sha256:3f9a…
+Commit and push it to deploy. No secrets are needed.
 ```
 
-The command prints a workflow you can paste. `ORCH_CLUSTER` is the controller
-address and the fingerprint of its certificate authority. It is not a secret;
-the fingerprint lets the workflow refuse anything that only pretends to be
-your controller.
-
-| Flag | Default | Purpose |
-| --- | --- | --- |
-| `--app` | required | The one application the repository may deploy |
-| `--branch` | `main` | Only runs for pushes to this branch may deploy |
-| `--environment` | none | Only jobs that use this GitHub environment may deploy, so its required reviewers become an approval gate |
-
-`orch github list` shows every trusted repository. `orch github untrust
-acme/hello --app hello` stops new runs at once; a credential a run already
-received expires within 15 minutes.
-
-A repository may be trusted for several applications, for example in a
-monorepo. Its workflow then sets `ORCH_APP` to the application it deploys.
-
-## The workflow
-
-This workflow builds the image, pushes it to the GitHub Container Registry, and
-deploys exactly that build. Replace `ghcr.io/acme/hello` with your image
-(registry paths must be lowercase) and `ORCH_CLUSTER` with the value
-`orch github trust` printed:
+`init` reads the repository from the `origin` remote, the application name from
+`orch.pkl`, and the branch from the remote's default branch. It tells the
+controller to trust that repository and writes a workflow like this one:
 
 ```yaml
 name: deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
   packages: write
   id-token: write
+concurrency:
+  group: deploy-hello
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: TorstenDittmann/orch@v0.2.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: build
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          tags: ghcr.io/acme/hello:${{ github.sha }}
-      - run: curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
-      - run: orch deploy --wait --image "ghcr.io/acme/hello@${{ steps.build.outputs.digest }}"
-        env:
-          ORCH_CLUSTER: https://203.0.113.10:9443#sha256:3f9a…
+          cluster: https://203.0.113.10:9443#sha256:3f9a…
+          app: hello
+          image: ghcr.io/acme/hello
 ```
 
-`id-token: write` lets the job request its OIDC token; without it the deploy
-step stops with an error saying so.
+`cluster` is the controller address and the fingerprint of its certificate
+authority. It is not a secret; the fingerprint lets the workflow refuse
+anything that only pretends to be your controller. `id-token: write` lets the
+job request its OIDC token.
 
-`--image` with a bare reference replaces the image of every service and cron
-job in `orch.pkl` that uses the same repository, so the manifest keeps a
-readable tag such as `ghcr.io/acme/hello:latest` and never needs editing in CI.
-To replace a single workload, name it: `--image web=ghcr.io/acme/hello@sha256:...`.
-See [`orch deploy`](cli.md#orch-deploy).
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--app` | the manifest's `name` | The one application the repository may deploy |
+| `--branch` | the remote's default branch | Only runs for this branch may deploy |
+| `--environment` | none | Only jobs that use this GitHub environment may deploy, so its required reviewers become an approval gate |
+| `--image` | see below | Image repository to build and push before deploying |
+| `-f` | `orch.pkl` | Manifest to deploy, for a repository with several |
+| `--repo` | the `origin` remote | `OWNER/REPO` when the remote is not GitHub |
+| `--force` | off | Replace an existing `deploy.yml` |
+
+When a `Dockerfile` sits next to the manifest and the manifest's workloads all
+use one image repository, the workflow builds that image from the manifest's
+directory. Without one, it deploys the manifest's images as written.
+
+`orch github list` shows every trusted repository. `orch github untrust
+acme/hello --app hello` stops new runs at once; a credential a run already
+received expires within 15 minutes. `orch github trust acme/hello --app hello`
+trusts a repository without a local checkout and prints the workflow instead
+of writing it.
+
+A repository may be trusted for several applications, for example in a
+monorepo. Run `orch github init -f apps/api/orch.pkl` for each and rename the
+written workflows so they do not replace each other.
+
+## The deploy action
+
+`TorstenDittmann/orch` is a GitHub Action. Each run it:
+
+1. Installs the orch CLI matching the action's version, and the Pkl version
+   that CLI needs.
+2. When `image` is set, builds the image, tags it with the commit, and pushes
+   it. It signs in to `ghcr.io` with the job's own token; push to another
+   registry by adding a login step before it.
+3. Runs `orch deploy --wait`, replacing the manifest's image with the build
+   that was just pushed, by digest.
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `cluster` | required | Cluster address from `orch github init` |
+| `app` | none | Application to deploy, when the repository is trusted for several |
+| `image` | none | Image repository to build and push |
+| `context` | `.` | Docker build context |
+| `dockerfile` | `Dockerfile` in the context | Dockerfile path |
+| `file` | `orch.pkl` | Manifest to deploy |
+| `version` | the action's tag, or the latest release | orch CLI version to install |
+
+The pushed image is available to later steps as `steps.<id>.outputs.image`.
+
+The action deploys with `orch deploy --image`, which replaces the image of
+every service and cron job in `orch.pkl` that uses the same repository, so the
+manifest keeps a readable tag such as `ghcr.io/acme/hello:latest` and never
+needs editing in CI. To replace a single workload in your own step, name it:
+`--image web=ghcr.io/acme/hello@sha256:...`. See
+[`orch deploy`](cli.md#orch-deploy).
 
 With `--wait` the job stays running until the rollout is ready and fails if it
 fails, times out, or rolls back, so a red commit means the deployment did not

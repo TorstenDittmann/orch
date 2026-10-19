@@ -989,8 +989,12 @@ func runRender(ctx context.Context, args []string, stdout, stderr io.Writer) int
 }
 
 func runPkl(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "version" {
+		fmt.Fprintln(stdout, pklschema.RequiredPklVersion)
+		return ExitOK
+	}
 	if len(args) != 1 || args[0] != "reader" {
-		fmt.Fprintln(stderr, "usage: orch pkl reader")
+		fmt.Fprintln(stderr, "usage: orch pkl reader|version")
 		return ExitInvalid
 	}
 	if err := pklschema.RunExternalReader(os.Stdin, stdout); err != nil {
