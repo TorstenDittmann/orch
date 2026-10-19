@@ -253,7 +253,12 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		for _, job := range bundle.cronJobs {
 			plannedCron = append(plannedCron, distributedCron{job: job, constraints: manifest.CronJobs[job.Job].Constraints})
 		}
-		if application.Execution.ObservedGeneration != application.Generation || strings.HasPrefix(application.Execution.Reason, "pre_deploy_") {
+		// Reports preserve controller-side blockers. Reopen execution derivation
+		// after successful planning; unresolved placement blockers below override
+		// this state again, including when the assignment payload is unchanged.
+		if application.Execution.ObservedGeneration != application.Generation ||
+			application.Execution.Status == model.ExecutionBlocked ||
+			strings.HasPrefix(application.Execution.Reason, "pre_deploy_") {
 			states[application.Name] = executionState(model.ExecutionPending, application.Generation,
 				"placement_pending", "desired state is waiting for durable multi-node assignment receipt", now)
 		}
