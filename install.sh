@@ -55,12 +55,23 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-say "Downloading $asset ($version)"
-download "$base/$asset" "$tmp/orch" || fail "could not download $base/$asset"
 download "$base/SHA256SUMS" "$tmp/SHA256SUMS" || fail "could not download $base/SHA256SUMS"
-expected="$(awk -v name="$asset" '$2 == name || $2 == "*" name { print $1 }' "$tmp/SHA256SUMS")"
+checksum() { awk -v name="$1" '$2 == name || $2 == "*" name { print $1 }' "$tmp/SHA256SUMS"; }
+# The gzipped asset is about a third of the size; releases before it existed,
+# and hosts without gzip, get the plain binary.
+if command -v gzip >/dev/null 2>&1 && [ -n "$(checksum "$asset.gz")" ]; then
+	asset="$asset.gz"
+fi
+expected="$(checksum "$asset")"
 [ -n "$expected" ] || fail "SHA256SUMS has no entry for $asset"
-[ "$(sha256 "$tmp/orch")" = "$expected" ] || fail "checksum mismatch for $asset"
+
+say "Downloading $asset ($version)"
+download "$base/$asset" "$tmp/$asset" || fail "could not download $base/$asset"
+[ "$(sha256 "$tmp/$asset")" = "$expected" ] || fail "checksum mismatch for $asset"
+case "$asset" in
+	*.gz) gzip -dc "$tmp/$asset" > "$tmp/orch" || fail "could not decompress $asset" ;;
+	*) mv "$tmp/$asset" "$tmp/orch" ;;
+esac
 chmod 0755 "$tmp/orch"
 
 dir="${ORCH_INSTALL_DIR:-}"
