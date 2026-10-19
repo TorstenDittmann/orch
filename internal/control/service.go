@@ -813,7 +813,7 @@ func (s *service) RemoveApplication(ctx context.Context, request *connect.Reques
 }
 
 func (s *service) TailLogs(ctx context.Context, request *connect.Request[orchv1alpha1.TailLogsRequest], stream *connect.ServerStream[orchv1alpha1.TailLogsResponse]) error {
-	if err := requireAdministrator(ctx); err != nil {
+	if err := requireApplicationAccess(ctx, request.Msg.GetApplication()); err != nil {
 		return err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
@@ -876,7 +876,7 @@ func (s *service) TailLogs(ctx context.Context, request *connect.Request[orchv1a
 }
 
 func (s *service) ListCronRuns(ctx context.Context, request *connect.Request[orchv1alpha1.ListCronRunsRequest]) (*connect.Response[orchv1alpha1.ListCronRunsResponse], error) {
-	if err := requireAdministrator(ctx); err != nil {
+	if err := requireApplicationAccess(ctx, request.Msg.GetApplication()); err != nil {
 		return nil, err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
@@ -1113,7 +1113,7 @@ func (s *service) LogoutRegistry(ctx context.Context, request *connect.Request[o
 }
 
 func (s *service) TailCronLogs(ctx context.Context, request *connect.Request[orchv1alpha1.TailCronLogsRequest], stream *connect.ServerStream[orchv1alpha1.TailCronLogsResponse]) error {
-	if err := requireAdministrator(ctx); err != nil {
+	if err := requireApplicationAccess(ctx, request.Msg.GetApplication()); err != nil {
 		return err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {

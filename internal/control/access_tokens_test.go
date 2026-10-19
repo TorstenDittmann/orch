@@ -122,6 +122,34 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 		t.Fatalf("viewer reading another application = %v", err)
 	}
 
+	if _, err := viewer.ListCronRuns(ctx, connect.NewRequest(&orchv1alpha1.ListCronRunsRequest{Application: "hello", Limit: 5})); err != nil {
+		t.Fatalf("viewer ListCronRuns = %v", err)
+	}
+	if _, err := viewer.ListCronRuns(ctx, connect.NewRequest(&orchv1alpha1.ListCronRunsRequest{Application: "other", Limit: 5})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("viewer cron runs of another application = %v", err)
+	}
+	tailLogs := func(application string) error {
+		stream, err := viewer.TailLogs(ctx, connect.NewRequest(&orchv1alpha1.TailLogsRequest{Application: application, Service: "web", Replica: 1, TailLines: 10}))
+		if err != nil {
+			return err
+		}
+		defer stream.Close()
+		for stream.Receive() {
+		}
+		return stream.Err()
+	}
+	// No agent runs the replica in this test, so reading its logs gets past
+	// authorization and then fails for lack of a node.
+	if err := tailLogs("hello"); err == nil || connect.CodeOf(err) == connect.CodePermissionDenied {
+		t.Fatalf("viewer logs of own application = %v", err)
+	}
+	if err := tailLogs("other"); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("viewer logs of another application = %v", err)
+	}
+	if _, err := viewer.ListSecrets(ctx, connect.NewRequest(&orchv1alpha1.ListSecretsRequest{Application: "hello"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("viewer ListSecrets = %v", err)
+	}
+
 	listed, err = admin.ListAccessTokens(ctx)
 	if err != nil || listed[0].GetLastUsedAt() == nil {
 		t.Fatalf("last use was not recorded: %+v, %v", listed, err)

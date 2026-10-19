@@ -38,8 +38,9 @@ rollback returns an application to an earlier revision from app_history.
 
 Remote tools use the selected orch target unless a target is passed; targets
 lists them. With an ORCH_TOKEN access token, only the token's one application
-is reachable, so tools for nodes, secrets, logs and the app list are refused. Tools marked destructive change or delete running workloads or
-data; confirm with the person before calling them.`
+is reachable, so tools for nodes, secrets, jobs, exec and the app list are
+refused. Tools marked destructive change or delete running workloads or data;
+confirm with the person before calling them.`
 
 type mcpParam struct {
 	name        string

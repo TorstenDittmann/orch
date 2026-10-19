@@ -36,7 +36,7 @@ nothing else. See [deploy from GitHub](github.md).
 Agents and scripts elsewhere use the same limited credential through an access
 token: `orch token create --app APP [--read-only]` prints a value for
 `ORCH_TOKEN` that the controller exchanges for a 15-minute certificate limited
-to that application. Read-only tokens can see status and history but cannot
+to that application. Read-only tokens can see status, logs, and history but cannot
 deploy or roll back. The controller stores only a hash of each token;
 `orch token revoke` stops it within 15 minutes, and tokens expire after their
 `--ttl` (30 days by default).

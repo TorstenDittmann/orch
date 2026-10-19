@@ -92,11 +92,11 @@ claude mcp add orch -e ORCH_TOKEN=orch_… -- orch mcp
 
 | Token | What the agent can do |
 | --- | --- |
-| `orch token create --app shop --read-only` | Read `shop`'s status, deployment history, and diffs, and wait for rollouts |
+| `orch token create --app shop --read-only` | Read `shop`'s status, logs, cron runs, deployment history, and diffs, and wait for rollouts |
 | `orch token create --app shop` | Also deploy and roll back `shop` |
 
 Nothing else on the cluster is reachable with a token: other applications,
-nodes, secrets, logs, and volumes all answer "permission denied". Tokens
+nodes, secrets, volumes, jobs, and `exec` all answer "permission denied". Tokens
 expire after 30 days unless you pass `--ttl`. `orch token list` shows when each
 was last used, and `orch token revoke NAME` stops one within 15 minutes.
 

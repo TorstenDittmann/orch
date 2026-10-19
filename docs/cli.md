@@ -815,7 +815,7 @@ orch app status shop
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--app` | required | The one application the token may use |
-| `--read-only` | `false` | Allow status, history, and diffs, but no deploys or rollbacks |
+| `--read-only` | `false` | Allow status, logs, history, and diffs, but no deploys or rollbacks |
 | `--ttl` | `720h` | How long the token works, up to `8760h` |
 
 `NAME` defaults to `APP`, or `APP-read-only` with `--read-only`. The token is
