@@ -65,6 +65,12 @@ class Service {
   /// How long a replica may take to exit after SIGTERM before it is killed,
   /// from "1s" to "10m". Unset means 10 seconds.
   stopGracePeriod: String? = null
+
+  /// Run replicas with every Linux capability and access to the node's
+  /// devices, for workloads that start their own containers, such as a Docker
+  /// daemon. A privileged replica can take over its node. Only administrator
+  /// credentials may deploy an application that sets it.
+  privileged: Boolean = false
 }
 
 class Resources {

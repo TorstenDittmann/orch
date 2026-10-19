@@ -15,13 +15,16 @@
 	handle /v1/realtime* {
 		reverse_proxy appwrite-realtime:80
 	}
-	handle /v1/* {
-		reverse_proxy appwrite:80
+	# The console answers on the Appwrite domain only. Other hostnames are
+	# function and site domains, which the API serves.
+	@console {
+		host {$APPWRITE_DOMAIN}
+		not path /v1/* /.well-known/*
 	}
-	handle /.well-known/* {
-		reverse_proxy appwrite:80
+	handle @console {
+		reverse_proxy appwrite-console:3000
 	}
 	handle {
-		reverse_proxy appwrite-console:3000
+		reverse_proxy appwrite:80
 	}
 }

@@ -150,6 +150,7 @@ type RollbackSpec struct {
 	AutoRollback          bool                         `json:"auto_rollback"`
 	StartBeforeStop       bool                         `json:"start_before_stop"`
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
+	Privileged            bool                         `json:"privileged,omitempty"`
 }
 
 type NetworkConfig struct {
@@ -211,6 +212,7 @@ type AllocationDesired struct {
 	MaxSurge              uint32                       `json:"max_surge"`
 	MaxUnavailable        uint32                       `json:"max_unavailable"`
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
+	Privileged            bool                         `json:"privileged,omitempty"`
 	VolumeBackups         []VolumeBackupDesired        `json:"volume_backups,omitempty"`
 	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
 	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
@@ -457,11 +459,12 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		NetworkGeneration    uint64                     `json:"network_generation"`
 		UDP                  *UDPDesired                `json:"udp,omitempty"`
 		StopGraceSeconds     uint32                     `json:"stop_grace_seconds,omitempty"`
+		Privileged           bool                       `json:"privileged,omitempty"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
 		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
-		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds}
+		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds, allocation.Privileged}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)

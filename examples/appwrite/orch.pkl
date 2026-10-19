@@ -4,23 +4,28 @@
 // Before the first deploy, set the domain and bucket below, then create the
 // secrets. The four internal ones are random values nobody has to remember:
 //
-//   for name in openssl-key db-password usage-password geo-secret; do
+//   for name in openssl-key db-password usage-password geo-secret executor-secret jobs-secret; do
 //     openssl rand -hex 32 | tr -d '\n' | orch secret set appwrite "$name" --from-stdin
 //   done
 //   printf '%s' "$S3_ACCESS_KEY" | orch secret set appwrite s3-access-key --from-stdin
 //   printf '%s' "$S3_SECRET" | orch secret set appwrite s3-secret --from-stdin
 //   orch secret set appwrite gateway-caddyfile --from-stdin < Caddyfile
+//   orch secret set appwrite functions-script --from-stdin < functions.sh
 //
-// Then point the domain at an ingress node, run `orch deploy`, and open
+// Then point the domain at an ingress node, run `orch deploy` with
+// administrator credentials (the `functions` service is privileged), and open
 // https://<domain> to create the first (root) console account.
 //
 // What differs from the compose setup:
 //
-// - Functions and Sites are not available. They need the open-runtimes
-//   executor and orchestrator, which drive the host's Docker socket to start
-//   one container per function, and orch does not hand host sockets to
-//   workloads. Everything else (Auth, Databases, Storage, Messaging, Realtime,
-//   the console) runs.
+// - Functions and Sites run their builds and executions in containers that
+//   the open-runtimes executor and orchestrator start through a Docker socket.
+//   Compose hands them the host's; here the privileged `functions` service
+//   runs its own Docker daemon and starts both on it (see ./functions.sh).
+// - orch routes exact hostnames only, so function and site domains are not
+//   served automatically: add each one Appwrite generates to the gateway's
+//   `domains`. Executions through the API, SDKs, events and schedules need
+//   nothing extra.
 // - File storage goes to an S3-compatible bucket. orch local volumes belong to
 //   a single service, while Appwrite's API and worker both read and write
 //   uploads, imports and builds; a bucket gives them one shared store.
@@ -30,14 +35,33 @@
 //   plain files, so the Caddyfile is delivered as a secret file; set the
 //   secret again after editing it and orch restarts the gateway.
 // - Not carried over: the MQTT broker (Traefik terminated its TLS on ports 8883
-//   and 8084), the screenshot browser and autogravity (only used by Sites and
-//   image previews with automatic gravity), and ClickHouse's optional
+//   and 8084), the screenshot browser (site preview images) and autogravity
+//   (image previews with automatic gravity), and ClickHouse's optional
 //   log-retention config files and raised open-file limit.
 amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 
 local domain = "appwrite.example.com"
 
 local appwriteImage = "docker.io/appwrite/appwrite:2.5.0"
+
+/// Any S3-compatible bucket, shared by Appwrite and the functions service.
+/// Set the endpoint for providers other than AWS, for example
+/// "https://<account>.r2.cloudflarestorage.com".
+local storageEnv = new Mapping<String, String> {
+  ["_APP_STORAGE_S3_BUCKET"] = "appwrite"
+  ["_APP_STORAGE_S3_REGION"] = "us-east-1"
+  ["_APP_STORAGE_S3_ENDPOINT"] = ""
+}
+
+local storageSecrets = new Mapping<String, String> {
+  ["_APP_STORAGE_S3_ACCESS_KEY"] = "s3-access-key"
+  ["_APP_STORAGE_S3_SECRET"] = "s3-secret"
+}
+
+local runtimesEnv = new Mapping<String, String> {
+  ["_APP_FUNCTIONS_RUNTIMES"] = "node-16.0,node-22,php-8.0,python-3.9,ruby-3.0"
+  ["_APP_SITES_RUNTIMES"] = "static-1,node-22,flutter-3.29"
+}
 
 /// Settings shared by the API, realtime, worker and task containers. The
 /// compose file passes the same variables to each of them from `.env`.
@@ -61,12 +85,16 @@ local appwriteEnv = new Mapping<String, String> {
   ["_APP_DB_USER"] = "appwrite"
   ["_APP_USAGE_STATS"] = "enabled"
   ["_APP_GEO_ENDPOINT"] = "http://appwrite-geo/v1"
-  // Any S3-compatible bucket. Set the endpoint for providers other than AWS,
-  // for example "https://<account>.r2.cloudflarestorage.com".
   ["_APP_STORAGE_DEVICE"] = "s3"
-  ["_APP_STORAGE_S3_BUCKET"] = "appwrite"
-  ["_APP_STORAGE_S3_REGION"] = "us-east-1"
-  ["_APP_STORAGE_S3_ENDPOINT"] = ""
+  ...storageEnv
+  // The executor listens on port 80 of the functions service and the build
+  // orchestrator on 8080. Build containers call back to the API directly.
+  ["_APP_EXECUTOR_HOST"] = "http://functions/v1"
+  ["_APP_JOBS_HOST"] = "http://functions:8080"
+  ["_APP_JOBS_ENDPOINT"] = "http://appwrite"
+  ["_APP_DOMAIN_FUNCTIONS"] = "functions.\(domain)"
+  ["_APP_DOMAIN_SITES"] = "sites.\(domain)"
+  ...runtimesEnv
   ["_APP_SYSTEM_EMAIL_NAME"] = "Appwrite"
   ["_APP_SYSTEM_EMAIL_ADDRESS"] = "noreply@\(domain)"
   // Add _APP_SMTP_HOST, _APP_SMTP_PORT, _APP_SMTP_SECURE and _APP_SMTP_USERNAME
@@ -78,8 +106,9 @@ local appwriteSecrets = new Mapping<String, String> {
   ["_APP_DB_PASS"] = "db-password"
   ["_APP_USAGE_PASS"] = "usage-password"
   ["_APP_GEO_SECRET"] = "geo-secret"
-  ["_APP_STORAGE_S3_ACCESS_KEY"] = "s3-access-key"
-  ["_APP_STORAGE_S3_SECRET"] = "s3-secret"
+  ["_APP_EXECUTOR_SECRET"] = "executor-secret"
+  ["_APP_JOBS_SECRET"] = "jobs-secret"
+  ...storageSecrets
 }
 
 name = "appwrite"
@@ -88,6 +117,9 @@ services {
   ["gateway"] {
     image = "docker.io/library/caddy:2.10-alpine"
     command { "caddy"; "run"; "--config"; "/run/secrets/Caddyfile"; "--adapter"; "caddyfile" }
+    env {
+      ["APPWRITE_DOMAIN"] = domain
+    }
     // The Caddyfile next to this manifest, stored as the gateway-caddyfile secret.
     secretFiles {
       new SecretFile {
@@ -195,6 +227,47 @@ services {
     dependsOn { "redis"; "postgresql" }
   }
 
+  ["functions"] {
+    image = "docker.io/library/docker:29.9.1-dind"
+    // Its Docker daemon needs every capability and the node's devices. This
+    // is why the application must be deployed with administrator credentials.
+    privileged = true
+    command { "/bin/sh"; "/run/secrets/functions.sh" }
+    resources {
+      cpu = "1"
+      // Shared by the executor, the orchestrator and every build and
+      // execution container. Builds need at least 1 GiB, site builds 2 GiB.
+      memory = "4Gi"
+    }
+    env {
+      ...storageEnv
+      ...runtimesEnv
+      ["EXECUTOR_IMAGE"] = "docker.io/openruntimes/executor:1.1.2"
+      ["ORCHESTRATOR_IMAGE"] = "ghcr.io/open-runtimes/orchestrator/orchestrator:2.2.2"
+      ["TINI_SUBREAPER"] = "1"
+    }
+    secretEnv {
+      ["_APP_EXECUTOR_SECRET"] = "executor-secret"
+      ...storageSecrets
+    }
+    // functions.sh next to this manifest, stored as the functions-script secret.
+    secretFiles {
+      new SecretFile {
+        source = "functions-script"
+        target = "/run/secrets/functions.sh"
+      }
+    }
+    mounts {
+      // Docker's image and container storage, kept across restarts.
+      new Mount {
+        source = "docker"
+        target = "/var/lib/docker"
+      }
+    }
+    stopGracePeriod = "1m"
+    http = new Http { port = 80 }
+  }
+
   ["appwrite-geo"] {
     image = "docker.io/appwrite/geo:0.3.2"
     resources {
@@ -281,6 +354,7 @@ volumes {
   ["postgresql"] {}
   ["redis"] {}
   ["clickhouse"] {}
+  ["docker"] {}
 }
 
 deploy {

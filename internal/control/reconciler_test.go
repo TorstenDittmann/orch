@@ -1262,6 +1262,39 @@ func TestPlanApplicationCarriesTheStopGracePeriod(t *testing.T) {
 	}
 }
 
+func TestPlanApplicationCarriesPrivileged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, _ := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) { service.Privileged = true }), "revision-one", "application-key-one", reconcilerTestTime)
+	application, err := state.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	planned, blocked, err := planApplication("cluster-one", node, application)
+	if err != nil || blocked != nil || len(planned) != 1 || !planned[0].Privileged || !rollbackSpec(planned[0]).Privileged {
+		t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+	}
+	unprivileged := planned[0]
+	unprivileged.Privileged = false
+	privilegedDigest, err := model.AllocationSpecDigest(planned[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest, err := model.AllocationSpecDigest(unprivileged); err != nil || digest == privilegedDigest {
+		t.Fatalf("privileged does not change the spec digest: %s, %v", digest, err)
+	}
+}
+
 func TestPlanApplicationCarriesVolumeBackupsOutsideTheSpecDigest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

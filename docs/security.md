@@ -194,6 +194,10 @@ Installation creates separate credentials for each role.
 - New scheduling and administrative changes require the controller.
 - orch does not provide automatic fencing or a highly available control plane.
 - Local volumes remain on one worker and need an application-level backup plan.
+- Workloads run without Linux capabilities or device access unless a service
+  sets `privileged`. A privileged replica has root on its worker, so only
+  administrator credentials may deploy one; its image tag, and `autoUpdate` on
+  it, is as trusted as the administrator who deployed it.
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 
