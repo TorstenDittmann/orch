@@ -1,4 +1,4 @@
-import type { Application, Comparison, Deployment, JobRun, LogBatch, LogSource, OneOffJob, Snapshot } from './types';
+import type { Application, Comparison, Deployment, JobRun, LogBatch, LogSource, NodeUsageHistory, OneOffJob, Snapshot } from './types';
 
 export class ApiError extends Error {
 	constructor(message: string, readonly status: number) {
@@ -28,10 +28,11 @@ export const api = {
 	cronRuns: (app: string, job: string) => request<{ runs: JobRun[] }>(`/api/apps/${segment(app)}/cron/${segment(job)}/runs`),
 	jobs: (app = '', before = '') => request<{ jobs: OneOffJob[]; nextBeforeId: string }>(`/api/jobs?${new URLSearchParams({ app, before })}`),
 	jobAction: (id: string, action: 'cancel' | 'retry') => post<OneOffJob>(`/api/jobs/${segment(id)}/${action}`),
+	nodeUsage: (name: string) => request<NodeUsageHistory>(`/api/nodes/${segment(name)}/usage`),
 	updateNode: (name: string, action: string) => post(`/api/nodes/${segment(name)}`, { action }),
 	rollback: (app: string, revisionId: string, expectedGeneration: string) =>
 		post(`/api/apps/${segment(app)}/rollback`, { revisionId, expectedGeneration }),
-	logs(source: LogSource, cursor: string) {
+	logs(source: LogSource, cursor: string, previous = false) {
 		const params = new URLSearchParams({ app: source.app, cursor });
 		if (source.kind === 'run') {
 			params.set('job', source.job);
@@ -39,6 +40,7 @@ export const api = {
 		} else {
 			params.set('service', source.service);
 			params.set('replica', String(source.replica));
+			if (previous) params.set('previous', '1');
 		}
 		return request<LogBatch>(`/api/logs?${params}`);
 	}

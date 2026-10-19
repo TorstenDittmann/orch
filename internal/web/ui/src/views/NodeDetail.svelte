@@ -3,14 +3,49 @@
 	import Empty from '../components/Empty.svelte';
 	import Meter from '../components/Meter.svelte';
 	import Status from '../components/Status.svelte';
+	import UsageChart, { type Point } from '../components/UsageChart.svelte';
 	import { nodeActions } from '../lib/actions';
+	import { api } from '../lib/api';
 	import { ago, bytes, cores, datetime, label, ratio } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live, openLogs } from '../lib/state.svelte';
+	import type { NodeUsage } from '../lib/types';
 
 	let { name }: { name: string } = $props();
 
 	const node = $derived(live.snapshot?.nodes?.find((item) => item.name === name));
+	let history = $state<{ name: string; samples: NodeUsage[]; stepSeconds: number } | null>(null);
+
+	$effect(() => {
+		const current = name;
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		async function load() {
+			try {
+				const result = await api.nodeUsage(current);
+				if (!stopped) history = { name: current, samples: result.samples ?? [], stepSeconds: result.stepSeconds || 300 };
+			} catch {
+				// History is best-effort; keep whatever was shown and retry on the next tick.
+			}
+			if (!stopped) timer = setTimeout(load, 60000);
+		}
+		load();
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
+	});
+
+	const samples = $derived(history?.name === name ? history.samples : []);
+	const series = (pick: (sample: NodeUsage) => string) =>
+		samples.flatMap((sample): Point[] => {
+			const time = new Date(sample.observedAt || '').getTime();
+			return Number.isFinite(time) ? [{ time, value: Number(pick(sample) || 0) }] : [];
+		});
+	const usage = $derived(node?.usage ?? null);
+	const diskTotal = $derived(Number(usage?.diskTotalBytes || samples[samples.length - 1]?.diskTotalBytes || 0));
+	const pct = (used: string | number | undefined, total: string | number | undefined) =>
+		Number(total) > 0 ? ` · ${Math.round((Number(used || 0) / Number(total)) * 100)}%` : '';
 	const runtimes = $derived((live.snapshot?.runtimes?.runtimes ?? []).filter((runtime) => runtime.nodeName === name));
 </script>
 
@@ -53,6 +88,45 @@
 				<p class="faint small">Expires {datetime(node.certificateNotAfter) || 'unknown'}{node.certificateReason ? ` · ${node.certificateReason}` : ''}</p>
 			</section>
 		</div>
+
+		<section class="panel usage-panel">
+			<div class="panel-head">
+				<h2>Usage · last 24 hours</h2>
+				<span class="hint">{usage ? `reported ${ago(usage.observedAt, live.now)}` : 'no recent report'}</span>
+			</div>
+			<div class="charts panel-body">
+				<UsageChart
+					label="CPU"
+					points={series((sample) => sample.cpuUsedMillis)}
+					total={Number(node.totalCpuMillis || 0)}
+					stepSeconds={history?.stepSeconds}
+					now={live.now}
+					format={(value) => `${cores(value)} cores`}
+					headline={usage ? `${cores(usage.cpuUsedMillis)} cores` : '—'}
+					detail="of {cores(node.totalCpuMillis)}{usage ? pct(usage.cpuUsedMillis, node.totalCpuMillis) : ''}"
+				/>
+				<UsageChart
+					label="Memory"
+					points={series((sample) => sample.memoryUsedBytes)}
+					total={Number(node.totalMemoryBytes || 0)}
+					stepSeconds={history?.stepSeconds}
+					now={live.now}
+					format={bytes}
+					headline={usage ? bytes(usage.memoryUsedBytes) : '—'}
+					detail="of {bytes(node.totalMemoryBytes)}{usage ? pct(usage.memoryUsedBytes, node.totalMemoryBytes) : ''}"
+				/>
+				<UsageChart
+					label="Disk"
+					points={series((sample) => sample.diskUsedBytes)}
+					total={diskTotal}
+					stepSeconds={history?.stepSeconds}
+					now={live.now}
+					format={bytes}
+					headline={usage ? bytes(usage.diskUsedBytes) : '—'}
+					detail={diskTotal ? `of ${bytes(diskTotal)}${usage ? pct(usage.diskUsedBytes, diskTotal) : ''}` : ''}
+				/>
+			</div>
+		</section>
 
 		<div class="grid two">
 			<section class="panel">
@@ -124,6 +198,14 @@
 	.two {
 		grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
 		align-items: start;
+	}
+	.usage-panel {
+		margin-bottom: 16px;
+	}
+	.charts {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		gap: 20px 28px;
 	}
 	.pad {
 		padding: 16px;

@@ -82,6 +82,9 @@ func (s *service) collectMetrics(ctx context.Context) (metricsInput, error) {
 	if err != nil {
 		return input, err
 	}
+	if err := s.decorateNodeUsage(ctx, nodes); err != nil {
+		return input, err
+	}
 	for _, node := range nodes {
 		input.nodes = append(input.nodes, s.decorateNodeConnection(node))
 	}
@@ -141,7 +144,15 @@ func renderMetrics(input metricsInput) []byte {
 	nodeCounts := metricCounter{}
 	connected := []metricSample{}
 	nodeCertificates := []metricSample{}
+	var cpuUsed, memoryUsed, diskUsed, diskTotal []metricSample
 	for _, node := range input.nodes {
+		if usage := node.Usage; usage != nil {
+			labels := metricLabels("node", node.Name)
+			cpuUsed = append(cpuUsed, metricSample{labels: labels, value: float64(usage.CPUUsedMillis) / 1000})
+			memoryUsed = append(memoryUsed, metricSample{labels: labels, value: float64(usage.MemoryUsedBytes)})
+			diskUsed = append(diskUsed, metricSample{labels: labels, value: float64(usage.DiskUsedBytes)})
+			diskTotal = append(diskTotal, metricSample{labels: labels, value: float64(usage.DiskTotalBytes)})
+		}
 		lifecycle, connection := lower(node.Lifecycle), lower(node.ConnectionStatus)
 		nodeCounts.add(metricLabels("lifecycle", lifecycle, "connection", connection), 1)
 		up := 0.0
@@ -156,6 +167,10 @@ func renderMetrics(input metricsInput) []byte {
 	out.family("orch_nodes", "Nodes by lifecycle and connection (unreachable means no heartbeat for 45s).", nodeCounts.samples())
 	out.family("orch_node_connected", "1 when the node's agent is connected.", connected)
 	out.family("orch_node_certificate_expiry_seconds", "Seconds until the node's agent certificate expires.", nodeCertificates)
+	out.family("orch_node_cpu_used_cores", "CPU cores the node used over its last heartbeat interval.", cpuUsed)
+	out.family("orch_node_memory_used_bytes", "Memory in use on the node, excluding reclaimable cache.", memoryUsed)
+	out.family("orch_node_disk_used_bytes", "Used bytes of the filesystem holding the agent's data.", diskUsed)
+	out.family("orch_node_disk_total_bytes", "Size of the filesystem holding the agent's data.", diskTotal)
 
 	statuses := []metricSample{}
 	allocations := metricCounter{}

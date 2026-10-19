@@ -25,7 +25,8 @@ func TestRenderMetricsReportsFailureStates(t *testing.T) {
 		caNotAfter:         now.Add(3650 * 24 * time.Hour),
 		controllerNotAfter: now.Add(20*24*time.Hour + 500*time.Millisecond),
 		nodes: []model.Node{
-			{Name: "worker-1", Lifecycle: model.NodeLifecycleActive, ConnectionStatus: model.NodeConnected, CertificateNotAfter: now.Add(time.Hour)},
+			{Name: "worker-1", Lifecycle: model.NodeLifecycleActive, ConnectionStatus: model.NodeConnected, CertificateNotAfter: now.Add(time.Hour),
+				Usage: &model.NodeUsage{ObservedAt: now, CPUUsedMillis: 1500, MemoryUsedBytes: 2 << 30, DiskUsedBytes: 10 << 30, DiskTotalBytes: 40 << 30}},
 			{Name: "worker-2", Lifecycle: model.NodeLifecycleCordoned, ConnectionStatus: model.NodeUnreachable},
 		},
 		applications: []model.Application{{
@@ -65,6 +66,18 @@ orch_node_connected{node="worker-2",lifecycle="cordoned"} 0
 # HELP orch_node_certificate_expiry_seconds Seconds until the node's agent certificate expires.
 # TYPE orch_node_certificate_expiry_seconds gauge
 orch_node_certificate_expiry_seconds{node="worker-1"} 3600
+# HELP orch_node_cpu_used_cores CPU cores the node used over its last heartbeat interval.
+# TYPE orch_node_cpu_used_cores gauge
+orch_node_cpu_used_cores{node="worker-1"} 1.5
+# HELP orch_node_memory_used_bytes Memory in use on the node, excluding reclaimable cache.
+# TYPE orch_node_memory_used_bytes gauge
+orch_node_memory_used_bytes{node="worker-1"} 2147483648
+# HELP orch_node_disk_used_bytes Used bytes of the filesystem holding the agent's data.
+# TYPE orch_node_disk_used_bytes gauge
+orch_node_disk_used_bytes{node="worker-1"} 10737418240
+# HELP orch_node_disk_total_bytes Size of the filesystem holding the agent's data.
+# TYPE orch_node_disk_total_bytes gauge
+orch_node_disk_total_bytes{node="worker-1"} 42949672960
 # HELP orch_application_status Current execution status of each application; the value is always 1.
 # TYPE orch_application_status gauge
 orch_application_status{application="shop",status="degraded"} 1

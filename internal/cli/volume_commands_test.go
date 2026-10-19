@@ -151,10 +151,23 @@ volumes { ["data"] { backup = new VolumeBackup { keep = 3 } } }
 		return err == nil && app.GetExecutionStatus() == orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING
 	})
 
+	wait("the restored replica", func() bool {
+		for id, object := range runtime.SnapshotObjects() {
+			if object.Running {
+				runtime.SetLogs(id, []orchruntime.LogFrame{{Stream: "stdout", Data: []byte("saving world\n")}})
+				return true
+			}
+		}
+		return false
+	})
 	if output := string(invoke(ctx, ExitOK, "restart", "game", "server")); !strings.Contains(output, "Restarted game/server.") {
 		t.Fatalf("restart: %s", output)
 	}
 	invoke(ctx, ExitRuntime, "restart", "game", "missing")
+	if output := string(invoke(ctx, ExitOK, "logs", "game", "server", "--previous")); !strings.Contains(output, "saving world") {
+		t.Fatalf("logs --previous printed:\n%s", output)
+	}
+	invoke(ctx, ExitInvalid, "logs", "game", "server", "--previous", "-f")
 
 	objectID := ""
 	for id, object := range runtime.SnapshotObjects() {

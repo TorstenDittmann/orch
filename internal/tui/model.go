@@ -62,6 +62,7 @@ type logsMsg struct {
 	kind        string
 	replica     uint32
 	runID       string
+	previous    bool
 	batch       LogBatch
 	err         error
 }
@@ -145,6 +146,8 @@ type Model struct {
 	logPaused       bool
 	logCursor       string
 	logExited       bool
+	logPrevious     bool
+	nodeUsage       map[string]nodeUsageHistory
 	logNotice       string
 	logUnseen       int
 	runtimeFilter   string
@@ -282,6 +285,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == ViewDeployments && m.deploymentApp != "" && !m.deploymentLoading {
 			commands = append(commands, m.refreshDeployments())
 		}
+		if command := m.refreshNodeUsage(); command != nil {
+			commands = append(commands, command)
+		}
 		return m, tea.Batch(commands...)
 	case refreshMsg:
 		if message.generation != m.generation {
@@ -289,6 +295,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		m.applyRefresh(message)
+		return m, nil
+	case nodeUsageMsg:
+		m.receiveNodeUsage(message)
 		return m, nil
 	case detailMsg:
 		if message.err != nil {
@@ -330,6 +339,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if message.batch.Exited {
 			m.logNotice = "runtime exited"
+		}
+		if message.previous {
+			m.logNotice = "previous instance · kept 24h after it was replaced"
 		}
 		if changed {
 			m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
@@ -531,6 +543,13 @@ func (m *Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.selected[ViewLogs] = max(0, len(m.displayLogs())-1)
 				m.logUnseen = 0
 			}
+		}
+	case "P":
+		if m.view == ViewLogs && m.logSource.application != "" && m.logSource.kind != "cron-log" {
+			m.logPrevious = !m.logPrevious
+			m.logCursor, m.logExited, m.logNotice, m.logUnseen = "", false, "", 0
+			m.logsLoading = true
+			return m, m.reloadLogs()
 		}
 	case "n":
 		if m.view == ViewLogs && m.runtimeFocus == 1 && m.logFilter != "" {
@@ -905,7 +924,7 @@ func (m *Model) openSelected() tea.Cmd {
 			return nil
 		}
 		source := runtimeLogSource(runtime)
-		m.logCursor, m.logExited, m.logNotice, m.logUnseen = "", false, "", 0
+		m.logCursor, m.logExited, m.logNotice, m.logUnseen, m.logPrevious = "", false, "", 0, false
 		m.logsLoading = true
 		return m.loadLogSource(source)
 	}
@@ -950,16 +969,20 @@ func (m *Model) loadLogSource(source logSource) tea.Cmd {
 		cursor = m.logCursor
 	}
 	provider := m.provider
+	previous := m.logPrevious && source.kind != "cron-log"
 	return func() tea.Msg {
 		defer cancel()
 		var batch LogBatch
 		var err error
-		if source.kind == "cron-log" {
+		switch {
+		case source.kind == "cron-log":
 			batch, err = provider.LoadCronLogs(ctx, source.application, source.resource, source.runID, 500, cursor)
-		} else {
+		case previous:
+			batch, err = provider.LoadPreviousLogs(ctx, source.application, source.resource, source.replica, 500)
+		default:
 			batch, err = provider.LoadLogs(ctx, source.application, source.resource, source.replica, 500, cursor)
 		}
-		return logsMsg{generation: generation, kind: source.kind, application: source.application, resource: source.resource, replica: source.replica, runID: source.runID, batch: batch, err: err}
+		return logsMsg{generation: generation, kind: source.kind, application: source.application, resource: source.resource, replica: source.replica, runID: source.runID, previous: previous, batch: batch, err: err}
 	}
 }
 

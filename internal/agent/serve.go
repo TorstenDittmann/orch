@@ -124,7 +124,7 @@ func Serve(ctx context.Context, options ServeOptions) error {
 	runner := sessionRunner{
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
-		volumes: volumes,
+		volumes: volumes, usage: newUsageSampler(dataDir, capabilities.TotalCPUMillis),
 	}
 	backupContext, stopBackups := context.WithCancel(ctx)
 	backupsDone := make(chan struct{})

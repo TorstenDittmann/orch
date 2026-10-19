@@ -169,6 +169,21 @@ export interface Node {
 	certificateNotAfter: Timestamp;
 	certificateState: string;
 	certificateReason: string;
+	// Current usage; null or absent when the node has not reported recently.
+	usage?: NodeUsage | null;
+}
+
+export interface NodeUsage {
+	observedAt: Timestamp;
+	cpuUsedMillis: string;
+	memoryUsedBytes: string;
+	diskUsedBytes: string;
+	diskTotalBytes: string;
+}
+
+export interface NodeUsageHistory {
+	samples: NodeUsage[];
+	stepSeconds: number;
 }
 
 export interface Runtime {

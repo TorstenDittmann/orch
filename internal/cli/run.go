@@ -1093,7 +1093,7 @@ Usage:
   orch app diff APP REVISION [--against REVISION] [--target NAME] [--json]
   orch app watch APP [--revision REVISION] [--timeout 10m] [--target NAME] [--json]
   orch rollback APP REVISION [--expected-generation N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
-  orch logs APP SERVICE --replica N --tail N [--target NAME]
+  orch logs APP SERVICE --replica N --tail N [-f|--previous] [--target NAME]
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
   orch restart APP [SERVICE] [--replica N] [--target NAME]
   orch volume list|backups|backup|restore|download ... [--target NAME]

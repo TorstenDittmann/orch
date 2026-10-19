@@ -117,6 +117,9 @@ type Runtime interface {
 	Remove(context.Context, string) error
 	TailLogs(context.Context, string, uint32) ([]LogFrame, error)
 	ReadLogs(context.Context, string, uint32, string) (LogBatch, error)
+	// ReadPreviousLogs reads the logs of an allocation's most recently
+	// removed runtime object, which are kept for a while after removal.
+	ReadPreviousLogs(context.Context, string, uint32, string) (LogBatch, error)
 	Exec(context.Context, string, []string) (<-chan ExecFrame, error)
 	Close() error
 }

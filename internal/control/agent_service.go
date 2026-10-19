@@ -275,8 +275,21 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 		if message.Heartbeat == nil || len(message.Heartbeat.ProtoReflect().GetUnknown()) != 0 || message.Heartbeat.GetBootId() != session.bootID {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("heartbeat has the wrong boot id"))
 		}
-		if err := s.state.TouchAgent(ctx, session.nodeID, session.bootID, s.now().UTC()); err != nil {
+		seenAt := s.now().UTC()
+		if err := s.state.TouchAgent(ctx, session.nodeID, session.bootID, seenAt); err != nil {
 			return connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		if usage := message.Heartbeat.GetUsage(); usage != nil {
+			if len(usage.ProtoReflect().GetUnknown()) != 0 || usage.GetDiskUsedBytes() > usage.GetDiskTotalBytes() {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("heartbeat usage is invalid"))
+			}
+			// Usage is best effort; losing one sample must not end the session.
+			if err := s.state.RecordNodeUsage(ctx, session.nodeID, model.NodeUsage{
+				ObservedAt: seenAt, CPUUsedMillis: usage.GetCpuUsedMillis(), MemoryUsedBytes: usage.GetMemoryUsedBytes(),
+				DiskUsedBytes: usage.GetDiskUsedBytes(), DiskTotalBytes: usage.GetDiskTotalBytes(),
+			}); err != nil {
+				slog.Warn("record node usage failed", "node", session.nodeID, "error", err)
+			}
 		}
 	case *orchv1alpha1.ConnectRequest_OperationResult:
 		if message.OperationResult == nil || len(message.OperationResult.ProtoReflect().GetUnknown()) != 0 {

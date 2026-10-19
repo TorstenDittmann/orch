@@ -56,9 +56,16 @@
 						{#if node.ingress}<span class="chip">ingress</span>{/if}
 					</div>
 					<div class="meters">
-						<Meter value={ratio(node.assignedCpuMillis, node.allocatableCpuMillis)} label="CPU" detail="{cores(node.assignedCpuMillis)} / {cores(node.allocatableCpuMillis)} cores" />
-						<Meter value={ratio(node.assignedMemoryBytes, node.allocatableMemoryBytes)} label="Memory" detail="{bytes(node.assignedMemoryBytes)} / {bytes(node.allocatableMemoryBytes)}" />
+						<Meter value={ratio(node.assignedCpuMillis, node.allocatableCpuMillis)} label="CPU reserved" detail="{cores(node.assignedCpuMillis)} / {cores(node.allocatableCpuMillis)} cores" />
+						<Meter value={ratio(node.assignedMemoryBytes, node.allocatableMemoryBytes)} label="Memory reserved" detail="{bytes(node.assignedMemoryBytes)} / {bytes(node.allocatableMemoryBytes)}" />
 					</div>
+					{#if node.usage}
+						<div class="in-use">
+							<span class="faint">In use</span>
+							<span><strong>{cores(node.usage.cpuUsedMillis)}</strong> <span class="faint">/ {cores(node.totalCpuMillis)} cores</span></span>
+							<span><strong>{bytes(node.usage.memoryUsedBytes)}</strong> <span class="faint">/ {bytes(node.totalMemoryBytes)}</span></span>
+						</div>
+					{/if}
 					<dl class="facts">
 						<div><dt>Address</dt><dd class="mono">{node.advertiseAddress || '—'}</dd></div>
 						<div><dt>Platform</dt><dd>{node.operatingSystem || '?'}/{node.architecture || '?'}</dd></div>
@@ -113,6 +120,19 @@
 	.meters {
 		display: grid;
 		gap: 12px;
+	}
+	.in-use {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 14px;
+		font-size: 12px;
+		color: var(--text-2);
+		margin-top: -4px;
+		font-variant-numeric: tabular-nums;
+	}
+	.in-use strong {
+		font-weight: 600;
+		color: var(--text);
 	}
 	.facts {
 		display: grid;

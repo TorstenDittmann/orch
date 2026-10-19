@@ -605,10 +605,12 @@ func mcpTools() []mcpTool {
 			})},
 		{name: "logs", title: "Service logs", readOnly: true, idempotent: true, remote: true,
 			description: "Show the latest output of one replica of a service.",
-			params:      []mcpParam{mcpApp, mcpService, mcpReplica, mcpTail},
+			params: []mcpParam{mcpApp, mcpService, mcpReplica, mcpTail,
+				{name: "previous", kind: "boolean", description: "show the replica's previous instance, such as the one a deploy or restart replaced (kept 24 hours)"}},
 			build: mcpCommand([]string{"logs"}, func(b *mcpBuilder) {
 				b.intFlag("replica", "replica")
 				b.intFlag("tail", "tail")
+				b.boolFlag("previous", "previous")
 				b.positional("app", true)
 				b.positional("service", true)
 			})},

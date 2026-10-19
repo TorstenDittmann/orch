@@ -97,6 +97,17 @@ type Node struct {
 	WireGuardListenPort           uint32            `json:"wireguard_listen_port"`
 	DrainBlockers                 []string          `json:"drain_blockers,omitempty"`
 	RemovedAt                     *time.Time        `json:"removed_at,omitempty"`
+	Usage                         *NodeUsage        `json:"usage,omitempty"`
+}
+
+// NodeUsage is what a node's agent reported using at one moment, or the
+// average of its reports over a time bucket.
+type NodeUsage struct {
+	ObservedAt      time.Time `json:"observed_at"`
+	CPUUsedMillis   uint64    `json:"cpu_used_millis"`
+	MemoryUsedBytes uint64    `json:"memory_used_bytes"`
+	DiskUsedBytes   uint64    `json:"disk_used_bytes"`
+	DiskTotalBytes  uint64    `json:"disk_total_bytes"`
 }
 
 type JoinToken struct {
