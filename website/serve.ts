@@ -29,7 +29,10 @@ Bun.serve({
 			const file = Bun.file(path);
 			if (await file.exists()) {
 				const cache = url.pathname.startsWith("/_app/immutable/") ? "public, max-age=31536000, immutable" : "public, max-age=300";
-				return new Response(file, { headers: { "cache-control": cache } });
+				const headers: Record<string, string> = { "cache-control": cache };
+				// Pkl schemas are plain text, so browsers show them instead of downloading.
+				if (path.endsWith(".pkl")) headers["content-type"] = "text/plain; charset=utf-8";
+				return new Response(file, { headers });
 			}
 			if (await Bun.file(resolve(path, "index.html")).exists()) {
 				if (!url.pathname.endsWith("/")) {
