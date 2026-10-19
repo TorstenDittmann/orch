@@ -36,11 +36,15 @@ const (
 	// CredentialServiceExchangeGitHubTokenProcedure is the fully-qualified name of the
 	// CredentialService's ExchangeGitHubToken RPC.
 	CredentialServiceExchangeGitHubTokenProcedure = "/orch.v1alpha1.CredentialService/ExchangeGitHubToken"
+	// CredentialServiceExchangeAccessTokenProcedure is the fully-qualified name of the
+	// CredentialService's ExchangeAccessToken RPC.
+	CredentialServiceExchangeAccessTokenProcedure = "/orch.v1alpha1.CredentialService/ExchangeAccessToken"
 )
 
 // CredentialServiceClient is a client for the orch.v1alpha1.CredentialService service.
 type CredentialServiceClient interface {
 	ExchangeGitHubToken(context.Context, *connect.Request[v1alpha1.ExchangeGitHubTokenRequest]) (*connect.Response[v1alpha1.ExchangeGitHubTokenResponse], error)
+	ExchangeAccessToken(context.Context, *connect.Request[v1alpha1.ExchangeAccessTokenRequest]) (*connect.Response[v1alpha1.ExchangeAccessTokenResponse], error)
 }
 
 // NewCredentialServiceClient constructs a client for the orch.v1alpha1.CredentialService service.
@@ -60,12 +64,19 @@ func NewCredentialServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(credentialServiceMethods.ByName("ExchangeGitHubToken")),
 			connect.WithClientOptions(opts...),
 		),
+		exchangeAccessToken: connect.NewClient[v1alpha1.ExchangeAccessTokenRequest, v1alpha1.ExchangeAccessTokenResponse](
+			httpClient,
+			baseURL+CredentialServiceExchangeAccessTokenProcedure,
+			connect.WithSchema(credentialServiceMethods.ByName("ExchangeAccessToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // credentialServiceClient implements CredentialServiceClient.
 type credentialServiceClient struct {
 	exchangeGitHubToken *connect.Client[v1alpha1.ExchangeGitHubTokenRequest, v1alpha1.ExchangeGitHubTokenResponse]
+	exchangeAccessToken *connect.Client[v1alpha1.ExchangeAccessTokenRequest, v1alpha1.ExchangeAccessTokenResponse]
 }
 
 // ExchangeGitHubToken calls orch.v1alpha1.CredentialService.ExchangeGitHubToken.
@@ -73,9 +84,15 @@ func (c *credentialServiceClient) ExchangeGitHubToken(ctx context.Context, req *
 	return c.exchangeGitHubToken.CallUnary(ctx, req)
 }
 
+// ExchangeAccessToken calls orch.v1alpha1.CredentialService.ExchangeAccessToken.
+func (c *credentialServiceClient) ExchangeAccessToken(ctx context.Context, req *connect.Request[v1alpha1.ExchangeAccessTokenRequest]) (*connect.Response[v1alpha1.ExchangeAccessTokenResponse], error) {
+	return c.exchangeAccessToken.CallUnary(ctx, req)
+}
+
 // CredentialServiceHandler is an implementation of the orch.v1alpha1.CredentialService service.
 type CredentialServiceHandler interface {
 	ExchangeGitHubToken(context.Context, *connect.Request[v1alpha1.ExchangeGitHubTokenRequest]) (*connect.Response[v1alpha1.ExchangeGitHubTokenResponse], error)
+	ExchangeAccessToken(context.Context, *connect.Request[v1alpha1.ExchangeAccessTokenRequest]) (*connect.Response[v1alpha1.ExchangeAccessTokenResponse], error)
 }
 
 // NewCredentialServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -91,10 +108,18 @@ func NewCredentialServiceHandler(svc CredentialServiceHandler, opts ...connect.H
 		connect.WithSchema(credentialServiceMethods.ByName("ExchangeGitHubToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	credentialServiceExchangeAccessTokenHandler := connect.NewUnaryHandler(
+		CredentialServiceExchangeAccessTokenProcedure,
+		svc.ExchangeAccessToken,
+		connect.WithSchema(credentialServiceMethods.ByName("ExchangeAccessToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.CredentialService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CredentialServiceExchangeGitHubTokenProcedure:
 			credentialServiceExchangeGitHubTokenHandler.ServeHTTP(w, r)
+		case CredentialServiceExchangeAccessTokenProcedure:
+			credentialServiceExchangeAccessTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -106,4 +131,8 @@ type UnimplementedCredentialServiceHandler struct{}
 
 func (UnimplementedCredentialServiceHandler) ExchangeGitHubToken(context.Context, *connect.Request[v1alpha1.ExchangeGitHubTokenRequest]) (*connect.Response[v1alpha1.ExchangeGitHubTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.CredentialService.ExchangeGitHubToken is not implemented"))
+}
+
+func (UnimplementedCredentialServiceHandler) ExchangeAccessToken(context.Context, *connect.Request[v1alpha1.ExchangeAccessTokenRequest]) (*connect.Response[v1alpha1.ExchangeAccessTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.CredentialService.ExchangeAccessToken is not implemented"))
 }

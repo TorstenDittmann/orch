@@ -225,6 +225,9 @@ func (s *service) RollbackApplication(ctx context.Context, req *connect.Request[
 	if err := validateDeploymentRequest(ctx, req.Msg, req.Msg.GetApplication()); err != nil {
 		return nil, err
 	}
+	if err := requireChange(ctx); err != nil {
+		return nil, err
+	}
 	if err := validateRevisionID(req.Msg.GetRevisionId()); err != nil {
 		return nil, err
 	}

@@ -48,3 +48,47 @@ func TestDeployerCertificateNamesOneApplication(t *testing.T) {
 		t.Fatal("application with a slash was signed")
 	}
 }
+
+func TestViewerCertificateIsReadOnly(t *testing.T) {
+	now := time.Now()
+	bundle, err := Generate(GenerateOptions{ClusterID: "cluster-one", ClusterName: "test", Server: "https://127.0.0.1", Now: now, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, _, err := GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePEM, _, err := SignApplicationCertificate(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, "cluster-one", "hello", true, csr, now, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(certificatePEM)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application, readOnly, err := ApplicationCredential(certificate, "cluster-one"); err != nil || application != "hello" || !readOnly {
+		t.Fatalf("ApplicationCredential() = %q, %t, %v", application, readOnly, err)
+	}
+	if _, err := DeployerApplication(certificate, "cluster-one"); err == nil {
+		t.Fatal("viewer certificate accepted as deployer")
+	}
+}
+
+func TestAccessTokenRoundTrip(t *testing.T) {
+	id, secret, hash, err := NewAccessTokenSecret(rand.Reader)
+	if err != nil || hash != AccessTokenSecretHash(secret) {
+		t.Fatal(err)
+	}
+	address := "https://203.0.113.10:9443#sha256:00ff"
+	parsedAddress, credential, err := ParseAccessToken(EncodeAccessToken(address, id, secret))
+	if err != nil || parsedAddress != address || credential != id+"."+secret {
+		t.Fatalf("ParseAccessToken() = %q, %q, %v", parsedAddress, credential, err)
+	}
+	for _, value := range []string{"", "orch_", "orch_a.b.c", "token " + secret} {
+		if _, _, err := ParseAccessToken(value); err == nil {
+			t.Fatalf("ParseAccessToken(%q) succeeded", value)
+		}
+	}
+}

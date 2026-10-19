@@ -55,6 +55,9 @@ service ControlService {
   rpc SetGitHubTrust(SetGitHubTrustRequest) returns (SetGitHubTrustResponse);
   rpc ListGitHubTrusts(ListGitHubTrustsRequest) returns (ListGitHubTrustsResponse);
   rpc DeleteGitHubTrust(DeleteGitHubTrustRequest) returns (DeleteGitHubTrustResponse);
+  rpc CreateAccessToken(CreateAccessTokenRequest) returns (CreateAccessTokenResponse);
+  rpc ListAccessTokens(ListAccessTokensRequest) returns (ListAccessTokensResponse);
+  rpc DeleteAccessToken(DeleteAccessTokenRequest) returns (DeleteAccessTokenResponse);
 }
 
 enum ExecutionStatus {
@@ -856,5 +859,44 @@ message DeleteGitHubTrustRequest {
 }
 
 message DeleteGitHubTrustResponse {
+  bool changed = 1;
+}
+
+// AccessToken lets an agent or script outside the cluster deploy, or with
+// read_only only inspect, one application. The secret is never returned
+// after creation.
+message AccessToken {
+  string name = 1;
+  string application = 2;
+  bool read_only = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  google.protobuf.Timestamp last_used_at = 6;
+}
+
+message CreateAccessTokenRequest {
+  string name = 1;
+  string application = 2;
+  bool read_only = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message CreateAccessTokenResponse {
+  AccessToken token = 1;
+  // The ORCH_TOKEN value: the cluster address, pinned CA and secret.
+  string value = 2;
+}
+
+message ListAccessTokensRequest {}
+
+message ListAccessTokensResponse {
+  repeated AccessToken tokens = 1;
+}
+
+message DeleteAccessTokenRequest {
+  string name = 1;
+}
+
+message DeleteAccessTokenResponse {
   bool changed = 1;
 }

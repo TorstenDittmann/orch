@@ -17,8 +17,10 @@ cluster to use. orch picks one in this order:
 
 1. `--target NAME` on the command line (also written `--target=NAME`).
 2. The `ORCH_TARGET` environment variable.
-3. The selected target, set with `orch target use` or `orch target add`.
-4. On the controller host, when no target is selected, the local administrator
+3. The `ORCH_TOKEN` environment variable, an access token from
+   [`orch token create`](#orch-token).
+4. The selected target, set with `orch target use` or `orch target add`.
+5. On the controller host, when no target is selected, the local administrator
    socket at `/var/lib/orch-controller/admin.sock`. Only root can open it.
 
 If none of these apply, the command stops with:
@@ -789,6 +791,38 @@ the same without touching the checkout and prints the workflow instead. When `OR
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
 application when the repository is trusted for several. See
 [deploy from GitHub](github.md).
+
+### orch token
+
+```text
+orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+orch token list [--target NAME] [--json]
+orch token revoke NAME [--target NAME] [--json]
+```
+
+Gives an agent or script access to one application, without sharing your
+administrator credentials. `create` prints a token on stdout. With it in
+`ORCH_TOKEN`, every remote command and `orch mcp` can deploy, roll back, and
+inspect `APP` (with `--read-only`, only inspect it) and nothing else. The token
+contains the controller address and pins the cluster CA, so no target is
+needed.
+
+```console
+export ORCH_TOKEN=$(orch token create --app shop --read-only)
+orch app status shop
+```
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--app` | required | The one application the token may use |
+| `--read-only` | `false` | Allow status, logs, history, and diffs, but no deploys or rollbacks |
+| `--ttl` | `720h` | How long the token works, up to `8760h` |
+
+`NAME` defaults to `APP`, or `APP-read-only` with `--read-only`. The token is
+shown only once; the controller keeps only a hash of it. Each command trades
+it for a 15-minute certificate, so `revoke` takes effect within 15 minutes.
+`list` shows when each token was last used. The controller address in the
+token must be reachable from where the token is used.
 
 ## Nodes
 

@@ -42,6 +42,10 @@ type certificateExpiry struct {
 	notAfter time.Time
 }
 
+// AccessTokenReference signs in with the ORCH_TOKEN environment variable.
+// The token itself stays out of command lines.
+const AccessTokenReference = "orch-token://"
+
 // LocalReference selects the administrator socket of a controller on this
 // host. Commands fall back to it on the controller when no target is selected.
 const LocalReference = "local://"
@@ -52,6 +56,9 @@ func New(contextPath string) (*Client, error) {
 	endpoint := Endpoint{ContextPath: contextPath, Transport: target.Transport{Type: target.TransportDirect}}
 	if address, ok := strings.CutPrefix(contextPath, GitHubReferencePrefix); ok {
 		return NewGitHubActions(context.Background(), address, os.Getenv("ORCH_APP"))
+	}
+	if contextPath == AccessTokenReference {
+		return NewAccessToken(context.Background(), os.Getenv("ORCH_TOKEN"))
 	}
 	if contextPath == LocalReference {
 		return NewEndpoint(Endpoint{Target: "local", Transport: target.Transport{Type: target.TransportSocket, Socket: target.DefaultAdminSocket}})

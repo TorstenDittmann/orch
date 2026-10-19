@@ -162,6 +162,15 @@ const (
 	// ControlServiceDeleteGitHubTrustProcedure is the fully-qualified name of the ControlService's
 	// DeleteGitHubTrust RPC.
 	ControlServiceDeleteGitHubTrustProcedure = "/orch.v1alpha1.ControlService/DeleteGitHubTrust"
+	// ControlServiceCreateAccessTokenProcedure is the fully-qualified name of the ControlService's
+	// CreateAccessToken RPC.
+	ControlServiceCreateAccessTokenProcedure = "/orch.v1alpha1.ControlService/CreateAccessToken"
+	// ControlServiceListAccessTokensProcedure is the fully-qualified name of the ControlService's
+	// ListAccessTokens RPC.
+	ControlServiceListAccessTokensProcedure = "/orch.v1alpha1.ControlService/ListAccessTokens"
+	// ControlServiceDeleteAccessTokenProcedure is the fully-qualified name of the ControlService's
+	// DeleteAccessToken RPC.
+	ControlServiceDeleteAccessTokenProcedure = "/orch.v1alpha1.ControlService/DeleteAccessToken"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -212,6 +221,9 @@ type ControlServiceClient interface {
 	SetGitHubTrust(context.Context, *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error)
 	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
 	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
+	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
+	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
+	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -495,6 +507,24 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("DeleteGitHubTrust")),
 			connect.WithClientOptions(opts...),
 		),
+		createAccessToken: connect.NewClient[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse](
+			httpClient,
+			baseURL+ControlServiceCreateAccessTokenProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("CreateAccessToken")),
+			connect.WithClientOptions(opts...),
+		),
+		listAccessTokens: connect.NewClient[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse](
+			httpClient,
+			baseURL+ControlServiceListAccessTokensProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListAccessTokens")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteAccessToken: connect.NewClient[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse](
+			httpClient,
+			baseURL+ControlServiceDeleteAccessTokenProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("DeleteAccessToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -545,6 +575,9 @@ type controlServiceClient struct {
 	setGitHubTrust       *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
 	listGitHubTrusts     *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
 	deleteGitHubTrust    *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
+	createAccessToken    *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
+	listAccessTokens     *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
+	deleteAccessToken    *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -774,6 +807,21 @@ func (c *controlServiceClient) DeleteGitHubTrust(ctx context.Context, req *conne
 	return c.deleteGitHubTrust.CallUnary(ctx, req)
 }
 
+// CreateAccessToken calls orch.v1alpha1.ControlService.CreateAccessToken.
+func (c *controlServiceClient) CreateAccessToken(ctx context.Context, req *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error) {
+	return c.createAccessToken.CallUnary(ctx, req)
+}
+
+// ListAccessTokens calls orch.v1alpha1.ControlService.ListAccessTokens.
+func (c *controlServiceClient) ListAccessTokens(ctx context.Context, req *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error) {
+	return c.listAccessTokens.CallUnary(ctx, req)
+}
+
+// DeleteAccessToken calls orch.v1alpha1.ControlService.DeleteAccessToken.
+func (c *controlServiceClient) DeleteAccessToken(ctx context.Context, req *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error) {
+	return c.deleteAccessToken.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
@@ -822,6 +870,9 @@ type ControlServiceHandler interface {
 	SetGitHubTrust(context.Context, *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error)
 	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
 	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
+	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
+	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
+	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1101,6 +1152,24 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("DeleteGitHubTrust")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceCreateAccessTokenHandler := connect.NewUnaryHandler(
+		ControlServiceCreateAccessTokenProcedure,
+		svc.CreateAccessToken,
+		connect.WithSchema(controlServiceMethods.ByName("CreateAccessToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListAccessTokensHandler := connect.NewUnaryHandler(
+		ControlServiceListAccessTokensProcedure,
+		svc.ListAccessTokens,
+		connect.WithSchema(controlServiceMethods.ByName("ListAccessTokens")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceDeleteAccessTokenHandler := connect.NewUnaryHandler(
+		ControlServiceDeleteAccessTokenProcedure,
+		svc.DeleteAccessToken,
+		connect.WithSchema(controlServiceMethods.ByName("DeleteAccessToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
@@ -1193,6 +1262,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListGitHubTrustsHandler.ServeHTTP(w, r)
 		case ControlServiceDeleteGitHubTrustProcedure:
 			controlServiceDeleteGitHubTrustHandler.ServeHTTP(w, r)
+		case ControlServiceCreateAccessTokenProcedure:
+			controlServiceCreateAccessTokenHandler.ServeHTTP(w, r)
+		case ControlServiceListAccessTokensProcedure:
+			controlServiceListAccessTokensHandler.ServeHTTP(w, r)
+		case ControlServiceDeleteAccessTokenProcedure:
+			controlServiceDeleteAccessTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1380,4 +1455,16 @@ func (UnimplementedControlServiceHandler) ListGitHubTrusts(context.Context, *con
 
 func (UnimplementedControlServiceHandler) DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteGitHubTrust is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.CreateAccessToken is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListAccessTokens is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteAccessToken is not implemented"))
 }
