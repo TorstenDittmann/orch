@@ -38,9 +38,14 @@ func fixtureProbe(distro string) Probe {
 		}}
 }
 func TestFreshSupportedHostsHaveOnlyInstallableFailures(t *testing.T) {
-	for _, distro := range []string{"ubuntu", "ubuntu-26.04", "fedora", "fedora-42"} {
+	for _, distro := range []string{"ubuntu", "ubuntu-26.04", "fedora", "fedora-42", "ubuntu/arm64", "fedora/arm64"} {
 		t.Run(distro, func(t *testing.T) {
-			r := Inspect(context.Background(), "10.0.0.11", fixtureProbe(distro))
+			name, arch, _ := strings.Cut(distro, "/")
+			probe := fixtureProbe(name)
+			if arch != "" {
+				probe.Arch = arch
+			}
+			r := Inspect(context.Background(), "10.0.0.11", probe)
 			if !r.Installable || r.Ready {
 				t.Fatalf("unexpected report: %+v", r)
 			}
@@ -54,7 +59,7 @@ func TestFreshSupportedHostsHaveOnlyInstallableFailures(t *testing.T) {
 }
 func TestDoctorRejectsUnsafeHosts(t *testing.T) {
 	cases := map[string]func(*Probe){
-		"architecture": func(p *Probe) { p.Arch = "arm64" },
+		"architecture": func(p *Probe) { p.Arch = "riscv64" },
 		"ubuntu 22.04": func(p *Probe) {
 			read := p.Read
 			p.Read = func(s string) ([]byte, error) {
@@ -271,7 +276,9 @@ func TestSupportedDistributionsAreMinimums(t *testing.T) {
 		{"ubuntu", "26.04", "amd64", true},
 		{"ubuntu", "28.04", "amd64", true},
 		{"ubuntu", "22.04", "amd64", false},
-		{"ubuntu", "24.04", "arm64", false},
+		{"ubuntu", "24.04", "arm64", true},
+		{"fedora", "42", "arm64", true},
+		{"ubuntu", "24.04", "riscv64", false},
 		{"fedora", "42", "amd64", true},
 		{"fedora", "44", "amd64", true},
 		{"fedora", "45", "amd64", true},

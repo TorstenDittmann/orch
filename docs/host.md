@@ -14,7 +14,7 @@ symptoms and fixes, see [troubleshooting](troubleshooting.md).
 | Requirement | Supported |
 | --- | --- |
 | Operating system | Ubuntu 24.04 LTS or newer, or Fedora 42 or newer (any edition except ostree-based ones such as Silverblue or CoreOS, whose `/usr` is read-only) |
-| Architecture | amd64 |
+| Architecture | amd64 or arm64; nodes of both can share a cluster |
 | Init system | systemd running as PID 1 |
 | Control groups | Unified cgroups v2 with the `cpu`, `memory`, and `pids` controllers |
 | Kernel modules | `overlay` and `wireguard` (installation loads them) |

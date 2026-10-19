@@ -26,7 +26,7 @@ or setup-time measurements; those benchmarks have not been run yet.
 orch is a good fit when most of these are true:
 
 - You run between one and 20 Linux hosts (Ubuntu 24.04 LTS or newer, or Fedora 42 or
-  newer, on amd64 for guided installation) that can reach each other over IPv4.
+  newer, on amd64 or arm64 for guided installation) that can reach each other over IPv4.
 - One team owns the cluster and its applications.
 - Your applications are OCI containers: web services, workers, scheduled jobs,
   and the occasional single-node database.

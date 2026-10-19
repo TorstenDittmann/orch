@@ -172,12 +172,12 @@ func TestControllerDataDirMatchesDefaultAdminSocket(t *testing.T) {
 
 func TestBlockersErrorListsFailingChecks(t *testing.T) {
 	report := Report{Checks: []Check{
-		{ID: "distribution", State: "fail", Detail: "rocky 9", Remedy: "Use Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64"},
+		{ID: "distribution", State: "fail", Detail: "rocky 9", Remedy: "Use Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64 or arm64"},
 		{ID: "controller_installation", State: "fail", Detail: "not installed", Installable: true},
 		{ID: "clock", State: "pass", Detail: "ok"},
 	}}
 	message := blockersError("controller installation", report).Error()
-	if !strings.Contains(message, "distribution: rocky 9 (Use Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64)") || strings.Contains(message, "controller_installation") || strings.Contains(message, "clock") {
+	if !strings.Contains(message, "distribution: rocky 9 (Use Ubuntu 24.04 LTS or newer, or Fedora 42 or newer, on amd64 or arm64)") || strings.Contains(message, "controller_installation") || strings.Contains(message, "clock") {
 		t.Fatalf("blockers error = %q", message)
 	}
 }

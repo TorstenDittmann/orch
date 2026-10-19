@@ -2,13 +2,14 @@
 
 `orch node install` embeds these service/configuration templates and the immutable
 artifact manifest. It installs Ubuntu 24.04 LTS or newer and Fedora 42 or newer,
-on amd64.
+on amd64 and arm64, with one pinned bundle per architecture.
 The existing manual runtime path remains available for other supported hosts.
 
 Artifacts are downloaded directly from the upstream GitHub releases in
 `artifacts.json`. Each SHA-256 was checked against the release asset digest and
 the downloaded bytes. The containerd **static** build avoids depending on a newer
-host glibc. Every selected executable must also be ELF64 x86-64. Downloads are
+host glibc. Every selected executable must also be an ELF64 binary for the bundle's
+architecture (x86-64 or AArch64). Downloads are
 bounded to 256 MiB, extracted content to 512 MiB, and archives to 1,024 entries.
 Links, special files, path traversal, missing executables, duplicate selected
 entries, and unexpected files are rejected. No upstream installer script runs.

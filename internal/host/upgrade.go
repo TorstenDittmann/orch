@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -84,7 +85,7 @@ func inspectCandidate(ctx context.Context, path string) (buildinfo.Descriptor, s
 	if decoder.Decode(&descriptor) != nil || descriptor.Version == "" || descriptor.BuildID == "" {
 		return buildinfo.Descriptor{}, "", errors.New("candidate compatibility descriptor is invalid")
 	}
-	if descriptor.OS != "linux" || descriptor.Architecture != "amd64" || descriptor.InstallFormat != 1 || descriptor.ReleaseGeneration < 1 {
+	if descriptor.OS != "linux" || descriptor.Architecture != runtime.GOARCH || descriptor.InstallFormat != 1 || descriptor.ReleaseGeneration < 1 {
 		return buildinfo.Descriptor{}, "", errors.New("candidate OS, architecture, install format, or release generation is incompatible")
 	}
 	return descriptor, hash, nil
@@ -242,7 +243,7 @@ func controllerUpgradePreflight(ctx context.Context, binary string) (UpgradeResu
 	}
 	osData, _ := os.ReadFile("/etc/os-release")
 	distro, version := Distro(string(osData))
-	if !supported(distro, version, "amd64") {
+	if !supported(distro, version, runtime.GOARCH) {
 		return r, state, "", errors.New("controller distribution is unsupported")
 	}
 	if err := rootOwned(ControllerStateDir, true); err != nil {
@@ -407,7 +408,7 @@ func nodeUpgradePreflight(ctx context.Context, binary string) (UpgradeResult, ma
 	if decoder.Decode(&state) != nil || state.Version != 1 || state.NodeID == "" {
 		return r, state, "", errors.New("node installation manifest is invalid")
 	}
-	if !supported(state.Distro, state.OSVersion, "amd64") {
+	if !supported(state.Distro, state.OSVersion, runtime.GOARCH) {
 		return r, state, "", errors.New("installed node distribution is unsupported")
 	}
 	if err := rootOwned(StateDir, true); err != nil {

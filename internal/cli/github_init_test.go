@@ -56,6 +56,31 @@ func TestGitHubWorkflowBuildsOnlyWithAnImage(t *testing.T) {
 	}
 }
 
+func TestGitHubWorkflowMatchesNodeArchitectures(t *testing.T) {
+	for _, tc := range []struct {
+		architectures     []string
+		runsOn, platforms string
+	}{
+		{nil, "", ""},
+		{[]string{"amd64", ""}, "", ""},
+		{[]string{"arm64", "arm64"}, "ubuntu-24.04-arm", ""},
+		{[]string{"amd64", "arm64"}, "", "linux/amd64,linux/arm64"},
+	} {
+		runsOn, platforms := buildTarget(tc.architectures)
+		if runsOn != tc.runsOn || platforms != tc.platforms {
+			t.Errorf("buildTarget(%v) = %q, %q; want %q, %q", tc.architectures, runsOn, platforms, tc.runsOn, tc.platforms)
+		}
+	}
+	arm := githubWorkflow{Application: "hello", Branch: "main", Cluster: "https://c#sha256:ab", Image: "ghcr.io/acme/hello", RunsOn: "ubuntu-24.04-arm"}.render()
+	if !strings.Contains(arm, "runs-on: ubuntu-24.04-arm") || strings.Contains(arm, "platforms:") {
+		t.Errorf("arm64 workflow:\n%s", arm)
+	}
+	mixed := githubWorkflow{Application: "hello", Branch: "main", Cluster: "https://c#sha256:ab", Image: "ghcr.io/acme/hello", Platforms: "linux/amd64,linux/arm64"}.render()
+	if !strings.Contains(mixed, "runs-on: ubuntu-latest") || !strings.Contains(mixed, "platforms: linux/amd64,linux/arm64") {
+		t.Errorf("mixed workflow:\n%s", mixed)
+	}
+}
+
 func TestGitHubInitTrustsTheRepositoryAndWritesTheWorkflow(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")

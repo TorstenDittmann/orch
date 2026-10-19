@@ -24,6 +24,10 @@ inputs:
     description: Dockerfile path. Defaults to Dockerfile in the build context.
     required: false
     default: ""
+  platforms:
+    description: Comma-separated image platforms, such as linux/amd64,linux/arm64, for clusters with arm64 or mixed nodes. Defaults to the runner's own platform.
+    required: false
+    default: ""
   file:
     description: Path to the orch manifest.
     required: false
@@ -69,6 +73,12 @@ runs:
         esac
         curl -fsSL --retry 3 -o "$ORCH_INSTALL_DIR/pkl" "https://github.com/apple/pkl/releases/download/$pkl_version/$pkl_asset"
         chmod +x "$ORCH_INSTALL_DIR/pkl"
+    - name: Set up QEMU
+      if: inputs.image != '' && inputs.platforms != ''
+      uses: docker/setup-qemu-action@v3
+    - name: Set up Docker Buildx
+      if: inputs.image != '' && inputs.platforms != ''
+      uses: docker/setup-buildx-action@v3
     - name: Build and push image
       id: build
       if: inputs.image != ''
@@ -77,6 +87,7 @@ runs:
         IMAGE: ${{ inputs.image }}
         BUILD_CONTEXT: ${{ inputs.context }}
         DOCKERFILE: ${{ inputs.dockerfile }}
+        PLATFORMS: ${{ inputs.platforms }}
         TOKEN: ${{ inputs.token }}
       run: |
         image="${IMAGE,,}"
@@ -87,9 +98,16 @@ runs:
         if [ -n "$DOCKERFILE" ]; then
           args+=(--file "$DOCKERFILE")
         fi
-        docker build "${args[@]}" "$BUILD_CONTEXT"
-        docker push "$image:$GITHUB_SHA"
-        digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$GITHUB_SHA")"
+        if [ -n "$PLATFORMS" ]; then
+          # Nodes pull the variant of the pushed index for their architecture.
+          metadata="$RUNNER_TEMP/orch-build.json"
+          docker buildx build "${args[@]}" --platform "$PLATFORMS" --push --metadata-file "$metadata" "$BUILD_CONTEXT"
+          digest="$image@$(jq -r '."containerimage.digest"' "$metadata")"
+        else
+          docker build "${args[@]}" "$BUILD_CONTEXT"
+          docker push "$image:$GITHUB_SHA"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$GITHUB_SHA")"
+        fi
         echo "image=$digest" >> "$GITHUB_OUTPUT"
     - name: Deploy
       shell: bash

@@ -6,7 +6,7 @@ This guide installs a controller and adds workers to the cluster.
 
 | Requirement | Supported setup |
 | --- | --- |
-| Hosts | Ubuntu 24.04 LTS or newer, or Fedora 42 or newer (any edition except ostree-based ones) on amd64 |
+| Hosts | Ubuntu 24.04 LTS or newer, or Fedora 42 or newer (any edition except ostree-based ones) on amd64 or arm64 |
 | Network | IPv4 connectivity between hosts, over private or public addresses |
 | Controller | A stable HTTPS address |
 | Workstation | A machine for running the orch CLI |
@@ -35,9 +35,9 @@ curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.s
 ```
 
 Set `ORCH_VERSION=v0.2.0` to install a specific release and `ORCH_INSTALL_DIR`
-to choose another directory. To install by hand, download `orch-linux-amd64`
-and `SHA256SUMS` from the release, check them with `sha256sum -c
---ignore-missing SHA256SUMS`, and make the binary executable.
+to choose another directory. To install by hand, download `orch-linux-amd64` or
+`orch-linux-arm64` and `SHA256SUMS` from the release, check them with
+`sha256sum -c --ignore-missing SHA256SUMS`, and make the binary executable.
 
 Then run, as root:
 
