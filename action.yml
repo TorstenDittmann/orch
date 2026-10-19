@@ -1,0 +1,106 @@
+name: Deploy with orch
+description: Build and push an image, then deploy it to an orch cluster without stored credentials.
+author: TorstenDittmann
+branding:
+  icon: upload-cloud
+  color: blue
+inputs:
+  cluster:
+    description: Cluster address printed by orch github init or orch github trust (https://HOST:PORT#sha256:FINGERPRINT).
+    required: true
+  app:
+    description: Application to deploy. Needed only when the repository is trusted for several applications.
+    required: false
+    default: ""
+  image:
+    description: Image repository to build and push, such as ghcr.io/acme/hello. Leave empty to deploy the manifest without building.
+    required: false
+    default: ""
+  context:
+    description: Docker build context.
+    required: false
+    default: "."
+  dockerfile:
+    description: Dockerfile path. Defaults to Dockerfile in the build context.
+    required: false
+    default: ""
+  file:
+    description: Path to the orch manifest.
+    required: false
+    default: orch.pkl
+  version:
+    description: orch CLI version to install, such as v0.3.0. Defaults to this action's tag, or the latest release.
+    required: false
+    default: ""
+  token:
+    description: Token used to push to ghcr.io.
+    required: false
+    default: ${{ github.token }}
+outputs:
+  image:
+    description: The pushed image by digest, when the action built one.
+    value: ${{ steps.build.outputs.image }}
+runs:
+  using: composite
+  steps:
+    - name: Install orch
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INSTALL_SCRIPT: ${{ github.action_path }}/install.sh
+      run: |
+        version="$INPUT_VERSION"
+        if [ -z "$version" ]; then
+          case "$ACTION_REF" in v[0-9]*) version="$ACTION_REF" ;; *) version=latest ;; esac
+        fi
+        export ORCH_VERSION="$version" ORCH_INSTALL_DIR="$RUNNER_TEMP/orch-bin"
+        mkdir -p "$ORCH_INSTALL_DIR"
+        sh "$INSTALL_SCRIPT"
+        echo "$ORCH_INSTALL_DIR" >> "$GITHUB_PATH"
+        # orch evaluates the manifest with the Pkl version it was built for.
+        pkl_version="$("$ORCH_INSTALL_DIR/orch" pkl version 2>/dev/null || echo 0.32.1)"
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) pkl_asset=pkl-linux-amd64 ;;
+          Linux-ARM64) pkl_asset=pkl-linux-aarch64 ;;
+          macOS-X64) pkl_asset=pkl-macos-amd64 ;;
+          macOS-ARM64) pkl_asset=pkl-macos-aarch64 ;;
+          *) echo "orch: unsupported runner $RUNNER_OS $RUNNER_ARCH" >&2; exit 1 ;;
+        esac
+        curl -fsSL --retry 3 -o "$ORCH_INSTALL_DIR/pkl" "https://github.com/apple/pkl/releases/download/$pkl_version/$pkl_asset"
+        chmod +x "$ORCH_INSTALL_DIR/pkl"
+    - name: Build and push image
+      id: build
+      if: inputs.image != ''
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        BUILD_CONTEXT: ${{ inputs.context }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        TOKEN: ${{ inputs.token }}
+      run: |
+        image="${IMAGE,,}"
+        if [ "${image%%/*}" = ghcr.io ]; then
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        fi
+        args=(--tag "$image:$GITHUB_SHA" --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA")
+        if [ -n "$DOCKERFILE" ]; then
+          args+=(--file "$DOCKERFILE")
+        fi
+        docker build "${args[@]}" "$BUILD_CONTEXT"
+        docker push "$image:$GITHUB_SHA"
+        digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$GITHUB_SHA")"
+        echo "image=$digest" >> "$GITHUB_OUTPUT"
+    - name: Deploy
+      shell: bash
+      env:
+        ORCH_CLUSTER: ${{ inputs.cluster }}
+        ORCH_APP: ${{ inputs.app }}
+        MANIFEST: ${{ inputs.file }}
+        BUILT_IMAGE: ${{ steps.build.outputs.image }}
+      run: |
+        args=(--wait --file "$MANIFEST")
+        if [ -n "$BUILT_IMAGE" ]; then
+          args+=(--image "$BUILT_IMAGE")
+        fi
+        orch deploy "${args[@]}"

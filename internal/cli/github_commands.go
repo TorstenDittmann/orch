@@ -36,6 +36,8 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		flags.StringVar(&application, "app", "", "application to stop trusting the repository for")
 		valueFlags["--app"] = true
 		positional = 1
+	case "init":
+		return runGitHubInit(ctx, args[1:], stdout, stderr)
 	case "list":
 	default:
 		fmt.Fprintf(stderr, "unknown github command %q\n\n", command)
@@ -123,15 +125,8 @@ func githubTrustInstructions(repository, application, branch, environment, addre
 	if environment != "" {
 		fmt.Fprintf(&out, " in environment %s", environment)
 	}
-	out.WriteString(".\n\nDeploy on every push with .github/workflows/deploy.yml; no secrets are needed:\n\n")
-	fmt.Fprintf(&out, "on:\n  push:\n    branches: [%s]\npermissions:\n  contents: read\n  id-token: write\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", branch)
-	if environment != "" {
-		fmt.Fprintf(&out, "    environment: %s\n", environment)
-	}
-	out.WriteString("    steps:\n      - uses: actions/checkout@v4\n")
-	out.WriteString("      - run: curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh\n")
-	out.WriteString("      - run: orch deploy --wait\n        env:\n")
-	fmt.Fprintf(&out, "          ORCH_CLUSTER: %s\n", address)
+	out.WriteString(".\n\nRun orch github init in the repository to write the workflow, or deploy on\nevery push with .github/workflows/deploy.yml; no secrets are needed:\n\n")
+	out.WriteString(githubWorkflow{Application: application, Branch: branch, Environment: environment, Cluster: address}.render())
 	return out.String()
 }
 
@@ -139,10 +134,15 @@ func printGitHubHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch github lets GitHub Actions deploy without stored credentials.
 
 Usage:
+  orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [-f orch.pkl] [--force] [--json]
   orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--json]
   orch github list [--json]
   orch github untrust OWNER/REPO --app APP [--json]
 
 A trusted repository's workflow runs on that branch exchange their GitHub OIDC
-token for a 15-minute credential that can deploy, roll back and inspect only APP.`)
+token for a 15-minute credential that can deploy, roll back and inspect only APP.
+
+init, run inside the repository, trusts it and writes
+.github/workflows/deploy.yml, which builds the image when the manifest's
+directory has a Dockerfile and deploys on every push.`)
 }

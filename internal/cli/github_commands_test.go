@@ -19,7 +19,7 @@ func TestOrchClusterSignsInFromGitHubActions(t *testing.T) {
 
 func TestGitHubTrustInstructionsAreAWorkingWorkflow(t *testing.T) {
 	out := githubTrustInstructions("acme/hello", "hello", "main", "production", "https://203.0.113.10:9443#sha256:abc")
-	for _, want := range []string{"id-token: write", "environment: production", "branches: [main]", "orch deploy --wait", "ORCH_CLUSTER: https://203.0.113.10:9443#sha256:abc"} {
+	for _, want := range []string{"id-token: write", "environment: production", "branches: [main]", "uses: TorstenDittmann/orch@", "cluster: https://203.0.113.10:9443#sha256:abc", "app: hello"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("instructions lack %q:\n%s", want, out)
 		}
