@@ -153,6 +153,15 @@ const (
 	// ControlServiceRevokeJoinTokenProcedure is the fully-qualified name of the ControlService's
 	// RevokeJoinToken RPC.
 	ControlServiceRevokeJoinTokenProcedure = "/orch.v1alpha1.ControlService/RevokeJoinToken"
+	// ControlServiceSetGitHubTrustProcedure is the fully-qualified name of the ControlService's
+	// SetGitHubTrust RPC.
+	ControlServiceSetGitHubTrustProcedure = "/orch.v1alpha1.ControlService/SetGitHubTrust"
+	// ControlServiceListGitHubTrustsProcedure is the fully-qualified name of the ControlService's
+	// ListGitHubTrusts RPC.
+	ControlServiceListGitHubTrustsProcedure = "/orch.v1alpha1.ControlService/ListGitHubTrusts"
+	// ControlServiceDeleteGitHubTrustProcedure is the fully-qualified name of the ControlService's
+	// DeleteGitHubTrust RPC.
+	ControlServiceDeleteGitHubTrustProcedure = "/orch.v1alpha1.ControlService/DeleteGitHubTrust"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -200,6 +209,9 @@ type ControlServiceClient interface {
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
 	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
 	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
+	SetGitHubTrust(context.Context, *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error)
+	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
+	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -465,6 +477,24 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("RevokeJoinToken")),
 			connect.WithClientOptions(opts...),
 		),
+		setGitHubTrust: connect.NewClient[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse](
+			httpClient,
+			baseURL+ControlServiceSetGitHubTrustProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SetGitHubTrust")),
+			connect.WithClientOptions(opts...),
+		),
+		listGitHubTrusts: connect.NewClient[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse](
+			httpClient,
+			baseURL+ControlServiceListGitHubTrustsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListGitHubTrusts")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteGitHubTrust: connect.NewClient[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse](
+			httpClient,
+			baseURL+ControlServiceDeleteGitHubTrustProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("DeleteGitHubTrust")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -512,6 +542,9 @@ type controlServiceClient struct {
 	createJoinToken      *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
 	listJoinTokens       *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
 	revokeJoinToken      *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+	setGitHubTrust       *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
+	listGitHubTrusts     *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
+	deleteGitHubTrust    *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -726,6 +759,21 @@ func (c *controlServiceClient) RevokeJoinToken(ctx context.Context, req *connect
 	return c.revokeJoinToken.CallUnary(ctx, req)
 }
 
+// SetGitHubTrust calls orch.v1alpha1.ControlService.SetGitHubTrust.
+func (c *controlServiceClient) SetGitHubTrust(ctx context.Context, req *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error) {
+	return c.setGitHubTrust.CallUnary(ctx, req)
+}
+
+// ListGitHubTrusts calls orch.v1alpha1.ControlService.ListGitHubTrusts.
+func (c *controlServiceClient) ListGitHubTrusts(ctx context.Context, req *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error) {
+	return c.listGitHubTrusts.CallUnary(ctx, req)
+}
+
+// DeleteGitHubTrust calls orch.v1alpha1.ControlService.DeleteGitHubTrust.
+func (c *controlServiceClient) DeleteGitHubTrust(ctx context.Context, req *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error) {
+	return c.deleteGitHubTrust.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
@@ -771,6 +819,9 @@ type ControlServiceHandler interface {
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
 	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
 	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
+	SetGitHubTrust(context.Context, *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error)
+	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
+	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1032,6 +1083,24 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("RevokeJoinToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceSetGitHubTrustHandler := connect.NewUnaryHandler(
+		ControlServiceSetGitHubTrustProcedure,
+		svc.SetGitHubTrust,
+		connect.WithSchema(controlServiceMethods.ByName("SetGitHubTrust")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListGitHubTrustsHandler := connect.NewUnaryHandler(
+		ControlServiceListGitHubTrustsProcedure,
+		svc.ListGitHubTrusts,
+		connect.WithSchema(controlServiceMethods.ByName("ListGitHubTrusts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceDeleteGitHubTrustHandler := connect.NewUnaryHandler(
+		ControlServiceDeleteGitHubTrustProcedure,
+		svc.DeleteGitHubTrust,
+		connect.WithSchema(controlServiceMethods.ByName("DeleteGitHubTrust")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
@@ -1118,6 +1187,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListJoinTokensHandler.ServeHTTP(w, r)
 		case ControlServiceRevokeJoinTokenProcedure:
 			controlServiceRevokeJoinTokenHandler.ServeHTTP(w, r)
+		case ControlServiceSetGitHubTrustProcedure:
+			controlServiceSetGitHubTrustHandler.ServeHTTP(w, r)
+		case ControlServiceListGitHubTrustsProcedure:
+			controlServiceListGitHubTrustsHandler.ServeHTTP(w, r)
+		case ControlServiceDeleteGitHubTrustProcedure:
+			controlServiceDeleteGitHubTrustHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1293,4 +1368,16 @@ func (UnimplementedControlServiceHandler) ListJoinTokens(context.Context, *conne
 
 func (UnimplementedControlServiceHandler) RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RevokeJoinToken is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SetGitHubTrust(context.Context, *connect.Request[v1alpha1.SetGitHubTrustRequest]) (*connect.Response[v1alpha1.SetGitHubTrustResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.SetGitHubTrust is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListGitHubTrusts is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteGitHubTrust is not implemented"))
 }

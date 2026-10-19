@@ -1,0 +1,50 @@
+package security
+
+import (
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"testing"
+	"time"
+)
+
+func TestDeployerCertificateNamesOneApplication(t *testing.T) {
+	now := time.Now()
+	bundle, err := Generate(GenerateOptions{ClusterID: "cluster-one", ClusterName: "test", Server: "https://127.0.0.1", Now: now, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, _, err := GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePEM, notAfter, err := SignDeployerCertificate(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, "cluster-one", "hello", csr, now, rand.Reader)
+	if err != nil || notAfter.Sub(now) != DeployerCertificateLifetime {
+		t.Fatalf("SignDeployerCertificate() = %v, %v", notAfter, err)
+	}
+	block, _ := pem.Decode(certificatePEM)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application, err := DeployerApplication(certificate, "cluster-one"); err != nil || application != "hello" {
+		t.Fatalf("DeployerApplication() = %q, %v", application, err)
+	}
+	if _, err := DeployerApplication(certificate, "cluster-two"); err == nil {
+		t.Fatal("deployer certificate accepted for another cluster")
+	}
+	if err := VerifyPeerIdentity(certificate, "cluster-one", RoleAdministrator); err == nil {
+		t.Fatal("deployer certificate accepted as administrator")
+	}
+	adminBlock, _ := pem.Decode(bundle.Administrator.CertificatePEM)
+	admin, err := x509.ParseCertificate(adminBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DeployerApplication(admin, "cluster-one"); err == nil {
+		t.Fatal("administrator certificate accepted as deployer")
+	}
+	if _, _, err := SignDeployerCertificate(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, "cluster-one", "a/b", csr, now, rand.Reader); err == nil {
+		t.Fatal("application with a slash was signed")
+	}
+}

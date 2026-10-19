@@ -58,7 +58,7 @@ cloud firewalls. Open these ports yourself.
 
 | Port | Protocol | On | From | Purpose |
 | --- | --- | --- | --- | --- |
-| 9443 (`orch init --port`, or the `--listen` port of `orch cluster install`) | TCP | Controller | Workers, and operators that use certificate targets | Controller API: agent sessions, enrollment, administration over mTLS |
+| 9443 (`orch init --port`, or the `--listen` port of `orch cluster install`) | TCP | Controller | Workers, operators that use certificate targets, and GitHub Actions runners when you use `orch github trust` | Controller API: agent sessions, enrollment, administration over mTLS |
 | 22 | TCP | Controller | Operators | SSH targets (`orch target add NAME ssh://root@HOST`) reach the administrator socket over SSH |
 | 51820 | UDP | Every worker | Every other worker | WireGuard mesh between nodes. With public advertise addresses, allow it only from the other workers' addresses |
 | 80 | TCP | Ingress-enabled workers | Clients, and the ACME certificate authority | HTTP routes, the `public = true` catch-all listener, and HTTP certificate challenges |
@@ -99,6 +99,7 @@ advertise address.
 | Workers | `github.com` over HTTPS | Download of the pinned containerd, runc, CNI plugins, and Caddy releases during `orch join` or `orch node install` |
 | Workers | The controller port | Enrollment and the agent's session |
 | Controller | Container registries over HTTPS | `orch deploy` resolves image tags to digests on the controller |
+| Controller | `token.actions.githubusercontent.com` over HTTPS | Only with `orch github trust`: GitHub's signing keys for workflow tokens |
 | Workers | Container registries over HTTPS | Image pulls |
 | Ingress-enabled workers | The ACME certificate authority | Automatic HTTPS certificates through Caddy |
 

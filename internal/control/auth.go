@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -26,8 +27,11 @@ type authenticatedPrincipal struct {
 	certificate *x509.Certificate
 	// local is set only for requests on the controller's admin socket.
 	local bool
-	err   error
-	code  connect.Code
+	// application is set for deployer certificates, which may only read and
+	// change this one application.
+	application string
+	err         error
+	code        connect.Code
 }
 
 func authenticateAgent(clusterID string, state *store.Store, next http.Handler) http.Handler {
@@ -108,8 +112,13 @@ func authenticateAdministrator(clusterID string, next http.Handler) http.Handler
 		default:
 			principal.certificate = request.TLS.PeerCertificates[0]
 			if err := security.VerifyPeerIdentity(principal.certificate, clusterID, security.RoleAdministrator); err != nil {
-				principal.err = err
-				principal.code = connect.CodePermissionDenied
+				application, deployerErr := security.DeployerApplication(principal.certificate, clusterID)
+				if deployerErr != nil {
+					principal.err = err
+					principal.code = connect.CodePermissionDenied
+				} else {
+					principal.application = application
+				}
 			}
 		}
 		ctx := context.WithValue(request.Context(), principalKey{}, principal)
@@ -127,6 +136,32 @@ func requireAdministrator(ctx context.Context) error {
 	}
 	if principal.certificate == nil && !principal.local {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("administrator client certificate is required"))
+	}
+	if principal.application != "" {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("deployer credentials may only deploy their own application"))
+	}
+	return nil
+}
+
+// requireDeployerOrAdministrator authenticates either role. It returns the
+// application a deployer is limited to, or "" for administrators.
+func requireDeployerOrAdministrator(ctx context.Context) (string, error) {
+	principal, ok := ctx.Value(principalKey{}).(authenticatedPrincipal)
+	if ok && principal.err == nil && principal.certificate != nil && principal.application != "" {
+		return principal.application, nil
+	}
+	return "", requireAdministrator(ctx)
+}
+
+// requireApplicationAccess admits administrators and deployers whose
+// certificate names this application.
+func requireApplicationAccess(ctx context.Context, application string) error {
+	allowed, err := requireDeployerOrAdministrator(ctx)
+	if err != nil {
+		return err
+	}
+	if allowed != "" && allowed != application {
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("deployer credentials are limited to application %s", allowed))
 	}
 	return nil
 }

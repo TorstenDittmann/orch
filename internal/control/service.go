@@ -136,7 +136,7 @@ func (s *service) ConfigureNetwork(ctx context.Context, request *connect.Request
 }
 
 func (s *service) GetApplication(ctx context.Context, request *connect.Request[orchv1alpha1.GetApplicationRequest]) (*connect.Response[orchv1alpha1.GetApplicationResponse], error) {
-	if err := requireAdministrator(ctx); err != nil {
+	if err := requireApplicationAccess(ctx, request.Msg.GetName()); err != nil {
 		return nil, err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
@@ -365,7 +365,8 @@ func (s *service) ListRecentEvents(ctx context.Context, request *connect.Request
 }
 
 func (s *service) ApplyApplication(ctx context.Context, request *connect.Request[orchv1alpha1.ApplyApplicationRequest]) (*connect.Response[orchv1alpha1.ApplyApplicationResponse], error) {
-	if err := requireAdministrator(ctx); err != nil {
+	allowedApplication, err := requireDeployerOrAdministrator(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
@@ -392,6 +393,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	manifest, err := config.ParseCanonicalJSON(canonical)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if allowedApplication != "" && manifest.Name != allowedApplication {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("deployer credentials are limited to application %s", allowedApplication))
 	}
 	source, err := deploymentSource(request.Msg.GetSource())
 	if err != nil {
