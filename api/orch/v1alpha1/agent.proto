@@ -9,6 +9,16 @@ option go_package = "github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alp
 service AgentService {
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
   rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+  rpc DownloadBinary(DownloadBinaryRequest) returns (stream DownloadBinaryResponse);
+}
+
+// DownloadBinaryRequest fetches the orch executable an UpgradeCommand names.
+message DownloadBinaryRequest {
+  string sha256 = 1;
+}
+
+message DownloadBinaryResponse {
+  bytes data = 1;
 }
 
 message RenewCertificateRequest {
@@ -396,6 +406,11 @@ message AgentHello {
   string advertise_address = 20;
   string wireguard_public_key = 21;
   uint32 wireguard_listen_port = 22;
+  // The agent's own build. self_upgrade is set by agents installed by
+  // orch node install, which accept an UpgradeCommand.
+  string agent_version = 23;
+  string agent_build_id = 24;
+  bool self_upgrade = 25;
 }
 
 message AssignmentAck {
@@ -503,6 +518,16 @@ message RestartCommand {
   string allocation_id = 2;
 }
 
+// UpgradeCommand asks a self-upgrading agent to replace itself with the
+// controller's build. The agent downloads the binary with DownloadBinary and
+// runs orch node upgrade with it.
+message UpgradeCommand {
+  string version = 1;
+  string build_id = 2;
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+}
+
 message RestartResponse {
   string request_id = 1;
   // When the agent stopped the old process, by the agent's clock.
@@ -564,5 +589,6 @@ message ConnectResponse {
     TailCronLogsCommand tail_cron_logs = 5;
     VolumeCommand volume = 6;
     RestartCommand restart = 7;
+    UpgradeCommand upgrade = 8;
   }
 }

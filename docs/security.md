@@ -178,6 +178,10 @@ Controller, worker, and operator traffic uses mutually authenticated TLS.
 Installation creates separate credentials for each role.
 
 - The controller is a single administrative and scheduling authority.
+- Workers run the orch binary the controller offers after a controller
+  upgrade, checked against the SHA-256 the controller names. Whoever controls
+  the controller host can therefore run code as root on every worker; protect
+  it like the workers themselves.
 - Workers keep existing workloads running during a controller outage.
 - New scheduling and administrative changes require the controller.
 - orch does not provide automatic fencing or a highly available control plane.

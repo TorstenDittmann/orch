@@ -275,7 +275,8 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stdout, "  network=%s reason=%s subnet=%s mesh=%s:%d key=%t cni=%s plugins=%s nftables=%t dns-capable=%t dns=%s ingress-role=%t caddy=%s ingress=%s draining=%d\n",
 			node.GetNetworkState(), statusValue(node.GetNetworkReason()), node.GetNodeSubnet(), node.GetAdvertiseAddress(), node.GetWireguardListenPort(), node.GetWireguardPublicKey() != "", node.GetCniVersion(), node.GetCniPluginsVersion(), node.GetNftables(),
 			node.GetDnsAvailable(), node.GetDnsState(), node.GetIngress(), node.GetCaddyVersion(), node.GetIngressState(), node.GetDrainingObjects())
-		fmt.Fprintf(stdout, "  drain-blockers=%s\n", statusValue(strings.Join(node.GetDrainBlockers(), ",")))
+		fmt.Fprintf(stdout, "  agent=%s upgrade=%s drain-blockers=%s\n", statusValue(node.GetAgentVersion()), statusValue(node.GetAgentUpgrade()),
+			statusValue(strings.Join(node.GetDrainBlockers(), ",")))
 		certificateExpiry := "unknown"
 		if node.GetCertificateNotAfter() != nil && node.GetCertificateNotAfter().CheckValid() == nil {
 			certificateExpiry = node.GetCertificateNotAfter().AsTime().Format(time.RFC3339Nano)

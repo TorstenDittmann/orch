@@ -859,17 +859,19 @@ different CIDR is refused. Choose it before workers join. See
 ### orch cluster upgrade and orch node upgrade
 
 ```text
-orch cluster upgrade --binary FILE [--dry-run] [--wait-timeout 5m] [--json]
-orch node upgrade --binary FILE [--dry-run] [--wait-timeout 5m] [--json]
+orch cluster upgrade [--binary FILE] [--dry-run] [--wait-timeout 5m] [--json]
+orch node upgrade [--binary FILE] [--dry-run] [--wait-timeout 5m] [--json]
 ```
 
 Replaces the installed `orch` binary on a controller or worker with a trusted
-candidate and restarts its services. Run each as root on the host it upgrades,
-controller first.
+candidate and restarts its services. Run each as root on the host it upgrades.
+After `orch cluster upgrade`, the controller upgrades every worker to its own
+version, one node at a time, so `orch node upgrade` is only needed for a worker
+that cannot upgrade itself.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--binary` | required | Trusted local candidate `orch` executable |
+| `--binary` | this `orch` | Trusted local candidate `orch` executable |
 | `--dry-run` | `false` | Validate and show the upgrade without changing the host |
 | `--wait-timeout` | `5m` | Maximum wait for service readiness |
 | `--json` | `false` | Emit machine-readable JSON |

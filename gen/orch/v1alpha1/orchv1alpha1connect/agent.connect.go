@@ -38,12 +38,16 @@ const (
 	// AgentServiceRenewCertificateProcedure is the fully-qualified name of the AgentService's
 	// RenewCertificate RPC.
 	AgentServiceRenewCertificateProcedure = "/orch.v1alpha1.AgentService/RenewCertificate"
+	// AgentServiceDownloadBinaryProcedure is the fully-qualified name of the AgentService's
+	// DownloadBinary RPC.
+	AgentServiceDownloadBinaryProcedure = "/orch.v1alpha1.AgentService/DownloadBinary"
 )
 
 // AgentServiceClient is a client for the orch.v1alpha1.AgentService service.
 type AgentServiceClient interface {
 	Connect(context.Context) *connect.BidiStreamForClient[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]
 	RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error)
+	DownloadBinary(context.Context, *connect.Request[v1alpha1.DownloadBinaryRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadBinaryResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the orch.v1alpha1.AgentService service. By default,
@@ -69,6 +73,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
 			connect.WithClientOptions(opts...),
 		),
+		downloadBinary: connect.NewClient[v1alpha1.DownloadBinaryRequest, v1alpha1.DownloadBinaryResponse](
+			httpClient,
+			baseURL+AgentServiceDownloadBinaryProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DownloadBinary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -76,6 +86,7 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 type agentServiceClient struct {
 	connect          *connect.Client[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]
 	renewCertificate *connect.Client[v1alpha1.RenewCertificateRequest, v1alpha1.RenewCertificateResponse]
+	downloadBinary   *connect.Client[v1alpha1.DownloadBinaryRequest, v1alpha1.DownloadBinaryResponse]
 }
 
 // Connect calls orch.v1alpha1.AgentService.Connect.
@@ -88,10 +99,16 @@ func (c *agentServiceClient) RenewCertificate(ctx context.Context, req *connect.
 	return c.renewCertificate.CallUnary(ctx, req)
 }
 
+// DownloadBinary calls orch.v1alpha1.AgentService.DownloadBinary.
+func (c *agentServiceClient) DownloadBinary(ctx context.Context, req *connect.Request[v1alpha1.DownloadBinaryRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadBinaryResponse], error) {
+	return c.downloadBinary.CallServerStream(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the orch.v1alpha1.AgentService service.
 type AgentServiceHandler interface {
 	Connect(context.Context, *connect.BidiStream[v1alpha1.ConnectRequest, v1alpha1.ConnectResponse]) error
 	RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error)
+	DownloadBinary(context.Context, *connect.Request[v1alpha1.DownloadBinaryRequest], *connect.ServerStream[v1alpha1.DownloadBinaryResponse]) error
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -113,12 +130,20 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("RenewCertificate")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceDownloadBinaryHandler := connect.NewServerStreamHandler(
+		AgentServiceDownloadBinaryProcedure,
+		svc.DownloadBinary,
+		connect.WithSchema(agentServiceMethods.ByName("DownloadBinary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceConnectProcedure:
 			agentServiceConnectHandler.ServeHTTP(w, r)
 		case AgentServiceRenewCertificateProcedure:
 			agentServiceRenewCertificateHandler.ServeHTTP(w, r)
+		case AgentServiceDownloadBinaryProcedure:
+			agentServiceDownloadBinaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -134,4 +159,8 @@ func (UnimplementedAgentServiceHandler) Connect(context.Context, *connect.BidiSt
 
 func (UnimplementedAgentServiceHandler) RenewCertificate(context.Context, *connect.Request[v1alpha1.RenewCertificateRequest]) (*connect.Response[v1alpha1.RenewCertificateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.AgentService.RenewCertificate is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DownloadBinary(context.Context, *connect.Request[v1alpha1.DownloadBinaryRequest], *connect.ServerStream[v1alpha1.DownloadBinaryResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.AgentService.DownloadBinary is not implemented"))
 }

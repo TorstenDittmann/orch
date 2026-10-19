@@ -227,7 +227,7 @@ func prepareControllerRecovery(ctx context.Context, run Command, recovery string
 }
 
 func controllerUpgradePreflight(ctx context.Context, binary string) (UpgradeResult, controllerManifest, string, error) {
-	r := UpgradeResult{Kind: "controller", Phase: "preflight", AutomaticRollback: true, Actions: []string{"Stop only orch-controller", "Create a fresh private recovery set", "Atomically replace the managed orch binary", "Start and authenticate the original cluster identity"}}
+	r := UpgradeResult{Kind: "controller", Phase: "preflight", AutomaticRollback: true, Actions: []string{"Stop only orch-controller", "Create a fresh private recovery set", "Atomically replace the managed orch binary", "Start and authenticate the original cluster identity", "Then upgrade each worker's agent to this build, one node at a time"}}
 	candidate, hash, err := inspectCandidate(ctx, binary)
 	r.Candidate, r.CandidateHash = candidate, hash
 	if err != nil {

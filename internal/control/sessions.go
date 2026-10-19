@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -46,6 +47,11 @@ type agentSession struct {
 	lastAssignmentGeneration uint64
 	operations               map[string]chan *orchv1alpha1.AgentOperationResult
 	closed                   bool
+	// The agent's build and platform from its Hello.
+	version      string
+	buildID      string
+	architecture string
+	selfUpgrade  bool
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -146,6 +152,42 @@ func (m *sessionManager) Close() {
 		session.cancel()
 		m.disconnectLocked(session)
 	}
+}
+
+// connected returns the sessions whose agent sent a recent heartbeat, ordered
+// by node id.
+func (m *sessionManager) connected() []*agentSession {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]*agentSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		session.mu.Lock()
+		fresh := m.now().Sub(session.lastSeen) < m.timeout
+		session.mu.Unlock()
+		if fresh {
+			result = append(result, session)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].nodeID < result[j].nodeID })
+	return result
+}
+
+// agent returns the build and platform the agent reported in its Hello. A nil
+// session reports nothing.
+func (session *agentSession) agent() (version, buildID, architecture string, selfUpgrade bool) {
+	if session == nil {
+		return "", "", "", false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.version, session.buildID, session.architecture, session.selfUpgrade
+}
+
+// session returns the node's current session, or nil when it is not connected.
+func (m *sessionManager) session(nodeID string) *agentSession {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessions[nodeID]
 }
 
 func (m *sessionManager) touch(session *agentSession) {

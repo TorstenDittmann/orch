@@ -53,6 +53,7 @@ type service struct {
 	reconciler    *Reconciler
 	imageResolver ImageResolver
 	backups       *backupScheduler
+	upgrades      *agentUpgrades
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -531,7 +532,12 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read node drain blockers"))
 		}
 		node = s.decorateNodeConnection(node)
-		response.Nodes = append(response.Nodes, nodeMessage(node))
+		message := nodeMessage(node)
+		if s.sessions != nil {
+			message.AgentVersion, _, _, _ = s.sessions.session(node.ID).agent()
+		}
+		message.AgentUpgrade = s.upgrades.state(node.ID)
+		response.Nodes = append(response.Nodes, message)
 	}
 	return connect.NewResponse(response), nil
 }
