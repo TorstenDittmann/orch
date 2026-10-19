@@ -33,6 +33,19 @@ func TestReconnectJitterUsesInjectedRandomSource(t *testing.T) {
 	}
 }
 
+func TestReconnectBackoffStartsOverAfterAHealthySession(t *testing.T) {
+	failed := errors.New("stream reset")
+	if got := reconnectBackoff(maxReconnectBackoff, failed, stableSessionDuration); got != time.Second {
+		t.Fatalf("after a stable session = %s, want 1s", got)
+	}
+	if got := reconnectBackoff(maxReconnectBackoff, nil, 0); got != time.Second {
+		t.Fatalf("after a clean close = %s, want 1s", got)
+	}
+	if got := reconnectBackoff(8*time.Second, failed, time.Second); got != 8*time.Second {
+		t.Fatalf("after a failed attempt = %s, want the current 8s", got)
+	}
+}
+
 func TestReconcileCachedSurvivesAllocationFailures(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -67,6 +80,39 @@ func TestReconcileCachedSurvivesAllocationFailures(t *testing.T) {
 	cancel()
 	if err := runner.reconcileCached(canceled); err == nil {
 		t.Fatal("reconcileCached(canceled) = nil, want the cache read error")
+	}
+}
+
+func TestAssignmentRuntimeFaultHoldsACKWithoutDroppingTheSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache := supervisorCache(t)
+	runtime := orchruntime.NewFake()
+	runtime.ListError = errors.New("containerd is busy")
+	runner := sessionRunner{bootID: "boot-one", cache: cache, supervisor: NewSupervisor(cache, runtime, func() time.Time { return supervisorTestTime })}
+	runner.credentials.Config.NodeID = "node-one"
+	_, digest, err := model.AssignmentPayloadWithJobs(model.NetworkConfig{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Assignment{Assignment: &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: digest, CreatedAt: timestamppb.New(supervisorTestTime),
+	}}}
+	outbound := make(chan *orchv1alpha1.ConnectRequest, 8)
+
+	if err := runner.handleControllerMessage(ctx, message, outbound, nil, newAgentOperations()); err != nil {
+		t.Fatalf("handleControllerMessage() = %v, want the session kept", err)
+	}
+	if len(outbound) != 0 || !runner.ackPending {
+		t.Fatalf("queued %d messages with ackPending=%t, want the ACK held", len(outbound), runner.ackPending)
+	}
+
+	runtime.ListError = nil
+	if err := runner.handleControllerMessage(ctx, message, outbound, nil, newAgentOperations()); err != nil {
+		t.Fatal(err)
+	}
+	if ack := (<-outbound).GetAssignmentAck(); ack == nil || ack.GetGeneration() != 1 || runner.ackPending {
+		t.Fatalf("first queued message = %v, ackPending=%t, want the generation 1 ACK", ack, runner.ackPending)
 	}
 }
 

@@ -70,8 +70,11 @@ func (m *sessionManager) register(ctx context.Context, nodeID, bootID string, ca
 	if current := m.sessions[nodeID]; current != nil {
 		current.mu.Lock()
 		stale := m.now().Sub(current.lastSeen) >= m.timeout
+		// The same agent process reconnecting means its previous stream is
+		// gone, even if this side has not noticed yet.
+		sameAgent := current.bootID == bootID
 		current.mu.Unlock()
-		if !stale {
+		if !stale && !sameAgent {
 			return nil, fmt.Errorf("an agent session for node %q is already connected", nodeID)
 		}
 		current.cancel()

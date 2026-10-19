@@ -21,10 +21,12 @@ type Fake struct {
 	Allocations  map[string]model.AllocationDesired
 	Logs         map[string][]LogFrame
 	// Previous maps an allocation to its most recently removed object.
-	Previous        map[string]string
-	ExecFrames      map[string][]ExecFrame
-	EnsureErrors    map[string]error
-	NetworkError    error
+	Previous     map[string]string
+	ExecFrames   map[string][]ExecFrame
+	EnsureErrors map[string]error
+	NetworkError error
+	// ListError, when set, fails ListOwned.
+	ListError       error
 	Operations      []string
 	PreparedNetwork model.NetworkConfig
 	// StopGraces records the grace period of the last Stop call per object.
@@ -102,6 +104,9 @@ func (f *Fake) Preflight(context.Context) (Capabilities, error) {
 func (f *Fake) ListOwned(context.Context) ([]Object, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ListError != nil {
+		return nil, f.ListError
+	}
 	result := make([]Object, 0, len(f.Objects))
 	for _, object := range f.Objects {
 		result = append(result, object)
