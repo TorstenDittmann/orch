@@ -70,8 +70,8 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.ps1 | iex
 ~~~
 
-For a persistent cluster on fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44
-amd64** (any non-ostree edition) hosts, run:
+For a persistent cluster on fresh **Ubuntu 24.04 LTS or newer** or
+**Fedora 42 or newer** (any non-ostree edition) amd64 hosts, run:
 
 ~~~console
 sudo orch init                        # on the controller
@@ -135,10 +135,10 @@ sudo bin/orch agent serve \
   --ingress-data-dir /var/lib/orch-ingress
 ~~~
 
-For a fresh **Ubuntu 24.04 LTS amd64** or **Fedora 44 amd64** node,
-[guided installation](docs/installation.md) supplies the pinned dependencies,
-systemd services and enrollment with `orch node install`. Use `orch node doctor`
-or `install --dry-run` first to inspect prerequisites and planned actions.
+For a fresh **Ubuntu 24.04 LTS or newer** or **Fedora 42 or newer** amd64
+node, [guided installation](docs/installation.md) supplies the pinned
+dependencies, systemd services and enrollment with `orch node install`. Use
+`orch node doctor` or `install --dry-run` first to inspect prerequisites and planned actions.
 
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
 2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,

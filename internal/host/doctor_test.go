@@ -11,8 +11,13 @@ import (
 
 func fixtureProbe(distro string) Probe {
 	files := map[string]string{"/etc/os-release": "ID=" + distro + "\nVERSION_ID=24.04", "/proc/1/comm": "systemd\n", "/sys/fs/cgroup/cgroup.controllers": "cpuset cpu io memory pids\n", "/proc/sys/net/ipv4/ip_forward": "0\n", "/sys/fs/selinux/enforce": "1"}
-	if distro == "fedora" {
+	switch distro {
+	case "fedora":
 		files["/etc/os-release"] = "ID=fedora\nVERSION_ID=44\nVARIANT_ID=server"
+	case "fedora-42":
+		files["/etc/os-release"] = "ID=fedora\nVERSION_ID=42"
+	case "ubuntu-26.04":
+		files["/etc/os-release"] = "ID=ubuntu\nVERSION_ID=\"26.04\""
 	}
 	return Probe{GOOS: "linux", Arch: "amd64", UID: 0, Addresses: []string{"10.0.0.11"}, FreeBytes: 4 << 30,
 		Read: func(p string) ([]byte, error) {
@@ -33,7 +38,7 @@ func fixtureProbe(distro string) Probe {
 		}}
 }
 func TestFreshSupportedHostsHaveOnlyInstallableFailures(t *testing.T) {
-	for _, distro := range []string{"ubuntu", "fedora"} {
+	for _, distro := range []string{"ubuntu", "ubuntu-26.04", "fedora", "fedora-42"} {
 		t.Run(distro, func(t *testing.T) {
 			r := Inspect(context.Background(), "10.0.0.11", fixtureProbe(distro))
 			if !r.Installable || r.Ready {
@@ -49,7 +54,16 @@ func TestFreshSupportedHostsHaveOnlyInstallableFailures(t *testing.T) {
 }
 func TestDoctorRejectsUnsafeHosts(t *testing.T) {
 	cases := map[string]func(*Probe){
-		"architecture":  func(p *Probe) { p.Arch = "arm64" },
+		"architecture": func(p *Probe) { p.Arch = "arm64" },
+		"ubuntu 22.04": func(p *Probe) {
+			read := p.Read
+			p.Read = func(s string) ([]byte, error) {
+				if s == "/etc/os-release" {
+					return []byte("ID=ubuntu\nVERSION_ID=22.04"), nil
+				}
+				return read(s)
+			}
+		},
 		"nonroot":       func(p *Probe) { p.UID = 1000 },
 		"address":       func(p *Probe) { p.Addresses = nil },
 		"disk":          func(p *Probe) { p.FreeBytes = 1024 },
@@ -245,5 +259,29 @@ func TestPublicAdvertiseAddressWarnsAboutWireGuardFirewall(t *testing.T) {
 	}
 	if !warned {
 		t.Fatal("public address lost its WireGuard warning when route inspection failed")
+	}
+}
+func TestSupportedDistributionsAreMinimums(t *testing.T) {
+	for _, tc := range []struct {
+		os, version, arch string
+		want              bool
+	}{
+		{"ubuntu", "24.04", "amd64", true},
+		{"ubuntu", "24.10", "amd64", true},
+		{"ubuntu", "26.04", "amd64", true},
+		{"ubuntu", "28.04", "amd64", true},
+		{"ubuntu", "22.04", "amd64", false},
+		{"ubuntu", "24.04", "arm64", false},
+		{"fedora", "42", "amd64", true},
+		{"fedora", "44", "amd64", true},
+		{"fedora", "45", "amd64", true},
+		{"fedora", "41", "amd64", false},
+		{"ubuntu", "", "amd64", false},
+		{"ubuntu", "lts", "amd64", false},
+		{"debian", "13", "amd64", false},
+	} {
+		if got := supported(tc.os, tc.version, tc.arch); got != tc.want {
+			t.Errorf("supported(%q, %q, %q) = %v, want %v", tc.os, tc.version, tc.arch, got, tc.want)
+		}
 	}
 }
