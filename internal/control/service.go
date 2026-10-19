@@ -370,6 +370,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, err
 	}
+	if err := requireChange(ctx); err != nil {
+		return nil, err
+	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
 		return nil, err
 	}

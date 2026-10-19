@@ -22,8 +22,10 @@ Every command that talks to a controller resolves its cluster in this order:
 
 1. `--target NAME` on the command line.
 2. The `ORCH_TARGET` environment variable.
-3. The selected target.
-4. On the controller host, when no target is selected, the controller's local
+3. The `ORCH_TOKEN` environment variable, an access token from
+   `orch token create` (see [AI assistants](ai.md#agents-on-other-machines)).
+4. The selected target.
+5. On the controller host, when no target is selected, the controller's local
    administrator socket.
 
 ```console

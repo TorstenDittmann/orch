@@ -17,12 +17,24 @@ import (
 // application. They are issued from trusted CI identity tokens, never stored.
 const RoleDeployer = "deployer"
 
+// RoleViewer identifies short-lived certificates that may only read one
+// application. They are issued for read-only access tokens.
+const RoleViewer = "viewer"
+
 // DeployerCertificateLifetime bounds how long a CI job may use one credential.
 const DeployerCertificateLifetime = 15 * time.Minute
 
 // DeployerIdentityURI binds a deployer certificate to one application.
 func DeployerIdentityURI(clusterID, application string) *url.URL {
-	return &url.URL{Scheme: "spiffe", Host: "orch", Path: "/cluster/" + clusterID + "/" + RoleDeployer + "/" + application}
+	return applicationIdentityURI(clusterID, application, false)
+}
+
+func applicationIdentityURI(clusterID, application string, readOnly bool) *url.URL {
+	role := RoleDeployer
+	if readOnly {
+		role = RoleViewer
+	}
+	return &url.URL{Scheme: "spiffe", Host: "orch", Path: "/cluster/" + clusterID + "/" + role + "/" + application}
 }
 
 // GenerateDeployerCertificateRequest creates a P-256 key and CSR for a
@@ -52,6 +64,12 @@ func GenerateDeployerCertificateRequest(random io.Reader) (csrDER, privateKeyPEM
 // SignDeployerCertificate signs only the validated CSR public key for one
 // application. Requested SANs and extensions are deliberately ignored.
 func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
+	return SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, application, false, csrDER, now, random)
+}
+
+// SignApplicationCertificate signs a deployer certificate, or with readOnly a
+// viewer certificate that may only read the application.
+func SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, readOnly bool, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
 	if clusterID == "" || application == "" || strings.Contains(application, "/") || now.IsZero() || random == nil {
 		return nil, time.Time{}, fmt.Errorf("cluster, application, current time, and random source are required")
 	}
@@ -89,7 +107,7 @@ func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID
 		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		URIs:                  []*url.URL{DeployerIdentityURI(clusterID, application)},
+		URIs:                  []*url.URL{applicationIdentityURI(clusterID, application, readOnly)},
 		SubjectKeyId:          keyID,
 		AuthorityKeyId:        append([]byte(nil), ca.SubjectKeyId...),
 		BasicConstraintsValid: true,
@@ -104,25 +122,42 @@ func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID
 // DeployerApplication validates an already chain-verified TLS peer as a
 // deployer for this cluster and returns the one application it may change.
 func DeployerApplication(certificate *x509.Certificate, clusterID string) (string, error) {
+	application, readOnly, err := ApplicationCredential(certificate, clusterID)
+	if err == nil && readOnly {
+		return "", fmt.Errorf("viewer certificate may not deploy")
+	}
+	return application, err
+}
+
+// ApplicationCredential validates an already chain-verified TLS peer as a
+// deployer or viewer for this cluster and returns its one application.
+func ApplicationCredential(certificate *x509.Certificate, clusterID string) (string, bool, error) {
 	if certificate == nil {
-		return "", fmt.Errorf("deployer certificate is missing")
+		return "", false, fmt.Errorf("deployer certificate is missing")
 	}
 	publicKey, ok := certificate.PublicKey.(*ecdsa.PublicKey)
 	if certificate.IsCA || !ok || publicKey.Curve != elliptic.P256() ||
 		!sameUsages(certificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}) {
-		return "", fmt.Errorf("deployer certificate has unexpected constraints or extended key usages")
+		return "", false, fmt.Errorf("deployer certificate has unexpected constraints or extended key usages")
 	}
 	if len(certificate.URIs) != 1 {
-		return "", fmt.Errorf("deployer certificate does not contain exactly one identity")
+		return "", false, fmt.Errorf("deployer certificate does not contain exactly one identity")
 	}
 	uri := certificate.URIs[0]
-	prefix := "/cluster/" + clusterID + "/" + RoleDeployer + "/"
-	if uri.Scheme != "spiffe" || uri.Host != "orch" || !strings.HasPrefix(uri.Path, prefix) {
-		return "", fmt.Errorf("deployer certificate does not contain an identity for this cluster")
+	for _, readOnly := range []bool{false, true} {
+		role := RoleDeployer
+		if readOnly {
+			role = RoleViewer
+		}
+		prefix := "/cluster/" + clusterID + "/" + role + "/"
+		if uri.Scheme != "spiffe" || uri.Host != "orch" || !strings.HasPrefix(uri.Path, prefix) {
+			continue
+		}
+		application := strings.TrimPrefix(uri.Path, prefix)
+		if application == "" || strings.Contains(application, "/") || uri.String() != applicationIdentityURI(clusterID, application, readOnly).String() {
+			return "", false, fmt.Errorf("deployer certificate contains an invalid application")
+		}
+		return application, readOnly, nil
 	}
-	application := strings.TrimPrefix(uri.Path, prefix)
-	if application == "" || strings.Contains(application, "/") || uri.String() != DeployerIdentityURI(clusterID, application).String() {
-		return "", fmt.Errorf("deployer certificate contains an invalid application")
-	}
-	return application, nil
+	return "", false, fmt.Errorf("deployer certificate does not contain an identity for this cluster")
 }

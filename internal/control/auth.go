@@ -30,8 +30,10 @@ type authenticatedPrincipal struct {
 	// application is set for deployer certificates, which may only read and
 	// change this one application.
 	application string
-	err         error
-	code        connect.Code
+	// readOnly is set for viewer certificates, which may only read it.
+	readOnly bool
+	err      error
+	code     connect.Code
 }
 
 func authenticateAgent(clusterID string, state *store.Store, next http.Handler) http.Handler {
@@ -112,12 +114,12 @@ func authenticateAdministrator(clusterID string, next http.Handler) http.Handler
 		default:
 			principal.certificate = request.TLS.PeerCertificates[0]
 			if err := security.VerifyPeerIdentity(principal.certificate, clusterID, security.RoleAdministrator); err != nil {
-				application, deployerErr := security.DeployerApplication(principal.certificate, clusterID)
+				application, readOnly, deployerErr := security.ApplicationCredential(principal.certificate, clusterID)
 				if deployerErr != nil {
 					principal.err = err
 					principal.code = connect.CodePermissionDenied
 				} else {
-					principal.application = application
+					principal.application, principal.readOnly = application, readOnly
 				}
 			}
 		}
@@ -162,6 +164,15 @@ func requireApplicationAccess(ctx context.Context, application string) error {
 	}
 	if allowed != "" && allowed != application {
 		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("deployer credentials are limited to application %s", allowed))
+	}
+	return nil
+}
+
+// requireChange rejects read-only credentials on requests that change an
+// application. Call it after authenticating the request.
+func requireChange(ctx context.Context) error {
+	if principal, ok := ctx.Value(principalKey{}).(authenticatedPrincipal); ok && principal.readOnly {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("this access token is read-only"))
 	}
 	return nil
 }

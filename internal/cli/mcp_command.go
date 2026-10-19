@@ -37,7 +37,8 @@ run validate and plan; deploy with wait=true reports when the rollout is ready.
 rollback returns an application to an earlier revision from app_history.
 
 Remote tools use the selected orch target unless a target is passed; targets
-lists them. Tools marked destructive change or delete running workloads or
+lists them. With an ORCH_TOKEN access token, only the token's one application
+is reachable, so tools for nodes, secrets, logs and the app list are refused. Tools marked destructive change or delete running workloads or
 data; confirm with the person before calling them.`
 
 type mcpParam struct {

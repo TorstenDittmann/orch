@@ -89,6 +89,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runSecret(ctx, args[1:], stdout, stderr)
 	case "registry":
 		return runRegistry(ctx, args[1:], stdout, stderr)
+	case "token":
+		return runToken(ctx, args[1:], stdout, stderr)
 	case "github":
 		return runGitHub(ctx, args[1:], stdout, stderr)
 	case "remove":
@@ -1116,6 +1118,8 @@ Usage:
   orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
   orch github list [--target NAME] [--json]
   orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
+  orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+  orch token list|revoke [NAME] [--target NAME] [--json]
   orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
   orch status [--target NAME] [--json]
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]

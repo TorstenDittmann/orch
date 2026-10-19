@@ -67,6 +67,42 @@ claude mcp add orch-prod -- orch mcp --target production --read-only
 Manifest paths are resolved from the directory the client starts `orch mcp`
 in, which for Claude Code and Cursor is your project.
 
+`--read-only` hides the tools that change things, but the assistant still runs
+with your credentials. For an access limit the controller enforces, give it an
+access token instead.
+
+## Agents on other machines
+
+An agent in a cloud sandbox, on a server, or in CI should not get your
+administrator credentials. Give it an access token for the one application it
+works on:
+
+```console
+$ orch token create --app shop --read-only
+Created token shop-read-only. It can inspect shop until 2026-11-18.
+orch_aHR0cHM6Ly8yMDMuMC4xMTMuMTA6OTQ0MyNzaGEyNTY6…
+```
+
+Set the printed value as `ORCH_TOKEN` where the agent runs. `orch mcp` and
+every other orch command use it automatically, and need no target:
+
+```console
+claude mcp add orch -e ORCH_TOKEN=orch_… -- orch mcp
+```
+
+| Token | What the agent can do |
+| --- | --- |
+| `orch token create --app shop --read-only` | Read `shop`'s status, deployment history, and diffs, and wait for rollouts |
+| `orch token create --app shop` | Also deploy and roll back `shop` |
+
+Nothing else on the cluster is reachable with a token: other applications,
+nodes, secrets, logs, and volumes all answer "permission denied". Tokens
+expire after 30 days unless you pass `--ttl`. `orch token list` shows when each
+was last used, and `orch token revoke NAME` stops one within 15 minutes.
+
+In GitHub Actions you need no token at all: `orch github trust` lets the
+workflow sign in with GitHub's own identity. See [deploy from GitHub](github.md).
+
 ## Tools
 
 Every tool runs the matching CLI command, and most return the same JSON as

@@ -280,6 +280,10 @@ func prepareConnectionArgs(args []string) ([]string, error) {
 	if name == "" {
 		name = os.Getenv("ORCH_TARGET")
 	}
+	if name == "" && os.Getenv("ORCH_TOKEN") != "" {
+		// An agent or script outside the cluster signs in with its access token.
+		return insertContext(cleaned, controlclient.AccessTokenReference), nil
+	}
 	if address := os.Getenv("ORCH_CLUSTER"); name == "" && address != "" {
 		// In GitHub Actions, sign in with the run's identity instead of a target.
 		return insertContext(cleaned, controlclient.GitHubReferencePrefix+address), nil
@@ -330,7 +334,7 @@ func isRemoteCommand(args []string) bool {
 		return true
 	case "volume":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
-	case "github":
+	case "github", "token":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "app":
 		return len(args) > 1 && (args[1] == "list" || args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")

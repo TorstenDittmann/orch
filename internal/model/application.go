@@ -108,6 +108,19 @@ type RemoveApplicationResult struct {
 
 // GitHubTrust lets GitHub Actions runs from one repository, branch and
 // optional environment deploy one application with short-lived credentials.
+// AccessToken lets a holder of its secret deploy, or only inspect, one
+// application until it expires or is deleted.
+type AccessToken struct {
+	ID          string
+	Name        string
+	Application string
+	ReadOnly    bool
+	SecretHash  string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	LastUsedAt  time.Time
+}
+
 type GitHubTrust struct {
 	Repository  string
 	Application string

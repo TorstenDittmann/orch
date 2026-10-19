@@ -54,15 +54,52 @@ func ParseClusterAddress(address string) (string, []byte, error) {
 // connects with it. application may be empty when the repository is trusted
 // for only one application.
 func NewGitHubActions(ctx context.Context, address, application string) (*Client, error) {
+	return newExchangedClient(ctx, address, "github-actions:", func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error) {
+		token, err := githubActionsToken(ctx, os.Getenv, "orch:"+clusterID)
+		if err != nil {
+			return nil, "", err
+		}
+		response, err := credentials.ExchangeGitHubToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeGitHubTokenRequest{
+			Token: token, Application: application, CertificateRequestDer: csrDER,
+		}))
+		if err != nil {
+			return nil, "", fmt.Errorf("sign in from GitHub Actions: %w", err)
+		}
+		return response.Msg.GetCertificatePem(), response.Msg.GetApplication(), nil
+	})
+}
+
+// NewAccessToken signs in with an ORCH_TOKEN value from orch token create:
+// it pins the cluster CA the token names and exchanges the token for a
+// short-lived certificate limited to the token's application.
+func NewAccessToken(ctx context.Context, value string) (*Client, error) {
+	address, credential, err := security.ParseAccessToken(value)
+	if err != nil {
+		return nil, err
+	}
+	return newExchangedClient(ctx, address, "token:", func(credentials orchv1alpha1connect.CredentialServiceClient, _ string, csrDER []byte) ([]byte, string, error) {
+		response, err := credentials.ExchangeAccessToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeAccessTokenRequest{
+			Token: credential, CertificateRequestDer: csrDER,
+		}))
+		if err != nil {
+			return nil, "", fmt.Errorf("sign in with ORCH_TOKEN: %w", err)
+		}
+		return response.Msg.GetCertificatePem(), response.Msg.GetApplication(), nil
+	})
+}
+
+// exchange trades proof of identity and a CSR for a certificate PEM and the
+// application it is limited to.
+type exchange func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error)
+
+// newExchangedClient pins the CA of the cluster at address, obtains a
+// short-lived certificate through exchange, and connects with it.
+func newExchangedClient(ctx context.Context, address, label string, exchange exchange) (*Client, error) {
 	endpoint, fingerprint, err := ParseClusterAddress(address)
 	if err != nil {
 		return nil, err
 	}
 	caPEM, clusterID, err := security.FetchPinnedCA(ctx, endpoint, fingerprint)
-	if err != nil {
-		return nil, err
-	}
-	token, err := githubActionsToken(ctx, os.Getenv, "orch:"+clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,13 +123,11 @@ func NewGitHubActions(ctx context.Context, address, application string) (*Client
 	if err != nil {
 		return nil, err
 	}
-	response, err := orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint).ExchangeGitHubToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeGitHubTokenRequest{
-		Token: token, Application: application, CertificateRequestDer: csrDER,
-	}))
+	certificatePEM, application, err := exchange(orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint), clusterID, csrDER)
 	if err != nil {
-		return nil, fmt.Errorf("sign in from GitHub Actions: %w", err)
+		return nil, err
 	}
-	pair, err := tls.X509KeyPair(response.Msg.GetCertificatePem(), keyPEM)
+	pair, err := tls.X509KeyPair(certificatePEM, keyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
 	}
@@ -105,7 +140,7 @@ func NewGitHubActions(ctx context.Context, address, application string) (*Client
 		Context:     clusterctl.LocalContext{Version: clusterctl.ContextVersion, Cluster: clusterctl.ContextCluster{ID: clusterID}, Server: endpoint},
 		Certificate: pair, RootCAs: roots, ServerName: server.Hostname(), CACertificatePEM: caPEM,
 	}
-	return newCertificateClient(Endpoint{Target: "github-actions:" + response.Msg.GetApplication(), Transport: target.Transport{Type: target.TransportDirect}}, credentials)
+	return newCertificateClient(Endpoint{Target: label + application, Transport: target.Transport{Type: target.TransportDirect}}, credentials)
 }
 
 // githubTokenClient fetches OIDC tokens from the Actions runtime.
@@ -146,6 +181,32 @@ func githubActionsToken(ctx context.Context, getenv func(string) string, audienc
 		return "", errors.New("GitHub returned no OIDC token")
 	}
 	return body.Value, nil
+}
+
+func (client *Client) CreateAccessToken(ctx context.Context, name, application string, readOnly bool, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
+	response, err := client.service.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{
+		Name: name, Application: application, ReadOnly: readOnly, TtlSeconds: uint32(lifetime / time.Second),
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+func (client *Client) ListAccessTokens(ctx context.Context) ([]*orchv1alpha1.AccessToken, error) {
+	response, err := client.service.ListAccessTokens(ctx, connect.NewRequest(&orchv1alpha1.ListAccessTokensRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg.GetTokens(), nil
+}
+
+func (client *Client) DeleteAccessToken(ctx context.Context, name string) (bool, error) {
+	response, err := client.service.DeleteAccessToken(ctx, connect.NewRequest(&orchv1alpha1.DeleteAccessTokenRequest{Name: name}))
+	if err != nil {
+		return false, err
+	}
+	return response.Msg.GetChanged(), nil
 }
 
 func (client *Client) SetGitHubTrust(ctx context.Context, repository, application, branch, environment string) (*orchv1alpha1.SetGitHubTrustResponse, error) {

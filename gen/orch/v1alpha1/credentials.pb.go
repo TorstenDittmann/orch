@@ -144,6 +144,127 @@ func (x *ExchangeGitHubTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type ExchangeAccessTokenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The ID and secret parts of an access token.
+	Token                 string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	CertificateRequestDer []byte `protobuf:"bytes,2,opt,name=certificate_request_der,json=certificateRequestDer,proto3" json:"certificate_request_der,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *ExchangeAccessTokenRequest) Reset() {
+	*x = ExchangeAccessTokenRequest{}
+	mi := &file_orch_v1alpha1_credentials_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeAccessTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeAccessTokenRequest) ProtoMessage() {}
+
+func (x *ExchangeAccessTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_credentials_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeAccessTokenRequest.ProtoReflect.Descriptor instead.
+func (*ExchangeAccessTokenRequest) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_credentials_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ExchangeAccessTokenRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ExchangeAccessTokenRequest) GetCertificateRequestDer() []byte {
+	if x != nil {
+		return x.CertificateRequestDer
+	}
+	return nil
+}
+
+type ExchangeAccessTokenResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Application    string                 `protobuf:"bytes,1,opt,name=application,proto3" json:"application,omitempty"`
+	ReadOnly       bool                   `protobuf:"varint,2,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	CertificatePem []byte                 `protobuf:"bytes,3,opt,name=certificate_pem,json=certificatePem,proto3" json:"certificate_pem,omitempty"`
+	ExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ExchangeAccessTokenResponse) Reset() {
+	*x = ExchangeAccessTokenResponse{}
+	mi := &file_orch_v1alpha1_credentials_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExchangeAccessTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExchangeAccessTokenResponse) ProtoMessage() {}
+
+func (x *ExchangeAccessTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orch_v1alpha1_credentials_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExchangeAccessTokenResponse.ProtoReflect.Descriptor instead.
+func (*ExchangeAccessTokenResponse) Descriptor() ([]byte, []int) {
+	return file_orch_v1alpha1_credentials_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ExchangeAccessTokenResponse) GetApplication() string {
+	if x != nil {
+		return x.Application
+	}
+	return ""
+}
+
+func (x *ExchangeAccessTokenResponse) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
+}
+
+func (x *ExchangeAccessTokenResponse) GetCertificatePem() []byte {
+	if x != nil {
+		return x.CertificatePem
+	}
+	return nil
+}
+
+func (x *ExchangeAccessTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
 var File_orch_v1alpha1_credentials_proto protoreflect.FileDescriptor
 
 const file_orch_v1alpha1_credentials_proto_rawDesc = "" +
@@ -157,9 +278,19 @@ const file_orch_v1alpha1_credentials_proto_rawDesc = "" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12'\n" +
 	"\x0fcertificate_pem\x18\x02 \x01(\fR\x0ecertificatePem\x129\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\x81\x01\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"j\n" +
+	"\x1aExchangeAccessTokenRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x126\n" +
+	"\x17certificate_request_der\x18\x02 \x01(\fR\x15certificateRequestDer\"\xc0\x01\n" +
+	"\x1bExchangeAccessTokenResponse\x12 \n" +
+	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x1b\n" +
+	"\tread_only\x18\x02 \x01(\bR\breadOnly\x12'\n" +
+	"\x0fcertificate_pem\x18\x03 \x01(\fR\x0ecertificatePem\x129\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\xef\x01\n" +
 	"\x11CredentialService\x12l\n" +
-	"\x13ExchangeGitHubToken\x12).orch.v1alpha1.ExchangeGitHubTokenRequest\x1a*.orch.v1alpha1.ExchangeGitHubTokenResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
+	"\x13ExchangeGitHubToken\x12).orch.v1alpha1.ExchangeGitHubTokenRequest\x1a*.orch.v1alpha1.ExchangeGitHubTokenResponse\x12l\n" +
+	"\x13ExchangeAccessToken\x12).orch.v1alpha1.ExchangeAccessTokenRequest\x1a*.orch.v1alpha1.ExchangeAccessTokenResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"
 
 var (
 	file_orch_v1alpha1_credentials_proto_rawDescOnce sync.Once
@@ -173,21 +304,26 @@ func file_orch_v1alpha1_credentials_proto_rawDescGZIP() []byte {
 	return file_orch_v1alpha1_credentials_proto_rawDescData
 }
 
-var file_orch_v1alpha1_credentials_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_orch_v1alpha1_credentials_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_orch_v1alpha1_credentials_proto_goTypes = []any{
 	(*ExchangeGitHubTokenRequest)(nil),  // 0: orch.v1alpha1.ExchangeGitHubTokenRequest
 	(*ExchangeGitHubTokenResponse)(nil), // 1: orch.v1alpha1.ExchangeGitHubTokenResponse
-	(*timestamppb.Timestamp)(nil),       // 2: google.protobuf.Timestamp
+	(*ExchangeAccessTokenRequest)(nil),  // 2: orch.v1alpha1.ExchangeAccessTokenRequest
+	(*ExchangeAccessTokenResponse)(nil), // 3: orch.v1alpha1.ExchangeAccessTokenResponse
+	(*timestamppb.Timestamp)(nil),       // 4: google.protobuf.Timestamp
 }
 var file_orch_v1alpha1_credentials_proto_depIdxs = []int32{
-	2, // 0: orch.v1alpha1.ExchangeGitHubTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
-	0, // 1: orch.v1alpha1.CredentialService.ExchangeGitHubToken:input_type -> orch.v1alpha1.ExchangeGitHubTokenRequest
-	1, // 2: orch.v1alpha1.CredentialService.ExchangeGitHubToken:output_type -> orch.v1alpha1.ExchangeGitHubTokenResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	4, // 0: orch.v1alpha1.ExchangeGitHubTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	4, // 1: orch.v1alpha1.ExchangeAccessTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0, // 2: orch.v1alpha1.CredentialService.ExchangeGitHubToken:input_type -> orch.v1alpha1.ExchangeGitHubTokenRequest
+	2, // 3: orch.v1alpha1.CredentialService.ExchangeAccessToken:input_type -> orch.v1alpha1.ExchangeAccessTokenRequest
+	1, // 4: orch.v1alpha1.CredentialService.ExchangeGitHubToken:output_type -> orch.v1alpha1.ExchangeGitHubTokenResponse
+	3, // 5: orch.v1alpha1.CredentialService.ExchangeAccessToken:output_type -> orch.v1alpha1.ExchangeAccessTokenResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_credentials_proto_init() }
@@ -201,7 +337,7 @@ func file_orch_v1alpha1_credentials_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_credentials_proto_rawDesc), len(file_orch_v1alpha1_credentials_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
