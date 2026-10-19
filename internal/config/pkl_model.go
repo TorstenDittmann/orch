@@ -104,6 +104,7 @@ type pklDeployment struct {
 	MaxUnavailable int               `pkl:"maxUnavailable"`
 	HealthDeadline string            `pkl:"healthDeadline"`
 	AutoRollback   bool              `pkl:"autoRollback"`
+	AutoUpdate     bool              `pkl:"autoUpdate"`
 }
 
 func resolvePkl(doc pklDocument) *Manifest {
@@ -118,6 +119,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			MaxUnavailable: doc.Deploy.MaxUnavailable,
 			HealthDeadline: doc.Deploy.HealthDeadline,
 			AutoRollback:   doc.Deploy.AutoRollback,
+			AutoUpdate:     doc.Deploy.AutoUpdate,
 		},
 	}
 	if hook := doc.Deploy.PreDeploy; hook != nil {

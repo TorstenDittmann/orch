@@ -52,6 +52,23 @@ func TestLoadAppliesDefaultsAndNormalizes(t *testing.T) {
 	if manifest.Deploy.HealthDeadline != DefaultHealthDeadline || !manifest.Deploy.AutoRollback {
 		t.Fatalf("unexpected deployment defaults: %#v", manifest.Deploy)
 	}
+	if manifest.Deploy.AutoUpdate {
+		t.Fatal("autoUpdate is on by default")
+	}
+}
+
+func TestLoadAutoUpdate(t *testing.T) {
+	manifest := loadManifest(t, validManifest+"\ndeploy {\n  autoUpdate = true\n}\n")
+	if !manifest.Deploy.AutoUpdate {
+		t.Fatal("autoUpdate was dropped")
+	}
+	canonical, err := CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseCanonicalJSON(canonical); err != nil || !strings.Contains(string(canonical), `"auto_update": true`) {
+		t.Fatalf("canonical round trip: %v", err)
+	}
 }
 
 func TestLoadRejectsUnknownFields(t *testing.T) {

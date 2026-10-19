@@ -58,5 +58,6 @@ facts {
     deployment.maxUnavailable == 0
     deployment.healthDeadline == "2m"
     deployment.autoRollback
+    !deployment.autoUpdate
   }
 }

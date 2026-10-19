@@ -69,6 +69,37 @@ The `deploy` block controls rollout capacity and deadline. With
 Existing instances stay available within the configured availability budget
 while replacements become ready.
 
+## Automatic image updates
+
+With `autoUpdate = true`, the controller checks the registry every five
+minutes for the image tags in the current deployment, such as
+`ghcr.io/acme/hello:main`. When a tag points to a new digest, it rolls out a
+new revision the same way `orch deploy` would, with the same health checks and
+automatic rollback:
+
+```pkl
+services {
+  ["web"] {
+    image = "ghcr.io/acme/hello:main"
+  }
+}
+
+deploy {
+  autoUpdate = true
+}
+```
+
+CI then only pushes the image, and nothing has to reach the controller. The
+cluster needs outbound access to the registry, plus
+[registry credentials](cli.md#orch-registry) for a private image.
+
+- Images pinned by digest are never changed.
+- A revision that failed is not retried; the next update waits for the tag to
+  move again.
+- `orch rollback` pauses updates, so they never undo a rollback. The next
+  `orch deploy` turns them back on.
+- History shows these deployments as `by auto-update`.
+
 ## Rollbacks
 
 List deployment history and compare revisions before restoring one:

@@ -173,6 +173,12 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 		if sourceDigest != input.Digest || sourceGeneration >= current.Generation {
 			return model.ApplyApplicationResult{}, ErrRollbackSource
 		}
+	} else if input.ExpectedGeneration != 0 {
+		// Background image updates must not replace a deploy that landed
+		// after they read the application.
+		if errors.Is(err, ErrApplicationNotFound) || current.DeletedAt != nil || current.Generation != input.ExpectedGeneration {
+			return model.ApplyApplicationResult{}, ErrGenerationConflict
+		}
 	}
 	sameIntent := current.Digest == input.Digest && current.DeletedAt == nil && input.RollbackFromRevisionID == ""
 	if sameIntent {
