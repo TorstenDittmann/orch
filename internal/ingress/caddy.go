@@ -170,18 +170,15 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 		_ = os.Remove(candidatePath)
 		return applyFailure(routes, now, "caddy_validation_failed", err)
 	}
-	if err := c.load(ctx, configuration); err != nil {
-		_ = os.Remove(candidatePath)
-		return applyFailure(routes, now, "caddy_load_failed", err)
+	if reason, err := c.loadCandidate(ctx, configuration); err != nil {
+		// A timeout is ambiguous: Caddy may already have applied the config.
+		// Keep its fingerprint so the next pass can authenticate and adopt it.
+		return applyFailure(routes, now, reason, err)
 	}
 	// Caddy accepted the configuration, so it is kept even when individual
 	// routes do not probe healthy yet: reverting would take every other route
 	// on the node down with it and restart pending ACME issuance. Only a Caddy
 	// that stops serving is rolled back, by restarting from the accepted file.
-	if err := c.ping(ctx); err != nil {
-		_ = os.Remove(candidatePath)
-		return applyFailure(routes, now, "caddy_unavailable", err)
-	}
 	if err := publishProcessFile(filepath.Join(c.options.DataDir, "config.json"), configuration, c.identity, 0o600); err != nil {
 		if restoreErr := c.restoreAcceptedConfiguration(acceptedConfiguration); restoreErr != nil {
 			return nil, fmt.Errorf("persist accepted Caddy configuration: %w; restore prior configuration: %v", err, restoreErr)
@@ -426,6 +423,17 @@ func (c *Caddy) validateLiveConfiguration(ctx context.Context) error {
 			return fmt.Errorf("durable Caddy configuration %q is invalid: %w", name, err)
 		}
 		if bytes.Equal(canonicalLive, canonicalDurable) {
+			if name == "candidate-config.json" {
+				// Finish an interrupted load before another candidate can replace
+				// its only durable fingerprint. The live config has been matched
+				// against root-owned state, not adopted from arbitrary admin data.
+				if err := publishProcessFile(filepath.Join(c.options.DataDir, "config.json"), durable, c.identity, 0o600); err != nil {
+					return fmt.Errorf("persist recovered Caddy configuration: %w", err)
+				}
+				if err := promoteAgentFile(filepath.Join(c.options.StateDir, name), filepath.Join(c.options.StateDir, "accepted-config.json")); err != nil {
+					return fmt.Errorf("accept recovered Caddy configuration: %w", err)
+				}
+			}
 			return nil
 		}
 	}
@@ -466,6 +474,16 @@ func (c *Caddy) startFailure(err error) error {
 	}
 	c.nextStart = c.now().UTC().Add(time.Second * time.Duration(1<<exponent))
 	return err
+}
+
+func (c *Caddy) loadCandidate(ctx context.Context, configuration []byte) (string, error) {
+	if err := c.load(ctx, configuration); err != nil {
+		return "caddy_load_failed", err
+	}
+	if err := c.ping(ctx); err != nil {
+		return "caddy_unavailable", err
+	}
+	return "", nil
 }
 
 func (c *Caddy) load(ctx context.Context, configuration []byte) error {
