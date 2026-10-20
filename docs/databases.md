@@ -1,8 +1,8 @@
 # Databases
 
 Declare a database in `orch.pkl` and orch runs it for you. It generates the
-credentials, gives your services a connection URL, and backs the data up every
-night.
+credentials, gives your services a connection URL, and backs the data up when
+you ask it to.
 
 ```pkl
 amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
@@ -22,8 +22,10 @@ services {
 }
 
 databases {
-  ["main"] = new Postgres {}
-  ["cache"] = new Redis { backup = null }
+  ["main"] = new Postgres {
+    backup = new DatabaseBackup {}
+  }
+  ["cache"] = new Redis {}
 }
 ```
 
@@ -50,7 +52,7 @@ Every engine accepts the same fields:
 | `image` | String? | `null` | Full image reference instead, for a mirror or a compatible build; `version` is then only shown, not used |
 | `resources` | `Resources` | `100m` CPU; 256Mi for Postgres and MariaDB, 512Mi for MySQL and MongoDB, 128Mi otherwise | See [Resources](manifest.md#resources) |
 | `constraints` | `Mapping<String, String>` | empty | Node labels the database's node must have |
-| `backup` | `DatabaseBackup?` | daily at 03:00 UTC, keep 7 | `null` turns backups off |
+| `backup` | `DatabaseBackup?` | `null`, no backups | Set it to back the database up on a schedule |
 
 `DatabaseBackup` has `schedule` (five UTC cron fields, default `"0 3 * * *"`)
 and `keep` (1 to 365, default 7).
@@ -98,7 +100,18 @@ empty volume, so changing it later means changing it inside the database too.
 
 ## Backups
 
-Backups are on by default and run on the database's node.
+Backups are off until you add a `backup`:
+
+```pkl
+["main"] = new Postgres {
+  backup = new DatabaseBackup {
+    schedule = "0 */6 * * *"
+    keep = 14
+  }
+}
+```
+
+They run on the database's node.
 
 - **Dump engines** write a fresh dump into the `main-backup` volume, then orch
   archives that volume. A dump is consistent even while the database takes

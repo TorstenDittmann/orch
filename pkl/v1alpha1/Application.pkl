@@ -240,8 +240,9 @@ abstract class Database {
   /// its data.
   constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
 
-  /// Backs up the database on its node. Set to `null` to turn backups off.
-  backup: DatabaseBackup? = new {}
+  /// Backs up the database on its node on a schedule. Off unless set, for
+  /// example `backup = new DatabaseBackup {}` for nightly backups.
+  backup: DatabaseBackup? = null
 }
 
 class DatabaseBackup {

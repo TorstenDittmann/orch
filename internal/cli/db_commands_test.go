@@ -110,7 +110,7 @@ func TestDatabaseCLIThroughControllerAndAgent(t *testing.T) {
 	file := writeManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 name = "shop"
 databases {
-  ["main"] = new Postgres { image = "postgres@sha256:`+strings.Repeat("b", 64)+`"; backup { keep = 3 } }
+  ["main"] = new Postgres { image = "postgres@sha256:`+strings.Repeat("b", 64)+`"; backup = new DatabaseBackup { keep = 3 } }
 }
 `)
 	invoke(ExitOK, "deploy", "-f", file)

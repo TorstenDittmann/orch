@@ -538,7 +538,7 @@ Changing `backup` never restarts the service. See
 
 `Postgres`, `MySQL`, `MariaDB`, `MongoDB`, `Redis` and `LibSQL` each run that
 engine as a service of the same name, with a `NAME-data` volume, generated
-credentials and nightly backups. Names are at most 54 characters.
+credentials and optional scheduled backups. Names are at most 54 characters.
 
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
@@ -546,12 +546,15 @@ credentials and nightly backups. Names are at most 54 characters.
 | `image` | String? | `null` | Full image reference instead |
 | `resources` | `Resources` | per engine | |
 | `constraints` | `Mapping<String, String>` | empty | Node labels |
-| `backup` | `DatabaseBackup?` | `schedule = "0 3 * * *"`, `keep = 7` | `null` turns backups off |
+| `backup` | `DatabaseBackup?` | `null` | `new DatabaseBackup {}` backs up at 03:00 UTC and keeps 7 |
 
 ```pkl
 databases {
-  ["main"] = new Postgres { version = "17" }
-  ["cache"] = new Redis { backup = null }
+  ["main"] = new Postgres {
+    version = "17"
+    backup = new DatabaseBackup {}
+  }
+  ["cache"] = new Redis {}
 }
 ```
 

@@ -25,9 +25,9 @@ services {
 }
 
 databases {
-  ["main"] = new Postgres { backup { keep = 3 } }
-  ["cache"] = new Redis { backup = null }
-  ["edge"] = new LibSQL { constraints { ["disk"] = "ssd" } }
+  ["main"] = new Postgres { backup = new DatabaseBackup { keep = 3 } }
+  ["cache"] = new Redis {}
+  ["edge"] = new LibSQL { constraints { ["disk"] = "ssd" }; backup = new DatabaseBackup {} }
 }
 `
 
@@ -103,7 +103,7 @@ func TestLoadRejectsDatabaseNameCollisions(t *testing.T) {
 		"service": `services { ["main"] { image = "example/web:1" } }
 databases { ["main"] = new Postgres {} }`,
 		"volume": `services { ["web"] { image = "example/web:1" } }
-volumes { ["main-backup"] {} }
+volumes { ["main-data"] {} }
 databases { ["main"] = new MySQL {} }`,
 	} {
 		t.Run(name, func(t *testing.T) {

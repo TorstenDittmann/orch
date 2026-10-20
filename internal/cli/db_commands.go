@@ -124,7 +124,7 @@ func findDatabase(ctx context.Context, remote *controlclient.Client, application
 
 func backupVolumeOf(database dbOutput) (string, error) {
 	if database.BackupVolume == "" {
-		return "", fmt.Errorf("backups are off for database %s; remove `backup = null` from it in orch.pkl to turn them on", database.Database)
+		return "", fmt.Errorf("backups are off for database %s; add `backup = new DatabaseBackup {}` to it in orch.pkl to turn them on", database.Database)
 	}
 	return database.BackupVolume, nil
 }

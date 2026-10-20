@@ -23,7 +23,10 @@ local cronJob = new app.CronJob {
 
 local postgres = new app.Postgres {}
 
-local redis = new app.Redis { backup = null; resources { cpu = "1" } }
+local redis = new app.Redis {
+  backup = new app.DatabaseBackup { keep = 3 }
+  resources { cpu = "1" }
+}
 
 facts {
   ["service defaults"] {
@@ -70,10 +73,10 @@ facts {
     postgres.image == null
     postgres.resources.memory == "256Mi"
     postgres.resources.cpu == "100m"
-    postgres.backup.schedule == "0 3 * * *"
-    postgres.backup.keep == 7
+    postgres.backup == null
     redis.engine == "redis"
-    redis.backup == null
+    redis.backup.schedule == "0 3 * * *"
+    redis.backup.keep == 3
     redis.resources.cpu == "1"
     redis.resources.memory == "128Mi"
   }
