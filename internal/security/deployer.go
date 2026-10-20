@@ -70,7 +70,26 @@ func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID
 // SignApplicationCertificate signs a deployer certificate, or with readOnly a
 // viewer certificate that may only read the application.
 func SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, readOnly bool, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
-	if clusterID == "" || application == "" || strings.Contains(application, "/") || now.IsZero() || random == nil {
+	if application == "" || strings.Contains(application, "/") {
+		return nil, time.Time{}, fmt.Errorf("cluster, application, current time, and random source are required")
+	}
+	return signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, "orch-deployer-"+application,
+		applicationIdentityURI(clusterID, application, readOnly), csrDER, now, random)
+}
+
+// SignAdministratorCertificate signs a short-lived administrator certificate
+// for an administrator access token. It carries the same identity as the
+// administrator certificate in a context file, so it may do everything an
+// administrator can, but only until it expires.
+func SignAdministratorCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID string, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
+	return signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, "orch-"+RoleAdministrator,
+		IdentityURI(clusterID, RoleAdministrator), csrDER, now, random)
+}
+
+// signShortLivedCertificate signs only the validated CSR public key with one
+// identity URI. Requested SANs and extensions are deliberately ignored.
+func signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, commonName string, identity *url.URL, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
+	if clusterID == "" || now.IsZero() || random == nil {
 		return nil, time.Time{}, fmt.Errorf("cluster, application, current time, and random source are required")
 	}
 	if _, err := AgentCSRPublicKeyHash(csrDER); err != nil {
@@ -102,12 +121,12 @@ func SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM []byte, cluste
 	}
 	template := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "orch-deployer-" + application, Organization: []string{"orch"}},
+		Subject:               pkix.Name{CommonName: commonName, Organization: []string{"orch"}},
 		NotBefore:             now.UTC().Add(-time.Minute),
 		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		URIs:                  []*url.URL{applicationIdentityURI(clusterID, application, readOnly)},
+		URIs:                  []*url.URL{identity},
 		SubjectKeyId:          keyID,
 		AuthorityKeyId:        append([]byte(nil), ca.SubjectKeyId...),
 		BasicConstraintsValid: true,

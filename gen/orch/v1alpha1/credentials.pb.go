@@ -203,8 +203,11 @@ type ExchangeAccessTokenResponse struct {
 	ReadOnly       bool                   `protobuf:"varint,2,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	CertificatePem []byte                 `protobuf:"bytes,3,opt,name=certificate_pem,json=certificatePem,proto3" json:"certificate_pem,omitempty"`
 	ExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Set when the certificate is an administrator certificate; application
+	// is then empty.
+	Administrator bool `protobuf:"varint,5,opt,name=administrator,proto3" json:"administrator,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExchangeAccessTokenResponse) Reset() {
@@ -265,6 +268,13 @@ func (x *ExchangeAccessTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ExchangeAccessTokenResponse) GetAdministrator() bool {
+	if x != nil {
+		return x.Administrator
+	}
+	return false
+}
+
 var File_orch_v1alpha1_credentials_proto protoreflect.FileDescriptor
 
 const file_orch_v1alpha1_credentials_proto_rawDesc = "" +
@@ -281,13 +291,14 @@ const file_orch_v1alpha1_credentials_proto_rawDesc = "" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"j\n" +
 	"\x1aExchangeAccessTokenRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x126\n" +
-	"\x17certificate_request_der\x18\x02 \x01(\fR\x15certificateRequestDer\"\xc0\x01\n" +
+	"\x17certificate_request_der\x18\x02 \x01(\fR\x15certificateRequestDer\"\xe6\x01\n" +
 	"\x1bExchangeAccessTokenResponse\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x1b\n" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\x12'\n" +
 	"\x0fcertificate_pem\x18\x03 \x01(\fR\x0ecertificatePem\x129\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\xef\x01\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12$\n" +
+	"\radministrator\x18\x05 \x01(\bR\radministrator2\xef\x01\n" +
 	"\x11CredentialService\x12l\n" +
 	"\x13ExchangeGitHubToken\x12).orch.v1alpha1.ExchangeGitHubTokenRequest\x1a*.orch.v1alpha1.ExchangeGitHubTokenResponse\x12l\n" +
 	"\x13ExchangeAccessToken\x12).orch.v1alpha1.ExchangeAccessTokenRequest\x1a*.orch.v1alpha1.ExchangeAccessTokenResponseB@Z>github.com/TorstenDittmann/orch/gen/orch/v1alpha1;orchv1alpha1b\x06proto3"

@@ -76,6 +76,36 @@ func TestViewerCertificateIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestShortLivedAdministratorCertificate(t *testing.T) {
+	now := time.Now()
+	bundle, err := Generate(GenerateOptions{ClusterID: "cluster-one", ClusterName: "test", Server: "https://127.0.0.1", Now: now, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, _, err := GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePEM, notAfter, err := SignAdministratorCertificate(bundle.CACertificatePEM, bundle.CAPrivateKeyPEM, "cluster-one", csr, now, rand.Reader)
+	if err != nil || notAfter.Sub(now) != DeployerCertificateLifetime {
+		t.Fatalf("SignAdministratorCertificate() = %v, %v", notAfter, err)
+	}
+	block, _ := pem.Decode(certificatePEM)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPeerIdentity(certificate, "cluster-one", RoleAdministrator); err != nil {
+		t.Fatalf("administrator certificate rejected: %v", err)
+	}
+	if err := VerifyPeerIdentity(certificate, "cluster-two", RoleAdministrator); err == nil {
+		t.Fatal("administrator certificate accepted for another cluster")
+	}
+	if _, _, err := ApplicationCredential(certificate, "cluster-one"); err == nil {
+		t.Fatal("administrator certificate accepted as an application credential")
+	}
+}
+
 func TestAccessTokenRoundTrip(t *testing.T) {
 	id, secret, hash, err := NewAccessTokenSecret(rand.Reader)
 	if err != nil || hash != AccessTokenSecretHash(secret) {

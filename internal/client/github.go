@@ -71,7 +71,8 @@ func NewGitHubActions(ctx context.Context, address, application string) (*Client
 
 // NewAccessToken signs in with an ORCH_TOKEN value from orch token create:
 // it pins the cluster CA the token names and exchanges the token for a
-// short-lived certificate limited to the token's application.
+// short-lived certificate limited to the token's application, or an
+// administrator certificate for an administrator token.
 func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 	address, credential, err := security.ParseAccessToken(value)
 	if err != nil {
@@ -84,7 +85,11 @@ func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 		if err != nil {
 			return nil, "", fmt.Errorf("sign in with ORCH_TOKEN: %w", err)
 		}
-		return response.Msg.GetCertificatePem(), response.Msg.GetApplication(), nil
+		application := response.Msg.GetApplication()
+		if response.Msg.GetAdministrator() {
+			application = "administrator"
+		}
+		return response.Msg.GetCertificatePem(), application, nil
 	})
 }
 
@@ -186,6 +191,18 @@ func githubActionsToken(ctx context.Context, getenv func(string) string, audienc
 func (client *Client) CreateAccessToken(ctx context.Context, name, application string, readOnly bool, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
 	response, err := client.service.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{
 		Name: name, Application: application, ReadOnly: readOnly, TtlSeconds: uint32(lifetime / time.Second),
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+// CreateAdministratorAccessToken creates a token that grants full
+// administrator access, for tools that manage the whole cluster.
+func (client *Client) CreateAdministratorAccessToken(ctx context.Context, name string, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
+	response, err := client.service.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{
+		Name: name, Administrator: true, TtlSeconds: uint32(lifetime / time.Second),
 	}))
 	if err != nil {
 		return nil, err

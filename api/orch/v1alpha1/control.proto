@@ -872,13 +872,20 @@ message AccessToken {
   google.protobuf.Timestamp created_at = 4;
   google.protobuf.Timestamp expires_at = 5;
   google.protobuf.Timestamp last_used_at = 6;
+  // Set for tokens that grant full administrator access instead of one
+  // application; application is then empty.
+  bool administrator = 7;
 }
 
 message CreateAccessTokenRequest {
   string name = 1;
+  // Required unless administrator is set.
   string application = 2;
   bool read_only = 3;
   uint32 ttl_seconds = 4;
+  // Grant full administrator access, for tools such as orch panel that
+  // manage the whole cluster. Excludes application and read_only.
+  bool administrator = 5;
 }
 
 message CreateAccessTokenResponse {

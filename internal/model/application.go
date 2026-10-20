@@ -109,7 +109,8 @@ type RemoveApplicationResult struct {
 // GitHubTrust lets GitHub Actions runs from one repository, branch and
 // optional environment deploy one application with short-lived credentials.
 // AccessToken lets a holder of its secret deploy, or only inspect, one
-// application until it expires or is deleted.
+// application until it expires or is deleted. A token without an
+// application is an administrator token for the whole cluster.
 type AccessToken struct {
 	ID          string
 	Name        string
@@ -120,6 +121,10 @@ type AccessToken struct {
 	ExpiresAt   time.Time
 	LastUsedAt  time.Time
 }
+
+// Administrator reports whether the token grants administrator access
+// instead of access to one application.
+func (token AccessToken) Administrator() bool { return token.Application == "" }
 
 type GitHubTrust struct {
 	Repository  string
