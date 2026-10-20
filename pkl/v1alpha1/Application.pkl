@@ -71,6 +71,19 @@ class Service {
   /// daemon. A privileged replica can take over its node. Only administrator
   /// credentials may deploy an application that sets it.
   privileged: Boolean = false
+
+  /// Adds and removes replicas to keep average CPU use near a target. Leave
+  /// `replicas` unset when this is set; `min` is the starting count.
+  autoscale: Autoscale? = null
+}
+
+class Autoscale {
+  min: Int(isBetween(1, 100)) = 1
+
+  max: Int(isBetween(min, 100))
+
+  /// Target average CPU use of each replica, as a percent of `resources.cpu`.
+  cpuPercent: Int(isBetween(10, 100)) = 70
 }
 
 class Resources {

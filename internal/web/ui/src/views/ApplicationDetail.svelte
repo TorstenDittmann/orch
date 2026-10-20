@@ -4,7 +4,7 @@
 	import Empty from '../components/Empty.svelte';
 	import Status from '../components/Status.svelte';
 	import { api } from '../lib/api';
-	import { ago, datetime, label, pretty, short } from '../lib/format';
+	import { ago, cores, datetime, label, pretty, short } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { ask, live, openLogs, toast } from '../lib/state.svelte';
 	import type { Application, Comparison, Deployment, JobRun } from '../lib/types';
@@ -197,13 +197,38 @@
 				</div>
 			{/if}
 
+			{#if app?.autoscale?.length}
+				<section class="panel spaced">
+					<div class="panel-head"><h2>Autoscaling</h2><span class="hint">CPU of ready replicas against each service's target</span></div>
+					<div class="table-wrap">
+						<table class="data">
+							<thead>
+								<tr><th>Service</th><th class="num">Replicas</th><th class="num">Range</th><th class="num">CPU</th><th class="num">Target</th><th>Note</th></tr>
+							</thead>
+							<tbody>
+								{#each app.autoscale as scale (scale.service)}
+									<tr>
+										<td class="primary-cell">{scale.service}</td>
+										<td class="num">{scale.replicas}</td>
+										<td class="num faint">{scale.min}–{scale.max}</td>
+										<td class="num" class:warn={(scale.cpuPercent ?? 0) > scale.cpuTargetPercent}>{scale.cpuPercent === undefined ? '—' : `${scale.cpuPercent}%`}</td>
+										<td class="num faint">{scale.cpuTargetPercent}%</td>
+										<td class="wrap">{scale.limited || ''}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</section>
+			{/if}
+
 			<section class="panel spaced">
 				<div class="panel-head"><h2>Replicas</h2><span class="hint">{allocations.length} placed</span></div>
 				{#if allocations.length}
 					<div class="table-wrap">
 						<table class="data">
 							<thead>
-								<tr><th>Service</th><th>Replica</th><th>Phase</th><th>Health</th><th>Node</th><th>Address</th><th class="num">Restarts</th><th>Ready</th><th>Message</th><th></th></tr>
+								<tr><th>Service</th><th>Replica</th><th>Phase</th><th>Health</th><th>Node</th><th>Address</th><th class="num">CPU cores</th><th class="num">Restarts</th><th>Ready</th><th>Message</th><th></th></tr>
 							</thead>
 							<tbody>
 								{#each allocations as allocation (allocation.id || allocation.service + allocation.replica)}
@@ -214,6 +239,7 @@
 										<td><Status value={allocation.healthStatus} /></td>
 										<td>{#if allocation.nodeName}<a class="link" href={href('nodes', allocation.nodeName)}>{allocation.nodeName}</a>{:else}<span class="faint">unplaced</span>{/if}</td>
 										<td class="mono faint">{allocation.address || '—'}</td>
+										<td class="num faint">{app?.allocationCpuMillis?.[allocation.id] === undefined ? '—' : cores(app.allocationCpuMillis[allocation.id])}</td>
 										<td class="num" class:warn={allocation.restartCount > 0}>{allocation.restartCount}</td>
 										<td class="faint">{ago(allocation.readyAt, live.now)}</td>
 										<td class="wrap">{allocation.message || allocation.reason || allocation.placementReason}</td>

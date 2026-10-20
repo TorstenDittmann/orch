@@ -107,6 +107,18 @@ export interface Application extends ApplicationSummary {
 	tcpRoutes: TCPRoute[];
 	nodePorts: NodePort[];
 	cronJobs: CronJob[];
+	autoscale?: ServiceAutoscale[];
+	allocationCpuMillis?: Record<string, string>;
+}
+
+export interface ServiceAutoscale {
+	service: string;
+	replicas: number;
+	min: number;
+	max: number;
+	cpuTargetPercent: number;
+	cpuPercent?: number;
+	limited?: string;
 }
 
 export interface DeploymentImage {

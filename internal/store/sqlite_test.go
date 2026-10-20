@@ -33,7 +33,7 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 16 {
+	if migrations != 17 {
 		t.Fatalf("migration count = %d, want 16", migrations)
 	}
 	if err := state.Close(); err != nil {
@@ -58,7 +58,7 @@ func TestOpenConfiguresAndReopensDatabase(t *testing.T) {
 	if err := reopened.db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 16 {
+	if migrations != 17 {
 		t.Fatalf("migration count after reopen = %d, want 16", migrations)
 	}
 }

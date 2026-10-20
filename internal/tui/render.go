@@ -256,8 +256,23 @@ func (m *Model) renderApplicationDetail(t theme, summary *orchv1alpha1.Applicati
 	}
 	if detail := m.details[summary.GetName()]; detail != nil {
 		lines = append(lines, "", heading(t, "Runtime"))
+		for _, scale := range detail.GetAutoscale() {
+			cpu := "cpu -"
+			if scale.CpuPercent != nil {
+				cpu = fmt.Sprintf("cpu %d%%", scale.GetCpuPercent())
+			}
+			line := fmt.Sprintf("%s  %d replicas (%d–%d)  %s of %d%%", sanitize(scale.GetService()), scale.GetReplicas(), scale.GetMin(), scale.GetMax(), cpu, scale.GetCpuTargetPercent())
+			if scale.GetLimited() != "" {
+				line += "  " + muted(t, "at capacity")
+			}
+			lines = append(lines, line)
+		}
 		for _, allocation := range detail.GetAllocations()[:min(3, len(detail.GetAllocations()))] {
-			lines = append(lines, fmt.Sprintf("%s #%d  %s/%s  %s", sanitize(allocation.GetService()), allocation.GetReplica(), enumLabel(allocation.GetPhase().String()), enumLabel(allocation.GetHealthStatus().String()), sanitize(allocation.GetNodeName())))
+			line := fmt.Sprintf("%s #%d  %s/%s  %s", sanitize(allocation.GetService()), allocation.GetReplica(), enumLabel(allocation.GetPhase().String()), enumLabel(allocation.GetHealthStatus().String()), sanitize(allocation.GetNodeName()))
+			if millis, ok := detail.GetAllocationCpuMillis()[allocation.GetId()]; ok {
+				line += "  " + muted(t, coresLabel(millis)+" cores")
+			}
+			lines = append(lines, line)
 		}
 		for _, route := range detail.GetRoutes()[:min(2, len(detail.GetRoutes()))] {
 			lines = append(lines, fmt.Sprintf("HTTP %s  %s  %d upstreams", sanitize(route.GetDomain()), enumLabel(route.GetState().String()), route.GetUpstreamCount()))

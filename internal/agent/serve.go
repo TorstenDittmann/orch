@@ -129,7 +129,8 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
 		volumes: volumes, usage: newUsageSampler(dataDir, capabilities.TotalCPUMillis),
-		selfUpgrade: selfUpgradeAvailable(), upgradeStagingDir: options.UpgradeStagingDir,
+		allocationCPU: newAllocationSampler(options.Runtime),
+		selfUpgrade:   selfUpgradeAvailable(), upgradeStagingDir: options.UpgradeStagingDir,
 	}
 	if runner.upgradeStagingDir == "" {
 		runner.upgradeStagingDir = upgradeStagingDir

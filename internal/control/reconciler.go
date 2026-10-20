@@ -56,6 +56,13 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list desired applications: %w", err)
 	}
+	scales, err := r.state.ServiceScales(ctx)
+	if err != nil {
+		return err
+	}
+	if err := applyServiceScales(applications, scales); err != nil {
+		return err
+	}
 	nodes, err := r.state.Nodes(ctx)
 	if err != nil {
 		return fmt.Errorf("list execution nodes: %w", err)

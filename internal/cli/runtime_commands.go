@@ -358,10 +358,21 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintln(stdout, "Active:      -")
 	}
+	for _, scale := range application.GetAutoscale() {
+		fmt.Fprintf(stdout, "  autoscale %s  replicas=%d (%d-%d) %s\n", scale.GetService(), scale.GetReplicas(),
+			scale.GetMin(), scale.GetMax(), autoscaleCPULabel(scale))
+		if scale.GetLimited() != "" {
+			fmt.Fprintf(stdout, "    limited: %s\n", scale.GetLimited())
+		}
+	}
 	for _, allocation := range application.GetAllocations() {
-		fmt.Fprintf(stdout, "  %s/%d  %s  health=%s address=%s port=%d active=%d/%s active_spec=%s restarts=%d reason=%s\n",
+		cpu := "-"
+		if millis, ok := application.GetAllocationCpuMillis()[allocation.GetId()]; ok {
+			cpu = fmt.Sprintf("%dm", millis)
+		}
+		fmt.Fprintf(stdout, "  %s/%d  %s  health=%s address=%s port=%d cpu=%s active=%d/%s active_spec=%s restarts=%d reason=%s\n",
 			allocation.GetService(), allocation.GetReplica(), allocation.GetPhase().String(),
-			allocation.GetHealthStatus().String(), statusValue(allocation.GetAddress()), allocation.GetDeclaredPort(),
+			allocation.GetHealthStatus().String(), statusValue(allocation.GetAddress()), allocation.GetDeclaredPort(), cpu,
 			allocation.GetActiveApplicationGeneration(), statusValue(allocation.GetActiveRevisionId()),
 			statusValue(allocation.GetActiveSpecDigest()), allocation.GetRestartCount(), statusValue(allocation.GetReason()))
 		if failingAllocation(allocation) {
@@ -396,6 +407,14 @@ func runApp(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			statusValue(job.GetActiveRunId()), statusValue(job.GetLastRunId()), job.GetLastState().String(), statusValue(job.GetReason()))
 	}
 	return ExitOK
+}
+
+// autoscaleCPULabel shows an autoscaled service's CPU use against its target.
+func autoscaleCPULabel(scale *orchv1alpha1.ServiceAutoscale) string {
+	if scale.CpuPercent == nil {
+		return fmt.Sprintf("cpu=- target=%d%%", scale.GetCpuTargetPercent())
+	}
+	return fmt.Sprintf("cpu=%d%% target=%d%%", scale.GetCpuPercent(), scale.GetCpuTargetPercent())
 }
 
 // runAppList prints every application on the cluster with its rollout state.

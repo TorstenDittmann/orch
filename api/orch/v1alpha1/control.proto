@@ -122,6 +122,24 @@ message Application {
   repeated TCPRouteStatus tcp_routes = 18;
   repeated CronJobStatus cron_jobs = 19;
   repeated NodePortStatus node_ports = 20;
+  repeated ServiceAutoscale autoscale = 21;
+  // Each reporting allocation's average CPU use over the last minute, in
+  // millicores, keyed by allocation id.
+  map<string, uint64> allocation_cpu_millis = 22;
+}
+
+// ServiceAutoscale is the live replica count of a service that sets autoscale.
+message ServiceAutoscale {
+  string service = 1;
+  uint32 replicas = 2;
+  uint32 min = 3;
+  uint32 max = 4;
+  uint32 cpu_target_percent = 5;
+  // Average CPU use of ready replicas as a percent of their request; unset
+  // until enough replicas have reported.
+  optional uint32 cpu_percent = 6;
+  // Why the service runs fewer replicas than it wants, such as no room.
+  string limited = 7;
 }
 
 message Node {

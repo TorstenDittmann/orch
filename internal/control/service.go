@@ -54,6 +54,7 @@ type service struct {
 	imageResolver ImageResolver
 	backups       *backupScheduler
 	upgrades      *agentUpgrades
+	autoscaler    *autoscaler
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -154,7 +155,11 @@ func (s *service) GetApplication(ctx context.Context, request *connect.Request[o
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("read application state"))
 	}
-	return connect.NewResponse(&orchv1alpha1.GetApplicationResponse{Application: applicationMessage(application)}), nil
+	message := applicationMessage(application)
+	if err := s.decorateApplicationScaling(ctx, application, message); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read service scales"))
+	}
+	return connect.NewResponse(&orchv1alpha1.GetApplicationResponse{Application: message}), nil
 }
 
 func (s *service) ListApplications(ctx context.Context, request *connect.Request[orchv1alpha1.ListApplicationsRequest]) (*connect.Response[orchv1alpha1.ListApplicationsResponse], error) {

@@ -67,7 +67,7 @@ passes through the controller.
 | Area | Product behavior |
 | --- | --- |
 | Deployments | Immutable plans, readiness gates, availability budgets, history, and rollback |
-| Runtime | OCI services, workers, cron schedules, one-off jobs, hooks, and local volumes |
+| Runtime | OCI services, workers, CPU autoscaling, cron schedules, one-off jobs, hooks, and local volumes |
 | Setup | `orch init` and `orch join` with one-time join tokens, SSH targets, and host checks that name each blocker and its fix |
 | Network | Private per-node subnets, service DNS, a WireGuard mesh over private or public addresses, HTTPS and TCP ingress, node-local TCP and UDP ports |
 | Operations | Remembered targets, live logs, events, runtime inventory, a keyboard-first TUI, and the `orch web` dashboard |
@@ -77,7 +77,7 @@ passes through the controller.
 
 orch targets small teams operating Linux hosts that can reach each other. It does not
 provide Kubernetes APIs, multi-region control planes, distributed storage,
-autoscaling, automatic fencing, or control-plane high availability. Those
+node autoscaling, automatic fencing, or control-plane high availability. Those
 limits keep routine deployment and recovery understandable.
 
 [Read the product scope](product.md) or browse the

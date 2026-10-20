@@ -27,6 +27,13 @@ type pklService struct {
 	Mounts      []pklMount        `pkl:"mounts"`
 	StopGrace   *string           `pkl:"stopGracePeriod"`
 	Privileged  bool              `pkl:"privileged"`
+	Autoscale   *pklAutoscale     `pkl:"autoscale"`
+}
+
+type pklAutoscale struct {
+	Min        int `pkl:"min"`
+	Max        int `pkl:"max"`
+	CPUPercent int `pkl:"cpuPercent"`
 }
 
 type pklResources struct {
@@ -166,11 +173,21 @@ func resolvePkl(doc pklDocument) *Manifest {
 		if input.StopGrace != nil {
 			stopGrace = *input.StopGrace
 		}
+		replicas := input.Replicas
+		var autoscale *Autoscale
+		if input.Autoscale != nil {
+			autoscale = &Autoscale{Min: input.Autoscale.Min, Max: input.Autoscale.Max, CPUPercent: input.Autoscale.CPUPercent}
+			// The schema default of 1 means replicas was left unset; any other
+			// value conflicts with autoscale and fails validation.
+			if replicas == 1 {
+				replicas = autoscale.Min
+			}
+		}
 		manifest.Services[name] = Service{
 			Image:       input.Image,
 			Command:     append([]string(nil), input.Command...),
 			Args:        append([]string(nil), input.Args...),
-			Replicas:    input.Replicas,
+			Replicas:    replicas,
 			Restart:     input.Restart,
 			Resources:   Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
 			HTTP:        httpConfig,
@@ -184,6 +201,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			Mounts:      mounts,
 			StopGrace:   stopGrace,
 			Privileged:  input.Privileged,
+			Autoscale:   autoscale,
 		}
 	}
 	for name, input := range doc.CronJobs {

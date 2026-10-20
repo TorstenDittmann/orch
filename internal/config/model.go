@@ -13,6 +13,7 @@ const (
 	DefaultHealthDeadline   = "2m"
 	DefaultJobStartDeadline = "1m"
 	DefaultJobTimeout       = "15m"
+	DefaultAutoscaleCPU     = 70
 )
 
 // Manifest is the resolved, validated application specification. All defaults
@@ -61,6 +62,26 @@ type Service struct {
 	// Privileged replicas run without the default confinement. It is omitted
 	// when false so existing manifests keep their canonical digest.
 	Privileged bool `json:"privileged,omitempty"`
+	// Autoscale lets the controller choose the replica count between Min
+	// and Max. Replicas then equals Min, the count a first deploy starts with.
+	Autoscale *Autoscale `json:"autoscale,omitempty"`
+}
+
+// Autoscale keeps a service's average CPU use near CPUPercent of its
+// requested CPU by adding and removing replicas.
+type Autoscale struct {
+	Min        int `json:"min"`
+	Max        int `json:"max"`
+	CPUPercent int `json:"cpu_percent"`
+}
+
+// MaxReplicas is the most replicas the service can run: Max when it
+// autoscales, otherwise Replicas.
+func (s Service) MaxReplicas() int {
+	if s.Autoscale != nil {
+		return s.Autoscale.Max
+	}
+	return s.Replicas
 }
 
 type Resources struct {

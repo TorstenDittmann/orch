@@ -11,6 +11,7 @@ const (
 	EventApplicationExecutionChanged = "application.execution.changed"
 	EventApplicationHealthy          = "application.healthy"
 	EventApplicationRolledBack       = "application.rolled_back"
+	EventServiceScaled               = "service.scaled"
 
 	ExecutionPending    = "PENDING"
 	ExecutionBlocked    = "BLOCKED"
