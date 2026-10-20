@@ -298,7 +298,10 @@ func (s *Store) ApplyApplication(ctx context.Context, input model.ApplyApplicati
 func manifestAllocationCount(canonical []byte) (uint64, error) {
 	var document struct {
 		Services map[string]struct {
-			Replicas uint64 `json:"replicas"`
+			Replicas  uint64 `json:"replicas"`
+			Autoscale *struct {
+				Max uint64 `json:"max"`
+			} `json:"autoscale"`
 		} `json:"services"`
 	}
 	if err := json.Unmarshal(canonical, &document); err != nil {
@@ -306,10 +309,15 @@ func manifestAllocationCount(canonical []byte) (uint64, error) {
 	}
 	var total uint64
 	for _, service := range document.Services {
-		if service.Replicas > 200 || total > 200-service.Replicas {
+		// An autoscaled service may grow to its maximum, so reserve that.
+		replicas := service.Replicas
+		if service.Autoscale != nil {
+			replicas = service.Autoscale.Max
+		}
+		if replicas > 200 || total > 200-replicas {
 			return 201, nil
 		}
-		total += service.Replicas
+		total += replicas
 	}
 	return total, nil
 }

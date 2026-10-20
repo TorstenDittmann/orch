@@ -40,6 +40,7 @@ type agentService struct {
 	caKey      []byte
 	random     io.Reader
 	upgrades   *agentUpgrades
+	autoscaler *autoscaler
 }
 
 type receivedAgentMessage struct {
@@ -297,6 +298,12 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 			}); err != nil {
 				slog.Warn("record node usage failed", "node", session.nodeID, "error", err)
 			}
+		}
+		for _, usage := range message.Heartbeat.GetAllocations() {
+			if usage == nil || len(usage.ProtoReflect().GetUnknown()) != 0 || usage.GetAllocationId() == "" {
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("heartbeat allocation usage is invalid"))
+			}
+			s.autoscaler.Record(usage.GetAllocationId(), usage.GetCpuUsedMillis(), seenAt)
 		}
 	case *orchv1alpha1.ConnectRequest_OperationResult:
 		if message.OperationResult == nil || len(message.OperationResult.ProtoReflect().GetUnknown()) != 0 {

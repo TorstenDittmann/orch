@@ -60,6 +60,7 @@ type sessionRunner struct {
 	renewalRetryAt time.Time
 	renewalBackoff time.Duration
 	usage          *usageSampler
+	allocationCPU  *allocationSampler
 	// keepalive sends a heartbeat on the connected stream. It is set while a
 	// session is connected so a long reconcile, such as a replica given minutes
 	// to stop, cannot let the controller time the session out.
@@ -215,6 +216,7 @@ func (r *sessionRunner) heartbeatRequest(ctx context.Context) *orchv1alpha1.Conn
 	}
 	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
 		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration, Usage: r.usage.Sample(),
+		Allocations: r.allocationCPU.Sample(ctx),
 	}}}
 }
 

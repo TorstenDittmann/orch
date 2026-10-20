@@ -17,7 +17,7 @@ or setup-time measurements; those benchmarks have not been run yet.
 | --- | --- |
 | A small Linux cluster run by one team, with HTTPS, rollbacks, and cron built in | orch |
 | The Docker toolchain and Compose files you already have, on several hosts | Docker Swarm |
-| A highly available control plane, broad APIs, operators, autoscaling, or distributed storage | Kubernetes |
+| A highly available control plane, broad APIs, operators, custom-metric or node autoscaling, or distributed storage | Kubernetes |
 | Kubernetes APIs with a smaller footprint | k3s |
 | A general-purpose scheduler for containers and non-container workloads | Nomad |
 
@@ -52,6 +52,7 @@ What orch gives you out of the box, without add-ons:
   retries and rollbacks run exactly the same images.
 - Readiness-gated rolling updates, automatic rollback, deployment history,
   revision diffs, and manual rollback.
+- CPU-based replica autoscaling with one manifest block.
 - Cron jobs, one-off jobs, and pre-deploy hooks for migrations.
 - Encrypted secrets and registry credentials.
 - A terminal UI, a local web dashboard, live logs, and events.
@@ -70,7 +71,7 @@ are intentional limits, described in [limitations](product.md).
 | More than 20 nodes | The WireGuard full mesh and placement are designed for 1–20 nodes, 100 applications, and 200 service replicas. | Kubernetes, Nomad, Swarm |
 | Kubernetes APIs, Helm charts, or operators | orch has its own small API and no Kubernetes compatibility. | Kubernetes or k3s |
 | Distributed or replicated storage | orch volumes are local to one node and never move. | Kubernetes with a CSI storage driver |
-| Autoscaling | Replica counts are fixed in configuration. | Kubernetes |
+| Autoscaling beyond CPU | Services can autoscale on CPU only, and nodes are never added or removed automatically. | Kubernetes |
 | Automatic failover for stateful services | orch never recreates a local volume elsewhere and does not fence nodes automatically. | Kubernetes with replicated storage, or a managed database |
 | Windows workers or other runtimes | orch runs Linux OCI containers through containerd and runc only. | Kubernetes, Nomad |
 | Multiple teams with separate permissions | orch has administrator access only, without per-user roles. | Kubernetes |

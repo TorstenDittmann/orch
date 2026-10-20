@@ -61,6 +61,7 @@ type Server struct {
 	backupDone      chan struct{}
 	upgradesDone    chan struct{}
 	imagesDone      chan struct{}
+	autoscaleDone   chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -138,13 +139,14 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	reconciler.secretBox = secretBox
 	reconciler.sessions = sessions
 	implementation.reconciler = reconciler
+	implementation.autoscaler = newAutoscaler(state, reconciler.Reconcile, sessions.Connected, now)
 	enrollmentImplementation := newEnrollmentService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, now)
 	enrollmentImplementation.reconciler = reconciler
 	upgrades := newAgentUpgrades(sessions, dataDir, now)
 	implementation.upgrades = upgrades
 	agentImplementation := &agentService{state: state, sessions: sessions, reconciler: reconciler, now: now,
 		caPEM: append([]byte(nil), credentials.CACertificatePEM...), caKey: append([]byte(nil), credentials.CAPrivateKeyPEM...), random: rand.Reader,
-		upgrades: upgrades}
+		upgrades: upgrades, autoscaler: implementation.autoscaler}
 	path, handler := orchv1alpha1connect.NewControlServiceHandler(
 		implementation,
 		connect.WithReadMaxBytes(maxHTTPBodyBytes),
@@ -220,7 +222,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
-		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}),
+		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
 	}
 	go func() {
 		defer close(server.upgradesDone)
@@ -229,6 +231,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	go func() {
 		defer close(server.imagesDone)
 		implementation.runImageUpdates(reconcileContext)
+	}()
+	go func() {
+		defer close(server.autoscaleDone)
+		implementation.autoscaler.run(reconcileContext)
 	}()
 	go func() {
 		defer close(server.backupDone)
@@ -316,6 +322,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.backupDone
 		<-server.upgradesDone
 		<-server.imagesDone
+		<-server.autoscaleDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

@@ -1087,7 +1087,10 @@ func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.
 		var requiredCron, readyCron, requiredServices int
 		var desiredRevision string
 		if err := tx.QueryRowContext(ctx, `SELECT r.id, (SELECT count(*) FROM json_each(r.canonical_manifest, '$.cron_jobs')),
-            COALESCE((SELECT sum(json_extract(value, '$.replicas')) FROM json_each(r.canonical_manifest, '$.services')), 0)
+            COALESCE((SELECT sum(CASE WHEN json_extract(value, '$.autoscale') IS NULL THEN json_extract(value, '$.replicas')
+				ELSE min(max(COALESCE((SELECT c.replicas FROM service_scales c WHERE c.application_name = r.application_name
+				AND c.service_name = key), 0), json_extract(value, '$.autoscale.min')), json_extract(value, '$.autoscale.max')) END)
+				FROM json_each(r.canonical_manifest, '$.services')), 0)
 			FROM application_revisions r WHERE r.application_name = ? AND r.generation = ?`, application.name, application.generation).Scan(&desiredRevision, &requiredCron, &requiredServices); err != nil {
 			return fmt.Errorf("read desired cron count: %w", err)
 		}

@@ -138,8 +138,30 @@ func Validate(manifest *Manifest) error {
 		}
 		if service.Replicas < 1 || service.Replicas > 100 {
 			add(base+".replicas", "must be between 1 and 100")
-		} else {
+		} else if service.Autoscale == nil {
 			totalReplicas += service.Replicas
+		}
+		if scale := service.Autoscale; scale != nil {
+			switch {
+			case scale.Min < 1 || scale.Min > 100:
+				add(base+".autoscale.min", "must be between 1 and 100")
+			case scale.Max < scale.Min || scale.Max > 100:
+				add(base+".autoscale.max", "must be between autoscale.min and 100")
+			default:
+				totalReplicas += scale.Max
+			}
+			if scale.CPUPercent < 10 || scale.CPUPercent > 100 {
+				add(base+".autoscale.cpu_percent", "must be between 10 and 100")
+			}
+			if service.Replicas != scale.Min {
+				add(base+".replicas", "must not be set together with autoscale; autoscale.min sets the starting count")
+			}
+			if len(service.Mounts) > 0 {
+				add(base+".autoscale", "is not supported for services that use local volumes")
+			}
+			if len(service.NodePorts()) > 0 {
+				add(base+".autoscale", "is not supported for services that publish node-local ports")
+			}
 		}
 		switch service.Restart {
 		case "always", "on-failure", "never":
@@ -312,7 +334,7 @@ func Validate(manifest *Manifest) error {
 	}
 	validateDependencies(manifest, add)
 	if totalReplicas > maxTotalReplicas {
-		add("services", fmt.Sprintf("must not request more than %d total replicas", maxTotalReplicas))
+		add("services", fmt.Sprintf("must not request more than %d total replicas, counting autoscale.max", maxTotalReplicas))
 	}
 
 	for _, jobName := range sortedKeys(manifest.CronJobs) {

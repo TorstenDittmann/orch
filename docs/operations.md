@@ -183,6 +183,9 @@ http://orch/metrics` prints the same metrics as root.
 | `orch_allocation_restarts` | `application`, `service` | Restarts of the current instances |
 | `orch_routes` | `application`, `kind`, `state` | HTTP and TCP routes per ingress node by `state` (`active`, `pending`, `failed`) |
 | `orch_cron_job_last_run_failed` | `application`, `job` | 1 when the last run failed or timed out |
+| `orch_service_autoscale_replicas` | `application`, `service` | Replicas the autoscaler chose |
+| `orch_service_autoscale_cpu_ratio` | `application`, `service` | Average CPU use of ready replicas as a fraction of their request |
+| `orch_service_autoscale_limited` | `application`, `service` | 1 when the service wants more replicas than the cluster has room for |
 | `orch_controller_backup_timestamp_seconds` | | Unix time of the newest automatic controller backup |
 | `orch_controller_backup_failed` | | 1 when the last automatic backup attempt failed |
 
@@ -327,7 +330,7 @@ Keep the recovery path reported by the controller upgrade until normal traffic
 and a test deployment have succeeded.
 
 Wait for every worker to report the new version before deploying a manifest
-that uses a field the old version did not have, such as `stopGracePeriod` or a
+that uses a field the old version did not have, such as `stopGracePeriod`, `autoscale` or a
 volume `backup`. An older worker cannot accept such an assignment and keeps
 running its previous one. `orch volume` and `orch restart` also need upgraded
 workers.

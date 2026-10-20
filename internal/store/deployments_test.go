@@ -260,7 +260,7 @@ func TestDeploymentMigrationPreservesOnlyKnownOutcomes(t *testing.T) {
 	if _, err := state.db.ExecContext(ctx, `DROP TABLE deployment_records`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.db.ExecContext(ctx, `DROP TABLE one_off_jobs; DROP TABLE node_port_observations; DROP TABLE github_trust; DROP TABLE node_usage_samples; DROP TABLE access_tokens; ALTER TABLE application_revisions DROP COLUMN requested_manifest; DELETE FROM schema_migrations WHERE version >= 9`); err != nil {
+	if _, err := state.db.ExecContext(ctx, `DROP TABLE one_off_jobs; DROP TABLE node_port_observations; DROP TABLE github_trust; DROP TABLE node_usage_samples; DROP TABLE access_tokens; DROP TABLE service_scales; ALTER TABLE application_revisions DROP COLUMN requested_manifest; DELETE FROM schema_migrations WHERE version >= 9`); err != nil {
 		t.Fatal(err)
 	}
 	path := state.path

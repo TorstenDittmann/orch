@@ -44,6 +44,10 @@ func TestRenderMetricsReportsFailureStates(t *testing.T) {
 				},
 			},
 		}},
+		autoscale: map[string]map[string]AutoscaleStatus{"shop": {
+			"web":    {Replicas: 4, Min: 2, Max: 10, CPUPercent: 70, Utilization: 0.8125, Limited: "no room"},
+			"worker": {Replicas: 1, Min: 1, Max: 3, CPUPercent: 70, Utilization: -1},
+		}},
 	}
 	want := `# HELP orch_build_info Controller build; the value is always 1.
 # TYPE orch_build_info gauge
@@ -96,6 +100,17 @@ orch_routes{application="shop",kind="tcp",state="active"} 1
 # TYPE orch_cron_job_last_run_failed gauge
 orch_cron_job_last_run_failed{application="shop",job="cleanup"} 1
 orch_cron_job_last_run_failed{application="shop",job="say \"hi\""} 0
+# HELP orch_service_autoscale_replicas Replicas the autoscaler chose for a service.
+# TYPE orch_service_autoscale_replicas gauge
+orch_service_autoscale_replicas{application="shop",service="web"} 4
+orch_service_autoscale_replicas{application="shop",service="worker"} 1
+# HELP orch_service_autoscale_cpu_ratio Average CPU use of an autoscaled service's ready replicas as a fraction of their request.
+# TYPE orch_service_autoscale_cpu_ratio gauge
+orch_service_autoscale_cpu_ratio{application="shop",service="web"} 0.813
+# HELP orch_service_autoscale_limited 1 when an autoscaled service wants more replicas than the cluster has room for.
+# TYPE orch_service_autoscale_limited gauge
+orch_service_autoscale_limited{application="shop",service="web"} 1
+orch_service_autoscale_limited{application="shop",service="worker"} 0
 `
 	if got := string(renderMetrics(input)); got != want {
 		t.Fatalf("metrics =\n%s\nwant\n%s", got, want)
