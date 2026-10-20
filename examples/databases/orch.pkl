@@ -22,5 +22,5 @@ databases {
     resources { memory = "1Gi" }
     backup = new DatabaseBackup {}
   }
-  ["cache"] = new Redis {}
+  ["cache"] = new Redis { version = "7.4" }
 }
