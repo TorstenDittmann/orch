@@ -13,6 +13,7 @@
   - [Deploy from GitHub](github.md)
   - [Networking](networking.md)
   - [Secrets](secrets.md)
+  - [Databases](databases.md)
   - [Jobs and schedules](jobs.md)
   - [Targets and interfaces](targets.md)
   - [AI assistants](ai.md)

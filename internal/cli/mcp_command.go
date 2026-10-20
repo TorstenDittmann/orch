@@ -524,6 +524,7 @@ var (
 	mcpTimeout  = mcpParam{name: "timeout", kind: "string", description: "how long to wait, as a Go duration such as 10m (default 10m)"}
 	mcpJobID    = mcpParam{name: "id", kind: "string", description: "job ID", required: true}
 	mcpVolume   = mcpParam{name: "volume", kind: "string", description: "volume name from the manifest", required: true}
+	mcpDatabase = mcpParam{name: "database", kind: "string", description: "database name from the manifest", required: true}
 	mcpNode     = mcpParam{name: "node", kind: "string", description: "node name", required: true}
 	mcpCronJob  = mcpParam{name: "job", kind: "string", description: "cron job name from the manifest", required: true}
 	mcpCommandP = mcpParam{name: "command", kind: "array", description: "command and arguments, for example [\"rails\", \"db:migrate\"]", required: true}
@@ -770,6 +771,24 @@ func mcpTools() []mcpTool {
 				b.positional("app", true)
 				b.positional("volume", true)
 				b.positional("backup", true)
+			})},
+
+		// Databases.
+		{name: "list_databases", title: "List databases", readOnly: true, idempotent: true, remote: true, json: true,
+			description: "List the databases applications declare, with their engine, connection URL secret and backup schedule.",
+			params:      []mcpParam{{name: "app", kind: "string", description: "only this application"}},
+			build:       mcpCommand([]string{"db", "list"}, func(b *mcpBuilder) { b.positional("app", false) })},
+		{name: "backup_database", title: "Back up database", remote: true, json: true,
+			description: "Back up a database now, on the node that runs it.",
+			params:      []mcpParam{mcpApp, mcpDatabase},
+			build:       mcpCommand([]string{"db", "backup"}, func(b *mcpBuilder) { b.positional("app", true); b.positional("database", true) })},
+		{name: "restore_database", title: "Restore database", remote: true, destructive: true, json: true,
+			description: "Restore a database from a backup, the newest unless one is given. The database restarts, and dump-based engines reload the dump, replacing the current data.",
+			params:      []mcpParam{mcpApp, mcpDatabase, {name: "backup", kind: "string", description: "backup ID from list_volume_backups of the database's backup volume"}},
+			build: mcpCommand([]string{"db", "restore"}, func(b *mcpBuilder) {
+				b.positional("app", true)
+				b.positional("database", true)
+				b.positional("backup", false)
 			})},
 
 		// Nodes.

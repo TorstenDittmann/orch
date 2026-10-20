@@ -81,6 +81,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runRestart(ctx, args[1:], stdout, stderr)
 	case "volume":
 		return runVolume(ctx, args[1:], stdout, stderr)
+	case "db":
+		return runDB(ctx, args[1:], stdout, stderr)
 	case "job":
 		return runJob(ctx, args[1:], stdout, stderr)
 	case "cron":
@@ -1103,6 +1105,7 @@ Usage:
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
   orch restart APP [SERVICE] [--replica N] [--target NAME]
   orch volume list|backups|backup|restore|download ... [--target NAME]
+  orch db list|backups|backup|restore ... [--target NAME]
   orch job run APP SERVICE [--target NAME] [--wait] -- COMMAND [ARG...]
   orch job list [APP] [--target NAME] [--limit N] [--before ID] [--json]
   orch job show|logs|cancel|retry|wait ID [--target NAME]

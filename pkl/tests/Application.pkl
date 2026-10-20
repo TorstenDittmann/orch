@@ -21,6 +21,13 @@ local cronJob = new app.CronJob {
   schedule = "*/2 * * * *"
 }
 
+local postgres = new app.Postgres {}
+
+local redis = new app.Redis {
+  backup = new app.DatabaseBackup { keep = 3 }
+  resources { cpu = "1" }
+}
+
 facts {
   ["service defaults"] {
     service.replicas == 1
@@ -59,5 +66,18 @@ facts {
     deployment.healthDeadline == "2m"
     deployment.autoRollback
     !deployment.autoUpdate
+  }
+  ["database defaults"] {
+    postgres.engine == "postgres"
+    postgres.version == "17"
+    postgres.image == null
+    postgres.resources.memory == "256Mi"
+    postgres.resources.cpu == "100m"
+    postgres.backup == null
+    redis.engine == "redis"
+    redis.backup.schedule == "0 3 * * *"
+    redis.backup.keep == 3
+    redis.resources.cpu == "1"
+    redis.resources.memory == "128Mi"
   }
 }

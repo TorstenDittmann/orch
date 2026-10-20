@@ -77,7 +77,7 @@ func Validate(manifest *Manifest) error {
 	}
 	validateDNSLabel("name", manifest.Name, add)
 	if len(manifest.Services) == 0 {
-		add("services", "must define at least one service")
+		add("services", "must define at least one service or database")
 	} else if len(manifest.Services) > maxServices {
 		add("services", fmt.Sprintf("must not define more than %d services", maxServices))
 	}
@@ -129,6 +129,7 @@ func Validate(manifest *Manifest) error {
 		service := manifest.Services[serviceName]
 		base := "services." + serviceName
 		validateDNSLabel(base, serviceName, add)
+		validateDatabase(base, service, add)
 		if strings.TrimSpace(service.Image) == "" {
 			add(base+".image", "is required")
 		} else if len(service.Image) > 1024 || strings.ContainsRune(service.Image, 0) {

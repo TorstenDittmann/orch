@@ -118,6 +118,7 @@ before running them.
 | Jobs and cron | `list_jobs`, `job_status`, `job_logs`, `cron_runs`, `cron_logs` | `run_job`*, `cancel_job`*, `retry_job`, `run_cron` |
 | Secrets and registries | `list_secrets`, `list_registries` | `set_secret`*, `delete_secret`*, `registry_login`, `registry_logout`* |
 | Volumes | `list_volumes`, `list_volume_backups` | `backup_volume`, `restore_volume`* |
+| Databases | `list_databases` | `backup_database`, `restore_database`* |
 
 \* marked destructive.
 
