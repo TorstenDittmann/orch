@@ -16,16 +16,8 @@ services {
   }
 }`;
 
-const setup = `# on the controller
-sudo orch init
-
-# on your machine
-orch join-token worker-1
-orch target add prod ssh://root@controller`;
-
 export function load() {
 	return {
 		manifest: highlight(manifest, "pkl"),
-		setup: highlight(setup, "shellscript"),
 	};
 }
