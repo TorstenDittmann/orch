@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Activity, AppWindow, Boxes, Briefcase, LayoutDashboard, Monitor, Moon, Search, Server, Sun } from '@lucide/svelte';
+	import { Activity, AppWindow, Boxes, Briefcase, Earth, LayoutDashboard, Monitor, Moon, Search, Server, Sun } from '@lucide/svelte';
 	import { tone } from '../lib/format';
 	import { router } from '../lib/router.svelte';
-	import { applyTheme, live, theme, ui } from '../lib/state.svelte';
+	import { applyTheme, live, panel, selectCluster, theme, ui } from '../lib/state.svelte';
 
 	const snapshot = $derived(live.snapshot);
 	const apps = $derived(snapshot?.applications ?? []);
@@ -17,7 +17,8 @@
 		{ path: 'runtimes', label: 'Runtimes', icon: Boxes, count: runtimes.length, alert: 0 },
 		{ path: 'nodes', label: 'Nodes', icon: Server, count: nodes.length, alert: badNodes },
 		{ path: 'jobs', label: 'Jobs', icon: Briefcase, count: undefined, alert: 0 },
-		{ path: 'events', label: 'Events', icon: Activity, count: undefined, alert: 0 }
+		{ path: 'events', label: 'Events', icon: Activity, count: undefined, alert: 0 },
+		...(panel.enabled ? [{ path: 'clusters', label: 'Clusters', icon: Earth, count: panel.clusters.length, alert: panel.clusters.filter((cluster) => cluster.error).length }] : [])
 	]);
 
 	const current = $derived(router.route.parts[0] ?? '');
@@ -33,10 +34,30 @@
 		<div class="logo" aria-hidden="true">
 			<svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="4" fill="currentColor" /><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3" /></svg>
 		</div>
-		<div class="cluster">
-			<div class="name">{snapshot?.cluster?.name || 'orch'}</div>
-			<div class="target faint">{snapshot ? `${snapshot.target || 'context'} · ${snapshot.transport}` : 'connecting…'}</div>
-		</div>
+		{#if panel.enabled}
+			<label class="cluster switcher">
+				<span class="target faint">Cluster</span>
+				<select
+					aria-label="Cluster"
+					value={panel.current}
+					onchange={(event) => {
+						const value = (event.currentTarget as HTMLSelectElement).value;
+						if (value === '') location.hash = '#/clusters';
+						else selectCluster(value);
+					}}
+				>
+					{#each panel.clusters as cluster (cluster.name)}
+						<option value={cluster.name}>{cluster.name}</option>
+					{/each}
+					<option value="">Manage clusters…</option>
+				</select>
+			</label>
+		{:else}
+			<div class="cluster">
+				<div class="name">{snapshot?.cluster?.name || 'orch'}</div>
+				<div class="target faint">{snapshot ? `${snapshot.target || 'context'} · ${snapshot.transport}` : 'connecting…'}</div>
+			</div>
+		{/if}
 	</div>
 
 	<button class="search" onclick={() => (ui.palette = true)}>
@@ -115,6 +136,26 @@
 	}
 	.cluster {
 		min-width: 0;
+	}
+	.switcher {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+	.switcher select {
+		width: 100%;
+		font: inherit;
+		font-weight: 650;
+		color: var(--text);
+		background: transparent;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		text-overflow: ellipsis;
+	}
+	.switcher select:focus-visible {
+		outline: 2px solid var(--accent);
+		border-radius: 4px;
 	}
 	.name {
 		font-weight: 650;

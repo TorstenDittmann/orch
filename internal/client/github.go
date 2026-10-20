@@ -54,7 +54,7 @@ func ParseClusterAddress(address string) (string, []byte, error) {
 // connects with it. application may be empty when the repository is trusted
 // for only one application.
 func NewGitHubActions(ctx context.Context, address, application string) (*Client, error) {
-	return newExchangedClient(ctx, address, "github-actions:", func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error) {
+	return newExchangedClient(ctx, address, "github-actions:", func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error) {
 		token, err := githubActionsToken(ctx, os.Getenv, "orch:"+clusterID)
 		if err != nil {
 			return nil, "", err
@@ -78,7 +78,7 @@ func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newExchangedClient(ctx, address, "token:", func(credentials orchv1alpha1connect.CredentialServiceClient, _ string, csrDER []byte) ([]byte, string, error) {
+	return newExchangedClient(ctx, address, "token:", func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, _ string, csrDER []byte) ([]byte, string, error) {
 		response, err := credentials.ExchangeAccessToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeAccessTokenRequest{
 			Token: credential, CertificateRequestDer: csrDER,
 		}))
@@ -94,8 +94,8 @@ func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 }
 
 // exchange trades proof of identity and a CSR for a certificate PEM and the
-// application it is limited to.
-type exchange func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error)
+// application it is limited to. It runs again with each renewal's context.
+type exchange func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error)
 
 // newExchangedClient pins the CA of the cluster at address, obtains a
 // short-lived certificate through exchange, and connects with it.
@@ -124,13 +124,13 @@ func newExchangedClient(ctx context.Context, address, label string, exchange exc
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true}}
 	credentialService := orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint)
-	issue := func() (tls.Certificate, string, error) {
+	issue := func(ctx context.Context) (tls.Certificate, string, error) {
 		defer httpClient.CloseIdleConnections()
 		csrDER, keyPEM, err := security.GenerateDeployerCertificateRequest(rand.Reader)
 		if err != nil {
 			return tls.Certificate{}, "", err
 		}
-		certificatePEM, application, err := exchange(credentialService, clusterID, csrDER)
+		certificatePEM, application, err := exchange(ctx, credentialService, clusterID, csrDER)
 		if err != nil {
 			return tls.Certificate{}, "", err
 		}
@@ -145,15 +145,15 @@ func newExchangedClient(ctx context.Context, address, label string, exchange exc
 		}
 		return pair, application, nil
 	}
-	pair, application, err := issue()
+	pair, application, err := issue(ctx)
 	if err != nil {
 		return nil, err
 	}
 	credentials := clusterctl.AdministratorCredentials{
 		Context:     clusterctl.LocalContext{Version: clusterctl.ContextVersion, Cluster: clusterctl.ContextCluster{ID: clusterID}, Server: endpoint},
 		Certificate: pair, RootCAs: roots, ServerName: server.Hostname(), CACertificatePEM: caPEM,
-		Renew: func(context.Context) (tls.Certificate, error) {
-			pair, _, err := issue()
+		Renew: func(ctx context.Context) (tls.Certificate, error) {
+			pair, _, err := issue(ctx)
 			return pair, err
 		},
 	}

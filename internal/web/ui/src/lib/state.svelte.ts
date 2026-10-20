@@ -1,5 +1,53 @@
-import { api, ApiError } from './api';
+import { api, ApiError, selection, type PanelCluster } from './api';
 import type { LogSource, Snapshot } from './types';
+
+// panel is set when the dashboard is served by orch panel, which manages
+// several clusters; orch web serves one and has no panel API.
+export const panel = $state({
+	enabled: false,
+	clusters: [] as PanelCluster[],
+	current: ''
+});
+
+function storedCluster(): string {
+	try {
+		return localStorage.getItem('orch-cluster') ?? '';
+	} catch {
+		return '';
+	}
+}
+
+export async function loadClusters() {
+	try {
+		const { clusters } = await api.clusters();
+		// orch web answers unknown paths with the app shell, not a list.
+		if (!Array.isArray(clusters)) return;
+		panel.enabled = true;
+		panel.clusters = clusters;
+		const names = clusters.map((cluster) => cluster.name);
+		if (!names.includes(panel.current)) {
+			const stored = storedCluster();
+			selectCluster(names.includes(stored) ? stored : (names[0] ?? ''), false);
+		}
+	} catch {
+		panel.enabled = false;
+	}
+}
+
+export function selectCluster(name: string, reload = true) {
+	panel.current = name;
+	selection.cluster = name;
+	try {
+		localStorage.setItem('orch-cluster', name);
+	} catch {
+		// Storage can be unavailable; the selection still applies for this session.
+	}
+	if (reload) {
+		live.snapshot = null;
+		live.loading = true;
+		refresh();
+	}
+}
 
 export const live = $state({
 	snapshot: null as Snapshot | null,

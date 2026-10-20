@@ -6,8 +6,9 @@
 	import Sidebar from './components/Sidebar.svelte';
 	import Toasts from './components/Toasts.svelte';
 	import { router } from './lib/router.svelte';
-	import { live, refresh, ui } from './lib/state.svelte';
+	import { live, loadClusters, panel, refresh, ui } from './lib/state.svelte';
 	import ApplicationDetail from './views/ApplicationDetail.svelte';
+	import Clusters from './views/Clusters.svelte';
 	import Applications from './views/Applications.svelte';
 	import Events from './views/Events.svelte';
 	import Jobs from './views/Jobs.svelte';
@@ -16,7 +17,7 @@
 	import Overview from './views/Overview.svelte';
 	import Runtimes from './views/Runtimes.svelte';
 
-	refresh();
+	loadClusters().then(refresh);
 
 	const parts = $derived(router.route.parts);
 	const partial = $derived(live.snapshot?.errors ?? []);
@@ -39,7 +40,7 @@
 		<div class="gate">
 			<div class="panel card">
 				<h1>Not signed in</h1>
-				<p class="muted">Open this page with the link <code>orch web</code> printed in your terminal. Each link works once, so restart <code>orch web</code> to get a new one.</p>
+				<p class="muted">Open this page with the link <code>orch web</code> or <code>orch panel open</code> printed in your terminal. Each link works once, so run the command again for a new one.</p>
 			</div>
 		</div>
 	{:else}
@@ -56,7 +57,9 @@
 			</div>
 		{/if}
 
-		{#if !live.snapshot}
+		{#if parts[0] === 'clusters' || (panel.enabled && !panel.clusters.length)}
+			<Clusters />
+		{:else if !live.snapshot}
 			<div class="gate">
 				{#if live.error}
 					<div class="panel card">

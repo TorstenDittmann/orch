@@ -6,8 +6,13 @@ export class ApiError extends Error {
 	}
 }
 
+// In orch panel, dashboard requests name the selected cluster.
+export const selection = { cluster: '' };
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(path, { credentials: 'same-origin', ...init });
+	const headers = new Headers(init?.headers);
+	if (selection.cluster && path.startsWith('/api/')) headers.set('X-Orch-Cluster', selection.cluster);
+	const response = await fetch(path, { credentials: 'same-origin', ...init, headers });
 	const body = await response.json().catch(() => ({ error: response.statusText }));
 	if (!response.ok) throw new ApiError(body.error || response.statusText, response.status);
 	return body as T;
@@ -19,7 +24,16 @@ function post<T>(path: string, body: unknown = {}): Promise<T> {
 
 const segment = encodeURIComponent;
 
+export interface PanelCluster {
+	name: string;
+	endpoint: string;
+	error?: string;
+}
+
 export const api = {
+	clusters: () => request<{ clusters: PanelCluster[] }>('/panel/api/clusters'),
+	connectCode: () => post<{ code: string; expiresAt: string; command: string }>('/panel/api/clusters/code'),
+	disconnect: (name: string) => post<{ name: string; revoked: boolean }>(`/panel/api/clusters/${segment(name)}/disconnect`),
 	snapshot: () => request<Snapshot>('/api/snapshot'),
 	application: (name: string) =>
 		request<{ application: Application; deployments: { deployments: Deployment[] } }>(`/api/apps/${segment(name)}`),
