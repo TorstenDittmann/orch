@@ -164,3 +164,68 @@ pre {
 		opacity: 1;
 	}
 }
+
+/* Landing page illustrations: inline SVG drawn with the theme colors. The
+   un-animated state of every element is its final state, so reduced motion
+   shows a complete static picture. */
+.illo {
+	display: block;
+	width: 100%;
+	height: auto;
+	overflow: visible;
+	font-family: var(--mono);
+	--box: color-mix(in srgb, var(--fg) 3%, var(--bg));
+	--edge: color-mix(in srgb, var(--fg) 20%, var(--bg));
+	--tint: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+.illo text {
+	font-size: 12px;
+	fill: var(--dim);
+}
+
+.illo .box {
+	fill: var(--box);
+	stroke: var(--edge);
+}
+
+.illo .pill {
+	fill: var(--bg);
+	stroke: var(--edge);
+}
+
+.illo .on {
+	fill: var(--tint);
+	stroke: var(--accent);
+}
+
+.illo .on + text,
+.illo tspan.on {
+	fill: var(--accent);
+	stroke: none;
+}
+
+.illo .strong {
+	fill: var(--fg);
+}
+
+.illo .wire {
+	fill: none;
+	stroke: var(--edge);
+}
+
+.illo .dot {
+	fill: var(--accent);
+}
+
+.illo .scale {
+	transform-box: fill-box;
+	transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.illo *,
+	.illo *::before {
+		animation: none !important;
+	}
+}
