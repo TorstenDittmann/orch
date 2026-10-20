@@ -40,3 +40,5 @@ jobs:
           password: ${{ github.token }}
       - name: Publish orch dev node image
         run: make dev-image-release VERSION="${GITHUB_REF_NAME#v}"
+      - name: Publish orch panel image
+        run: make panel-image-release VERSION="${GITHUB_REF_NAME#v}"

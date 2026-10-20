@@ -1009,6 +1009,27 @@ a one-time URL. Press Ctrl+C to stop it.
 
 See [targets and interfaces](targets.md) for both interfaces.
 
+### orch panel
+
+```text
+orch panel connect URL --code CODE [--name NAME] [--no-open] [--target NAME]
+orch panel open [URL] [--no-open] [--target NAME]
+orch panel install --domain DOMAIN [--image REF] [--name NAME] [--no-wait] [--no-open] [--timeout 5m] [--target NAME]
+orch panel remove [--target NAME]
+orch panel serve [--listen :8080] [--data DIR] [--url URL]
+```
+
+A self-hosted dashboard that manages any number of clusters. `connect` gives
+the panel at URL an administrator access token for the selected cluster,
+using a code from the panel or its logs, and opens a sign-in link. `open`
+prints and opens a new sign-in link, which works once within 15 minutes; URL
+is remembered after the first use. `install` deploys the panel on the
+selected cluster as the application `orch-panel` at DOMAIN and connects that
+cluster. `remove` revokes the panel's tokens on the selected cluster and
+removes the application if `install` deployed it there. `serve` runs the
+panel; `--data` defaults to `ORCH_PANEL_DATA` and `--url`, used in the setup
+command it logs, to `ORCH_PANEL_URL`. See [orch panel](panel.md).
+
 ### orch mcp
 
 ```text

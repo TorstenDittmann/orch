@@ -54,7 +54,7 @@ func ParseClusterAddress(address string) (string, []byte, error) {
 // connects with it. application may be empty when the repository is trusted
 // for only one application.
 func NewGitHubActions(ctx context.Context, address, application string) (*Client, error) {
-	return newExchangedClient(ctx, address, "github-actions:", func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error) {
+	return newExchangedClient(ctx, address, "github-actions:", func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error) {
 		token, err := githubActionsToken(ctx, os.Getenv, "orch:"+clusterID)
 		if err != nil {
 			return nil, "", err
@@ -78,7 +78,7 @@ func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newExchangedClient(ctx, address, "token:", func(credentials orchv1alpha1connect.CredentialServiceClient, _ string, csrDER []byte) ([]byte, string, error) {
+	return newExchangedClient(ctx, address, "token:", func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, _ string, csrDER []byte) ([]byte, string, error) {
 		response, err := credentials.ExchangeAccessToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeAccessTokenRequest{
 			Token: credential, CertificateRequestDer: csrDER,
 		}))
@@ -94,8 +94,8 @@ func NewAccessToken(ctx context.Context, value string) (*Client, error) {
 }
 
 // exchange trades proof of identity and a CSR for a certificate PEM and the
-// application it is limited to.
-type exchange func(credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error)
+// application it is limited to. It runs again with each renewal's context.
+type exchange func(ctx context.Context, credentials orchv1alpha1connect.CredentialServiceClient, clusterID string, csrDER []byte) ([]byte, string, error)
 
 // newExchangedClient pins the CA of the cluster at address, obtains a
 // short-lived certificate through exchange, and connects with it.
@@ -123,27 +123,39 @@ func newExchangedClient(ctx context.Context, address, label string, exchange exc
 		},
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true}}
-	defer httpClient.CloseIdleConnections()
-	csrDER, keyPEM, err := security.GenerateDeployerCertificateRequest(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	certificatePEM, application, err := exchange(orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint), clusterID, csrDER)
-	if err != nil {
-		return nil, err
-	}
-	pair, err := tls.X509KeyPair(certificatePEM, keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
-	}
-	if pair.Leaf == nil {
-		if pair.Leaf, err = x509.ParseCertificate(pair.Certificate[0]); err != nil {
-			return nil, fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+	credentialService := orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint)
+	issue := func(ctx context.Context) (tls.Certificate, string, error) {
+		defer httpClient.CloseIdleConnections()
+		csrDER, keyPEM, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+		if err != nil {
+			return tls.Certificate{}, "", err
 		}
+		certificatePEM, application, err := exchange(ctx, credentialService, clusterID, csrDER)
+		if err != nil {
+			return tls.Certificate{}, "", err
+		}
+		pair, err := tls.X509KeyPair(certificatePEM, keyPEM)
+		if err != nil {
+			return tls.Certificate{}, "", fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+		}
+		if pair.Leaf == nil {
+			if pair.Leaf, err = x509.ParseCertificate(pair.Certificate[0]); err != nil {
+				return tls.Certificate{}, "", fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+			}
+		}
+		return pair, application, nil
+	}
+	pair, application, err := issue(ctx)
+	if err != nil {
+		return nil, err
 	}
 	credentials := clusterctl.AdministratorCredentials{
 		Context:     clusterctl.LocalContext{Version: clusterctl.ContextVersion, Cluster: clusterctl.ContextCluster{ID: clusterID}, Server: endpoint},
 		Certificate: pair, RootCAs: roots, ServerName: server.Hostname(), CACertificatePEM: caPEM,
+		Renew: func(ctx context.Context) (tls.Certificate, error) {
+			pair, _, err := issue(ctx)
+			return pair, err
+		},
 	}
 	return newCertificateClient(Endpoint{Target: label + application, Transport: target.Transport{Type: target.TransportDirect}}, credentials)
 }
@@ -191,6 +203,26 @@ func githubActionsToken(ctx context.Context, getenv func(string) string, audienc
 func (client *Client) CreateAccessToken(ctx context.Context, name, application string, readOnly bool, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
 	response, err := client.service.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{
 		Name: name, Application: application, ReadOnly: readOnly, TtlSeconds: uint32(lifetime / time.Second),
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
+// CheckAccessToken asks this client's controller whether an access token
+// credential ("ID.SECRET") is valid, by exchanging it for a certificate that
+// is then thrown away. It never contacts the address a token names.
+func (client *Client) CheckAccessToken(ctx context.Context, credential string) (*orchv1alpha1.ExchangeAccessTokenResponse, error) {
+	if client.credentials == nil {
+		return nil, errors.New("this connection cannot check access tokens")
+	}
+	csrDER, _, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.credentials.ExchangeAccessToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeAccessTokenRequest{
+		Token: credential, CertificateRequestDer: csrDER,
 	}))
 	if err != nil {
 		return nil, err

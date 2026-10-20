@@ -54,6 +54,8 @@ type Provider interface {
 type ClientProvider struct{ tui.ClientProvider }
 
 type Server struct {
+	// hosted servers leave sign-in to the caller; see NewHosted.
+	hosted    bool
 	provider  Provider
 	token     string
 	session   string
@@ -102,13 +104,55 @@ func New(provider Provider, target, transport, token string) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// NewHosted serves the dashboard on any host name without its one-time link
+// and session cookie, for callers such as orch panel that authenticate every
+// request before handing it over. Changes still must come from the same
+// origin.
+func NewHosted(provider Provider, target string) (*Server, error) {
+	s, err := New(provider, target, "hosted", "")
+	if err != nil {
+		return nil, err
+	}
+	s.hosted = true
+	return s, nil
+}
+
+// Assets serves the dashboard's files without its API, for callers such as
+// orch panel that route API requests themselves.
+func Assets() (http.Handler, error) {
+	dist, err := fs.Sub(assets, "ui/dist")
+	if err != nil {
+		return nil, fmt.Errorf("load embedded dashboard: %w", err)
+	}
+	static := http.FileServerFS(dist)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setHeaders(w)
+		serveIndex(static, w, r)
+	}), nil
+}
+
+func setHeaders(w http.ResponseWriter) {
 	header := w.Header()
 	header.Set("Cache-Control", "no-store")
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("X-Frame-Options", "DENY")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setHeaders(w)
+	if s.hosted {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			origin := r.Header.Get("Origin")
+			if (origin != "https://"+r.Host && origin != "http://"+r.Host) || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+				return
+			}
+		}
+		s.mux.ServeHTTP(w, r)
+		return
+	}
 	if !loopbackHost(r.Host) {
 		http.Error(w, "forbidden host", http.StatusForbidden)
 		return
@@ -167,13 +211,17 @@ func loopbackHost(host string) bool {
 
 // index serves built assets and falls back to the app shell for client routes.
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
+	serveIndex(s.static, w, r)
+}
+
+func serveIndex(static http.Handler, w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/")
 	if name != "" {
 		if info, err := fs.Stat(assets, "ui/dist/"+name); err == nil && !info.IsDir() {
 			if strings.HasPrefix(name, "assets/") {
 				w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 			}
-			s.static.ServeHTTP(w, r)
+			static.ServeHTTP(w, r)
 			return
 		}
 	}

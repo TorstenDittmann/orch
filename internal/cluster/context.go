@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -45,6 +46,10 @@ type AdministratorCredentials struct {
 	RootCAs          *x509.CertPool
 	ServerName       string
 	CACertificatePEM []byte
+	// Renew, when set, issues a fresh certificate. Clients signed in with a
+	// short-lived exchanged certificate use it to keep working past its
+	// expiry.
+	Renew func(context.Context) (tls.Certificate, error)
 }
 
 // LoadContext reads one strict JSON context and rejects insecure permissions.
