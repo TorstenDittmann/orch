@@ -7666,13 +7666,16 @@ func (x *DeleteGitHubTrustResponse) GetChanged() bool {
 // read_only only inspect, one application. The secret is never returned
 // after creation.
 type AccessToken struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
-	ReadOnly      bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	LastUsedAt    *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Application string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	ReadOnly    bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ExpiresAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	LastUsedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
+	// Set for tokens that grant full administrator access instead of one
+	// application; application is then empty.
+	Administrator bool `protobuf:"varint,7,opt,name=administrator,proto3" json:"administrator,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7749,12 +7752,23 @@ func (x *AccessToken) GetLastUsedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *AccessToken) GetAdministrator() bool {
+	if x != nil {
+		return x.Administrator
+	}
+	return false
+}
+
 type CreateAccessTokenRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
-	ReadOnly      bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
-	TtlSeconds    uint32                 `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Required unless administrator is set.
+	Application string `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
+	ReadOnly    bool   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	TtlSeconds  uint32 `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	// Grant full administrator access, for tools such as orch panel that
+	// manage the whole cluster. Excludes application and read_only.
+	Administrator bool `protobuf:"varint,5,opt,name=administrator,proto3" json:"administrator,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7815,6 +7829,13 @@ func (x *CreateAccessTokenRequest) GetTtlSeconds() uint32 {
 		return x.TtlSeconds
 	}
 	return 0
+}
+
+func (x *CreateAccessTokenRequest) GetAdministrator() bool {
+	if x != nil {
+		return x.Administrator
+	}
+	return false
 }
 
 type CreateAccessTokenResponse struct {
@@ -8696,7 +8717,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"repository\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\"5\n" +
 	"\x19DeleteGitHubTrustResponse\x12\x18\n" +
-	"\achanged\x18\x01 \x01(\bR\achanged\"\x94\x02\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged\"\xba\x02\n" +
 	"\vAccessToken\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x1b\n" +
@@ -8706,13 +8727,15 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12<\n" +
 	"\flast_used_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastUsedAt\"\x8e\x01\n" +
+	"lastUsedAt\x12$\n" +
+	"\radministrator\x18\a \x01(\bR\radministrator\"\xb4\x01\n" +
 	"\x18CreateAccessTokenRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x1b\n" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x1f\n" +
 	"\vttl_seconds\x18\x04 \x01(\rR\n" +
-	"ttlSeconds\"c\n" +
+	"ttlSeconds\x12$\n" +
+	"\radministrator\x18\x05 \x01(\bR\radministrator\"c\n" +
 	"\x19CreateAccessTokenResponse\x120\n" +
 	"\x05token\x18\x01 \x01(\v2\x1a.orch.v1alpha1.AccessTokenR\x05token\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\x19\n" +

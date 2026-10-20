@@ -35,7 +35,11 @@ func (s *service) CreateAccessToken(ctx context.Context, request *connect.Reques
 	if err := config.ValidateApplicationName(request.Msg.GetName()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("token name: %w", err))
 	}
-	if err := config.ValidateApplicationName(request.Msg.GetApplication()); err != nil {
+	if request.Msg.GetAdministrator() {
+		if request.Msg.GetApplication() != "" || request.Msg.GetReadOnly() {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("an administrator token cannot also be limited to an application or read-only"))
+		}
+	} else if err := config.ValidateApplicationName(request.Msg.GetApplication()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	lifetime := time.Duration(request.Msg.GetTtlSeconds()) * time.Second
@@ -106,7 +110,8 @@ func (s *service) DeleteAccessToken(ctx context.Context, request *connect.Reques
 }
 
 // ExchangeAccessToken trades a valid access token for a short-lived deployer
-// certificate, or a viewer certificate for a read-only token. Deleting or
+// certificate, a viewer certificate for a read-only token, or an
+// administrator certificate for an administrator token. Deleting or
 // expiring the token stops new exchanges; certificates already issued last
 // at most their 15 minutes.
 func (s *credentialService) ExchangeAccessToken(ctx context.Context, request *connect.Request[orchv1alpha1.ExchangeAccessTokenRequest]) (*connect.Response[orchv1alpha1.ExchangeAccessTokenResponse], error) {
@@ -133,19 +138,26 @@ func (s *credentialService) ExchangeAccessToken(ctx context.Context, request *co
 	if subtle.ConstantTimeCompare([]byte(token.SecretHash), []byte(security.AccessTokenSecretHash(secret))) != 1 || !now.Before(token.ExpiresAt) {
 		return nil, rejected
 	}
-	certificatePEM, notAfter, err := security.SignApplicationCertificate(s.caPEM, s.caKey, s.cluster.ID, token.Application, token.ReadOnly, csrDER, now, s.random)
+	var certificatePEM []byte
+	var notAfter time.Time
+	if token.Administrator() {
+		certificatePEM, notAfter, err = security.SignAdministratorCertificate(s.caPEM, s.caKey, s.cluster.ID, csrDER, now, s.random)
+	} else {
+		certificatePEM, notAfter, err = security.SignApplicationCertificate(s.caPEM, s.caKey, s.cluster.ID, token.Application, token.ReadOnly, csrDER, now, s.random)
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	_ = s.state.TouchAccessToken(ctx, token.ID, now)
 	return connect.NewResponse(&orchv1alpha1.ExchangeAccessTokenResponse{
-		Application: token.Application, ReadOnly: token.ReadOnly, CertificatePem: certificatePEM, ExpiresAt: timestamppb.New(notAfter),
+		Application: token.Application, ReadOnly: token.ReadOnly, Administrator: token.Administrator(),
+		CertificatePem: certificatePEM, ExpiresAt: timestamppb.New(notAfter),
 	}), nil
 }
 
 func accessTokenMessage(token model.AccessToken) *orchv1alpha1.AccessToken {
 	message := &orchv1alpha1.AccessToken{
-		Name: token.Name, Application: token.Application, ReadOnly: token.ReadOnly,
+		Name: token.Name, Application: token.Application, ReadOnly: token.ReadOnly, Administrator: token.Administrator(),
 		CreatedAt: timestamppb.New(token.CreatedAt), ExpiresAt: timestamppb.New(token.ExpiresAt),
 	}
 	if !token.LastUsedAt.IsZero() {

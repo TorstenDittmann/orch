@@ -41,6 +41,12 @@ deploy or roll back. The controller stores only a hash of each token;
 `orch token revoke` stops it within 15 minutes, and tokens expire after their
 `--ttl` (30 days by default).
 
+`orch token create --admin` makes a token for tools that manage the whole
+cluster, such as a web panel. It is exchanged for a 15-minute administrator
+certificate, so whoever holds it can do everything an administrator can,
+including creating more tokens. Keep it in an orch secret or a password
+manager, and revoke it when the tool is gone.
+
 ## Certificate renewal
 
 The controller and administrator certificates are valid for one year; the

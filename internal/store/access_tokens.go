@@ -19,7 +19,7 @@ const maxAccessTokens = 200
 
 // CreateAccessToken stores a new token. Names are unique.
 func (s *Store) CreateAccessToken(ctx context.Context, token model.AccessToken) error {
-	if token.ID == "" || token.Name == "" || token.Application == "" || len(token.SecretHash) != 64 ||
+	if token.ID == "" || token.Name == "" || (token.Administrator() && token.ReadOnly) || len(token.SecretHash) != 64 ||
 		token.CreatedAt.IsZero() || !token.ExpiresAt.After(token.CreatedAt) {
 		return fmt.Errorf("access token data is invalid")
 	}

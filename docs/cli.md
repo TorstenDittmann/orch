@@ -796,6 +796,7 @@ application when the repository is trusted for several. See
 
 ```text
 orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+orch token create [NAME] --admin [--ttl 720h] [--target NAME] [--json]
 orch token list [--target NAME] [--json]
 orch token revoke NAME [--target NAME] [--json]
 ```
@@ -814,11 +815,14 @@ orch app status shop
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--app` | required | The one application the token may use |
+| `--app` | required unless `--admin` | The one application the token may use |
+| `--admin` | `false` | Allow everything an administrator can do, for tools that manage the whole cluster; excludes `--app` and `--read-only` |
 | `--read-only` | `false` | Allow status, logs, history, and diffs, but no deploys or rollbacks |
 | `--ttl` | `720h` | How long the token works, up to `8760h` |
 
-`NAME` defaults to `APP`, or `APP-read-only` with `--read-only`. The token is
+`NAME` defaults to `APP`, or `APP-read-only` with `--read-only`, or `admin`
+with `--admin`. An administrator token is exchanged for a 15-minute
+administrator certificate, so treat it like a context file. The token is
 shown only once; the controller keeps only a hash of it. Each command trades
 it for a 15-minute certificate, so `revoke` takes effect within 15 minutes.
 `list` shows when each token was last used. The controller address in the

@@ -79,7 +79,26 @@ func TestTokenLetsAnAgentUseOneApplicationWithoutATarget(t *testing.T) {
 	t.Setenv("ORCH_TOKEN", "")
 	stdout.Reset()
 	stderr.Reset()
+	if code := Run([]string{"token", "create", "--admin", "--app", "hello", "--context", contextPath}, &stdout, &stderr); code != ExitInvalid {
+		t.Fatalf("token create --admin --app code=%d stderr=%s", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := Run([]string{"token", "create", "--admin", "--context", contextPath}, &stdout, &stderr); code != ExitOK ||
+		!strings.Contains(stderr.String(), "administrator") || !strings.Contains(stderr.String(), "orch token revoke admin") {
+		t.Fatalf("token create --admin code=%d stderr=%s", code, stderr.String())
+	}
+	t.Setenv("ORCH_TOKEN", strings.TrimSpace(stdout.String()))
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"nodes"}, &stdout, &stderr); code != ExitOK {
+		t.Fatalf("nodes with an administrator ORCH_TOKEN code=%d stderr=%s", code, stderr.String())
+	}
+
+	t.Setenv("ORCH_TOKEN", "")
+	stdout.Reset()
+	stderr.Reset()
 	if code := Run([]string{"token", "list", "--context", contextPath}, &stdout, &stderr); code != ExitOK ||
+		!strings.Contains(stdout.String(), "admin  all apps  administrator") ||
 		!strings.Contains(stdout.String(), "hello  app hello  deploy") || !strings.Contains(stdout.String(), "hello-read-only  app hello  read-only") {
 		t.Fatalf("token list code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}

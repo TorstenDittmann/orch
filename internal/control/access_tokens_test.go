@@ -156,6 +156,34 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 		t.Fatalf("viewer ListSecrets = %v", err)
 	}
 
+	adminService := generatedClient(tlsHTTPClient(credentials.RootCAs, credentials.Certificate), endpoint)
+	if _, err := adminService.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "mixed", Application: "hello", Administrator: true})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("administrator token limited to an application = %v", err)
+	}
+	if _, err := adminService.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "mixed", ReadOnly: true, Administrator: true})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("read-only administrator token = %v", err)
+	}
+	adminToken, err := admin.CreateAdministratorAccessToken(ctx, "panel", time.Hour)
+	if err != nil || !adminToken.GetToken().GetAdministrator() || adminToken.GetToken().GetApplication() != "" {
+		t.Fatalf("CreateAdministratorAccessToken() = %+v, %v", adminToken, err)
+	}
+	if _, err := deployer.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "escalate", Administrator: true})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("deployer creating an administrator token = %v", err)
+	}
+	administrator, err := connectWith(adminToken.GetValue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := administrator.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: other, IdempotencyKey: "admin-other-key-0001"})); err != nil {
+		t.Fatalf("administrator token deploying any application = %v", err)
+	}
+	if _, err := administrator.ListNodes(ctx, connect.NewRequest(&orchv1alpha1.ListNodesRequest{})); err != nil {
+		t.Fatalf("administrator token ListNodes = %v", err)
+	}
+	if _, err := administrator.ListSecrets(ctx, connect.NewRequest(&orchv1alpha1.ListSecretsRequest{Application: "hello"})); err != nil {
+		t.Fatalf("administrator token ListSecrets = %v", err)
+	}
+
 	listed, err = admin.ListAccessTokens(ctx)
 	if err != nil || listed[0].GetLastUsedAt() == nil {
 		t.Fatalf("last use was not recorded: %+v, %v", listed, err)
