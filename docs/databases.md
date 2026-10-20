@@ -42,7 +42,16 @@ password.
 | `MariaDB` | `mariadb` | `11.4` | 3306 | `mariadb-dump` |
 | `MongoDB` | `mongo` | `8.0` | 27017 | `mongodump` |
 | `Redis` | `redis` | `7.4` | 6379 | Snapshot after `SAVE`, with append-only persistence on |
+| `Valkey` | `valkey/valkey` | `8.1` | 6379 | Snapshot after `SAVE`, with append-only persistence on |
+| `Dragonfly` | `docker.dragonflydb.io/dragonflydb/dragonfly` | `latest` | 6379 | Snapshot after `SAVE` |
+| `Garnet` | `ghcr.io/microsoft/garnet` | `latest` | 6379 | None: data is kept in memory only |
+| `ClickHouse` | `clickhouse/clickhouse-server` | `25.8` | 9000 (native), 8123 (HTTP) | `BACKUP DATABASE` |
 | `LibSQL` | `ghcr.io/tursodatabase/libsql-server` | `latest` | 8080 | SQLite online backup of the data files |
+
+Valkey, Dragonfly and Garnet speak the Redis protocol, so Redis clients work
+with them unchanged. Garnet's image runs as a user that cannot write to a local
+volume, so orch runs it without one: it starts empty after every restart and
+suits caches only.
 
 Every engine accepts the same fields:
 
@@ -66,9 +75,9 @@ A database named `main` in application `shop` becomes:
 
 - a service `main`, reachable at `main.shop.svc.internal` on the engine's port,
   with one replica and a one minute stop grace period;
-- a local volume `main-data` with its files;
-- for the dump engines (Postgres, MySQL, MariaDB, MongoDB) with backups on, a
-  local volume `main-backup` that holds the latest dump;
+- a local volume `main-data` with its files (except for Garnet);
+- for the dump engines (Postgres, MySQL, MariaDB, MongoDB, ClickHouse) with
+  backups on, a local volume `main-backup` that holds the latest dump;
 - the secrets below, created on the first deploy that declares the database.
 
 The service and volumes are ordinary parts of the application. They show up in
@@ -84,10 +93,12 @@ replica stops before the new one starts on the same node and volume.
 | Postgres | `main-password`, `main-url` | `postgres://orch:PASSWORD@main.shop.svc.internal:5432/main` |
 | MySQL, MariaDB | `main-password`, `main-url` | `mysql://orch:PASSWORD@main.shop.svc.internal:3306/main` |
 | MongoDB | `main-password`, `main-url` | `mongodb://orch:PASSWORD@main.shop.svc.internal:27017/main?authSource=admin` |
-| Redis | `main-password`, `main-url` | `redis://:PASSWORD@main.shop.svc.internal:6379` |
+| Redis, Valkey, Dragonfly, Garnet | `main-password`, `main-url` | `redis://:PASSWORD@main.shop.svc.internal:6379` |
+| ClickHouse | `main-password`, `main-url` | `clickhouse://orch:PASSWORD@main.shop.svc.internal:9000/main` |
 | LibSQL | `main-jwt-key`, `main-token`, `main-url` | `http://main.shop.svc.internal:8080?authToken=TOKEN` |
 
-The user is `orch` and the database is named after the entry. MySQL and
+The user is `orch` and the database is named after the entry; ClickHouse turns
+dashes in that name into underscores. MySQL and
 MariaDB use the same password for `root`. LibSQL clients authenticate with
 `main-token`, a full-access token signed for the public key in `main-jwt-key`;
 pass the token separately if your client does not read `authToken` from the URL.
@@ -116,7 +127,8 @@ They run on the database's node.
 - **Dump engines** write a fresh dump into the `main-backup` volume, then orch
   archives that volume. A dump is consistent even while the database takes
   writes.
-- **Redis** runs `SAVE`, then orch archives the `main-data` volume.
+- **Redis, Valkey and Dragonfly** run `SAVE`, then orch archives the
+  `main-data` volume.
 - **LibSQL** archives `main-data`; SQLite files are copied with SQLite's online
   backup.
 
@@ -129,8 +141,8 @@ orch db backup shop main
 ```
 
 `orch volume download shop main-backup BACKUP` downloads an archive, which for
-a dump engine contains the dump file (`dump.pgc`, `dump.sql` or
-`dump.archive.gz`).
+a dump engine contains the dump (`dump.pgc`, `dump.sql`, `dump.archive.gz`, or
+ClickHouse's `dump` directory).
 
 ## Restore
 
@@ -141,8 +153,9 @@ orch db restore shop main 20261020T030000Z
 
 For a dump engine, orch swaps the backup into `main-backup`, waits until the
 database accepts connections, and loads the dump into it: `pg_restore --clean`,
-the SQL dump (which drops and recreates the database), or `mongorestore
---drop`. For Redis and LibSQL it swaps the backup into `main-data` and restarts
+the SQL dump (which drops and recreates the database), `mongorestore --drop`,
+or ClickHouse's `RESTORE` after dropping the database. For the Redis-compatible
+engines and LibSQL it swaps the backup into `main-data` and restarts
 the database on it; the data it replaced is kept as a `-before-restore`
 backup.
 

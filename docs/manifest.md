@@ -536,7 +536,8 @@ Changing `backup` never restarts the service. See
 
 ## Database
 
-`Postgres`, `MySQL`, `MariaDB`, `MongoDB`, `Redis` and `LibSQL` each run that
+`Postgres`, `MySQL`, `MariaDB`, `MongoDB`, `Redis`, `Valkey`, `Dragonfly`,
+`Garnet`, `ClickHouse` and `LibSQL` each run that
 engine as a service of the same name, with a `NAME-data` volume, generated
 credentials and optional scheduled backups. Names are at most 54 characters.
 

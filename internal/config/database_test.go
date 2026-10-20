@@ -52,7 +52,7 @@ func TestLoadDatabases(t *testing.T) {
 		t.Fatal("the postgres data volume is backed up directly")
 	}
 	dump := manifest.Volumes["main-backup"].Backup
-	if dump == nil || dump.Keep != 3 || dump.Schedule != "0 3 * * *" || !strings.Contains(strings.Join(dump.Before, " "), "pg_dump -U orch -d main -Fc -f /backup/dump.pgc.tmp && mv /backup/dump.pgc.tmp /backup/dump.pgc") {
+	if dump == nil || dump.Keep != 3 || dump.Schedule != "0 3 * * *" || !strings.Contains(strings.Join(dump.Before, " "), "pg_dump -U orch -d main -Fc -f /backup/dump.pgc.tmp && rm -rf /backup/dump.pgc && mv /backup/dump.pgc.tmp /backup/dump.pgc") {
 		t.Fatalf("main dump backup = %#v", dump)
 	}
 	if DatabaseBackupVolume("main", EnginePostgres) != "main-backup" {
@@ -95,6 +95,44 @@ databases { ["redis"] = new Redis { version = "8" } }
 `)
 	if len(manifest.Services) != 1 || manifest.Services["redis"].Image != "redis:8" {
 		t.Fatalf("services = %#v", manifest.Services)
+	}
+}
+
+func TestLoadMoreDatabaseEngines(t *testing.T) {
+	manifest := loadManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+databases {
+  ["events-db"] = new ClickHouse { backup = new DatabaseBackup {} }
+  ["queue"] = new Valkey { backup = new DatabaseBackup {} }
+  ["fly"] = new Dragonfly {}
+  ["cache"] = new Garnet {}
+}
+`)
+	events := manifest.Services["events-db"]
+	if events.Image != "clickhouse/clickhouse-server:25.8" || events.Env["CLICKHOUSE_DB"] != "events_db" ||
+		!reflect.DeepEqual(events.Args, []string{"--", "--backups.allowed_path=/backup/"}) {
+		t.Fatalf("clickhouse = %#v", events)
+	}
+	if before := strings.Join(manifest.Volumes["events-db-backup"].Backup.Before, " "); !strings.Contains(before, "chown clickhouse:clickhouse /backup && rm -rf /backup/dump.tmp") ||
+		!strings.Contains(before, "BACKUP DATABASE `events_db` TO File('/backup/dump.tmp')") {
+		t.Fatalf("clickhouse dump = %s", before)
+	}
+	if !strings.Contains(strings.Join(DatabaseLoadCommand("events-db", EngineClickHouse), " "), "RESTORE DATABASE `events_db` FROM File('/backup/dump')") {
+		t.Fatal("clickhouse restore does not load the dump")
+	}
+	if manifest.Volumes["queue-data"].Backup == nil || manifest.Services["queue"].Image != "valkey/valkey:8.1" {
+		t.Fatalf("valkey = %#v", manifest.Services["queue"])
+	}
+	if _, ok := manifest.Volumes["cache-data"]; ok || len(manifest.Services["cache"].Mounts) != 0 {
+		t.Fatal("garnet got a volume")
+	}
+	_, err := loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+databases { ["cache"] = new Garnet { backup = new DatabaseBackup {} } }
+`)
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "databases.cache.backup") {
+		t.Fatalf("garnet backup: %v", err)
 	}
 }
 

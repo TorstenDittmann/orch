@@ -12,12 +12,16 @@ import (
 
 // Database engines a manifest can declare under `databases`.
 const (
-	EnginePostgres = "postgres"
-	EngineMySQL    = "mysql"
-	EngineMariaDB  = "mariadb"
-	EngineMongoDB  = "mongodb"
-	EngineRedis    = "redis"
-	EngineLibSQL   = "libsql"
+	EnginePostgres   = "postgres"
+	EngineMySQL      = "mysql"
+	EngineMariaDB    = "mariadb"
+	EngineMongoDB    = "mongodb"
+	EngineRedis      = "redis"
+	EngineLibSQL     = "libsql"
+	EngineValkey     = "valkey"
+	EngineDragonfly  = "dragonfly"
+	EngineGarnet     = "garnet"
+	EngineClickHouse = "clickhouse"
 )
 
 const (
@@ -36,16 +40,21 @@ type Database struct {
 }
 
 type databaseEngine struct {
-	image    string
-	port     int
+	image string
+	port  int
+	// dataPath is empty for engines that keep their data in memory only.
 	dataPath string
 	env      func(name string) map[string]string
 	// secretEnv maps environment variables to secret name suffixes.
 	secretEnv map[string]string
 	command   []string
+	args      []string
 	// dump engines keep a second volume of logical dumps; the others back
 	// up their data volume directly.
-	dumpFile    string
+	dumpFile string
+	// prepareDump runs before each dump, for example to let the database
+	// write to the dump volume.
+	prepareDump string
 	dumpCommand func(name, file string) string
 	loadCommand func(name, file string) string
 	readyScript func(name string) string
@@ -142,6 +151,62 @@ var databaseEngines = map[string]databaseEngine{
 			return fmt.Sprintf("redis://:%s@%s:6379", secrets["password"], host)
 		},
 	},
+	EngineValkey: {
+		image: "valkey/valkey", port: 6379, dataPath: "/data",
+		env:       func(string) map[string]string { return nil },
+		secretEnv: map[string]string{"VALKEY_PASSWORD": "password"},
+		command:   []string{"sh", "-c", `exec docker-entrypoint.sh valkey-server --requirepass "$VALKEY_PASSWORD" --appendonly yes`},
+		before:    []string{"sh", "-c", `valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" SAVE`},
+		url: func(host, _ string, secrets map[string]string) string {
+			return fmt.Sprintf("redis://:%s@%s:6379", secrets["password"], host)
+		},
+	},
+	EngineDragonfly: {
+		image: "docker.dragonflydb.io/dragonflydb/dragonfly", port: 6379, dataPath: "/data",
+		env:       func(string) map[string]string { return nil },
+		secretEnv: map[string]string{"DRAGONFLY_PASSWORD": "password"},
+		command: []string{"sh", "-c",
+			`exec /usr/bin/tini -- entrypoint.sh dragonfly --logtostderr --requirepass "$DRAGONFLY_PASSWORD" --dir /data --dbfilename dump`},
+		before: []string{"sh", "-c", `redis-cli --no-auth-warning -a "$DRAGONFLY_PASSWORD" SAVE`},
+		url: func(host, _ string, secrets map[string]string) string {
+			return fmt.Sprintf("redis://:%s@%s:6379", secrets["password"], host)
+		},
+	},
+	EngineGarnet: {
+		// Garnet's image runs as a non-root user that cannot write to a
+		// local volume, so it keeps its data in memory.
+		image: "ghcr.io/microsoft/garnet", port: 6379,
+		env:       func(string) map[string]string { return nil },
+		secretEnv: map[string]string{"GARNET_PASSWORD": "password"},
+		command:   []string{"sh", "-c", `exec /app/GarnetServer --auth Password --password "$GARNET_PASSWORD"`},
+		url: func(host, _ string, secrets map[string]string) string {
+			return fmt.Sprintf("redis://:%s@%s:6379", secrets["password"], host)
+		},
+	},
+	EngineClickHouse: {
+		image: "clickhouse/clickhouse-server", port: 9000, dataPath: "/var/lib/clickhouse",
+		env: func(name string) map[string]string {
+			return map[string]string{"CLICKHOUSE_USER": databaseUser, "CLICKHOUSE_DB": clickHouseDatabase(name), "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1"}
+		},
+		secretEnv: map[string]string{"CLICKHOUSE_PASSWORD": "password"},
+		// BACKUP may only write below allowed_path.
+		args:        []string{"--", "--backups.allowed_path=" + databaseDumpMount + "/"},
+		dumpFile:    "dump",
+		prepareDump: "chown clickhouse:clickhouse " + databaseDumpMount,
+		dumpCommand: func(name, file string) string {
+			return fmt.Sprintf(`clickhouse-client -u %s --password "$CLICKHOUSE_PASSWORD" --query "BACKUP DATABASE `+"`%s`"+` TO File('%s')"`, databaseUser, clickHouseDatabase(name), file)
+		},
+		loadCommand: func(name, file string) string {
+			database := "`" + clickHouseDatabase(name) + "`"
+			return fmt.Sprintf(`clickhouse-client -u %s --password "$CLICKHOUSE_PASSWORD" --multiquery --query "DROP DATABASE IF EXISTS %s SYNC; RESTORE DATABASE %s FROM File('%s')"`, databaseUser, database, database, file)
+		},
+		readyScript: func(string) string {
+			return fmt.Sprintf(`clickhouse-client -u %s --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1"`, databaseUser)
+		},
+		url: func(host, name string, secrets map[string]string) string {
+			return fmt.Sprintf("clickhouse://%s:%s@%s:9000/%s", databaseUser, secrets["password"], host, clickHouseDatabase(name))
+		},
+	},
 	EngineLibSQL: {
 		image: "ghcr.io/tursodatabase/libsql-server", port: 8080, dataPath: "/var/lib/sqld/data",
 		env: func(string) map[string]string {
@@ -153,6 +218,10 @@ var databaseEngines = map[string]databaseEngine{
 		},
 	},
 }
+
+// clickHouseDatabase names a ClickHouse database; its identifiers cannot
+// contain an unquoted `-`.
+func clickHouseDatabase(name string) string { return strings.ReplaceAll(name, "-", "_") }
 
 // DatabaseEngines returns the engines a manifest can declare.
 func DatabaseEngines() []string {
@@ -233,8 +302,15 @@ func expandDatabases(manifest *Manifest, databases map[string]DatabaseSpec) erro
 			add(base, fmt.Sprintf("a service is already named %q", name))
 			continue
 		}
+		if engine.dataPath == "" && spec.Backup != nil {
+			add(base+".backup", "is not supported: "+spec.Engine+" keeps its data in memory")
+			continue
+		}
 		data, dump := DatabaseDataVolume(name), DatabaseDumpVolume(name)
-		volumes := []string{data}
+		var volumes []string
+		if engine.dataPath != "" {
+			volumes = append(volumes, data)
+		}
 		if spec.Backup != nil && engine.dumpCommand != nil {
 			volumes = append(volumes, dump)
 		}
@@ -257,22 +333,30 @@ func expandDatabases(manifest *Manifest, databases map[string]DatabaseSpec) erro
 			secretEnv[variable] = name + "-" + suffix
 		}
 		service := Service{
-			Image: image, Command: append([]string(nil), engine.command...), Replicas: 1, Restart: DefaultRestart,
+			Image: image, Command: append([]string(nil), engine.command...), Args: append([]string(nil), engine.args...),
+			Replicas: 1, Restart: DefaultRestart,
 			Resources:   spec.Resources,
 			TCP:         &TCP{Port: engine.port},
 			Env:         engine.env(name),
 			SecretEnv:   secretEnv,
 			Constraints: cloneMap(spec.Constraints),
-			Mounts:      []Mount{{Source: data, Target: engine.dataPath}},
-			StopGrace:   "1m",
-			Database:    &Database{Engine: spec.Engine, Version: spec.Version},
+
+			StopGrace: "1m",
+			Database:  &Database{Engine: spec.Engine, Version: spec.Version},
+		}
+		if engine.dataPath != "" {
+			service.Mounts = append(service.Mounts, Mount{Source: data, Target: engine.dataPath})
 		}
 		dataVolume := Volume{Driver: "local"}
 		if spec.Backup != nil {
 			backup := &VolumeBackup{Schedule: spec.Backup.Schedule, Keep: spec.Backup.Keep}
 			if engine.dumpCommand != nil {
 				file := databaseDumpMount + "/" + engine.dumpFile
-				backup.Before = []string{"sh", "-c", fmt.Sprintf("%s && mv %s.tmp %s", engine.dumpCommand(name, file+".tmp"), file, file)}
+				script := fmt.Sprintf("rm -rf %[1]s.tmp && %[2]s && rm -rf %[1]s && mv %[1]s.tmp %[1]s", file, engine.dumpCommand(name, file+".tmp"))
+				if engine.prepareDump != "" {
+					script = engine.prepareDump + " && " + script
+				}
+				backup.Before = []string{"sh", "-c", script}
 				service.Mounts = append(service.Mounts, Mount{Source: dump, Target: databaseDumpMount})
 				manifest.Volumes[dump] = Volume{Driver: "local", Backup: backup}
 			} else {
@@ -280,7 +364,9 @@ func expandDatabases(manifest *Manifest, databases map[string]DatabaseSpec) erro
 				dataVolume.Backup = backup
 			}
 		}
-		manifest.Volumes[data] = dataVolume
+		if engine.dataPath != "" {
+			manifest.Volumes[data] = dataVolume
+		}
 		manifest.Services[name] = service
 	}
 	if len(problems) != 0 {

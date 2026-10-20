@@ -287,6 +287,35 @@ class Redis extends Database {
   version = "7.4"
 }
 
+/// Valkey with append-only persistence, backed up from a saved snapshot.
+class Valkey extends Database {
+  fixed engine = "valkey"
+  version = "8.1"
+}
+
+/// Dragonfly, a Redis-compatible store, backed up from a saved snapshot.
+class Dragonfly extends Database {
+  fixed engine = "dragonfly"
+  version = "latest"
+  resources { memory = "256Mi" }
+}
+
+/// Garnet, a Redis-compatible cache. It keeps its data in memory only, so it
+/// starts empty after a restart and cannot be backed up.
+class Garnet extends Database {
+  fixed engine = "garnet"
+  version = "latest"
+  resources { memory = "256Mi" }
+}
+
+/// ClickHouse, backed up with its `BACKUP` command. Dashes in the database
+/// name become underscores.
+class ClickHouse extends Database {
+  fixed engine = "clickhouse"
+  version = "25.8"
+  resources { memory = "1Gi" }
+}
+
 /// libSQL server (sqld), backed up with SQLite's online backup. Clients
 /// authenticate with the generated `NAME-token`.
 class LibSQL extends Database {
