@@ -21,7 +21,8 @@ orch does not provide:
 - a highly available or multi-region control plane;
 - automatic fencing during network partitions;
 - distributed or replicated storage;
-- autoscaling;
+- memory-, request-, or schedule-based autoscaling (services can autoscale
+  on CPU), or adding and removing nodes;
 - Windows workers;
 - arbitrary schedulers, plugins, or runtime drivers.
 

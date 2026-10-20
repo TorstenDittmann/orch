@@ -33,6 +33,8 @@ type Fake struct {
 	StopGraces map[string]time.Duration
 	// StopHook, when set, runs at the start of every Stop call.
 	StopHook func(id string)
+	// CPU is what TaskCPU returns.
+	CPU []TaskCPU
 	// Now overrides the clock used for StartedAt; nil uses time.Now.
 	Now         func() time.Time
 	nextAddress netip.Addr
@@ -58,6 +60,12 @@ func (f *Fake) now() time.Time {
 		return f.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (f *Fake) TaskCPU(context.Context) ([]TaskCPU, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]TaskCPU(nil), f.CPU...), nil
 }
 
 func (f *Fake) PrepareNetwork(_ context.Context, config model.NetworkConfig) error {

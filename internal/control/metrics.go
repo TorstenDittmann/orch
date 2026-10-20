@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"runtime"
 	"slices"
@@ -33,6 +34,9 @@ type metricsInput struct {
 	adminNotAfter time.Time
 	// backups is nil when automatic controller backups are off.
 	backups *backupStatus
+	// autoscale holds each autoscaled service's status keyed by
+	// application and service.
+	autoscale map[string]map[string]AutoscaleStatus
 }
 
 // metricsHandler serves the Prometheus text exposition format. Every value is
@@ -101,6 +105,18 @@ func (s *service) collectMetrics(ctx context.Context) (metricsInput, error) {
 			return input, err
 		}
 		input.applications = append(input.applications, application)
+	}
+	scales, err := s.state.ServiceScales(ctx)
+	if err != nil {
+		return input, err
+	}
+	for _, application := range input.applications {
+		if statuses := s.autoscaler.Status(application, scales[application.Name]); len(statuses) != 0 {
+			if input.autoscale == nil {
+				input.autoscale = map[string]map[string]AutoscaleStatus{}
+			}
+			input.autoscale[application.Name] = statuses
+		}
 	}
 	if s.sessions != nil {
 		input.sessions = s.sessions.ConnectedCount()
@@ -204,6 +220,25 @@ func renderMetrics(input metricsInput) []byte {
 	out.family("orch_allocation_restarts", "Restarts of the current allocations of a service.", restarts.samples())
 	out.family("orch_routes", "Ingress routes per node by kind and state.", routes.samples())
 	out.family("orch_cron_job_last_run_failed", "1 when the cron job's last run failed or timed out.", cron)
+
+	var scaleReplicas, scaleCPU, scaleLimited []metricSample
+	for application, services := range input.autoscale {
+		for service, status := range services {
+			labels := metricLabels("application", application, "service", service)
+			scaleReplicas = append(scaleReplicas, metricSample{labels: labels, value: float64(status.Replicas)})
+			if status.Utilization >= 0 {
+				scaleCPU = append(scaleCPU, metricSample{labels: labels, value: math.Round(status.Utilization*1000) / 1000})
+			}
+			limited := 0.0
+			if status.Limited != "" {
+				limited = 1
+			}
+			scaleLimited = append(scaleLimited, metricSample{labels: labels, value: limited})
+		}
+	}
+	out.family("orch_service_autoscale_replicas", "Replicas the autoscaler chose for a service.", scaleReplicas)
+	out.family("orch_service_autoscale_cpu_ratio", "Average CPU use of an autoscaled service's ready replicas as a fraction of their request.", scaleCPU)
+	out.family("orch_service_autoscale_limited", "1 when an autoscaled service wants more replicas than the cluster has room for.", scaleLimited)
 	return out.buffer.Bytes()
 }
 

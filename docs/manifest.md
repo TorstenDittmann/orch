@@ -185,6 +185,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `constraints` | `Mapping<String, String>` | empty | At most 64 required node labels |
 | `mounts` | `Listing<Mount>` | empty | At most 64 |
 | `stopGracePeriod` | `String?` | `null` (10s) | Whole seconds from `"1s"` to `"10m"` |
+| `autoscale` | `Autoscale?` | `null` | See [autoscaling](#autoscaling). Leave `replicas` unset. |
 
 ### Image
 
@@ -209,6 +210,49 @@ services {
 ```
 
 Changing it replaces the replica, like any other change to the service.
+
+### Autoscaling
+
+With `autoscale`, the controller adds and removes replicas to keep the
+service's average CPU use near a share of its CPU request:
+
+```pkl
+services {
+  ["web"] {
+    image = "ghcr.io/acme/web:1.4"
+    resources { cpu = "500m"; memory = "256Mi" }
+    autoscale = new Autoscale {
+      min = 2
+      max = 10
+    }
+  }
+}
+```
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `min` | Int | `1` | 1 to 100; the replica count of a first deploy |
+| `max` | Int | required | `min` to 100; counts toward the 200-replica limit |
+| `cpuPercent` | Int | `70` | 10 to 100; target average CPU use as a percent of `resources.cpu` |
+
+Every 30 seconds the controller averages the last minute of CPU use of the
+service's ready replicas, as reported by their nodes. When it is more than
+10% away from the target, the replica count changes in proportion, at most
+doubling at once. It adds replicas right away and removes them one at a time,
+only after every evaluation in the last five minutes asked for fewer. It
+waits while a deployment of the application is rolling out.
+
+Scaling is not a deployment: it keeps the current revision, adds nothing to
+history, and `orch plan` shows no change. A new deployment keeps the current
+count within the new `min` and `max`. Each change is a `service.scaled`
+event that says why, and `orch app status` shows the count, CPU use and target.
+
+When no node has room for another replica, the service stays at the count that
+fits and `orch app status` says it is limited. Add a node or lower the request.
+
+`autoscale` is not available for services that mount a volume or publish
+node-local ports. Since CPU requests are also CPU limits, a replica can never
+use more than 100% of its request, so leave headroom below 100.
 
 ### Command and args
 

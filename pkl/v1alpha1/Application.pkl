@@ -65,6 +65,19 @@ class Service {
   /// How long a replica may take to exit after SIGTERM before it is killed,
   /// from "1s" to "10m". Unset means 10 seconds.
   stopGracePeriod: String? = null
+
+  /// Adds and removes replicas to keep average CPU use near a target. Leave
+  /// `replicas` unset when this is set; `min` is the starting count.
+  autoscale: Autoscale? = null
+}
+
+class Autoscale {
+  min: Int(isBetween(1, 100)) = 1
+
+  max: Int(isBetween(min, 100))
+
+  /// Target average CPU use of each replica, as a percent of `resources.cpu`.
+  cpuPercent: Int(isBetween(10, 100)) = 70
 }
 
 class Resources {

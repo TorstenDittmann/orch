@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
 func TestUsageSamplerReportsCPUSinceThePreviousSample(t *testing.T) {
@@ -32,6 +36,35 @@ func TestUsageSamplerReportsCPUSinceThePreviousSample(t *testing.T) {
 	}
 	var missing *usageSampler
 	if missing.Sample() != nil {
+		t.Fatal("a nil sampler reported usage")
+	}
+}
+
+func TestAllocationSamplerReportsCPUPerAllocation(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	fake := orchruntime.NewFake()
+	sampler := newAllocationSampler(fake)
+	fake.CPU = []orchruntime.TaskCPU{
+		{ObjectID: "a-1", AllocationID: "a", UsageMicros: 1_000_000, ObservedAt: start},
+		{ObjectID: "b-1", AllocationID: "b", UsageMicros: 0, ObservedAt: start},
+	}
+	if usage := sampler.Sample(context.Background()); len(usage) != 0 {
+		t.Fatalf("first sample = %v, want none", usage)
+	}
+	later := start.Add(10 * time.Second)
+	fake.CPU = []orchruntime.TaskCPU{
+		// 5 CPU-seconds in 10 seconds is half a core.
+		{ObjectID: "a-1", AllocationID: "a", UsageMicros: 6_000_000, ObservedAt: later},
+		// A replacement task has no earlier reading yet.
+		{ObjectID: "b-2", AllocationID: "b", UsageMicros: 9_000_000, ObservedAt: later},
+	}
+	usage := sampler.Sample(context.Background())
+	if len(usage) != 1 || usage[0].GetAllocationId() != "a" || usage[0].GetCpuUsedMillis() != 500 {
+		t.Fatalf("usage = %v", usage)
+	}
+	var missing *allocationSampler
+	if missing.Sample(context.Background()) != nil {
 		t.Fatal("a nil sampler reported usage")
 	}
 }

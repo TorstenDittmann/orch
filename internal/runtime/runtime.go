@@ -124,6 +124,20 @@ type Runtime interface {
 	Close() error
 }
 
+// TaskCPU is the CPU time one running task has used since it started.
+type TaskCPU struct {
+	ObjectID     string
+	AllocationID string
+	UsageMicros  uint64
+	ObservedAt   time.Time
+}
+
+// TaskCPUReader is implemented by runtimes that can read their tasks' CPU
+// use. It is separate from Runtime because usage is best effort.
+type TaskCPUReader interface {
+	TaskCPU(context.Context) ([]TaskCPU, error)
+}
+
 func ObjectID(allocationID, specDigest string) string {
 	if len(specDigest) >= 19 {
 		return allocationID + "-" + specDigest[7:19]

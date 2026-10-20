@@ -439,6 +439,13 @@ message AgentHeartbeat {
   string boot_id = 1;
   uint64 acknowledged_assignment_generation = 2;
   NodeResourceUsage usage = 3;
+  // Each running allocation's CPU use since the previous heartbeat.
+  repeated AllocationResourceUsage allocations = 4;
+}
+
+message AllocationResourceUsage {
+  string allocation_id = 1;
+  uint64 cpu_used_millis = 2;
 }
 
 // NodeResourceUsage is the node's usage since the previous heartbeat; disk
