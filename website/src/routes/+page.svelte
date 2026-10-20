@@ -19,6 +19,15 @@
 			<a class="quiet" href="/docs/">Read the docs</a>
 		</div>
 	</div>
+	<div class="code">{@html data.manifest}</div>
+</section>
+
+<section class="container step">
+	<div class="intro">
+		<h2>One file, every server</h2>
+		<p>Describe the app once and run <code>orch deploy</code>. Replicas are spread across your nodes and turn healthy on their own.</p>
+		<a class="quiet" href="/configuration/">Applications →</a>
+	</div>
 	<Deploy />
 </section>
 
