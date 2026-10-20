@@ -143,6 +143,66 @@ func TestSpecOptionsPrivilegedLiftsConfinement(t *testing.T) {
 	if len(spec.Linux.Resources.Devices) != 1 || !spec.Linux.Resources.Devices[0].Allow || len(spec.Linux.MaskedPaths) != 0 {
 		t.Fatalf("privileged devices = %#v, masked paths = %v", spec.Linux.Resources.Devices, spec.Linux.MaskedPaths)
 	}
+	if !hasWritableCgroupfs(spec) {
+		t.Fatalf("privileged mounts = %#v, want writable /sys/fs/cgroup", spec.Mounts)
+	}
+}
+
+func TestSpecOptionsUnprivilegedHasNoCgroupfs(t *testing.T) {
+	t.Parallel()
+	client := &runtimeClient{}
+	allocation := model.AllocationDesired{Command: []string{"/app"}, CPUMillis: 500, MemoryBytes: 64 << 20}
+	opts := client.specOptions(nil, allocation, nil)[1:]
+	ctx := namespaces.WithNamespace(context.Background(), "test")
+	spec, err := oci.GenerateSpec(ctx, nil, &containers.Container{ID: "test"}, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mount := range spec.Mounts {
+		if mount.Destination == "/sys/fs/cgroup" {
+			t.Fatalf("unprivileged mounts include %#v", mount)
+		}
+	}
+}
+
+func TestEnsureVolumeDirectoryAcceptsWorkloadModes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	volume := filepath.Join(root, "docker")
+	if err := ensureVolumeDirectory(volume); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(volume); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("new volume = %v, %v; want mode 0700", info, err)
+	}
+	// dockerd sets 0710 on its data root; a restart must still mount it.
+	if err := os.Chmod(volume, 0o710); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureVolumeDirectory(volume); err != nil {
+		t.Fatalf("ensureVolumeDirectory after chmod: %v", err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(volume, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureVolumeDirectory(link); err == nil {
+		t.Fatal("ensureVolumeDirectory accepted a symlink")
+	}
+}
+
+func hasWritableCgroupfs(spec *oci.Spec) bool {
+	for _, mount := range spec.Mounts {
+		if mount.Destination != "/sys/fs/cgroup" || mount.Type != "cgroup" {
+			continue
+		}
+		for _, option := range mount.Options {
+			if option == "rw" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func assertOwner(t *testing.T, path string, uid, gid uint32, mode os.FileMode) {
