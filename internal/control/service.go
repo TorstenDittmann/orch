@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -55,6 +56,9 @@ type service struct {
 	backups       *backupScheduler
 	upgrades      *agentUpgrades
 	autoscaler    *autoscaler
+	// databaseSecrets serializes generating database secrets, so two
+	// deploys cannot give one database different passwords.
+	databaseSecrets sync.Mutex
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -424,6 +428,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	}
 	if found {
 		return connect.NewResponse(applyApplicationMessage(replayed)), nil
+	}
+	if err := s.ensureDatabaseSecrets(ctx, manifest); err != nil {
+		return nil, err
 	}
 	resolved, err := s.resolveImages(ctx, manifest)
 	if err != nil {

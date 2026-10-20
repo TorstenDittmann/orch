@@ -6,8 +6,9 @@ fixed schema: "v1alpha1" = "v1alpha1"
 /// A DNS-label application name.
 name: DnsLabel
 
-/// Services keyed by their DNS-label name.
-services: Mapping<DnsLabel, Service>(length.isBetween(1, 100))
+/// Services keyed by their DNS-label name. An application needs at least one
+/// service or database.
+services: Mapping<DnsLabel, Service>(length <= 100) = new {}
 
 /// Scheduled one-shot jobs keyed by their DNS-label name.
 cronJobs: Mapping<DnsLabel, CronJob>(length <= 100) = new {}
@@ -15,12 +16,20 @@ cronJobs: Mapping<DnsLabel, CronJob>(length <= 100) = new {}
 /// Node-local volumes keyed by their DNS-label name.
 volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
 
+/// Databases orch runs, keyed by name. Each one becomes a service of that name
+/// with its own volume, a generated password, and a `NAME-url` secret holding
+/// the connection URL.
+databases: Mapping<DatabaseName, Database>(length <= 20) = new {}
+
 /// Rolling deployment behavior.
 deploy: Deployment = new {}
 
 typealias RestartPolicy = "always" | "on-failure" | "never"
 
 typealias DnsLabel = String(length <= 63, matches(Regex(#"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"#)))
+
+/// A DNS label short enough to name the database's volumes and secrets.
+typealias DatabaseName = DnsLabel(length <= 54)
 
 typealias EnvironmentName = String(matches(Regex(#"^[A-Za-z_][A-Za-z0-9_]*$"#)))
 
@@ -212,4 +221,74 @@ class Deployment {
   /// Redeploy when an image tag points to a new digest. The controller checks
   /// the registry every few minutes.
   autoUpdate: Boolean = false
+}
+
+abstract class Database {
+  /// The engine this database runs.
+  fixed engine: String
+
+  /// Image tag of the engine's official image.
+  version: String(!isBlank, length <= 128)
+
+  /// Full image reference instead of the official image, for a mirror or a
+  /// compatible build. `version` is ignored when this is set.
+  image: String(!isBlank, length <= 1024)? = null
+
+  resources: Resources = new {}
+
+  /// Exact node-label matches for the node that runs the database and keeps
+  /// its data.
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
+
+  /// Backs up the database on its node. Set to `null` to turn backups off.
+  backup: DatabaseBackup? = new {}
+}
+
+class DatabaseBackup {
+  /// Five-field cron schedule in UTC.
+  schedule: String(!isBlank, length <= 256) = "0 3 * * *"
+
+  /// How many backups to keep on the node.
+  keep: Int(isBetween(1, 365)) = 7
+}
+
+/// PostgreSQL, backed up with `pg_dump`.
+class Postgres extends Database {
+  fixed engine = "postgres"
+  version = "17"
+  resources { memory = "256Mi" }
+}
+
+/// MySQL, backed up with `mysqldump`.
+class MySQL extends Database {
+  fixed engine = "mysql"
+  version = "8.4"
+  resources { memory = "512Mi" }
+}
+
+/// MariaDB, backed up with `mariadb-dump`.
+class MariaDB extends Database {
+  fixed engine = "mariadb"
+  version = "11.4"
+  resources { memory = "256Mi" }
+}
+
+/// MongoDB, backed up with `mongodump`.
+class MongoDB extends Database {
+  fixed engine = "mongodb"
+  version = "8.0"
+  resources { memory = "512Mi" }
+}
+
+/// Redis with append-only persistence, backed up from a saved snapshot.
+class Redis extends Database {
+  fixed engine = "redis"
+  version = "7.4"
+}
+
+/// libSQL server (sqld), backed up with SQLite's online backup. Clients
+/// authenticate with the generated `NAME-token`.
+class LibSQL extends Database {
+  fixed engine = "libsql"
+  version = "latest"
 }

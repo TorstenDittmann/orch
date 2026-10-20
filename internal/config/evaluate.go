@@ -90,6 +90,9 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 	}
 
 	manifest := resolvePkl(doc)
+	if err := expandDatabases(manifest, resolvePklDatabases(doc)); err != nil {
+		return nil, err
+	}
 	if err := Validate(manifest); err != nil {
 		return nil, err
 	}

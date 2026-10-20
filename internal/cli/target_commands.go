@@ -332,7 +332,7 @@ func isRemoteCommand(args []string) bool {
 	switch args[0] {
 	case "join-token", "job", "status", "events", "deploy", "rollback", "nodes", "logs", "exec", "restart", "remove", "secret", "registry", "tui", "web":
 		return true
-	case "volume":
+	case "volume", "db":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "github", "token":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"

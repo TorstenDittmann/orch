@@ -141,9 +141,10 @@ the cluster, use `orch app diff`; see [deployments](runtime.md#rollbacks).
 | --- | --- | --- | --- |
 | `schema` | `"v1alpha1"` | `"v1alpha1"` | Fixed. You do not set it. |
 | `name` | DNS label | required | Application name, unique in the cluster |
-| `services` | `Mapping<DnsLabel, Service>` | required | 1 to 100 services |
+| `services` | `Mapping<DnsLabel, Service>` | empty | At most 100; an application needs a service or a database |
 | `cronJobs` | `Mapping<DnsLabel, CronJob>` | empty | At most 100 |
 | `volumes` | `Mapping<DnsLabel, Volume>` | empty | At most 100 |
+| `databases` | `Mapping<DnsLabel, Database>` | empty | At most 20; see [Databases](databases.md) |
 | `deploy` | `Deployment` | defaults below | Rollout behavior and pre-deploy hook |
 
 Across all services an application may request at most 200 replicas in total
@@ -532,6 +533,29 @@ volumes {
 
 Changing `backup` never restarts the service. See
 [volume backups](operations.md#volume-backups).
+
+## Database
+
+`Postgres`, `MySQL`, `MariaDB`, `MongoDB`, `Redis` and `LibSQL` each run that
+engine as a service of the same name, with a `NAME-data` volume, generated
+credentials and nightly backups. Names are at most 54 characters.
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `version` | String | per engine | Tag of the official image |
+| `image` | String? | `null` | Full image reference instead |
+| `resources` | `Resources` | per engine | |
+| `constraints` | `Mapping<String, String>` | empty | Node labels |
+| `backup` | `DatabaseBackup?` | `schedule = "0 3 * * *"`, `keep = 7` | `null` turns backups off |
+
+```pkl
+databases {
+  ["main"] = new Postgres { version = "17" }
+  ["cache"] = new Redis { backup = null }
+}
+```
+
+See [Databases](databases.md) for credentials, backups and restore.
 
 ## CronJob
 
