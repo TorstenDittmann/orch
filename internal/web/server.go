@@ -54,6 +54,8 @@ type Provider interface {
 type ClientProvider struct{ tui.ClientProvider }
 
 type Server struct {
+	// hosted servers leave sign-in to the caller; see NewHosted.
+	hosted    bool
 	provider  Provider
 	token     string
 	session   string
@@ -102,6 +104,19 @@ func New(provider Provider, target, transport, token string) (*Server, error) {
 	return s, nil
 }
 
+// NewHosted serves the dashboard on any host name without its one-time link
+// and session cookie, for callers such as orch panel that authenticate every
+// request before handing it over. Changes still must come from the same
+// origin.
+func NewHosted(provider Provider, target string) (*Server, error) {
+	s, err := New(provider, target, "hosted", "")
+	if err != nil {
+		return nil, err
+	}
+	s.hosted = true
+	return s, nil
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	header := w.Header()
 	header.Set("Cache-Control", "no-store")
@@ -109,6 +124,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	header.Set("X-Frame-Options", "DENY")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	if s.hosted {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			origin := r.Header.Get("Origin")
+			if (origin != "https://"+r.Host && origin != "http://"+r.Host) || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+				return
+			}
+		}
+		s.mux.ServeHTTP(w, r)
+		return
+	}
 	if !loopbackHost(r.Host) {
 		http.Error(w, "forbidden host", http.StatusForbidden)
 		return

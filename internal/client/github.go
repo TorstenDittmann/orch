@@ -123,27 +123,39 @@ func newExchangedClient(ctx context.Context, address, label string, exchange exc
 		},
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true}}
-	defer httpClient.CloseIdleConnections()
-	csrDER, keyPEM, err := security.GenerateDeployerCertificateRequest(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	certificatePEM, application, err := exchange(orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint), clusterID, csrDER)
-	if err != nil {
-		return nil, err
-	}
-	pair, err := tls.X509KeyPair(certificatePEM, keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
-	}
-	if pair.Leaf == nil {
-		if pair.Leaf, err = x509.ParseCertificate(pair.Certificate[0]); err != nil {
-			return nil, fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+	credentialService := orchv1alpha1connect.NewCredentialServiceClient(httpClient, endpoint)
+	issue := func() (tls.Certificate, string, error) {
+		defer httpClient.CloseIdleConnections()
+		csrDER, keyPEM, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+		if err != nil {
+			return tls.Certificate{}, "", err
 		}
+		certificatePEM, application, err := exchange(credentialService, clusterID, csrDER)
+		if err != nil {
+			return tls.Certificate{}, "", err
+		}
+		pair, err := tls.X509KeyPair(certificatePEM, keyPEM)
+		if err != nil {
+			return tls.Certificate{}, "", fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+		}
+		if pair.Leaf == nil {
+			if pair.Leaf, err = x509.ParseCertificate(pair.Certificate[0]); err != nil {
+				return tls.Certificate{}, "", fmt.Errorf("controller returned an invalid deployer certificate: %w", err)
+			}
+		}
+		return pair, application, nil
+	}
+	pair, application, err := issue()
+	if err != nil {
+		return nil, err
 	}
 	credentials := clusterctl.AdministratorCredentials{
 		Context:     clusterctl.LocalContext{Version: clusterctl.ContextVersion, Cluster: clusterctl.ContextCluster{ID: clusterID}, Server: endpoint},
 		Certificate: pair, RootCAs: roots, ServerName: server.Hostname(), CACertificatePEM: caPEM,
+		Renew: func(context.Context) (tls.Certificate, error) {
+			pair, _, err := issue()
+			return pair, err
+		},
 	}
 	return newCertificateClient(Endpoint{Target: label + application, Transport: target.Transport{Type: target.TransportDirect}}, credentials)
 }

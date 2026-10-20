@@ -117,11 +117,12 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 func newCertificateClient(endpoint Endpoint, credentials clusterctl.AdministratorCredentials) (*Client, error) {
 	var err error
 	controllerNotAfter := &certificateExpiry{}
+	certificate := &clientCertificate{current: credentials.Certificate, renew: credentials.Renew}
 	tlsConfig := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		RootCAs:      credentials.RootCAs,
-		Certificates: []tls.Certificate{credentials.Certificate},
-		ServerName:   credentials.ServerName,
+		MinVersion:           tls.VersionTLS13,
+		RootCAs:              credentials.RootCAs,
+		GetClientCertificate: certificate.get,
+		ServerName:           credentials.ServerName,
 		VerifyConnection: func(state tls.ConnectionState) error {
 			if len(state.PeerCertificates) == 0 || len(state.VerifiedChains) == 0 {
 				return fmt.Errorf("controller certificate was not verified")
@@ -188,6 +189,10 @@ func newCertificateClient(endpoint Endpoint, credentials clusterctl.Administrato
 		TLSClientConfig:       tlsConfig,
 	}
 	httpClient := &http.Client{Transport: transport}
+	if credentials.Renew != nil {
+		certificate.closeIdle = transport.CloseIdleConnections
+		httpClient.Transport = renewingTransport{next: transport, certificate: certificate}
+	}
 	service := orchv1alpha1connect.NewControlServiceClient(
 		httpClient, credentials.Context.Server,
 		connect.WithSendMaxBytes(maxMessageBytes),
@@ -198,6 +203,59 @@ func newCertificateClient(endpoint Endpoint, credentials clusterctl.Administrato
 		target: endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
 		administratorNotAfter: credentials.Certificate.Leaf.NotAfter, controllerNotAfter: controllerNotAfter,
 	}, nil
+}
+
+// certificateRenewalMargin is how long before expiry a renewable
+// certificate is replaced, so requests never race its end.
+const certificateRenewalMargin = 5 * time.Minute
+
+// clientCertificate holds the certificate presented in handshakes. A
+// renewable one is replaced shortly before it expires.
+type clientCertificate struct {
+	mutex     sync.Mutex
+	current   tls.Certificate
+	renew     func(context.Context) (tls.Certificate, error)
+	closeIdle func()
+}
+
+func (c *clientCertificate) get(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return &c.current, nil
+}
+
+// refresh renews the certificate when it is close to expiry and closes idle
+// connections, so the next request handshakes with the new certificate and a
+// revoked token stops working instead of riding an old connection.
+func (c *clientCertificate) refresh(ctx context.Context, now time.Time) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.renew == nil || c.current.Leaf == nil || now.Add(certificateRenewalMargin).Before(c.current.Leaf.NotAfter) {
+		return nil
+	}
+	renewed, err := c.renew(ctx)
+	if err != nil {
+		return fmt.Errorf("renew short-lived certificate: %w", err)
+	}
+	c.current = renewed
+	if c.closeIdle != nil {
+		c.closeIdle()
+	}
+	return nil
+}
+
+// renewingTransport renews an exchanged certificate before each request
+// that would otherwise use it close to its expiry.
+type renewingTransport struct {
+	next        http.RoundTripper
+	certificate *clientCertificate
+}
+
+func (t renewingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if err := t.certificate.refresh(request.Context(), time.Now()); err != nil {
+		return nil, err
+	}
+	return t.next.RoundTrip(request)
 }
 
 // CertificateExpiry returns the local administrator certificate expiry and the
@@ -281,7 +339,10 @@ func (client *Client) getCluster(ctx context.Context) (*orchv1alpha1.GetClusterR
 	if cluster == nil {
 		return nil, fmt.Errorf("controller returned an empty cluster")
 	}
-	if client.context.Cluster.ID != "" && (cluster.GetId() != client.context.Cluster.ID || cluster.GetName() != client.context.Cluster.Name) {
+	// Clients signed in with an exchanged token know the pinned cluster ID
+	// but not its name.
+	if client.context.Cluster.ID != "" && (cluster.GetId() != client.context.Cluster.ID ||
+		(client.context.Cluster.Name != "" && cluster.GetName() != client.context.Cluster.Name)) {
 		return nil, fmt.Errorf("controller cluster identity does not match administrator context")
 	}
 	return response.Msg, nil

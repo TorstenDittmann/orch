@@ -91,6 +91,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runRegistry(ctx, args[1:], stdout, stderr)
 	case "token":
 		return runToken(ctx, args[1:], stdout, stderr)
+	case "panel":
+		return runPanel(ctx, args[1:], stdout, stderr)
 	case "github":
 		return runGitHub(ctx, args[1:], stdout, stderr)
 	case "remove":

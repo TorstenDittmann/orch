@@ -336,6 +336,9 @@ func isRemoteCommand(args []string) bool {
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "github", "token":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
+	case "panel":
+		// serve runs inside the panel's container and signs in with ORCH_TOKEN.
+		return len(args) > 1 && (args[1] == "install" || args[1] == "remove")
 	case "app":
 		return len(args) > 1 && (args[1] == "list" || args[1] == "status" || args[1] == "history" || args[1] == "diff" || args[1] == "watch")
 	case "cron":

@@ -240,3 +240,31 @@ func TestMutationsRequireSameOrigin(t *testing.T) {
 		t.Fatalf("rollback = %v", provider.rolledBack)
 	}
 }
+
+func TestHostedServerLeavesSignInToCallerButChecksOrigin(t *testing.T) {
+	provider := &fakeProvider{}
+	server, err := NewHosted(provider, "panel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := httptest.NewRequest(http.MethodGet, "https://panel.example.com/api/snapshot", nil)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, read)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("hosted snapshot on a public host = %d: %s", recorder.Code, recorder.Body)
+	}
+	rollback := func(origin string) int {
+		r := httptest.NewRequest(http.MethodPost, "https://panel.example.com/api/apps/web/rollback", strings.NewReader(`{"revisionId":"rev1","expectedGeneration":"7"}`))
+		r.Header.Set("Origin", origin)
+		r.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, r)
+		return recorder.Code
+	}
+	if code := rollback("https://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("cross-origin rollback = %d", code)
+	}
+	if code := rollback("https://panel.example.com"); code != http.StatusOK {
+		t.Fatalf("same-origin rollback = %d", code)
+	}
+}

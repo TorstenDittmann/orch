@@ -8,7 +8,7 @@ VERSION ?= 0.1.0-dev
 BUILD_ID ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo development)
 LDFLAGS := -s -w -X github.com/TorstenDittmann/orch/internal/buildinfo.Version=$(VERSION) -X github.com/TorstenDittmann/orch/internal/buildinfo.BuildID=$(BUILD_ID)
 
-.PHONY: all build check clean containerd-e2e dev-context dev-image dev-image-release release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
+.PHONY: all build check clean containerd-e2e dev-context dev-image dev-image-release panel-context panel-image panel-image-release release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
 
 all: check
 
@@ -53,6 +53,25 @@ dev-context:
 		GOOS=linux GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/dev/orch-linux-$$arch ./cmd/orch || exit 1; \
 	done
 	cp packaging/dev/Dockerfile packaging/dev/containerd.toml packaging/dev/entrypoint.sh dist/dev/
+
+# orch-panel:local is the image `orch panel install --image` can deploy.
+PANEL_IMAGE_REPOSITORY ?= ghcr.io/torstendittmann/orch-panel
+
+panel-image:
+	$(MAKE) panel-context PANEL_ARCHES=$(DEV_ARCH)
+	$(DEV_ENGINE) build --platform linux/$(DEV_ARCH) -t orch-panel:local dist/panel
+
+# Publishes the multi-architecture image `orch panel install` deploys by default.
+panel-image-release:
+	$(MAKE) panel-context PANEL_ARCHES="amd64 arm64"
+	docker buildx build --platform linux/amd64,linux/arm64 --push -t $(PANEL_IMAGE_REPOSITORY):$(VERSION) dist/panel
+
+panel-context:
+	rm -rf dist/panel && mkdir -p dist/panel
+	for arch in $(PANEL_ARCHES); do \
+		GOOS=linux GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/panel/orch-linux-$$arch ./cmd/orch || exit 1; \
+	done
+	cp packaging/panel/Dockerfile dist/panel/
 
 generate:
 	$(BUF) generate

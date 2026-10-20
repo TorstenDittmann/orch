@@ -1009,6 +1009,19 @@ a one-time URL. Press Ctrl+C to stop it.
 
 See [targets and interfaces](targets.md) for both interfaces.
 
+### orch panel
+
+```text
+orch panel install --domain DOMAIN [--image REF] [--no-wait] [--timeout 5m] [--target NAME]
+orch panel remove [--target NAME]
+```
+
+Runs the dashboard on the cluster as the application `orch-panel`, always on
+at DOMAIN behind a password. `install` creates the panel's administrator
+access token, deploys it, and prints a one-time link to set the password;
+running it again resets the password and rotates the token. `remove` revokes
+the token and removes the application. See [orch panel](panel.md).
+
 ### orch mcp
 
 ```text
