@@ -56,7 +56,7 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 	if allocation.Privileged {
 		// These must follow hardenedSpec, which denies devices and new
 		// privileges for every other workload.
-		opts = append(opts, oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices, oci.WithNewPrivileges)
+		opts = append(opts, withCgroupfs, oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices, oci.WithNewPrivileges)
 	}
 	if len(allocation.SecretEnvironment) != 0 {
 		opts = append(opts, withSecretEnvironment(allocation.SecretEnvironment))
@@ -190,6 +190,19 @@ func withSecretEnvironment(environment map[string]model.SecretReference) oci.Spe
 	}
 }
 
+// withCgroupfs mounts the container's own cgroup tree, which the default spec
+// leaves out. A nested container runtime such as dockerd needs it to manage
+// the containers it starts; WithPrivileged makes it writable.
+func withCgroupfs(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
+	spec.Mounts = append(spec.Mounts, specs.Mount{
+		Destination: "/sys/fs/cgroup",
+		Type:        "cgroup",
+		Source:      "cgroup",
+		Options:     []string{"nosuid", "noexec", "nodev", "relatime", "ro"},
+	})
+	return nil
+}
+
 func withNoSwap(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
 	if spec.Linux == nil || spec.Linux.Resources == nil || spec.Linux.Resources.Memory == nil {
 		return fmt.Errorf("memory resources are unavailable")
@@ -233,7 +246,7 @@ func (c *runtimeClient) volumeMounts(allocation model.AllocationDesired) ([]spec
 		if filepath.Dir(hostPath) != applicationDir {
 			return nil, fmt.Errorf("invalid local volume name %q", mount.Name)
 		}
-		if err := ensurePrivateDirectory(hostPath); err != nil {
+		if err := ensureVolumeDirectory(hostPath); err != nil {
 			return nil, err
 		}
 		options := []string{"rbind", "rw"}
@@ -406,6 +419,24 @@ func ensurePrivateDirectory(path string) error {
 	}
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("runtime path %s must be a private non-symlink directory", path)
+	}
+	return nil
+}
+
+// ensureVolumeDirectory creates a local volume root or accepts an existing
+// one whatever its mode. The workload owns the root and may change it (dockerd
+// sets 0710 on its data root); the private application directory above it is
+// what keeps other host users out.
+func ensureVolumeDirectory(path string) error {
+	if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("local volume %s must be a non-symlink directory", path)
 	}
 	return nil
 }
