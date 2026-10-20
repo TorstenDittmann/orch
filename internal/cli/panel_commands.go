@@ -24,12 +24,11 @@ import (
 
 const (
 	// panelApplication is the orch application orch panel install deploys.
-	panelApplication = "orch-panel"
+	panelApplication = panel.Application
 	// panelTokenName is the administrator access token the panel uses.
 	panelTokenName       = "orch-panel"
 	panelTokenLifetime   = 365 * 24 * time.Hour
 	panelImageRepository = "ghcr.io/torstendittmann/orch-panel"
-	panelDataDir         = "/data"
 	panelPort            = 8080
 )
 
@@ -41,6 +40,8 @@ func runPanel(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "install":
 		return runPanelInstall(ctx, args[1:], stdout, stderr)
+	case "open":
+		return runPanelOpen(ctx, args[1:], stdout, stderr)
 	case "remove":
 		return runPanelRemove(ctx, args[1:], stdout, stderr)
 	case "serve":
@@ -56,16 +57,17 @@ func runPanelInstall(ctx context.Context, args []string, stdout, stderr io.Write
 	flags := flag.NewFlagSet("panel install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var contextPath, domain, image string
-	var noWait bool
+	var noWait, noOpen bool
 	var timeout time.Duration
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.StringVar(&domain, "domain", "", "domain the panel is served on, with automatic HTTPS")
 	flags.StringVar(&image, "image", "", "panel image (defaults to the release matching this orch)")
 	flags.BoolVar(&noWait, "no-wait", false, "return once the deployment is accepted")
+	flags.BoolVar(&noOpen, "no-open", false, "print the sign-in link without opening a browser")
 	flags.DurationVar(&timeout, "timeout", 5*time.Minute, "rollout wait deadline")
 	reordered := reorderInterspersed(args, map[string]bool{"-context": true, "--context": true, "-domain": true, "--domain": true, "-image": true, "--image": true, "-timeout": true, "--timeout": true})
 	if err := flags.Parse(reordered); err != nil || flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: orch panel install --domain DOMAIN [--image REF] [--no-wait] [--target NAME]")
+		fmt.Fprintln(stderr, "usage: orch panel install --domain DOMAIN [--image REF] [--no-wait] [--no-open] [--target NAME]")
 		return ExitInvalid
 	}
 	if domain == "" || contextPath == "" {
@@ -89,11 +91,6 @@ func runPanelInstall(ctx context.Context, args []string, stdout, stderr io.Write
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
-	setupToken, err := randomPanelSecret()
-	if err != nil {
-		writeError(stderr, err, false)
-		return ExitRuntime
-	}
 	remote, err := controlclient.New(contextPath)
 	if err != nil {
 		writeError(stderr, err, false)
@@ -111,18 +108,15 @@ func runPanelInstall(ctx context.Context, args []string, stdout, stderr io.Write
 		writeError(stderr, fmt.Errorf("create the panel's access token: %w", err), false)
 		return ExitRuntime
 	}
-	for name, value := range map[string]string{"token": token.GetValue(), "setup-token": setupToken} {
-		key, err := newIdempotencyKey(rand.Reader)
-		if err == nil {
-			_, err = remote.SetSecret(ctx, panelApplication, name, []byte(value), key)
-		}
-		if err != nil {
-			writeError(stderr, fmt.Errorf("store the panel's %s secret: %w", name, err), false)
-			return ExitRuntime
-		}
-	}
 	key, err := newIdempotencyKey(rand.Reader)
+	if err == nil {
+		_, err = remote.SetSecret(ctx, panelApplication, "token", []byte(token.GetValue()), key)
+	}
 	if err != nil {
+		writeError(stderr, fmt.Errorf("store the panel's token secret: %w", err), false)
+		return ExitRuntime
+	}
+	if key, err = newIdempotencyKey(rand.Reader); err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
@@ -136,10 +130,84 @@ func runPanelInstall(ctx context.Context, args []string, stdout, stderr io.Write
 			return code
 		}
 	}
-	fmt.Fprintf(stdout, "\norch panel is deployed as the application %s.\n", panelApplication)
-	fmt.Fprintf(stdout, "Point %s at an ingress node, then set the administrator password at:\n\n  https://%s/setup?token=%s\n\n", domain, domain, setupToken)
-	fmt.Fprintln(stdout, "The link works once. Run orch panel install again to reset the password or rotate the panel's access token.")
+	fmt.Fprintf(stdout, "\norch panel is deployed as the application %s. Point %s at an ingress node.\n", panelApplication, domain)
+	return openPanel(ctx, remote, domain, noOpen, stdout, stderr)
+}
+
+func runPanelOpen(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("panel open", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var contextPath string
+	var noOpen bool
+	flags.StringVar(&contextPath, "context", "", "administrator context path")
+	flags.BoolVar(&noOpen, "no-open", false, "print the link without opening a browser")
+	if err := flags.Parse(reorderInterspersed(args, map[string]bool{"-context": true, "--context": true})); err != nil || flags.NArg() != 0 || contextPath == "" {
+		fmt.Fprintln(stderr, "usage: orch panel open [--no-open] [--target NAME]")
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(contextPath)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	app, err := remote.GetApplication(ctx, panelApplication)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("orch panel is not installed; run orch panel install --domain DOMAIN: %w", err), false)
+		return ExitRuntime
+	}
+	domain, err := panelDomain(app.GetCanonicalManifestJson())
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	return openPanel(ctx, remote, domain, noOpen, stdout, stderr)
+}
+
+// openPanel creates a one-time sign-in link, prints it and opens it. It
+// first removes links that expired unused.
+func openPanel(ctx context.Context, remote *controlclient.Client, domain string, noOpen bool, stdout, stderr io.Writer) int {
+	tokens, err := remote.ListAccessTokens(ctx)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	now := time.Now()
+	for _, token := range tokens {
+		if strings.HasPrefix(token.GetName(), panel.LoginTokenPrefix) && !now.Before(token.GetExpiresAt().AsTime()) {
+			_, _ = remote.DeleteAccessToken(ctx, token.GetName())
+		}
+	}
+	suffix, err := randomPanelSecret(6)
+	if err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
+	name := panel.LoginTokenPrefix + suffix
+	token, err := remote.CreateAccessToken(ctx, name, panelApplication, true, panel.LoginTokenLifetime)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("create a sign-in link: %w", err), false)
+		return ExitRuntime
+	}
+	link := panel.LoginURL(domain, name, token.GetValue())
+	fmt.Fprintf(stdout, "Open %s\n(the link works once, within %s)\n", link, panel.LoginTokenLifetime)
+	if !noOpen {
+		openBrowser(link)
+	}
 	return ExitOK
+}
+
+// panelDomain reads the panel's domain from its deployed manifest.
+func panelDomain(canonical string) (string, error) {
+	manifest, err := config.ParseCanonicalJSON([]byte(canonical))
+	if err != nil {
+		return "", fmt.Errorf("read the panel's manifest: %w", err)
+	}
+	service, ok := manifest.Services["panel"]
+	if !ok || service.HTTP == nil || len(service.HTTP.Domains) == 0 {
+		return "", errors.New("the panel's manifest has no domain; run orch panel install --domain DOMAIN")
+	}
+	return service.HTTP.Domains[0], nil
 }
 
 func runPanelRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -157,9 +225,19 @@ func runPanelRemove(ctx context.Context, args []string, stdout, stderr io.Writer
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	if _, err := remote.DeleteAccessToken(ctx, panelTokenName); err != nil {
-		writeError(stderr, fmt.Errorf("revoke the panel's access token: %w", err), false)
+	tokens, err := remote.ListAccessTokens(ctx)
+	if err != nil {
+		writeError(stderr, err, false)
 		return ExitRuntime
+	}
+	for _, token := range tokens {
+		if token.GetName() != panelTokenName && !strings.HasPrefix(token.GetName(), panel.LoginTokenPrefix) {
+			continue
+		}
+		if _, err := remote.DeleteAccessToken(ctx, token.GetName()); err != nil {
+			writeError(stderr, fmt.Errorf("revoke the panel's access tokens: %w", err), false)
+			return ExitRuntime
+		}
 	}
 	key, err := newIdempotencyKey(rand.Reader)
 	if err == nil {
@@ -169,7 +247,7 @@ func runPanelRemove(ctx context.Context, args []string, stdout, stderr io.Writer
 		writeError(stderr, fmt.Errorf("remove orch panel: %w", err), false)
 		return ExitRuntime
 	}
-	fmt.Fprintf(stdout, "Revoked the panel's access token and removed %s. Its data volume stays until you remove it with orch remove.\n", panelApplication)
+	fmt.Fprintf(stdout, "Revoked the panel's access tokens and removed %s.\n", panelApplication)
 	return ExitOK
 }
 
@@ -178,11 +256,10 @@ func runPanelRemove(ctx context.Context, args []string, stdout, stderr io.Writer
 func runPanelServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("panel serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var listen, dataDir string
+	var listen string
 	flags.StringVar(&listen, "listen", fmt.Sprintf(":%d", panelPort), "address to serve on")
-	flags.StringVar(&dataDir, "data-dir", panelDataDir, "directory for the panel's own state")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: orch panel serve [--listen :8080] [--data-dir /data]")
+		fmt.Fprintln(stderr, "usage: orch panel serve [--listen :8080]")
 		return ExitInvalid
 	}
 	if os.Getenv("ORCH_TOKEN") == "" {
@@ -200,7 +277,7 @@ func runPanelServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
-	handler, err := panel.New(panel.Options{Dashboard: dashboard, DataDir: dataDir, SetupToken: os.Getenv("ORCH_PANEL_SETUP_TOKEN")})
+	handler, err := panel.New(panel.Options{Dashboard: dashboard, Controller: remote})
 	if err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
@@ -226,8 +303,8 @@ func runPanelServe(ctx context.Context, args []string, stdout, stderr io.Writer)
 	}
 }
 
-// panelManifest is the application orch panel install deploys: one replica
-// with its password and settings on a backed-up local volume.
+// panelManifest is the application orch panel install deploys. The panel
+// keeps no state of its own, so it rolls out without downtime.
 func panelManifest(domain, image string) *config.Manifest {
 	return &config.Manifest{
 		Schema: config.SchemaVersion,
@@ -235,40 +312,37 @@ func panelManifest(domain, image string) *config.Manifest {
 		Services: map[string]config.Service{
 			"panel": {
 				Image:     image,
-				Args:      []string{"panel", "serve", "--listen", fmt.Sprintf(":%d", panelPort), "--data-dir", panelDataDir},
+				Args:      []string{"panel", "serve", "--listen", fmt.Sprintf(":%d", panelPort)},
 				Replicas:  1,
 				Restart:   config.DefaultRestart,
 				Resources: config.Resources{CPU: "100m", Memory: "128Mi"},
 				HTTP:      &config.HTTP{Port: panelPort, Domains: []string{domain}, HealthPath: "/healthz", HTTPS: true},
-				SecretEnv: map[string]string{"ORCH_TOKEN": "token", "ORCH_PANEL_SETUP_TOKEN": "setup-token"},
-				Mounts:    []config.Mount{{Source: "data", Target: panelDataDir}},
+				SecretEnv: map[string]string{"ORCH_TOKEN": "token"},
 			},
 		},
-		Volumes: map[string]config.Volume{
-			"data": {Driver: "local", Backup: &config.VolumeBackup{Schedule: "0 3 * * *", Keep: 7}},
-		},
-		Deploy: config.Deployment{MaxSurge: 0, MaxUnavailable: 1, HealthDeadline: config.DefaultHealthDeadline, AutoRollback: true},
+		Deploy: config.Deployment{MaxSurge: 1, MaxUnavailable: 0, HealthDeadline: config.DefaultHealthDeadline, AutoRollback: true},
 	}
 }
 
-func randomPanelSecret() (string, error) {
-	value := make([]byte, 32)
+func randomPanelSecret(size int) (string, error) {
+	value := make([]byte, size)
 	if _, err := rand.Read(value); err != nil {
-		return "", fmt.Errorf("generate panel setup token: %w", err)
+		return "", fmt.Errorf("generate random value: %w", err)
 	}
 	return hex.EncodeToString(value), nil
 }
 
 func printPanelHelp(output io.Writer) {
-	fmt.Fprintln(output, `orch panel runs the web dashboard on the cluster itself, always on and
-behind a password, as the application orch-panel.
+	fmt.Fprintln(output, `orch panel runs the web dashboard on the cluster itself, always on, as
+the application orch-panel. Like orch web, you sign in with a one-time link.
 
 Usage:
-  orch panel install --domain DOMAIN [--image REF] [--no-wait] [--target NAME]
+  orch panel install --domain DOMAIN [--image REF] [--no-wait] [--no-open] [--target NAME]
+  orch panel open [--no-open] [--target NAME]
   orch panel remove [--target NAME]
 
 install creates an administrator access token for the panel, deploys it on
-DOMAIN with automatic HTTPS, and prints a one-time link to set the
-administrator password. Running it again resets the password and rotates the
-token. remove revokes the token and removes the application.`)
+DOMAIN with automatic HTTPS, and opens a sign-in link. Running it again
+rotates the token. open prints and opens a new sign-in link; each works once,
+within 15 minutes. remove revokes the token and removes the application.`)
 }

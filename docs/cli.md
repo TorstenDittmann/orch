@@ -1012,15 +1012,16 @@ See [targets and interfaces](targets.md) for both interfaces.
 ### orch panel
 
 ```text
-orch panel install --domain DOMAIN [--image REF] [--no-wait] [--timeout 5m] [--target NAME]
+orch panel install --domain DOMAIN [--image REF] [--no-wait] [--no-open] [--timeout 5m] [--target NAME]
+orch panel open [--no-open] [--target NAME]
 orch panel remove [--target NAME]
 ```
 
 Runs the dashboard on the cluster as the application `orch-panel`, always on
-at DOMAIN behind a password. `install` creates the panel's administrator
-access token, deploys it, and prints a one-time link to set the password;
-running it again resets the password and rotates the token. `remove` revokes
-the token and removes the application. See [orch panel](panel.md).
+at DOMAIN. `install` creates the panel's administrator access token, deploys
+it, and opens a sign-in link; running it again rotates the token. `open`
+prints and opens a new sign-in link, which works once within 15 minutes.
+`remove` revokes the panel's tokens and removes the application. See [orch panel](panel.md).
 
 ### orch mcp
 

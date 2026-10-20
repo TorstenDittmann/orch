@@ -23,13 +23,14 @@ import (
 const maxMessageBytes = 2 << 20
 
 type Client struct {
-	context clusterctl.LocalContext
-	service orchv1alpha1connect.ControlServiceClient
-	http    *http.Client
-	target  string
-	mode    string
-	tunnel  *sshTunnel
-	close   sync.Once
+	context     clusterctl.LocalContext
+	service     orchv1alpha1connect.ControlServiceClient
+	credentials orchv1alpha1connect.CredentialServiceClient
+	http        *http.Client
+	target      string
+	mode        string
+	tunnel      *sshTunnel
+	close       sync.Once
 
 	administratorNotAfter time.Time
 	controllerNotAfter    *certificateExpiry
@@ -200,7 +201,8 @@ func newCertificateClient(endpoint Endpoint, credentials clusterctl.Administrato
 	)
 	return &Client{
 		context: credentials.Context, service: service, http: httpClient,
-		target: endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
+		credentials: orchv1alpha1connect.NewCredentialServiceClient(httpClient, credentials.Context.Server),
+		target:      endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
 		administratorNotAfter: credentials.Certificate.Leaf.NotAfter, controllerNotAfter: controllerNotAfter,
 	}, nil
 }

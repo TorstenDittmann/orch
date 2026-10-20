@@ -1,34 +1,68 @@
 package panel
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
-func newTestServer(t *testing.T, now *time.Time) *Server {
+// fakeController keeps access tokens by name, like the controller.
+type fakeController struct {
+	mu     sync.Mutex
+	tokens map[string]fakeToken
+}
+
+type fakeToken struct {
+	credential  string
+	application string
+	readOnly    bool
+}
+
+func (f *fakeController) CheckAccessToken(_ context.Context, credential string) (*orchv1alpha1.ExchangeAccessTokenResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, token := range f.tokens {
+		if token.credential == credential {
+			return &orchv1alpha1.ExchangeAccessTokenResponse{Application: token.application, ReadOnly: token.readOnly}, nil
+		}
+	}
+	return nil, errors.New("access token is invalid")
+}
+
+func (f *fakeController) DeleteAccessToken(_ context.Context, name string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.tokens[name]
+	delete(f.tokens, name)
+	return ok, nil
+}
+
+// add stores a token and returns its ORCH_TOKEN value.
+func (f *fakeController) add(name, application string, readOnly bool) string {
+	id := strings.Repeat("a", 15) + string(rune('0'+len(f.tokens)))
+	secret := strings.Repeat("B", 42) + string(rune('A'+len(f.tokens)))
+	f.tokens[name] = fakeToken{credential: id + "." + secret, application: application, readOnly: readOnly}
+	return security.EncodeAccessToken("https://attacker.example:9443#sha256:00", id, secret)
+}
+
+func newTestServer(t *testing.T, now *time.Time) (*Server, *fakeController) {
 	t.Helper()
+	controller := &fakeController{tokens: map[string]fakeToken{}}
 	dashboard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("dashboard")) })
-	server, err := New(Options{Dashboard: dashboard, DataDir: t.TempDir(), SetupToken: "setup-secret", Now: func() time.Time { return *now }})
+	server, err := New(Options{Dashboard: dashboard, Controller: controller, Now: func() time.Time { return *now }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return server
-}
-
-func post(server *Server, path string, form url.Values, cookie *http.Cookie) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodPost, "https://panel.example.com"+path, strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("Origin", "https://panel.example.com")
-	if cookie != nil {
-		request.AddCookie(cookie)
-	}
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
-	return recorder
+	return server, controller
 }
 
 func get(server *Server, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -39,6 +73,10 @@ func get(server *Server, path string, cookie *http.Cookie) *httptest.ResponseRec
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func loginPath(name, value string) string {
+	return "/login?name=" + url.QueryEscape(name) + "&token=" + url.QueryEscape(value)
 }
 
 func sessionCookie(t *testing.T, recorder *httptest.ResponseRecorder) *http.Cookie {
@@ -55,12 +93,12 @@ func sessionCookie(t *testing.T, recorder *httptest.ResponseRecorder) *http.Cook
 	return nil
 }
 
-func TestPanelSetupSignInAndSessions(t *testing.T) {
+func TestPanelSignsInOnceWithALink(t *testing.T) {
 	now := time.Now()
-	server := newTestServer(t, &now)
+	server, controller := newTestServer(t, &now)
 
-	if response := get(server, "/", nil); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/setup" {
-		t.Fatalf("first visit = %d %s", response.Code, response.Header().Get("Location"))
+	if response := get(server, "/", nil); response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "orch panel open") {
+		t.Fatalf("visit without session = %d %s", response.Code, response.Body.String())
 	}
 	if response := get(server, "/api/snapshot", nil); response.Code != http.StatusUnauthorized {
 		t.Fatalf("API without session = %d", response.Code)
@@ -68,85 +106,70 @@ func TestPanelSetupSignInAndSessions(t *testing.T) {
 	if response := get(server, "/healthz", nil); response.Code != http.StatusOK {
 		t.Fatalf("healthz = %d", response.Code)
 	}
-	if response := post(server, "/setup", url.Values{"token": {"wrong"}, "password": {"correct horse battery"}, "confirm": {"correct horse battery"}}, nil); response.Code != http.StatusForbidden {
-		t.Fatalf("setup with a wrong token = %d", response.Code)
+
+	link := controller.add(LoginTokenPrefix+"one", Application, true)
+	signIn := get(server, loginPath(LoginTokenPrefix+"one", link), nil)
+	if signIn.Code != http.StatusSeeOther || signIn.Header().Get("Location") != "/" {
+		t.Fatalf("sign-in = %d %s", signIn.Code, signIn.Header().Get("Location"))
 	}
-	if response := post(server, "/setup", url.Values{"token": {"setup-secret"}, "password": {"short"}, "confirm": {"short"}}, nil); response.Code != http.StatusBadRequest {
-		t.Fatalf("setup with a short password = %d", response.Code)
+	cookie := sessionCookie(t, signIn)
+	if response := get(server, "/", cookie); response.Code != http.StatusOK || response.Body.String() != "dashboard" {
+		t.Fatalf("dashboard with session = %d %s", response.Code, response.Body.String())
 	}
-	setup := post(server, "/setup", url.Values{"token": {"setup-secret"}, "password": {"correct horse battery"}, "confirm": {"correct horse battery"}}, nil)
-	first := sessionCookie(t, setup)
-	if response := get(server, "/", first); response.Code != http.StatusOK || response.Body.String() != "dashboard" {
-		t.Fatalf("dashboard after setup = %d %s", response.Code, response.Body.String())
+	if _, ok := controller.tokens[LoginTokenPrefix+"one"]; ok {
+		t.Fatal("sign-in token was not revoked")
 	}
-	if response := post(server, "/setup", url.Values{"token": {"setup-secret"}, "password": {"another password!"}, "confirm": {"another password!"}}, nil); response.Code != http.StatusForbidden {
-		t.Fatalf("setup link reused = %d", response.Code)
+	if response := get(server, loginPath(LoginTokenPrefix+"one", link), nil); response.Code != http.StatusForbidden {
+		t.Fatalf("reused link = %d", response.Code)
 	}
 
-	if response := get(server, "/", nil); response.Header().Get("Location") != "/login" {
-		t.Fatalf("visit without session after setup = %s", response.Header().Get("Location"))
-	}
-	if response := post(server, "/login", url.Values{"password": {"not the password"}}, nil); response.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong password = %d", response.Code)
-	}
-	second := sessionCookie(t, post(server, "/login", url.Values{"password": {"correct horse battery"}}, nil))
-	if response := get(server, "/api/snapshot", second); response.Code != http.StatusOK {
-		t.Fatalf("API with session = %d", response.Code)
-	}
-
-	get(server, "/logout", second)
-	if response := get(server, "/api/snapshot", second); response.Code != http.StatusUnauthorized {
+	get(server, "/logout", cookie)
+	if response := get(server, "/api/snapshot", cookie); response.Code != http.StatusUnauthorized {
 		t.Fatalf("API after logout = %d", response.Code)
 	}
+	second := sessionCookie(t, get(server, loginPath(LoginTokenPrefix+"two", controller.add(LoginTokenPrefix+"two", Application, true)), nil))
 	now = now.Add(sessionLifetime)
-	if response := get(server, "/api/snapshot", first); response.Code != http.StatusUnauthorized {
+	if response := get(server, "/api/snapshot", second); response.Code != http.StatusUnauthorized {
 		t.Fatalf("API with an expired session = %d", response.Code)
 	}
 }
 
-func TestPanelRejectsCrossOriginAndLimitsGuessing(t *testing.T) {
+func TestPanelRejectsOtherTokens(t *testing.T) {
 	now := time.Now()
-	server := newTestServer(t, &now)
-	sessionCookie(t, post(server, "/setup", url.Values{"token": {"setup-secret"}, "password": {"correct horse battery"}, "confirm": {"correct horse battery"}}, nil))
-
-	request := httptest.NewRequest(http.MethodPost, "https://panel.example.com/login", strings.NewReader("password=correct+horse+battery"))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("Origin", "https://evil.example")
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("cross-origin sign-in = %d", recorder.Code)
+	server, controller := newTestServer(t, &now)
+	deploy := controller.add(LoginTokenPrefix+"deploy", Application, false)
+	other := controller.add(LoginTokenPrefix+"other", "shop", true)
+	misnamed := controller.add("shop-read-only", Application, true)
+	controller.add(LoginTokenPrefix+"victim", Application, true)
+	for name, path := range map[string]string{
+		"deploy token":           loginPath(LoginTokenPrefix+"deploy", deploy),
+		"another app's token":    loginPath(LoginTokenPrefix+"other", other),
+		"token without prefix":   loginPath("shop-read-only", misnamed),
+		"credential of another":  loginPath(LoginTokenPrefix+"victim", misnamed),
+		"garbage":                loginPath(LoginTokenPrefix+"x", "orch_nope"),
+		"missing token and name": "/login",
+	} {
+		if response := get(server, path, nil); response.Code != http.StatusForbidden {
+			t.Fatalf("%s = %d", name, response.Code)
+		}
 	}
+	// A credential that does not belong to the name never opens a session;
+	// the named link is used up.
+	if _, ok := controller.tokens[LoginTokenPrefix+"victim"]; ok {
+		t.Fatal("named token survived a mismatched credential")
+	}
+}
 
+func TestPanelLimitsInvalidLinks(t *testing.T) {
+	now := time.Now()
+	server, controller := newTestServer(t, &now)
 	for range failedSignInLimit {
-		post(server, "/login", url.Values{"password": {"guess"}}, nil)
+		get(server, loginPath(LoginTokenPrefix+"x", "orch_nope"), nil)
 	}
-	if response := post(server, "/login", url.Values{"password": {"correct horse battery"}}, nil); response.Code != http.StatusTooManyRequests {
+	link := controller.add(LoginTokenPrefix+"ok", Application, true)
+	if response := get(server, loginPath(LoginTokenPrefix+"ok", link), nil); response.Code != http.StatusTooManyRequests {
 		t.Fatalf("sign-in after too many failures = %d", response.Code)
 	}
 	now = now.Add(time.Minute + time.Second)
-	sessionCookie(t, post(server, "/login", url.Values{"password": {"correct horse battery"}}, nil))
-}
-
-func TestPanelAcceptsBrowserFetchMetadata(t *testing.T) {
-	now := time.Now()
-	server := newTestServer(t, &now)
-	form := url.Values{"token": {"setup-secret"}, "password": {"correct horse battery"}, "confirm": {"correct horse battery"}}
-	send := func(site, origin string) int {
-		request := httptest.NewRequest(http.MethodPost, "https://panel.example.com/setup", strings.NewReader(form.Encode()))
-		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		request.Header.Set("Sec-Fetch-Site", site)
-		request.Header.Set("Origin", origin)
-		recorder := httptest.NewRecorder()
-		server.ServeHTTP(recorder, request)
-		return recorder.Code
-	}
-	// A cross-site form cannot borrow a matching Origin.
-	if code := send("cross-site", "https://panel.example.com"); code != http.StatusForbidden {
-		t.Fatalf("cross-site post = %d", code)
-	}
-	// Browsers send Origin: null for posts from pages without a referrer.
-	if code := send("same-origin", "null"); code != http.StatusSeeOther {
-		t.Fatalf("same-origin post with a null Origin = %d", code)
-	}
+	sessionCookie(t, get(server, loginPath(LoginTokenPrefix+"ok", link), nil))
 }

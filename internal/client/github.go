@@ -210,6 +210,26 @@ func (client *Client) CreateAccessToken(ctx context.Context, name, application s
 	return response.Msg, nil
 }
 
+// CheckAccessToken asks this client's controller whether an access token
+// credential ("ID.SECRET") is valid, by exchanging it for a certificate that
+// is then thrown away. It never contacts the address a token names.
+func (client *Client) CheckAccessToken(ctx context.Context, credential string) (*orchv1alpha1.ExchangeAccessTokenResponse, error) {
+	if client.credentials == nil {
+		return nil, errors.New("this connection cannot check access tokens")
+	}
+	csrDER, _, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.credentials.ExchangeAccessToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeAccessTokenRequest{
+		Token: credential, CertificateRequestDer: csrDER,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 // CreateAdministratorAccessToken creates a token that grants full
 // administrator access, for tools that manage the whole cluster.
 func (client *Client) CreateAdministratorAccessToken(ctx context.Context, name string, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
