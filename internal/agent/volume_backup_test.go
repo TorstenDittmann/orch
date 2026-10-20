@@ -307,3 +307,21 @@ func archiveNames(t *testing.T, archive string) []string {
 		names = append(names, header.Name)
 	}
 }
+
+func TestVolumeBackupFailuresListAssignedVolumes(t *testing.T) {
+	now := time.Date(2026, 10, 20, 3, 0, 0, 0, time.UTC)
+	backups := newVolumeBackups(t.TempDir(), nil, nil, func() time.Time { return now })
+	backups.recordStatus("shop", "main-backup", errors.New("pg_dump: connection refused"))
+	backups.recordStatus("other", "data", errors.New("not assigned here"))
+	assignment := model.Assignment{Allocations: []model.AllocationDesired{
+		{Application: "shop", VolumeBackups: []model.VolumeBackupDesired{{Volume: "main-backup"}, {Volume: "cache-data"}}},
+	}}
+	failures := backups.failures(assignment)
+	if len(failures) != 1 || failures[0].Volume != "main-backup" || !failures[0].FailedAt.Equal(now) || failures[0].Message != "pg_dump: connection refused" {
+		t.Fatalf("failures = %#v", failures)
+	}
+	backups.recordStatus("shop", "main-backup", nil)
+	if failures := backups.failures(assignment); len(failures) != 0 {
+		t.Fatalf("a recovered volume is still reported: %#v", failures)
+	}
+}

@@ -62,6 +62,7 @@ type Server struct {
 	upgradesDone    chan struct{}
 	imagesDone      chan struct{}
 	autoscaleDone   chan struct{}
+	notifyDone      chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -223,7 +224,12 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
 		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
+		notifyDone: make(chan struct{}),
 	}
+	go func() {
+		defer close(server.notifyDone)
+		newNotifier(state, secretBox, cluster.Name).run(reconcileContext)
+	}()
 	go func() {
 		defer close(server.upgradesDone)
 		upgrades.run(reconcileContext)
@@ -323,6 +329,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.upgradesDone
 		<-server.imagesDone
 		<-server.autoscaleDone
+		<-server.notifyDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

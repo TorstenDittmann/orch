@@ -681,6 +681,11 @@ func (r *sessionRunner) enqueueReport(outbound chan<- *orchv1alpha1.ConnectReque
 		}
 		report.JobRuns = append(report.JobRuns, item)
 	}
+	for _, failure := range r.volumes.failures(assignment) {
+		report.VolumeBackupFailures = append(report.VolumeBackupFailures, &orchv1alpha1.VolumeBackupFailure{
+			Application: failure.Application, Volume: failure.Volume, FailedAt: timestamppb.New(failure.FailedAt), Message: failure.Message,
+		})
+	}
 	if networkStatus.Generation != 0 {
 		report.Network = &orchv1alpha1.NetworkStatus{
 			Generation: networkStatus.Generation, State: networkStateProto(networkStatus.State),

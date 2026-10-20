@@ -84,6 +84,7 @@ func Validate(manifest *Manifest) error {
 	if len(manifest.Volumes) > maxVolumes {
 		add("volumes", fmt.Sprintf("must not define more than %d volumes", maxVolumes))
 	}
+	validateNotifications(manifest.Notifications, add)
 	if len(manifest.CronJobs) > maxCronJobs {
 		add("cron_jobs", fmt.Sprintf("must not define more than %d jobs", maxCronJobs))
 	}

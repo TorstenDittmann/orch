@@ -148,10 +148,35 @@ func startDeploymentTx(ctx context.Context, tx *sql.Tx, input model.ApplyApplica
 	return err
 }
 
+// finishDeploymentTx records a deployment's outcome once. A deployment that
+// succeeded, failed or rolled back also emits a deployment.finished event.
 func finishDeploymentTx(ctx context.Context, tx *sql.Tx, revision, outcome string, now time.Time) error {
-	_, err := tx.ExecContext(ctx, `UPDATE deployment_records SET outcome = ?, finished_at = ?
- WHERE revision_id = ? AND outcome = 'IN_PROGRESS'`, outcome, now.UTC().Format(time.RFC3339Nano), revision)
-	return err
+	stamp := now.UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `UPDATE deployment_records SET outcome = ?, finished_at = ?
+ WHERE revision_id = ? AND outcome = 'IN_PROGRESS'`, outcome, stamp, revision)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed == 0 {
+		return err
+	}
+	if outcome == "SUPERSEDED" || outcome == "REMOVED" {
+		return nil
+	}
+	var clusterID, application, reason, message string
+	if err := tx.QueryRowContext(ctx, `SELECT c.id, r.application_name, d.reason, d.message
+ FROM deployment_records d JOIN application_revisions r ON r.id = d.revision_id
+ JOIN clusters c ON c.singleton = 1 WHERE d.revision_id = ?`, revision).Scan(&clusterID, &application, &reason, &message); err != nil {
+		return fmt.Errorf("read finished deployment: %w", err)
+	}
+	payload, _ := json.Marshal(model.DeploymentFinished{
+		Application: application, RevisionID: revision, Outcome: outcome, Reason: reason, Message: message,
+	})
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events (cluster_id, kind, payload, created_at) VALUES (?, ?, ?, ?)`,
+		clusterID, model.EventDeploymentFinished, string(payload), stamp); err != nil {
+		return fmt.Errorf("record deployment finished event: %w", err)
+	}
+	return nil
 }
 
 func observeDeploymentTx(ctx context.Context, tx *sql.Tx, name string, execution model.ApplicationExecution) error {

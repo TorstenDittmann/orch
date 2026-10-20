@@ -556,6 +556,11 @@ func manifestReferencesSecret(manifest config.Manifest, name string) bool {
 			}
 		}
 	}
+	for _, notification := range manifest.Notifications {
+		if notification.URLSecret == name {
+			return true
+		}
+	}
 	return false
 }
 

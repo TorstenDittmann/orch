@@ -24,7 +24,10 @@ type Manifest struct {
 	Services map[string]Service `json:"services"`
 	CronJobs map[string]CronJob `json:"cron_jobs,omitempty"`
 	Volumes  map[string]Volume  `json:"volumes,omitempty"`
-	Deploy   Deployment         `json:"deploy"`
+	// Notifications is omitted when empty so existing manifests keep their
+	// canonical digest.
+	Notifications []Notification `json:"notifications,omitempty"`
+	Deploy        Deployment     `json:"deploy"`
 }
 
 // PrivilegedServices returns the sorted names of services that set

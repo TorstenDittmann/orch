@@ -435,6 +435,16 @@ message AllocationReport {
   repeated CronJobStatus cron_jobs = 9;
   repeated JobRunStatus job_runs = 10;
   repeated NodePortStatus node_ports = 11;
+  repeated VolumeBackupFailure volume_backup_failures = 12;
+}
+
+// VolumeBackupFailure is a local volume whose last scheduled backup on this
+// node failed.
+message VolumeBackupFailure {
+  string application = 1;
+  string volume = 2;
+  google.protobuf.Timestamp failed_at = 3;
+  string message = 4;
 }
 
 message AgentHeartbeat {

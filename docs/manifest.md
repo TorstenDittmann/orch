@@ -144,6 +144,7 @@ the cluster, use `orch app diff`; see [deployments](runtime.md#rollbacks).
 | `services` | `Mapping<DnsLabel, Service>` | required | 1 to 100 services |
 | `cronJobs` | `Mapping<DnsLabel, CronJob>` | empty | At most 100 |
 | `volumes` | `Mapping<DnsLabel, Volume>` | empty | At most 100 |
+| `notifications` | `Listing<Notification>` | empty | At most 20; see [Notification](#notification) |
 | `deploy` | `Deployment` | defaults below | Rollout behavior and pre-deploy hook |
 
 Across all services an application may request at most 200 replicas in total
@@ -583,6 +584,23 @@ cronJobs {
   }
 }
 ```
+
+## Notification
+
+`Slack`, `Discord` and `Webhook` send an application's events to a webhook.
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `url` | DNS label | required | Name of the application secret holding the webhook URL |
+| `on` | `Listing<String>` | empty, meaning the failures | `deploy.succeeded`, `deploy.failed`, `deploy.rolled_back`, `backup.failed`, `cron.failed`, `replica.unhealthy` |
+
+```pkl
+notifications {
+  new Slack { url = "slack-webhook" }
+}
+```
+
+See [Notifications](notifications.md).
 
 ## Deployment
 
