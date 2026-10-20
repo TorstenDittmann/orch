@@ -14,6 +14,7 @@
   - [Networking](networking.md)
   - [Secrets](secrets.md)
   - [Notifications](notifications.md)
+  - [Databases](databases.md)
   - [Jobs and schedules](jobs.md)
   - [Targets and interfaces](targets.md)
   - [AI assistants](ai.md)

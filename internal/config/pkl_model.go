@@ -1,19 +1,34 @@
 package config
 
 type pklDocument struct {
-	Schema        string                `pkl:"schema"`
-	Name          string                `pkl:"name"`
-	Services      map[string]pklService `pkl:"services"`
-	CronJobs      map[string]pklCronJob `pkl:"cronJobs"`
-	Volumes       map[string]pklVolume  `pkl:"volumes"`
-	Notifications []pklNotification     `pkl:"notifications"`
-	Deploy        pklDeployment         `pkl:"deploy"`
+	Schema        string                 `pkl:"schema"`
+	Name          string                 `pkl:"name"`
+	Services      map[string]pklService  `pkl:"services"`
+	CronJobs      map[string]pklCronJob  `pkl:"cronJobs"`
+	Volumes       map[string]pklVolume   `pkl:"volumes"`
+	Databases     map[string]pklDatabase `pkl:"databases"`
+	Notifications []pklNotification      `pkl:"notifications"`
+	Deploy        pklDeployment          `pkl:"deploy"`
 }
 
 type pklNotification struct {
 	Kind string   `pkl:"kind"`
 	URL  string   `pkl:"url"`
 	On   []string `pkl:"on"`
+}
+
+type pklDatabase struct {
+	Engine      string             `pkl:"engine"`
+	Version     string             `pkl:"version"`
+	Image       *string            `pkl:"image"`
+	Resources   pklResources       `pkl:"resources"`
+	Constraints map[string]string  `pkl:"constraints"`
+	Backup      *pklDatabaseBackup `pkl:"backup"`
+}
+
+type pklDatabaseBackup struct {
+	Schedule string `pkl:"schedule"`
+	Keep     int    `pkl:"keep"`
 }
 
 type pklService struct {
@@ -246,4 +261,23 @@ func resolvePkl(doc pklDocument) *Manifest {
 		manifest.Notifications = append(manifest.Notifications, Notification{Kind: input.Kind, URLSecret: input.URL, On: on})
 	}
 	return manifest
+}
+
+func resolvePklDatabases(doc pklDocument) map[string]DatabaseSpec {
+	databases := make(map[string]DatabaseSpec, len(doc.Databases))
+	for name, input := range doc.Databases {
+		spec := DatabaseSpec{
+			Engine: input.Engine, Version: input.Version,
+			Resources:   Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
+			Constraints: cloneMap(input.Constraints),
+		}
+		if input.Image != nil {
+			spec.Image = *input.Image
+		}
+		if backup := input.Backup; backup != nil {
+			spec.Backup = &VolumeBackup{Schedule: backup.Schedule, Keep: backup.Keep}
+		}
+		databases[name] = spec
+	}
+	return databases
 }

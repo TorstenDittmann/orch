@@ -679,6 +679,22 @@ kept as a `-before-restore` backup, and the command prints how to restore it.
 `APP-VOLUME-BACKUP.tar.gz`; `--output -` writes it to standard output. See
 [volume backups](operations.md#volume-backups).
 
+### orch db
+
+```text
+orch db list [APP] [--target NAME] [--json]
+orch db backups APP DATABASE [--target NAME] [--json]
+orch db backup APP DATABASE [--target NAME] [--json]
+orch db restore APP DATABASE [BACKUP] [--target NAME] [--json]
+```
+
+Works with the databases declared under `databases` in `orch.pkl`. `list`
+shows each database's engine, the secret that holds its connection URL, and
+its backup schedule. `backups` and `backup` list and take backups of the
+volume that holds the database's backups. `restore` uses the newest backup
+unless BACKUP is given; for Postgres, MySQL, MariaDB and MongoDB it also loads
+the restored dump into the running database. See [Databases](databases.md).
+
 ## Jobs
 
 ### orch job

@@ -68,6 +68,8 @@ type Service struct {
 	// Autoscale lets the controller choose the replica count between Min
 	// and Max. Replicas then equals Min, the count a first deploy starts with.
 	Autoscale *Autoscale `json:"autoscale,omitempty"`
+	// Database is set on the service orch runs for a `databases` entry.
+	Database *Database `json:"database,omitempty"`
 }
 
 // Autoscale keeps a service's average CPU use near CPUPercent of its

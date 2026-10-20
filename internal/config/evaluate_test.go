@@ -198,7 +198,7 @@ func TestPublicHTTPIngressIsTypedAndRequiresHealth(t *testing.T) {
 }
 
 func TestExamplesValidate(t *testing.T) {
-	for _, filename := range []string{"../../examples/hello/orch.pkl", "../../examples/runtime/orch.pkl", "../../examples/stateful/orch.pkl", "../../examples/http/orch.pkl"} {
+	for _, filename := range []string{"../../examples/hello/orch.pkl", "../../examples/runtime/orch.pkl", "../../examples/stateful/orch.pkl", "../../examples/http/orch.pkl", "../../examples/databases/orch.pkl"} {
 		t.Run(filename, func(t *testing.T) {
 			if _, err := Load(context.Background(), filename, LoadOptions{RootDir: "../.."}); err != nil {
 				t.Fatalf("Load() error = %v", err)

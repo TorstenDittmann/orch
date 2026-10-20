@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 )
 
@@ -151,5 +152,15 @@ func TestDeploymentFinishedEvent(t *testing.T) {
 	}
 	if len(finished) != 1 || finished[0].Application != "hello" || finished[0].Outcome != "SUCCEEDED" || finished[0].RevisionID != application.RevisionID {
 		t.Fatalf("deployment finished events = %+v", finished)
+	}
+}
+
+func TestNotificationSecretIsReferenced(t *testing.T) {
+	manifest := config.Manifest{Notifications: []config.Notification{{Kind: config.NotificationSlack, URLSecret: "slack-url", On: config.DefaultNotificationEvents}}}
+	if !manifestReferencesSecret(manifest, "slack-url") {
+		t.Fatal("a notification's URL secret is not referenced")
+	}
+	if manifestReferencesSecret(manifest, "other") {
+		t.Fatal("an unused secret is referenced")
 	}
 }

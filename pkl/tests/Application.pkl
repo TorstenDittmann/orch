@@ -23,6 +23,13 @@ local cronJob = new app.CronJob {
 
 local slack = new app.Slack { url = "slack-webhook" }
 
+local postgres = new app.Postgres {}
+
+local redis = new app.Redis {
+  backup = new app.DatabaseBackup { keep = 3 }
+  resources { cpu = "1" }
+}
+
 facts {
   ["service defaults"] {
     service.replicas == 1
@@ -65,5 +72,18 @@ facts {
   ["notification defaults"] {
     slack.kind == "slack"
     slack.on.isEmpty
+  }
+  ["database defaults"] {
+    postgres.engine == "postgres"
+    postgres.version == "17"
+    postgres.image == null
+    postgres.resources.memory == "256Mi"
+    postgres.resources.cpu == "100m"
+    postgres.backup == null
+    redis.engine == "redis"
+    redis.backup.schedule == "0 3 * * *"
+    redis.backup.keep == 3
+    redis.resources.cpu == "1"
+    redis.resources.memory == "128Mi"
   }
 }

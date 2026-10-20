@@ -116,3 +116,47 @@ func TestNotificationBodies(t *testing.T) {
 		t.Fatalf("source = %q", got)
 	}
 }
+
+func TestNotifierDescribesFailures(t *testing.T) {
+	state, _ := reconcilerStore(t)
+	n := newNotifier(state, nil, "prod")
+	exitCode := int32(3)
+	payload := func(value any) []byte {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	for _, test := range []struct {
+		event       model.Event
+		wantedEvent string
+		text        string
+	}{
+		{model.Event{Kind: model.EventDeploymentFinished, Payload: payload(model.DeploymentFinished{Application: "shop", RevisionID: "rev_missing", Outcome: "FAILED", Message: "health deadline exceeded"})},
+			config.NotifyDeployFailed, "[prod] shop: deploy failed: health deadline exceeded"},
+		{model.Event{Kind: model.EventDeploymentFinished, Payload: payload(model.DeploymentFinished{Application: "shop", RevisionID: "rev_missing", Outcome: "ROLLED_BACK", Message: "web crashed"})},
+			config.NotifyDeployRolledBack, "[prod] shop: deploy rolled back: web crashed"},
+		{model.Event{Kind: model.EventCronRunFailed, Payload: payload(model.CronRunFailed{Application: "shop", Job: "nightly", State: model.JobRunFailed, ExitCode: &exitCode})},
+			config.NotifyCronFailed, "[prod] shop: cron job nightly failed with exit code 3"},
+		{model.Event{Kind: model.EventCronRunFailed, Payload: payload(model.CronRunFailed{Application: "shop", Job: "nightly", State: model.JobRunTimedOut})},
+			config.NotifyCronFailed, "[prod] shop: cron job nightly timed out"},
+		{model.Event{Kind: model.EventVolumeBackupFailed, Payload: payload(model.VolumeBackupFailed{Application: "shop", Volume: "data", Message: "disk full"})},
+			config.NotifyBackupFailed, "[prod] shop: backup of volume data failed: disk full"},
+	} {
+		got, ok := n.describe(context.Background(), test.event)
+		if !ok || got.Event != test.wantedEvent || got.Application != "shop" || got.Text != test.text {
+			t.Fatalf("describe(%s) = %+v, %v; want %s %q", test.event.Kind, got, ok, test.wantedEvent, test.text)
+		}
+		defaults := config.Notification{On: config.DefaultNotificationEvents}
+		if !defaults.Wants(got.Event) {
+			t.Fatalf("default notifications skip %s", got.Event)
+		}
+		if (config.Notification{On: []string{config.NotifyDeploySucceeded}}).Wants(got.Event) {
+			t.Fatalf("a deploy.succeeded notification wants %s", got.Event)
+		}
+	}
+	if _, ok := n.describe(context.Background(), model.Event{Kind: model.EventDeploymentFinished, Payload: payload(model.DeploymentFinished{Application: "shop", Outcome: "SUPERSEDED"})}); ok {
+		t.Fatal("a superseded deploy was described")
+	}
+}
