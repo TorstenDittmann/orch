@@ -98,6 +98,12 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: other, IdempotencyKey: "token-other-key-0001"})); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("deploy another application = %v", err)
 	}
+	privileged := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"docker": {Image: "example/docker@sha256:1111111111111111111111111111111111111111111111111111111111111111", Privileged: true},
+	}))
+	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: privileged, IdempotencyKey: "token-privileged-key-1"})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "privileged services (docker)") {
+		t.Fatalf("deployer deploying a privileged service = %v", err)
+	}
 	if _, err := deployer.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "escalate", Application: "other"})); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("deployer creating a token = %v", err)
 	}

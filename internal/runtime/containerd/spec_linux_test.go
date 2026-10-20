@@ -120,6 +120,31 @@ func TestSpecOptionsApplyDefaultSeccompProfile(t *testing.T) {
 	}
 }
 
+func TestSpecOptionsPrivilegedLiftsConfinement(t *testing.T) {
+	t.Parallel()
+	client := &runtimeClient{}
+	allocation := model.AllocationDesired{
+		Command: []string{"/app"}, CPUMillis: 500, MemoryBytes: 64 << 20, Privileged: true,
+	}
+	opts := client.specOptions(nil, allocation, nil)[1:]
+	ctx := namespaces.WithNamespace(context.Background(), "test")
+	spec, err := oci.GenerateSpec(ctx, nil, &containers.Container{ID: "test"}, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Linux.Seccomp != nil || spec.Process.NoNewPrivileges {
+		t.Fatalf("privileged process = %#v, seccomp = %#v", spec.Process, spec.Linux.Seccomp)
+	}
+	// Privileged replicas get the agent's own capabilities, which only a root
+	// agent has.
+	if os.Geteuid() == 0 && len(spec.Process.Capabilities.Bounding) == 0 {
+		t.Fatalf("privileged capabilities = %#v", spec.Process.Capabilities)
+	}
+	if len(spec.Linux.Resources.Devices) != 1 || !spec.Linux.Resources.Devices[0].Allow || len(spec.Linux.MaskedPaths) != 0 {
+		t.Fatalf("privileged devices = %#v, masked paths = %v", spec.Linux.Resources.Devices, spec.Linux.MaskedPaths)
+	}
+}
+
 func assertOwner(t *testing.T, path string, uid, gid uint32, mode os.FileMode) {
 	t.Helper()
 	info, err := os.Lstat(path)

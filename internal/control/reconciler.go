@@ -407,6 +407,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				MaxSurge:             uint32(manifest.Deploy.MaxSurge),
 				MaxUnavailable:       uint32(manifest.Deploy.MaxUnavailable),
 				StopGraceSeconds:     uint32(stopGrace / time.Second),
+				Privileged:           service.Privileged,
 				VolumeBackups:        append([]model.VolumeBackupDesired(nil), backups...),
 			}
 			if service.HTTP != nil {
@@ -600,7 +601,7 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		SecretFiles:        append([]model.SecretFileDesired(nil), allocation.SecretFiles...),
 		RegistryCredential: cloneRegistryCredential(allocation.RegistryCredential),
 		AutoRollback:       allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
-		StopGraceSeconds: allocation.StopGraceSeconds,
+		StopGraceSeconds: allocation.StopGraceSeconds, Privileged: allocation.Privileged,
 	}
 }
 

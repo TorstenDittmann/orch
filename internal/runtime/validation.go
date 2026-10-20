@@ -255,7 +255,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		StartBeforeStop: rollback.StartBeforeStop, HTTP: rollback.HTTP, TCP: rollback.TCP, UDP: rollback.UDP,
 		DependsOn: rollback.DependsOn, SecretEnvironment: rollback.SecretEnvironment, SecretFiles: rollback.SecretFiles,
 		RegistryCredential: rollback.RegistryCredential, NetworkGeneration: rollback.NetworkGeneration,
-		StopGraceSeconds: rollback.StopGraceSeconds,
+		StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
 	}
 }
 
