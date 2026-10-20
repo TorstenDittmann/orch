@@ -431,8 +431,17 @@ type AgentReport struct {
 	NodePorts            []NodePortStatus
 	CronJobs             []CronJobStatus
 	JobRuns              []JobRunStatus
+	VolumeBackupFailures []VolumeBackupFailure
 	Network              NetworkStatus
 	ReportedAt           time.Time
+}
+
+// VolumeBackupFailure is a local volume whose last scheduled backup failed.
+type VolumeBackupFailure struct {
+	Application string
+	Volume      string
+	FailedAt    time.Time
+	Message     string
 }
 
 // AllocationSpecDigest hashes only runtime-affecting fields. Identity and

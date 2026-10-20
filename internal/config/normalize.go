@@ -77,6 +77,7 @@ func normalize(manifest *Manifest) {
 		}
 		manifest.CronJobs[name] = job
 	}
+	normalizeNotifications(manifest)
 	if len(manifest.Volumes) == 0 {
 		manifest.Volumes = nil
 	}

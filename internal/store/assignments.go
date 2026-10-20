@@ -519,6 +519,17 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 		if run.FinishedAt != nil {
 			finished = run.FinishedAt.UTC().Format(time.RFC3339Nano)
 		}
+		var previousState string
+		if err := tx.QueryRowContext(ctx, `SELECT state FROM cron_run_observations WHERE id = ?`, run.ID).Scan(&previousState); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("read cron run %q: %w", run.ID, err)
+		}
+		if (run.State == model.JobRunFailed || run.State == model.JobRunTimedOut) && previousState != run.State {
+			payload, _ := json.Marshal(model.CronRunFailed{Application: run.Application, Job: run.Job, RunID: run.ID,
+				State: run.State, ExitCode: run.ExitCode, Reason: run.Reason, Message: run.Message})
+			if err := insertObservedTransition(ctx, tx, clusterID, model.EventCronRunFailed, payload, report.ReportedAt); err != nil {
+				return false, err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO cron_run_observations
 			(id, node_id, application_name, job_name, spec_digest, scheduled_at, state, exit_code, started_at, finished_at, reason, message, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,
@@ -572,6 +583,9 @@ func (s *Store) RecordAgentReport(ctx context.Context, report model.AgentReport)
 				return false, err
 			}
 		}
+	}
+	if err := recordVolumeBackupFailuresTx(ctx, tx, clusterID, report, assignmentAllocations); err != nil {
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE nodes SET last_report_sequence = ?, last_seen_at = ?
 		WHERE id = ? AND last_boot_id = ?`, report.Sequence,
@@ -650,6 +664,47 @@ func validJobRunState(value string) bool {
 	default:
 		return false
 	}
+}
+
+// recordVolumeBackupFailuresTx raises a volume.backup.failed event for each
+// backup failure the controller has not seen yet. Only volumes the node's
+// assignment backs up may be reported.
+func recordVolumeBackupFailuresTx(ctx context.Context, tx *sql.Tx, clusterID string, report model.AgentReport, allocations []model.AllocationDesired) error {
+	if len(report.VolumeBackupFailures) == 0 {
+		return nil
+	}
+	backedUp := make(map[string]bool)
+	for _, allocation := range allocations {
+		for _, policy := range allocation.VolumeBackups {
+			backedUp[allocation.Application+"\x00"+policy.Volume] = true
+		}
+	}
+	for _, failure := range report.VolumeBackupFailures {
+		if !backedUp[failure.Application+"\x00"+failure.Volume] {
+			return fmt.Errorf("volume backup failure %s/%s is not authorized", failure.Application, failure.Volume)
+		}
+		failedAt := failure.FailedAt.UTC().Format(time.RFC3339Nano)
+		var previous string
+		err := tx.QueryRowContext(ctx, `SELECT failed_at FROM volume_backup_failures WHERE application_name = ? AND volume_name = ?`,
+			failure.Application, failure.Volume).Scan(&previous)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("read volume backup failure: %w", err)
+		}
+		if previous == failedAt {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO volume_backup_failures (application_name, volume_name, failed_at) VALUES (?, ?, ?)
+			ON CONFLICT (application_name, volume_name) DO UPDATE SET failed_at = excluded.failed_at`,
+			failure.Application, failure.Volume, failedAt); err != nil {
+			return fmt.Errorf("record volume backup failure: %w", err)
+		}
+		payload, _ := json.Marshal(model.VolumeBackupFailed{Application: failure.Application, Volume: failure.Volume,
+			NodeID: report.NodeID, FailedAt: failure.FailedAt.UTC(), Message: failure.Message})
+		if err := insertObservedTransition(ctx, tx, clusterID, model.EventVolumeBackupFailed, payload, report.ReportedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertObservedTransition(ctx context.Context, tx *sql.Tx, clusterID, kind string, payload []byte, at time.Time) error {

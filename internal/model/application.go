@@ -12,6 +12,9 @@ const (
 	EventApplicationHealthy          = "application.healthy"
 	EventApplicationRolledBack       = "application.rolled_back"
 	EventServiceScaled               = "service.scaled"
+	EventDeploymentFinished          = "deployment.finished"
+	EventCronRunFailed               = "cron.run.failed"
+	EventVolumeBackupFailed          = "volume.backup.failed"
 
 	ExecutionPending    = "PENDING"
 	ExecutionBlocked    = "BLOCKED"
@@ -81,6 +84,35 @@ type DeploymentSource struct {
 	Ref        string `json:"ref,omitempty"`
 	RunURL     string `json:"run_url,omitempty"`
 	Actor      string `json:"actor,omitempty"`
+}
+
+// DeploymentFinished is the payload of a deployment.finished event.
+type DeploymentFinished struct {
+	Application string `json:"application"`
+	RevisionID  string `json:"revision_id"`
+	Outcome     string `json:"outcome"`
+	Reason      string `json:"reason"`
+	Message     string `json:"message"`
+}
+
+// CronRunFailed is the payload of a cron.run.failed event.
+type CronRunFailed struct {
+	Application string `json:"application"`
+	Job         string `json:"job"`
+	RunID       string `json:"run_id"`
+	State       string `json:"state"`
+	ExitCode    *int32 `json:"exit_code,omitempty"`
+	Reason      string `json:"reason"`
+	Message     string `json:"message"`
+}
+
+// VolumeBackupFailed is the payload of a volume.backup.failed event.
+type VolumeBackupFailed struct {
+	Application string    `json:"application"`
+	Volume      string    `json:"volume"`
+	NodeID      string    `json:"node_id"`
+	FailedAt    time.Time `json:"failed_at"`
+	Message     string    `json:"message"`
 }
 
 // ApplyApplicationResult is persisted as the exact idempotency response.

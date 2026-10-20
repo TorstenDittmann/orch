@@ -1,13 +1,20 @@
 package config
 
 type pklDocument struct {
-	Schema    string                 `pkl:"schema"`
-	Name      string                 `pkl:"name"`
-	Services  map[string]pklService  `pkl:"services"`
-	CronJobs  map[string]pklCronJob  `pkl:"cronJobs"`
-	Volumes   map[string]pklVolume   `pkl:"volumes"`
-	Databases map[string]pklDatabase `pkl:"databases"`
-	Deploy    pklDeployment          `pkl:"deploy"`
+	Schema        string                 `pkl:"schema"`
+	Name          string                 `pkl:"name"`
+	Services      map[string]pklService  `pkl:"services"`
+	CronJobs      map[string]pklCronJob  `pkl:"cronJobs"`
+	Volumes       map[string]pklVolume   `pkl:"volumes"`
+	Databases     map[string]pklDatabase `pkl:"databases"`
+	Notifications []pklNotification      `pkl:"notifications"`
+	Deploy        pklDeployment          `pkl:"deploy"`
+}
+
+type pklNotification struct {
+	Kind string   `pkl:"kind"`
+	URL  string   `pkl:"url"`
+	On   []string `pkl:"on"`
 }
 
 type pklDatabase struct {
@@ -245,6 +252,13 @@ func resolvePkl(doc pklDocument) *Manifest {
 			volume.Backup = &VolumeBackup{Schedule: backup.Schedule, Keep: backup.Keep, Before: append([]string(nil), backup.Before...)}
 		}
 		manifest.Volumes[name] = volume
+	}
+	for _, input := range doc.Notifications {
+		on := append([]string(nil), input.On...)
+		if len(on) == 0 {
+			on = append(on, DefaultNotificationEvents...)
+		}
+		manifest.Notifications = append(manifest.Notifications, Notification{Kind: input.Kind, URLSecret: input.URL, On: on})
 	}
 	return manifest
 }

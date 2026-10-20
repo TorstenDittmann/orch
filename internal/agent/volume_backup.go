@@ -363,6 +363,38 @@ func (v *volumeBackups) status(application, volume string) (VolumeBackupStatus, 
 	return status, err
 }
 
+// failures returns the volumes in the assignment whose last scheduled backup
+// failed, in application and volume order.
+func (v *volumeBackups) failures(assignment model.Assignment) []model.VolumeBackupFailure {
+	if v == nil {
+		return nil
+	}
+	var result []model.VolumeBackupFailure
+	seen := make(map[string]bool)
+	for _, allocation := range assignment.Allocations {
+		for _, policy := range allocation.VolumeBackups {
+			key := allocation.Application + "\x00" + policy.Volume
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			status, err := v.status(allocation.Application, policy.Volume)
+			if err != nil || status.FailedAt.IsZero() {
+				continue
+			}
+			result = append(result, model.VolumeBackupFailure{Application: allocation.Application, Volume: policy.Volume,
+				FailedAt: status.FailedAt.UTC(), Message: status.Failure})
+		}
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].Application != result[right].Application {
+			return result[left].Application < result[right].Application
+		}
+		return result[left].Volume < result[right].Volume
+	})
+	return result
+}
+
 func (v *volumeBackups) recordStatus(application, volume string, backupErr error) {
 	path := filepath.Join(v.archiveDir(application, volume), volumeBackupStatusFile)
 	if backupErr == nil {

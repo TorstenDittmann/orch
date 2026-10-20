@@ -13,6 +13,7 @@
   - [Deploy from GitHub](github.md)
   - [Networking](networking.md)
   - [Secrets](secrets.md)
+  - [Notifications](notifications.md)
   - [Databases](databases.md)
   - [Jobs and schedules](jobs.md)
   - [Targets and interfaces](targets.md)

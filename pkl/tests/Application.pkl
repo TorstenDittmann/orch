@@ -21,6 +21,8 @@ local cronJob = new app.CronJob {
   schedule = "*/2 * * * *"
 }
 
+local slack = new app.Slack { url = "slack-webhook" }
+
 local postgres = new app.Postgres {}
 
 local redis = new app.Redis {
@@ -66,6 +68,10 @@ facts {
     deployment.healthDeadline == "2m"
     deployment.autoRollback
     !deployment.autoUpdate
+  }
+  ["notification defaults"] {
+    slack.kind == "slack"
+    slack.on.isEmpty
   }
   ["database defaults"] {
     postgres.engine == "postgres"

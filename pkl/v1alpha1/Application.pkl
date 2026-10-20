@@ -16,6 +16,10 @@ cronJobs: Mapping<DnsLabel, CronJob>(length <= 100) = new {}
 /// Node-local volumes keyed by their DNS-label name.
 volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
 
+/// Where to send notifications about this application, such as failed
+/// deploys and backups.
+notifications: Listing<Notification>(length <= 20) = new {}
+
 /// Databases orch runs, keyed by name. Each one becomes a service of that name
 /// with its own volume, a generated password, and a `NAME-url` secret holding
 /// the connection URL.
@@ -27,6 +31,15 @@ deploy: Deployment = new {}
 typealias RestartPolicy = "always" | "on-failure" | "never"
 
 typealias DnsLabel = String(length <= 63, matches(Regex(#"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"#)))
+
+/// Something that happened to an application that can be notified.
+typealias NotificationEvent =
+  "deploy.succeeded"
+    | "deploy.failed"
+    | "deploy.rolled_back"
+    | "backup.failed"
+    | "cron.failed"
+    | "replica.unhealthy"
 
 /// A DNS label short enough to name the database's volumes and secrets.
 typealias DatabaseName = DnsLabel(length <= 54)
@@ -221,6 +234,33 @@ class Deployment {
   /// Redeploy when an image tag points to a new digest. The controller checks
   /// the registry every few minutes.
   autoUpdate: Boolean = false
+}
+
+abstract class Notification {
+  /// The service the notification is sent to.
+  fixed kind: String
+
+  /// Name of the application secret that holds the webhook URL.
+  url: DnsLabel
+
+  /// Events to send. Empty sends the failures: `deploy.failed`,
+  /// `deploy.rolled_back`, `backup.failed` and `cron.failed`.
+  on: Listing<NotificationEvent>(isDistinct) = new {}
+}
+
+/// A Slack incoming webhook.
+class Slack extends Notification {
+  fixed kind = "slack"
+}
+
+/// A Discord channel webhook.
+class Discord extends Notification {
+  fixed kind = "discord"
+}
+
+/// Any HTTPS endpoint, sent a JSON document per event.
+class Webhook extends Notification {
+  fixed kind = "webhook"
 }
 
 abstract class Database {

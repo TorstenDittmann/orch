@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
+	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/TorstenDittmann/orch/internal/security"
 	"github.com/TorstenDittmann/orch/internal/store"
@@ -545,6 +546,21 @@ func allocationReportModel(nodeID string, report *orchv1alpha1.AllocationReport,
 			item.FinishedAt = &value
 		}
 		result.JobRuns = append(result.JobRuns, item)
+	}
+	previousVolume := ""
+	for _, failure := range report.GetVolumeBackupFailures() {
+		if err := rejectUnknownMessage(failure); err != nil {
+			return model.AgentReport{}, err
+		}
+		key := failure.GetApplication() + "\x00" + failure.GetVolume()
+		if config.ValidateApplicationName(failure.GetApplication()) != nil || config.ValidateApplicationName(failure.GetVolume()) != nil ||
+			failure.GetFailedAt() == nil || failure.GetFailedAt().CheckValid() != nil || len(failure.GetMessage()) > 1024 || key <= previousVolume {
+			return model.AgentReport{}, errors.New("volume backup failures are not in strict canonical order or contain invalid data")
+		}
+		previousVolume = key
+		result.VolumeBackupFailures = append(result.VolumeBackupFailures, model.VolumeBackupFailure{
+			Application: failure.GetApplication(), Volume: failure.GetVolume(), FailedAt: failure.GetFailedAt().AsTime().UTC(), Message: failure.GetMessage(),
+		})
 	}
 	return result, nil
 }
