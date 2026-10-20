@@ -330,10 +330,10 @@ Keep the recovery path reported by the controller upgrade until normal traffic
 and a test deployment have succeeded.
 
 Wait for every worker to report the new version before deploying a manifest
-that uses a field the old version did not have, such as `stopGracePeriod`, `autoscale` or a
-volume `backup`. An older worker cannot accept such an assignment and keeps
-running its previous one. `orch volume` and `orch restart` also need upgraded
-workers.
+that uses a field the old version did not have, such as `stopGracePeriod`,
+`autoscale`, `privileged` or a volume `backup`. An older worker cannot accept
+such an assignment and keeps running its previous one. `orch volume` and
+`orch restart` also need upgraded workers.
 
 ## Controller outages
 

@@ -1164,6 +1164,7 @@ type RollbackSpec struct {
 	RegistryCredential    *RegistryCredentialReference `protobuf:"bytes,21,opt,name=registry_credential,json=registryCredential,proto3" json:"registry_credential,omitempty"`
 	Udp                   *UDPDesired                  `protobuf:"bytes,22,opt,name=udp,proto3" json:"udp,omitempty"`
 	StopGraceSeconds      uint32                       `protobuf:"varint,23,opt,name=stop_grace_seconds,json=stopGraceSeconds,proto3" json:"stop_grace_seconds,omitempty"`
+	Privileged            bool                         `protobuf:"varint,24,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1357,6 +1358,13 @@ func (x *RollbackSpec) GetStopGraceSeconds() uint32 {
 		return x.StopGraceSeconds
 	}
 	return 0
+}
+
+func (x *RollbackSpec) GetPrivileged() bool {
+	if x != nil {
+		return x.Privileged
+	}
+	return false
 }
 
 type NetworkConfig struct {
@@ -1692,6 +1700,7 @@ type AllocationDesired struct {
 	Udp                   *UDPDesired                  `protobuf:"bytes,29,opt,name=udp,proto3" json:"udp,omitempty"`
 	StopGraceSeconds      uint32                       `protobuf:"varint,30,opt,name=stop_grace_seconds,json=stopGraceSeconds,proto3" json:"stop_grace_seconds,omitempty"`
 	VolumeBackups         []*VolumeBackupDesired       `protobuf:"bytes,31,rep,name=volume_backups,json=volumeBackups,proto3" json:"volume_backups,omitempty"`
+	Privileged            bool                         `protobuf:"varint,32,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1941,6 +1950,13 @@ func (x *AllocationDesired) GetVolumeBackups() []*VolumeBackupDesired {
 		return x.VolumeBackups
 	}
 	return nil
+}
+
+func (x *AllocationDesired) GetPrivileged() bool {
+	if x != nil {
+		return x.Privileged
+	}
+	return false
 }
 
 // VolumeBackupDesired archives one local volume the allocation owns.
@@ -5350,7 +5366,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x12\n" +
 	"\x04host\x18\x05 \x01(\tR\x04host\x12\x1a\n" +
 	"\busername\x18\x06 \x01(\tR\busername\x12\x14\n" +
-	"\x05value\x18\a \x01(\fR\x05value\"\xf0\t\n" +
+	"\x05value\x18\a \x01(\fR\x05value\"\x90\n" +
+	"\n" +
 	"\fRollbackSpec\x125\n" +
 	"\x16application_generation\x18\x01 \x01(\x04R\x15applicationGeneration\x12\x1f\n" +
 	"\vrevision_id\x18\x02 \x01(\tR\n" +
@@ -5379,7 +5396,10 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\fsecret_files\x18\x14 \x03(\v2 .orch.v1alpha1.SecretFileDesiredR\vsecretFiles\x12[\n" +
 	"\x13registry_credential\x18\x15 \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x12+\n" +
 	"\x03udp\x18\x16 \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x12,\n" +
-	"\x12stop_grace_seconds\x18\x17 \x01(\rR\x10stopGraceSeconds\x1a>\n" +
+	"\x12stop_grace_seconds\x18\x17 \x01(\rR\x10stopGraceSeconds\x12\x1e\n" +
+	"\n" +
+	"privileged\x18\x18 \x01(\bR\n" +
+	"privileged\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
@@ -5418,7 +5438,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vhttp_public\x18\n" +
 	" \x01(\bR\n" +
 	"httpPublic\x12&\n" +
-	"\x0fhttp_node_local\x18\v \x01(\bR\rhttpNodeLocal\"\xaf\f\n" +
+	"\x0fhttp_node_local\x18\v \x01(\bR\rhttpNodeLocal\"\xcf\f\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5455,7 +5475,10 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x13registry_credential\x18\x1c \x01(\v2*.orch.v1alpha1.RegistryCredentialReferenceR\x12registryCredential\x12+\n" +
 	"\x03udp\x18\x1d \x01(\v2\x19.orch.v1alpha1.UDPDesiredR\x03udp\x12,\n" +
 	"\x12stop_grace_seconds\x18\x1e \x01(\rR\x10stopGraceSeconds\x12I\n" +
-	"\x0evolume_backups\x18\x1f \x03(\v2\".orch.v1alpha1.VolumeBackupDesiredR\rvolumeBackups\x1a>\n" +
+	"\x0evolume_backups\x18\x1f \x03(\v2\".orch.v1alpha1.VolumeBackupDesiredR\rvolumeBackups\x12\x1e\n" +
+	"\n" +
+	"privileged\x18  \x01(\bR\n" +
+	"privileged\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +

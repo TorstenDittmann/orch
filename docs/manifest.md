@@ -185,6 +185,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `constraints` | `Mapping<String, String>` | empty | At most 64 required node labels |
 | `mounts` | `Listing<Mount>` | empty | At most 64 |
 | `stopGracePeriod` | `String?` | `null` (10s) | Whole seconds from `"1s"` to `"10m"` |
+| `privileged` | Boolean | `false` | See [privileged services](#privileged-services) |
 | `autoscale` | `Autoscale?` | `null` | See [autoscaling](#autoscaling). Leave `replicas` unset. |
 
 ### Image
@@ -210,6 +211,31 @@ services {
 ```
 
 Changing it replaces the replica, like any other change to the service.
+
+### Privileged services
+
+Replicas normally run with no Linux capabilities, no new privileges, the
+default seccomp profile, and no access to the node's devices. A service that
+must start containers of its own, such as a Docker daemon that runs build or
+function sandboxes, can set `privileged = true` to lift all of that:
+
+```pkl
+services {
+  ["docker"] {
+    image = "docker.io/library/docker:29-dind"
+    privileged = true
+    mounts {
+      new Mount { source = "docker"; target = "/var/lib/docker" }
+    }
+  }
+}
+```
+
+A privileged replica can take over the node it runs on, so only administrator
+credentials may deploy an application that has one. Deploys with a deployer
+certificate, an access token, or from GitHub are refused. Give the service a
+local volume for its working state: a Docker daemon cannot run its overlay
+storage on the container's own root filesystem.
 
 ### Autoscaling
 

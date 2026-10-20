@@ -53,6 +53,11 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 		oci.WithMounts(mounts),
 		hardenedSpec,
 	)
+	if allocation.Privileged {
+		// These must follow hardenedSpec, which denies devices and new
+		// privileges for every other workload.
+		opts = append(opts, oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices, oci.WithNewPrivileges)
+	}
 	if len(allocation.SecretEnvironment) != 0 {
 		opts = append(opts, withSecretEnvironment(allocation.SecretEnvironment))
 	}

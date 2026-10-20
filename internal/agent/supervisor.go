@@ -1158,7 +1158,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		DependsOn: append([]string(nil), rollback.DependsOn...), SecretEnvironment: cloneSecretEnvironment(rollback.SecretEnvironment),
 		SecretFiles: append([]model.SecretFileDesired(nil), rollback.SecretFiles...), RegistryCredential: cloneRegistryCredential(rollback.RegistryCredential),
 		RuntimeSecretValues: allocation.RuntimeSecretValues, RuntimeRegistrySecrets: allocation.RuntimeRegistrySecrets,
-		NetworkGeneration: rollback.NetworkGeneration, StopGraceSeconds: rollback.StopGraceSeconds,
+		NetworkGeneration: rollback.NetworkGeneration, StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
 	}
 }
 

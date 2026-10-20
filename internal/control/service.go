@@ -406,6 +406,11 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if allowedApplication != "" && manifest.Name != allowedApplication {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("deployer credentials are limited to application %s", allowedApplication))
 	}
+	// A privileged replica can take over its node, which is more than a
+	// deployer credential grants.
+	if privileged := manifest.PrivilegedServices(); allowedApplication != "" && len(privileged) != 0 {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only administrator credentials may deploy privileged services (%s)", strings.Join(privileged, ", ")))
+	}
 	source, err := deploymentSource(request.Msg.GetSource())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

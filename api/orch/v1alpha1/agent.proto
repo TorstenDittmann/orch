@@ -149,6 +149,7 @@ message RollbackSpec {
   RegistryCredentialReference registry_credential = 21;
   UDPDesired udp = 22;
   uint32 stop_grace_seconds = 23;
+  bool privileged = 24;
 }
 
 message NetworkConfig {
@@ -216,6 +217,7 @@ message AllocationDesired {
   UDPDesired udp = 29;
   uint32 stop_grace_seconds = 30;
   repeated VolumeBackupDesired volume_backups = 31;
+  bool privileged = 32;
 }
 
 // VolumeBackupDesired archives one local volume the allocation owns.

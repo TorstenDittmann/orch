@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 const (
 	SchemaVersion           = "v1alpha1"
@@ -24,6 +27,19 @@ type Manifest struct {
 	Deploy   Deployment         `json:"deploy"`
 }
 
+// PrivilegedServices returns the sorted names of services that set
+// privileged.
+func (m *Manifest) PrivilegedServices() []string {
+	var names []string
+	for name, service := range m.Services {
+		if service.Privileged {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 type Service struct {
 	Image       string            `json:"image"`
 	Command     []string          `json:"command,omitempty"`
@@ -43,6 +59,9 @@ type Service struct {
 	// StopGrace is empty when the service keeps the default grace period, so
 	// manifests that never set it keep their canonical digest.
 	StopGrace string `json:"stop_grace_period,omitempty"`
+	// Privileged replicas run without the default confinement. It is omitted
+	// when false so existing manifests keep their canonical digest.
+	Privileged bool `json:"privileged,omitempty"`
 	// Autoscale lets the controller choose the replica count between Min
 	// and Max. Replicas then equals Min, the count a first deploy starts with.
 	Autoscale *Autoscale `json:"autoscale,omitempty"`

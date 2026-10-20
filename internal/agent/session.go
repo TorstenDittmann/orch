@@ -1009,7 +1009,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			RestartPolicy: item.GetRestartPolicy(), CPUMillis: item.GetCpuMillis(), MemoryBytes: item.GetMemoryBytes(),
 			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
 			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
-			DependsOn: append([]string(nil), item.GetDependsOn()...), StopGraceSeconds: item.GetStopGraceSeconds(),
+			DependsOn: append([]string(nil), item.GetDependsOn()...), StopGraceSeconds: item.GetStopGraceSeconds(), Privileged: item.GetPrivileged(),
 		}
 		allocation.SecretEnvironment = secretEnvironmentModel(item.GetSecretEnvironment())
 		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
@@ -1043,7 +1043,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				RestartPolicy: rollback.GetRestartPolicy(), CPUMillis: rollback.GetCpuMillis(), MemoryBytes: rollback.GetMemoryBytes(),
 				StartDeadlineSeconds: rollback.GetStartDeadlineSeconds(), NetworkGeneration: rollback.GetNetworkGeneration(),
 				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
-				DependsOn: append([]string(nil), rollback.GetDependsOn()...), StopGraceSeconds: rollback.GetStopGraceSeconds(),
+				DependsOn: append([]string(nil), rollback.GetDependsOn()...), StopGraceSeconds: rollback.GetStopGraceSeconds(), Privileged: rollback.GetPrivileged(),
 			}
 			allocation.Rollback.SecretEnvironment = secretEnvironmentModel(rollback.GetSecretEnvironment())
 			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())

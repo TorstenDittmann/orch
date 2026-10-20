@@ -26,6 +26,7 @@ type pklService struct {
 	Constraints map[string]string `pkl:"constraints"`
 	Mounts      []pklMount        `pkl:"mounts"`
 	StopGrace   *string           `pkl:"stopGracePeriod"`
+	Privileged  bool              `pkl:"privileged"`
 	Autoscale   *pklAutoscale     `pkl:"autoscale"`
 }
 
@@ -199,6 +200,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 			Constraints: cloneMap(input.Constraints),
 			Mounts:      mounts,
 			StopGrace:   stopGrace,
+			Privileged:  input.Privileged,
 			Autoscale:   autoscale,
 		}
 	}
