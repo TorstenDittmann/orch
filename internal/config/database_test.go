@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -153,6 +154,83 @@ name = "shop"
 				t.Fatalf("Load() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadConnect(t *testing.T) {
+	manifest := loadManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services {
+  ["web"] {
+    image = "example/web:1"
+    dependsOn { "main" }
+    connect { ["DATABASE_URL"] = "main"; ["REDIS_URL"] = "cache" }
+  }
+}
+cronJobs {
+  ["report"] { image = "example/report:1"; schedule = "0 * * * *"; connect { ["DATABASE_URL"] = "main" } }
+}
+databases {
+  ["main"] = new Postgres { version = "17" }
+  ["cache"] = new Redis { version = "7.4" }
+}
+`)
+	web := manifest.Services["web"]
+	if !reflect.DeepEqual(web.SecretEnv, map[string]string{"DATABASE_URL": "main-url", "REDIS_URL": "cache-url"}) ||
+		!reflect.DeepEqual(web.DependsOn, []string{"cache", "main"}) {
+		t.Fatalf("web = %#v", web)
+	}
+	report := manifest.CronJobs["report"]
+	if report.SecretEnv["DATABASE_URL"] != "main-url" || !reflect.DeepEqual(report.DependsOn, []string{"main"}) {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestLoadRejectsBadConnect(t *testing.T) {
+	load := func(service string) error {
+		_, err := loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services { ["web"] { image = "example/web:1"; `+service+` } }
+databases { ["main"] = new Postgres { version = "17" } }
+`)
+		return err
+	}
+	if err := load(`connect { ["DATABASE_URL"] = "mian" }`); err == nil || !strings.Contains(err.Error(), `services["web"].connect["DATABASE_URL"]: no database is named "mian"`) {
+		t.Fatalf("unknown database: Load() error = %v", err)
+	}
+	err := load(`secretEnv { ["DATABASE_URL"] = "other" }; connect { ["DATABASE_URL"] = "main" }`)
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect.DATABASE_URL") {
+		t.Fatalf("already set: Load() error = %v", err)
+	}
+	_, err = loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services { ["web"] { image = "example/web:1" } }
+cronJobs { ["report"] { image = "example/report:1"; schedule = "0 * * * *"; connect { ["DATABASE_URL"] = "mian" } } }
+databases { ["main"] = new Postgres { version = "17" } }
+`)
+	if err == nil || !strings.Contains(err.Error(), `cronJobs["report"].connect["DATABASE_URL"]: no database is named "mian"`) {
+		t.Fatalf("cron job: Load() error = %v", err)
+	}
+}
+
+func TestConnectLimits(t *testing.T) {
+	secretEnv := map[string]string{}
+	for i := range maxEnvironmentEntries {
+		secretEnv[fmt.Sprintf("SECRET_%d", i)] = "other"
+	}
+	manifest := &Manifest{
+		Services: map[string]Service{"web": {SecretEnv: secretEnv}},
+		CronJobs: map[string]CronJob{"report": {}},
+	}
+	connections := map[string]map[string]string{
+		"services.web":    {"DATABASE_URL": "main"},
+		"cronJobs.report": {"DATABASE_URL": "mian"},
+	}
+	err := connectDatabases(manifest, connections, map[string]DatabaseSpec{"main": {}})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect") || !hasProblem(validation, "cron_jobs.report.connect.DATABASE_URL") {
+		t.Fatalf("connectDatabases() error = %v", err)
 	}
 }
 

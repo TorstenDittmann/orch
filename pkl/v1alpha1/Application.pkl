@@ -8,10 +8,10 @@ name: DnsLabel
 
 /// Services keyed by their DNS-label name. An application needs at least one
 /// service or database.
-services: Mapping<DnsLabel, Service>(length <= 100) = new {}
+services: Mapping<DnsLabel, Service>(length <= 100, connectsToDatabases("services", this)) = new {}
 
 /// Scheduled one-shot jobs keyed by their DNS-label name.
-cronJobs: Mapping<DnsLabel, CronJob>(length <= 100) = new {}
+cronJobs: Mapping<DnsLabel, CronJob>(length <= 100, connectsToDatabases("cronJobs", this)) = new {}
 
 /// Node-local volumes keyed by their DNS-label name.
 volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
@@ -76,6 +76,10 @@ class Service {
   env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
 
   secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  /// Sets each variable to the connection URL of the named database in
+  /// `databases`, and waits for that database like `dependsOn`.
+  connect: Mapping<EnvironmentName, DatabaseName>(length <= 20) = new {}
 
   secretFiles: Listing<SecretFile>(length <= 64) = new {}
 
@@ -162,6 +166,10 @@ class CronJob {
   env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
 
   secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  /// Sets each variable to the connection URL of the named database in
+  /// `databases`, and waits for that database like `dependsOn`.
+  connect: Mapping<EnvironmentName, DatabaseName>(length <= 20) = new {}
 
   secretFiles: Listing<SecretFile>(length <= 64) = new {}
 
@@ -362,3 +370,17 @@ class LibSQL extends Database {
   fixed engine = "libsql"
   version = "latest"
 }
+
+/// Whether every `connect` in [owners] names one of the application's databases.
+local function connectsToDatabases(
+  kind: String,
+  owners: Mapping<String, Service | CronJob>,
+): Boolean =
+  owners.every((owner, value) ->
+    value.connect.every((variable, database) ->
+      databases.containsKey(database)
+        || throw(
+          "\(kind)[\"\(owner)\"].connect[\"\(variable)\"]: no database is named \"\(database)\" in databases"
+        )
+    )
+  )

@@ -39,6 +39,7 @@ facts {
     service.http == null
     service.tcp == null
     service.dependsOn.isEmpty
+    service.connect.isEmpty
     service.env.isEmpty
   }
   ["TCP defaults"] {

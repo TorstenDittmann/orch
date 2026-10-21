@@ -31,7 +31,8 @@ Usage:
   orch db backup APP DATABASE [--target NAME] [--json]
   orch db restore APP DATABASE [BACKUP] [--target NAME] [--json]
 
-Applications connect with the NAME-url secret orch creates for each database.
+Services and cron jobs reach a database with connect in orch.pkl, which reads
+the NAME-url secret orch creates for it.
 Restore uses the newest backup unless BACKUP is given. It swaps in the backup,
 restarts the database, and for dump-based engines loads the dump into it. The
 database's previous backup volume contents are kept as a backup first.`)
