@@ -7,7 +7,7 @@
 //! Colors, fonts and copy follow the dark theme of the website (`website/src/app.css`).
 //! Every scene is drawn on a 1920x1080 grid. Check it with the CLI in `main.rs`.
 use fframes::{
-    AnimateRuntimeInput, AudioMap, Color, Duration, FFramesContext, FontQuery, Frame, Overlap,
+    AnimateRuntimeInput, AudioMap, AudioTimestamp::{Eof, Second}, AudioTrack, Color, Duration, FFramesContext, FontQuery, Frame, Overlap,
     Scene, Scenes, Svgr, Video,
     animation::{AnimationRuntime, Easing},
     include_media_dir,
@@ -16,7 +16,7 @@ use std::f32::consts::PI;
 use std::sync::LazyLock;
 
 // Every file of `media/` is embedded into the binary. Fonts are used by family name.
-include_media_dir!(pub struct OrchIntroMedia, "media");
+include_media_dir!(pub struct OrchIntroMedia, "media", stereo);
 
 pub const WIDTH: usize = 1920;
 pub const HEIGHT: usize = 1080;
@@ -234,6 +234,21 @@ fn panel<'a>(x: f32, y: f32, width: f32, height: f32) -> Svgr<'a> {
     fframes::svgr!(<rect x={x + 0.75} y={y + 0.75} width={width - 1.5} height={height - 1.5} rx="16" fill={BOX} stroke={EDGE} stroke-width="1.5" />)
 }
 
+/// A sound effect from `media/` at `at` seconds into the scene. Gains are relative to the
+/// effects' common level, which sits a little above the music.
+fn sfx(name: &'static str, at: f32, gain_db: f32) -> AudioTrack<'static> {
+    AudioTrack::new(name, Second(at.max(0.0))..Eof).gain_db(gain_db + SFX_DB)
+}
+
+const SFX_DB: f32 = 2.0;
+
+/// Key clicks for `chars` characters typed at `cps` from `start`. `take` picks a different
+/// stretch of the clicks so lines do not sound the same.
+fn typing(start: f32, chars: usize, cps: f32, take: f32) -> AudioTrack<'static> {
+    let end = start + chars as f32 / cps;
+    AudioTrack::new("sfx-type.mp3", Second(start)..Second(end)).offset(take).gain_db(-15.0 + SFX_DB)
+}
+
 pub struct OrchIntroVideo<'a> {
     pub media: &'a OrchIntroMedia,
 }
@@ -261,7 +276,8 @@ impl Video for OrchIntroVideo<'_> {
     }
 
     fn audio(&self) -> AudioMap<'_> {
-        AudioMap::none()
+        // Composed by `audio/compose.py` at 120 BPM; the scene cuts land on its beats.
+        AudioMap::from([AudioTrack::new("music.mp3", Second(0.0)..Eof).gain_db(-5.0).fade_out(1.5)])
     }
 
     fn define_scenes(&self) -> Scenes<'_> {
@@ -305,12 +321,21 @@ impl Video for OrchIntroVideo<'_> {
 #[derive(Debug)]
 struct Open;
 
-const OPEN_SECONDS: f32 = 3.6;
+const OPEN_SECONDS: f32 = 3.65;
 const KICKER: &str = "Orchestration for the agentic era";
 
 impl Scene for Open {
     fn duration(&self) -> Duration<'_> {
         Duration::Seconds(OPEN_SECONDS)
+    }
+
+    fn audio(&self) -> AudioMap<'_> {
+        AudioMap::from(vec![
+            sfx("sfx-pop.mp3", 0.1, -13.0),
+            sfx("sfx-whoosh.mp3", 0.85, -17.0),
+            sfx("sfx-pop.mp3", 1.3, -14.0),
+            typing(1.95, KICKER.len(), 38.0, 0.0),
+        ])
     }
 
     fn render_frame<'a>(&'a self, mut frame: Frame, ctx: &FFramesContext<'a, '_>) -> Svgr<'a> {
@@ -354,7 +379,7 @@ impl Scene for Open {
 #[derive(Debug)]
 struct Cluster;
 
-const CLUSTER_SECONDS: f32 = 12.2;
+const CLUSTER_SECONDS: f32 = 12.15;
 const DEPLOY_AT: f32 = 5.6;
 
 struct Node {
@@ -435,6 +460,31 @@ impl Cluster {
 impl Scene for Cluster {
     fn duration(&self) -> Duration<'_> {
         Duration::Seconds(CLUSTER_SECONDS)
+    }
+
+    fn audio(&self) -> AudioMap<'_> {
+        let mut tracks = vec![
+            typing(0.4, 14, 26.0, 0.0),
+            typing(1.6, 22, 28.0, 0.9),
+            typing(2.85, 28, 32.0, 1.8),
+            typing(6.65, 11, 24.0, 2.7),
+            sfx("sfx-whoosh.mp3", DEPLOY_AT, -19.0),
+            sfx("sfx-whoosh.mp3", FLY_AT - 0.1, -13.0),
+            sfx("sfx-pop.mp3", INGRESS_AT + 0.2, -13.0),
+            sfx("sfx-lock.mp3", INGRESS_AT + 0.25, -15.0),
+        ];
+        for node in &NODES {
+            tracks.push(sfx("sfx-pop.mp3", node.at, -12.0));
+        }
+        for at in [4.05, 4.22, 4.55] {
+            tracks.push(sfx("sfx-lock.mp3", at + 0.4, -14.0));
+        }
+        for i in 0..3 {
+            let i = i as f32;
+            tracks.push(sfx("sfx-tick.mp3", FLY_AT + i * 0.12 + LAND_AFTER, -14.0));
+            tracks.push(sfx("sfx-chime.mp3", HEALTHY_AT + i * 0.22, -16.0 + i));
+        }
+        AudioMap::from(tracks)
     }
 
     fn overlap(&self) -> Overlap {
@@ -551,7 +601,7 @@ impl Scene for Cluster {
 #[derive(Debug)]
 struct Agents;
 
-const AGENTS_SECONDS: f32 = 7.8;
+const AGENTS_SECONDS: f32 = 8.0;
 const PROMPT: &str = "why is shop not ready?";
 /// When each tool call appears: app_status, logs, deploy.
 const CALLS: [f32; 3] = [1.6, 2.4, 3.3];
@@ -561,6 +611,25 @@ const SCOPE_AT: f32 = 0.95;
 impl Scene for Agents {
     fn duration(&self) -> Duration<'_> {
         Duration::Seconds(AGENTS_SECONDS)
+    }
+
+    fn audio(&self) -> AudioMap<'_> {
+        let mut tracks = vec![
+            typing(0.55, PROMPT.len(), 30.0, 0.4),
+            sfx("sfx-lock.mp3", SCOPE_AT, -13.0),
+            sfx("sfx-error.mp3", CALLS[1] + 0.55, -15.0),
+            sfx("sfx-whoosh.mp3", CALLS[2] + 0.05, -15.0),
+            sfx("sfx-chime.mp3", FIXED_AT, -12.0),
+            sfx("sfx-pop.mp3", FIXED_AT + 0.3, -15.0),
+        ];
+        for (i, &at) in CALLS.iter().enumerate() {
+            tracks.push(sfx("sfx-pop.mp3", at, -16.0));
+            tracks.push(sfx("sfx-tick.mp3", at + 0.5, -15.0));
+            if i < 2 {
+                tracks.push(sfx("sfx-tick.mp3", at + 0.9, -17.0));
+            }
+        }
+        AudioMap::from(tracks)
     }
 
     fn overlap(&self) -> Overlap {
@@ -704,7 +773,7 @@ impl Scene for Agents {
 #[derive(Debug)]
 struct Batteries;
 
-const BATTERIES_SECONDS: f32 = 7.4;
+const BATTERIES_SECONDS: f32 = 7.0;
 const DB_LINE: &str = "databases { [\"main\"] = new Postgres {} }";
 const DB_AT: f32 = 1.55;
 const URL_AT: f32 = 2.15;
@@ -829,6 +898,23 @@ impl Scene for Batteries {
         Duration::Seconds(BATTERIES_SECONDS)
     }
 
+    fn audio(&self) -> AudioMap<'_> {
+        let mut tracks = vec![
+            typing(0.5, DB_LINE.len(), 40.0, 1.3),
+            sfx("sfx-pop.mp3", DB_AT, -12.0),
+            sfx("sfx-whoosh.mp3", URL_AT, -16.0),
+            sfx("sfx-chime.mp3", URL_AT + 0.7, -14.0),
+            sfx("sfx-whoosh.mp3", RIGHT_AT - 0.1, -20.0),
+            sfx("sfx-error.mp3", FAILED_AT, -12.0),
+        ];
+        for i in 0..3 {
+            let i = i as f32;
+            tracks.push(sfx("sfx-tick.mp3", 3.25 + i * 0.3, -15.0));
+            tracks.push(sfx("sfx-ping.mp3", SEND_AT + i * 0.12 + 0.45, -14.0).pan(0.4));
+        }
+        AudioMap::from(tracks)
+    }
+
     fn overlap(&self) -> Overlap {
         Overlap::Previous(0.3)
     }
@@ -849,12 +935,16 @@ impl Scene for Batteries {
 #[derive(Debug)]
 struct Outro;
 
-const OUTRO_SECONDS: f32 = 4.4;
+const OUTRO_SECONDS: f32 = 4.5;
 const PROMISE: [&str; 5] = ["Deploy", "to", "your", "own", "servers."];
 
 impl Scene for Outro {
     fn duration(&self) -> Duration<'_> {
         Duration::Seconds(OUTRO_SECONDS)
+    }
+
+    fn audio(&self) -> AudioMap<'_> {
+        AudioMap::from([sfx("sfx-pop.mp3", 1.6, -15.0)])
     }
 
     fn overlap(&self) -> Overlap {

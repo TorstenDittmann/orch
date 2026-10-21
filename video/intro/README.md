@@ -10,7 +10,8 @@ scoped token, databases and notifications, and the hero line as the outro.
 | --- | --- |
 | `src/lib.rs` | the video: one struct per scene, colors and fonts from `website/src/app.css` |
 | `src/main.rs` | the command line (`fframes::cli`) |
-| `media/` | Geist and Geist Mono (SIL Open Font License, see `OFL.txt`) |
+| `media/` | Geist and Geist Mono (SIL Open Font License, see `OFL.txt`), the music and sound effects |
+| `audio/compose.py` | composes the music (120 BPM, cuts on the beat) and effects with numpy; rerun it after changing sounds |
 
 ## Work on it
 

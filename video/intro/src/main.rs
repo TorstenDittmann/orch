@@ -1,4 +1,4 @@
-use fframes::{EncoderOptions, RenderOptions, StaticMediaProvider, cli};
+use fframes::{AudioMixOptions, EncoderOptions, RenderOptions, StaticMediaProvider, cli};
 use orch_intro::{OrchIntroMedia, OrchIntroVideo};
 use std::process::ExitCode;
 
@@ -19,6 +19,8 @@ fn main() -> ExitCode {
                 codec_params: Some(&[("crf", "18"), ("preset", "slow"), ("tune", "animation")]),
                 ..Default::default()
             },
+            // Brings the mix to about -14 LUFS, the usual target for web video.
+            audio_mix: AudioMixOptions { master_gain_db: 4.0, ..Default::default() },
             ..Default::default()
         },
     );
