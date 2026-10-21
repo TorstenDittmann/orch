@@ -1,0 +1,5 @@
+target/
+frames/
+*.png
+*.mp4
+*.webm
