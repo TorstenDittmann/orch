@@ -13,10 +13,9 @@ services {
   ["web"] {
     image = "ghcr.io/acme/shop:1.4.2"
     http = new Http { port = 8080; domains { "shop.example.com" } }
-    dependsOn { "main"; "cache" }
-    secretEnv {
-      ["DATABASE_URL"] = "main-url"
-      ["REDIS_URL"] = "cache-url"
+    connect {
+      ["DATABASE_URL"] = "main"
+      ["REDIS_URL"] = "cache"
     }
   }
 }
@@ -27,9 +26,14 @@ databases {
 }
 ```
 
-`orch deploy` starts both databases next to `web`. `web` reads its connection
-strings from the `main-url` and `cache-url` secrets; nobody has to create a
-password.
+`orch deploy` starts both databases next to `web`. `connect` sets each
+variable to the database's connection URL and starts `web` after the database
+is ready. Nobody has to create a password.
+
+`connect` works the same in cron jobs. orch rejects a name that is not in
+`databases`, and a variable that `env` or `secretEnv` already sets. The URL
+comes from the database's `NAME-url` secret (see [Credentials](#credentials)),
+so `secretEnv { ["DATABASE_URL"] = "main-url" }` still works where you need it.
 
 ## Engines
 

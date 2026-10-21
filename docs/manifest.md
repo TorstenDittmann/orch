@@ -183,6 +183,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `dependsOn` | `Listing<DnsLabel>` | empty | At most 64 distinct services of this application |
 | `env` | `Mapping<EnvironmentName, String>` | empty | At most 256 entries |
 | `secretEnv` | `Mapping<EnvironmentName, DnsLabel>` | empty | At most 256 entries; secret names |
+| `connect` | `Mapping<EnvironmentName, DatabaseName>` | empty | At most 20; see [Databases](databases.md) |
 | `secretFiles` | `Listing<SecretFile>` | empty | At most 64 |
 | `constraints` | `Mapping<String, String>` | empty | At most 64 required node labels |
 | `mounts` | `Listing<Mount>` | empty | At most 64 |
@@ -324,7 +325,9 @@ or that form a cycle.
 ### Environment and secrets
 
 `env` holds plain values. `secretEnv` maps an environment variable to the name
-of a stored secret. The same variable cannot appear in both.
+of a stored secret. `connect` maps an environment variable to one of the
+application's [databases](databases.md) and sets it to that database's
+connection URL. A variable can appear in only one of the three.
 
 ```pkl
 env {
@@ -576,6 +579,7 @@ Cron jobs are described in detail in [jobs and schedules](jobs.md).
 | `resources` | `Resources` | `100m`, `128Mi` | Same rules as services |
 | `env` | `Mapping<EnvironmentName, String>` | empty | At most 256 entries |
 | `secretEnv` | `Mapping<EnvironmentName, DnsLabel>` | empty | At most 256 entries |
+| `connect` | `Mapping<EnvironmentName, DatabaseName>` | empty | At most 20; see [Databases](databases.md) |
 | `secretFiles` | `Listing<SecretFile>` | empty | At most 64 |
 | `dependsOn` | `Listing<DnsLabel>` | empty | Services of this application |
 | `constraints` | `Mapping<String, String>` | empty | Required node labels |

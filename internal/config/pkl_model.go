@@ -44,6 +44,7 @@ type pklService struct {
 	DependsOn   []string          `pkl:"dependsOn"`
 	Env         map[string]string `pkl:"env"`
 	SecretEnv   map[string]string `pkl:"secretEnv"`
+	Connect     map[string]string `pkl:"connect"`
 	SecretFiles []pklSecretFile   `pkl:"secretFiles"`
 	Constraints map[string]string `pkl:"constraints"`
 	Mounts      []pklMount        `pkl:"mounts"`
@@ -91,6 +92,7 @@ type pklCronJob struct {
 	Resources     pklResources      `pkl:"resources"`
 	Env           map[string]string `pkl:"env"`
 	SecretEnv     map[string]string `pkl:"secretEnv"`
+	Connect       map[string]string `pkl:"connect"`
 	SecretFiles   []pklSecretFile   `pkl:"secretFiles"`
 	DependsOn     []string          `pkl:"dependsOn"`
 	Constraints   map[string]string `pkl:"constraints"`
@@ -280,4 +282,21 @@ func resolvePklDatabases(doc pklDocument) map[string]DatabaseSpec {
 		databases[name] = spec
 	}
 	return databases
+}
+
+// resolvePklConnections returns each service's and cron job's `connect`,
+// keyed by "services.NAME" or "cronJobs.NAME".
+func resolvePklConnections(doc pklDocument) map[string]map[string]string {
+	connections := map[string]map[string]string{}
+	for name, input := range doc.Services {
+		if len(input.Connect) != 0 {
+			connections["services."+name] = cloneMap(input.Connect)
+		}
+	}
+	for name, input := range doc.CronJobs {
+		if len(input.Connect) != 0 {
+			connections["cronJobs."+name] = cloneMap(input.Connect)
+		}
+	}
+	return connections
 }

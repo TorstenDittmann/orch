@@ -156,6 +156,54 @@ name = "shop"
 	}
 }
 
+func TestLoadConnect(t *testing.T) {
+	manifest := loadManifest(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services {
+  ["web"] {
+    image = "example/web:1"
+    dependsOn { "main" }
+    connect { ["DATABASE_URL"] = "main"; ["REDIS_URL"] = "cache" }
+  }
+}
+cronJobs {
+  ["report"] { image = "example/report:1"; schedule = "0 * * * *"; connect { ["DATABASE_URL"] = "main" } }
+}
+databases {
+  ["main"] = new Postgres { version = "17" }
+  ["cache"] = new Redis { version = "7.4" }
+}
+`)
+	web := manifest.Services["web"]
+	if !reflect.DeepEqual(web.SecretEnv, map[string]string{"DATABASE_URL": "main-url", "REDIS_URL": "cache-url"}) ||
+		!reflect.DeepEqual(web.DependsOn, []string{"cache", "main"}) {
+		t.Fatalf("web = %#v", web)
+	}
+	report := manifest.CronJobs["report"]
+	if report.SecretEnv["DATABASE_URL"] != "main-url" || !reflect.DeepEqual(report.DependsOn, []string{"main"}) {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestLoadRejectsBadConnect(t *testing.T) {
+	for name, service := range map[string]string{
+		"unknown database": `connect { ["DATABASE_URL"] = "mian" }`,
+		"already set":      `secretEnv { ["DATABASE_URL"] = "other" }; connect { ["DATABASE_URL"] = "main" }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services { ["web"] { image = "example/web:1"; `+service+` } }
+databases { ["main"] = new Postgres { version = "17" } }
+`)
+			var validation *ValidationError
+			if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect.DATABASE_URL") {
+				t.Fatalf("Load() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsUnknownDatabaseEngine(t *testing.T) {
 	manifest := loadManifest(t, databaseManifest)
 	service := manifest.Services["main"]
