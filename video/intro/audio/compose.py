@@ -173,17 +173,6 @@ def sfx():
     t = lambda s: np.arange(n(s)) / RATE
     sounds = {}
 
-    # Key clicks: a short noisy tick with a body, 32 per second with human jitter.
-    clicks = np.zeros(n(4.0))
-    pos = 0.0
-    while pos < 3.9:
-        body = highpass(rng.standard_normal(n(0.025)), 1800) * np.exp(-t(0.025) * 260)
-        body += np.sin(2 * np.pi * rng.uniform(1700, 2600) * t(0.025)) * np.exp(-t(0.025) * 400) * 0.5
-        i = n(pos)
-        clicks[i : i + len(body)] += body * rng.uniform(0.6, 1.0)
-        pos += 1 / 32 + rng.uniform(-0.008, 0.008)
-    sounds["type"] = clicks
-
     # Pop for things that appear: a short upward blip.
     f = 520 + 420 * (1 - np.exp(-t(0.12) * 40))
     sounds["pop"] = np.sin(2 * np.pi * np.cumsum(f) / RATE) * env(n(0.12), 0.002, 0.035)

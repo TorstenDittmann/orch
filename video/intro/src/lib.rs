@@ -242,13 +242,6 @@ fn sfx(name: &'static str, at: f32, gain_db: f32) -> AudioTrack<'static> {
 
 const SFX_DB: f32 = 2.0;
 
-/// Key clicks for `chars` characters typed at `cps` from `start`. `take` picks a different
-/// stretch of the clicks so lines do not sound the same.
-fn typing(start: f32, chars: usize, cps: f32, take: f32) -> AudioTrack<'static> {
-    let end = start + chars as f32 / cps;
-    AudioTrack::new("sfx-type.mp3", Second(start)..Second(end)).offset(take).gain_db(-15.0 + SFX_DB)
-}
-
 pub struct OrchIntroVideo<'a> {
     pub media: &'a OrchIntroMedia,
 }
@@ -334,7 +327,6 @@ impl Scene for Open {
             sfx("sfx-pop.mp3", 0.1, -13.0),
             sfx("sfx-whoosh.mp3", 0.85, -17.0),
             sfx("sfx-pop.mp3", 1.3, -14.0),
-            typing(1.95, KICKER.len(), 38.0, 0.0),
         ])
     }
 
@@ -464,10 +456,6 @@ impl Scene for Cluster {
 
     fn audio(&self) -> AudioMap<'_> {
         let mut tracks = vec![
-            typing(0.4, 14, 26.0, 0.0),
-            typing(1.6, 22, 28.0, 0.9),
-            typing(2.85, 28, 32.0, 1.8),
-            typing(6.65, 11, 24.0, 2.7),
             sfx("sfx-whoosh.mp3", DEPLOY_AT, -19.0),
             sfx("sfx-whoosh.mp3", FLY_AT - 0.1, -13.0),
             sfx("sfx-pop.mp3", INGRESS_AT + 0.2, -13.0),
@@ -615,7 +603,6 @@ impl Scene for Agents {
 
     fn audio(&self) -> AudioMap<'_> {
         let mut tracks = vec![
-            typing(0.55, PROMPT.len(), 30.0, 0.4),
             sfx("sfx-lock.mp3", SCOPE_AT, -13.0),
             sfx("sfx-error.mp3", CALLS[1] + 0.55, -15.0),
             sfx("sfx-whoosh.mp3", CALLS[2] + 0.05, -15.0),
@@ -900,7 +887,6 @@ impl Scene for Batteries {
 
     fn audio(&self) -> AudioMap<'_> {
         let mut tracks = vec![
-            typing(0.5, DB_LINE.len(), 40.0, 1.3),
             sfx("sfx-pop.mp3", DB_AT, -12.0),
             sfx("sfx-whoosh.mp3", URL_AT, -16.0),
             sfx("sfx-chime.mp3", URL_AT + 0.7, -14.0),
