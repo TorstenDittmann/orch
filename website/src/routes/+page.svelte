@@ -1,25 +1,38 @@
 <script lang="ts">
 	import Seo from "../lib/components/Seo.svelte";
+	import Agent from "../lib/components/illustrations/Agent.svelte";
+	import Database from "../lib/components/illustrations/Database.svelte";
 	import Deploy from "../lib/components/illustrations/Deploy.svelte";
 	import Network from "../lib/components/illustrations/Network.svelte";
+	import Notify from "../lib/components/illustrations/Notify.svelte";
 	import Rollout from "../lib/components/illustrations/Rollout.svelte";
 	import Setup from "../lib/components/illustrations/Setup.svelte";
 
 	let { data } = $props();
 </script>
 
-<Seo title="orch: deploy containers to your own servers" description={data.site.description} />
+<Seo title="orch: orchestration for the agentic era" description={data.site.description} />
 
 <section class="container hero">
 	<div class="intro">
+		<p class="kicker">Orchestration for the agentic era</p>
 		<h1>Deploy to your own servers.</h1>
-		<p>The simplicity of Docker Swarm with the modern features of Kubernetes. Three commands to a cluster, one file per app.</p>
+		<p>The simplicity of Docker Swarm with the modern features of Kubernetes. Three commands to a cluster, one file per app, and an API your AI agents can drive safely.</p>
 		<div class="actions">
 			<a class="button" href="/quick-start/">Get started</a>
 			<a class="quiet" href="/docs/">Read the docs</a>
 		</div>
 	</div>
 	<div class="code">{@html data.manifest}</div>
+</section>
+
+<section class="container step">
+	<div class="intro">
+		<h2>Built for agents</h2>
+		<p>orch ships an MCP server. Claude Code, Cursor or Codex can read status and logs, deploy and roll back, with a token you can limit to a single app.</p>
+		<a class="quiet" href="/ai/">AI assistants →</a>
+	</div>
+	<Agent />
 </section>
 
 <section class="container step">
@@ -58,6 +71,21 @@
 	<Network />
 </section>
 
+<section class="container extras">
+	<div>
+		<Database />
+		<h2>Databases</h2>
+		<p>Declare Postgres, MySQL, Redis and more next to your services. orch generates the credentials and runs scheduled backups.</p>
+		<a class="quiet" href="/databases/">Databases →</a>
+	</div>
+	<div>
+		<Notify />
+		<h2>Notifications</h2>
+		<p>Failed deploys, backups and cron runs are posted to Slack, Discord or any webhook.</p>
+		<a class="quiet" href="/notifications/">Notifications →</a>
+	</div>
+</section>
+
 <section class="container closing">
 	<h2>Between Swarm and Kubernetes</h2>
 	<p>Swarm is easy but stopped growing. Kubernetes can do everything but needs a team to run it. orch keeps the easy part and adds what modern apps expect.</p>
@@ -93,6 +121,13 @@
 	.hero > *,
 	.step > * {
 		min-width: 0;
+	}
+
+	.hero .intro .kicker {
+		margin: 0 0 14px;
+		font-family: var(--mono);
+		font-size: 13px;
+		color: var(--accent);
 	}
 
 	h1 {
@@ -157,6 +192,27 @@
 		color: var(--fg);
 	}
 
+	.extras {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 64px;
+		padding-block: 72px;
+		border-top: 1px solid var(--line);
+	}
+
+	.extras > div {
+		min-width: 0;
+	}
+
+	.extras h2 {
+		margin-top: 40px;
+	}
+
+	.extras p {
+		margin: 0 0 24px;
+		color: var(--dim);
+	}
+
 	.closing {
 		display: flex;
 		flex-direction: column;
@@ -188,6 +244,16 @@
 
 		.step:nth-of-type(odd) .intro {
 			order: 0;
+		}
+
+		.extras {
+			grid-template-columns: 1fr;
+			gap: 56px;
+			padding-block: 56px;
+		}
+
+		.extras h2 {
+			margin-top: 28px;
 		}
 
 		.closing {

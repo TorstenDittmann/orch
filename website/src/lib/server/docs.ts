@@ -7,7 +7,7 @@ const docsDir = resolve(process.cwd(), "../docs");
 
 export const site = {
 	title: "orch",
-	description: "Deploy containers to your own servers. The simplicity of Docker Swarm with the modern features of Kubernetes.",
+	description: "Container orchestration for the agentic era. Deploy to your own servers with the simplicity of Docker Swarm and the modern features of Kubernetes.",
 	url: (process.env.SITE_URL || "https://orch.torsten.work").replace(/\/+$/, ""),
 	repo: "https://github.com/TorstenDittmann/orch",
 };
