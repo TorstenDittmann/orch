@@ -8,10 +8,10 @@ name: DnsLabel
 
 /// Services keyed by their DNS-label name. An application needs at least one
 /// service or database.
-services: Mapping<DnsLabel, Service>(length <= 100) = new {}
+services: Mapping<DnsLabel, Service>(length <= 100, connectsToDatabases("services", this)) = new {}
 
 /// Scheduled one-shot jobs keyed by their DNS-label name.
-cronJobs: Mapping<DnsLabel, CronJob>(length <= 100) = new {}
+cronJobs: Mapping<DnsLabel, CronJob>(length <= 100, connectsToDatabases("cronJobs", this)) = new {}
 
 /// Node-local volumes keyed by their DNS-label name.
 volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
@@ -370,3 +370,17 @@ class LibSQL extends Database {
   fixed engine = "libsql"
   version = "latest"
 }
+
+/// Whether every `connect` in [owners] names one of the application's databases.
+local function connectsToDatabases(
+  kind: String,
+  owners: Mapping<String, Service | CronJob>,
+): Boolean =
+  owners.every((owner, value) ->
+    value.connect.every((variable, database) ->
+      databases.containsKey(database)
+        || throw(
+          "\(kind)[\"\(owner)\"].connect[\"\(variable)\"]: no database is named \"\(database)\" in databases"
+        )
+    )
+  )

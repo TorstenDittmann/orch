@@ -186,21 +186,21 @@ databases {
 }
 
 func TestLoadRejectsBadConnect(t *testing.T) {
-	for name, service := range map[string]string{
-		"unknown database": `connect { ["DATABASE_URL"] = "mian" }`,
-		"already set":      `secretEnv { ["DATABASE_URL"] = "other" }; connect { ["DATABASE_URL"] = "main" }`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+	load := func(service string) error {
+		_, err := loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 name = "shop"
 services { ["web"] { image = "example/web:1"; `+service+` } }
 databases { ["main"] = new Postgres { version = "17" } }
 `)
-			var validation *ValidationError
-			if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect.DATABASE_URL") {
-				t.Fatalf("Load() error = %v", err)
-			}
-		})
+		return err
+	}
+	if err := load(`connect { ["DATABASE_URL"] = "mian" }`); err == nil || !strings.Contains(err.Error(), `services["web"].connect["DATABASE_URL"]: no database is named "mian"`) {
+		t.Fatalf("unknown database: Load() error = %v", err)
+	}
+	err := load(`secretEnv { ["DATABASE_URL"] = "other" }; connect { ["DATABASE_URL"] = "main" }`)
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect.DATABASE_URL") {
+		t.Fatalf("already set: Load() error = %v", err)
 	}
 }
 

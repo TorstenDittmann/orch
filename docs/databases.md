@@ -30,8 +30,11 @@ databases {
 variable to the database's connection URL and starts `web` after the database
 is ready. Nobody has to create a password.
 
-`connect` works the same in cron jobs. orch rejects a name that is not in
-`databases`, and a variable that `env` or `secretEnv` already sets. The URL
+`connect` works the same in cron jobs. Pkl checks every name against
+`databases` when it evaluates `orch.pkl`, so a typo such as `"mian"` fails
+with `services["web"].connect["DATABASE_URL"]: no database is named "mian"`
+before anything is deployed. orch also rejects a variable that `env` or
+`secretEnv` already sets. The URL
 comes from the database's `NAME-url` secret (see [Credentials](#credentials)),
 so `secretEnv { ["DATABASE_URL"] = "main-url" }` still works where you need it.
 
