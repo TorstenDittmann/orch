@@ -384,6 +384,10 @@ func connectDatabases(manifest *Manifest, connections map[string]map[string]stri
 	var problems []Problem
 	for _, owner := range sortedKeys(connections) {
 		kind, name, _ := strings.Cut(owner, ".")
+		base := "services." + name
+		if kind != "services" {
+			base = "cron_jobs." + name
+		}
 		var env, secretEnv map[string]string
 		var dependsOn []string
 		if kind == "services" {
@@ -396,7 +400,7 @@ func connectDatabases(manifest *Manifest, connections map[string]map[string]stri
 		}
 		for _, variable := range sortedKeys(connections[owner]) {
 			database := connections[owner][variable]
-			path := owner + ".connect." + variable
+			path := base + ".connect." + variable
 			if _, declared := databases[database]; !declared {
 				problems = append(problems, Problem{Path: path, Message: fmt.Sprintf("no database is named %q", database)})
 				continue
@@ -410,6 +414,12 @@ func connectDatabases(manifest *Manifest, connections map[string]map[string]stri
 			if !slices.Contains(dependsOn, database) {
 				dependsOn = append(dependsOn, database)
 			}
+		}
+		if len(secretEnv) > maxEnvironmentEntries {
+			problems = append(problems, Problem{Path: base + ".connect", Message: fmt.Sprintf("together with secretEnv must not set more than %d variables", maxEnvironmentEntries)})
+		}
+		if len(dependsOn) > maxDependencies {
+			problems = append(problems, Problem{Path: base + ".connect", Message: fmt.Sprintf("together with dependsOn must not name more than %d services", maxDependencies)})
 		}
 		if kind == "services" {
 			service := manifest.Services[name]

@@ -32,7 +32,7 @@ is ready. Nobody has to create a password.
 
 `connect` works the same in cron jobs. Pkl checks every name against
 `databases` when it evaluates `orch.pkl`, so a typo such as `"mian"` fails
-with `services["web"].connect["DATABASE_URL"]: no database is named "mian"`
+with `services["web"].connect["DATABASE_URL"]: no database is named "mian" in databases`
 before anything is deployed. orch also rejects a variable that `env` or
 `secretEnv` already sets. The URL
 comes from the database's `NAME-url` secret (see [Credentials](#credentials)),

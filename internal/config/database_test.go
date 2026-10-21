@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -201,6 +202,35 @@ databases { ["main"] = new Postgres { version = "17" } }
 	var validation *ValidationError
 	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect.DATABASE_URL") {
 		t.Fatalf("already set: Load() error = %v", err)
+	}
+	_, err = loadManifestError(t, `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+name = "shop"
+services { ["web"] { image = "example/web:1" } }
+cronJobs { ["report"] { image = "example/report:1"; schedule = "0 * * * *"; connect { ["DATABASE_URL"] = "mian" } } }
+databases { ["main"] = new Postgres { version = "17" } }
+`)
+	if err == nil || !strings.Contains(err.Error(), `cronJobs["report"].connect["DATABASE_URL"]: no database is named "mian"`) {
+		t.Fatalf("cron job: Load() error = %v", err)
+	}
+}
+
+func TestConnectLimits(t *testing.T) {
+	secretEnv := map[string]string{}
+	for i := range maxEnvironmentEntries {
+		secretEnv[fmt.Sprintf("SECRET_%d", i)] = "other"
+	}
+	manifest := &Manifest{
+		Services: map[string]Service{"web": {SecretEnv: secretEnv}},
+		CronJobs: map[string]CronJob{"report": {}},
+	}
+	connections := map[string]map[string]string{
+		"services.web":    {"DATABASE_URL": "main"},
+		"cronJobs.report": {"DATABASE_URL": "mian"},
+	}
+	err := connectDatabases(manifest, connections, map[string]DatabaseSpec{"main": {}})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !hasProblem(validation, "services.web.connect") || !hasProblem(validation, "cron_jobs.report.connect.DATABASE_URL") {
+		t.Fatalf("connectDatabases() error = %v", err)
 	}
 }
 
