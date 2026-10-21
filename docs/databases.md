@@ -22,10 +22,8 @@ services {
 }
 
 databases {
-  ["main"] = new Postgres {
-    backup = new DatabaseBackup {}
-  }
-  ["cache"] = new Redis {}
+  ["main"] = new Postgres { version = "17" }
+  ["cache"] = new Redis { version = "7.4" }
 }
 ```
 
@@ -35,18 +33,18 @@ password.
 
 ## Engines
 
-| Class | Image | Default version | Port | Backup |
-| --- | --- | --- | --- | --- |
-| `Postgres` | `postgres` | `17` | 5432 | `pg_dump` |
-| `MySQL` | `mysql` | `8.4` | 3306 | `mysqldump` |
-| `MariaDB` | `mariadb` | `11.4` | 3306 | `mariadb-dump` |
-| `MongoDB` | `mongo` | `8.0` | 27017 | `mongodump` |
-| `Redis` | `redis` | `7.4` | 6379 | Snapshot after `SAVE`, with append-only persistence on |
-| `Valkey` | `valkey/valkey` | `8.1` | 6379 | Snapshot after `SAVE`, with append-only persistence on |
-| `Dragonfly` | `docker.dragonflydb.io/dragonflydb/dragonfly` | `latest` | 6379 | Snapshot after `SAVE` |
-| `Garnet` | `ghcr.io/microsoft/garnet` | `latest` | 6379 | None: data is kept in memory only |
-| `ClickHouse` | `clickhouse/clickhouse-server` | `25.8` | 9000 (native), 8123 (HTTP) | `BACKUP DATABASE` |
-| `LibSQL` | `ghcr.io/tursodatabase/libsql-server` | `latest` | 8080 | SQLite online backup of the data files |
+| Class | Image | Default version | Port |
+| --- | --- | --- | --- |
+| `Postgres` | `postgres` | `17` | 5432 |
+| `MySQL` | `mysql` | `8.4` | 3306 |
+| `MariaDB` | `mariadb` | `11.4` | 3306 |
+| `MongoDB` | `mongo` | `8.0` | 27017 |
+| `Redis` | `redis` | `7.4` | 6379 |
+| `Valkey` | `valkey/valkey` | `8.1` | 6379 |
+| `Dragonfly` | `docker.dragonflydb.io/dragonflydb/dragonfly` | `latest` | 6379 |
+| `Garnet` | `ghcr.io/microsoft/garnet` | `latest` | 6379 |
+| `ClickHouse` | `clickhouse/clickhouse-server` | `25.8` | 9000 (native), 8123 (HTTP) |
+| `LibSQL` | `ghcr.io/tursodatabase/libsql-server` | `latest` | 8080 |
 
 Valkey, Dragonfly and Garnet speak the Redis protocol, so Redis clients work
 with them unchanged. Garnet's image runs as a user that cannot write to a local
