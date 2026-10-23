@@ -14,7 +14,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/objectstore"
 )
 
-func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) int {
+func runClusterRecovery(ctx context.Context, args []string, restore bool, stdout, stderr io.Writer) int {
 	name := "cluster backup inspect"
 	if restore {
 		name = "cluster restore"
@@ -44,16 +44,7 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, name+" accepts flags only")
 		return ExitInvalid
 	}
-	if from != "" {
-		directory, cleanup, err := downloadControllerBackup(context.Background(), from, endpoint, region, options.Backup, stderr)
-		if err != nil {
-			writeError(stderr, err, jsonOutput)
-			return ExitRuntime
-		}
-		defer cleanup()
-		options.Backup = directory
-	}
-	if strings.TrimSpace(options.Backup) == "" || restore && strings.TrimSpace(options.DataDir) == "" {
+	if (from == "" && strings.TrimSpace(options.Backup) == "") || restore && strings.TrimSpace(options.DataDir) == "" {
 		required := "--backup or --from"
 		if restore {
 			required += " and --data-dir"
@@ -61,12 +52,21 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 		writeError(stderr, fmt.Errorf("%s requires %s", name, required), jsonOutput)
 		return ExitInvalid
 	}
+	if from != "" {
+		directory, cleanup, err := downloadControllerBackup(ctx, from, endpoint, region, options.Backup, stderr)
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		defer cleanup()
+		options.Backup = directory
+	}
 	var result clusterctl.RecoveryResult
 	var err error
 	if restore {
-		result, err = clusterctl.Restore(context.Background(), options)
+		result, err = clusterctl.Restore(ctx, options)
 	} else {
-		result, err = clusterctl.InspectBackup(context.Background(), options)
+		result, err = clusterctl.InspectBackup(ctx, options)
 	}
 	if err != nil {
 		writeError(stderr, err, jsonOutput)

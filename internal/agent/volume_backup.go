@@ -418,6 +418,10 @@ func (v *volumeBackups) recordStatus(application, volume string, backupErr error
 func (v *volumeBackups) restore(ctx context.Context, application, volume, name, allocationID string) (VolumeBackup, error) {
 	unlock := v.lock(application, volume)
 	defer unlock()
+	return v.restoreLocked(ctx, application, volume, name, allocationID)
+}
+
+func (v *volumeBackups) restoreLocked(ctx context.Context, application, volume, name, allocationID string) (VolumeBackup, error) {
 	archive, err := v.path(application, volume, name)
 	if err != nil {
 		return VolumeBackup{}, err

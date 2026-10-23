@@ -58,7 +58,7 @@ func (s *service) SetBackupDestination(ctx context.Context, request *connect.Req
 	if err := s.state.SetBackupDestination(ctx, s.secretBox, destination, s.now()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("store backup destination"))
 	}
-	s.offsite.kick()
+	s.offsite.interrupt()
 	return connect.NewResponse(&orchv1alpha1.SetBackupDestinationResponse{Destination: backupDestinationMessage(destination)}), nil
 }
 
@@ -133,7 +133,7 @@ func (s *service) RemoveBackupDestination(ctx context.Context, request *connect.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("remove backup destination"))
 	}
-	s.offsite.kick()
+	s.offsite.interrupt()
 	return connect.NewResponse(&orchv1alpha1.RemoveBackupDestinationResponse{Changed: changed}), nil
 }
 

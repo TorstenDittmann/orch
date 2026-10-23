@@ -603,7 +603,7 @@ func runCluster(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	case "upgrade":
 		return runHostUpgrade(ctx, "cluster", args[1:], stdout, stderr)
 	case "restore":
-		return runClusterRecovery(args[1:], true, stdout, stderr)
+		return runClusterRecovery(ctx, args[1:], true, stdout, stderr)
 	case "certificates":
 		if len(args) > 1 && args[1] == "renew" {
 			return runClusterCertificatesRenew(args[2:], stdout, stderr)
@@ -612,7 +612,7 @@ func runCluster(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return ExitInvalid
 	case "backup":
 		if len(args) > 1 && args[1] == "inspect" {
-			return runClusterRecovery(args[2:], false, stdout, stderr)
+			return runClusterRecovery(ctx, args[2:], false, stdout, stderr)
 		}
 		return runClusterBackup(args[1:], stdout, stderr)
 	case "help", "-h", "--help":

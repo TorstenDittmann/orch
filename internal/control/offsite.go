@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 	"github.com/TorstenDittmann/orch/internal/objectstore"
@@ -53,8 +52,12 @@ type offsiteBackups struct {
 	startedAt time.Time
 
 	mu sync.Mutex
-	// url is the destination of the last sync, for status.
+	// cancelSync stops the running sync, when the destination changes.
+	cancelSync context.CancelFunc
+	// url is the destination of the last sync, for status, and identity
+	// also tells apart endpoints and keys for the same URL.
 	url      string
+	identity string
 	syncedAt time.Time
 	failedAt time.Time
 	failure  string
@@ -87,6 +90,20 @@ func (o *offsiteBackups) status() offsiteStatus {
 	return offsiteStatus{URL: o.url, SyncedAt: o.syncedAt, FailedAt: o.failedAt, Failure: o.failure}
 }
 
+// interrupt stops a running sync, which may still be copying to the old
+// destination, and starts a new one.
+func (o *offsiteBackups) interrupt() {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	if o.cancelSync != nil {
+		o.cancelSync()
+	}
+	o.mu.Unlock()
+	o.kick()
+}
+
 // kick asks for a sync now.
 func (o *offsiteBackups) kick() {
 	if o == nil {
@@ -102,7 +119,12 @@ func (o *offsiteBackups) run(ctx context.Context) {
 	ticker := time.NewTicker(offsiteSyncEvery)
 	defer ticker.Stop()
 	for {
-		o.syncOnce(ctx)
+		syncContext, cancel := context.WithCancel(ctx)
+		o.mu.Lock()
+		o.cancelSync = cancel
+		o.mu.Unlock()
+		o.syncOnce(syncContext)
+		cancel()
 		select {
 		case <-ctx.Done():
 			return
@@ -130,14 +152,15 @@ func withTimeout(ctx context.Context, limit time.Duration, call func(context.Con
 	return call(ctx)
 }
 
+// timed is withTimeout for a call that returns a value.
+func timed[T any](ctx context.Context, limit time.Duration, call func(context.Context) (T, error)) (T, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	return call(ctx)
+}
+
 func listObjects(ctx context.Context, client *objectstore.Client, prefix string, limit time.Duration) ([]objectstore.Object, error) {
-	var objects []objectstore.Object
-	err := withTimeout(ctx, limit, func(ctx context.Context) error {
-		var err error
-		objects, err = client.List(ctx, prefix)
-		return err
-	})
-	return objects, err
+	return timed(ctx, limit, func(ctx context.Context) ([]objectstore.Object, error) { return client.List(ctx, prefix) })
 }
 
 // listArchives returns the names of the archives directly below prefix.
@@ -156,11 +179,12 @@ func listArchives(ctx context.Context, client *objectstore.Client, prefix string
 func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	client, err := o.service.offsiteClient(ctx)
 	if client == nil && err == nil {
-		o.reset("")
+		o.reset("", "")
 		return
 	}
-	if client != nil && o.status().URL != client.Destination().URL() {
-		o.reset(client.Destination().URL())
+	if client != nil {
+		destination := client.Destination()
+		o.reset(destination.URL(), destination.URL()+"\x00"+destination.Endpoint+"\x00"+destination.AccessKeyID)
 	}
 	var failures []string
 	if err != nil {
@@ -188,11 +212,15 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	log.Printf("controller: copy backups to the bucket: %s", strings.Join(failures, "; "))
 }
 
-// reset forgets the status of the previous destination.
-func (o *offsiteBackups) reset(url string) {
+// reset forgets the status of the previous destination when identity
+// names another one.
+func (o *offsiteBackups) reset(url, identity string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.url, o.syncedAt, o.failedAt, o.failure = url, time.Time{}, time.Time{}, ""
+	if identity == o.identity {
+		return
+	}
+	o.url, o.identity, o.syncedAt, o.failedAt, o.failure = url, identity, time.Time{}, time.Time{}, ""
 	clear(o.failing)
 }
 
@@ -260,7 +288,7 @@ func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory,
 	}
 	defer os.Remove(staged.Name())
 	defer staged.Close()
-	if err := clusterctl.ArchiveBackupSet(directory, staged); err != nil {
+	if err := clusterctl.ArchiveBackupSet(directory, contextWriter{ctx, staged}); err != nil {
 		return err
 	}
 	size, err := staged.Seek(0, io.SeekCurrent)
@@ -278,7 +306,12 @@ func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory,
 	var etags []string
 	for offset := int64(0); offset < size; offset += partSize {
 		length := min(partSize, size-offset)
-		etag, err := client.UploadPart(ctx, key, uploadID, len(etags)+1, io.NewSectionReader(staged, offset, length), length)
+		var etag string
+		err := retry(ctx, func() error {
+			var err error
+			etag, err = client.UploadPart(ctx, key, uploadID, len(etags)+1, io.NewSectionReader(staged, offset, length), length)
+			return err
+		})
 		if err != nil {
 			abortMultipart(ctx, client, key, uploadID)
 			return err
@@ -287,6 +320,41 @@ func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory,
 	}
 	return completeMultipart(ctx, client, key, uploadID, etags)
 }
+
+// contextWriter stops a long archive write once ctx ends.
+type contextWriter struct {
+	ctx context.Context
+	io.Writer
+}
+
+func (w contextWriter) Write(data []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return w.Writer.Write(data)
+}
+
+// retry runs call up to three times, waiting a little longer each time, so
+// one dropped connection does not restart a large upload.
+func retry(ctx context.Context, call func() error) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(time.Duration(attempt) * offsiteRetryDelay):
+			}
+		}
+		if err = call(); err == nil || ctx.Err() != nil {
+			return err
+		}
+	}
+	return err
+}
+
+// offsiteRetryDelay grows with each retry; tests shorten it.
+var offsiteRetryDelay = 2 * time.Second
 
 // offsitePartSize splits size into at most offsiteMaxParts parts of at
 // least offsiteMinPartSize, rounded up to whole MiB.
@@ -299,13 +367,7 @@ func offsitePartSize(size uint64) uint64 {
 }
 
 func createMultipart(ctx context.Context, client *objectstore.Client, key string) (string, error) {
-	var uploadID string
-	err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
-		var err error
-		uploadID, err = client.CreateMultipartUpload(ctx, key)
-		return err
-	})
-	return uploadID, err
+	return timed(ctx, offsiteRequestTimeout, func(ctx context.Context) (string, error) { return client.CreateMultipartUpload(ctx, key) })
 }
 
 func completeMultipart(ctx context.Context, client *objectstore.Client, key, uploadID string, etags []string) error {
@@ -400,11 +462,12 @@ func (o *offsiteBackups) recordVolume(ctx context.Context, target volumeTarget, 
 	}
 }
 
+// boundedFailure cuts message to 512 bytes without splitting a character.
 func boundedFailure(message string) string {
 	if len(message) > 512 {
-		return message[:512]
+		message = message[:512]
 	}
-	return message
+	return strings.ToValidUTF8(message, "")
 }
 
 // syncVolume uploads a volume's backups the bucket does not have and, for
@@ -541,13 +604,10 @@ func remoteBackups(ctx context.Context, client *objectstore.Client, application 
 			continue
 		}
 		name, ok := strings.CutSuffix(parts[2], objectstore.ArchiveSuffix)
-		if !ok || len(name) < len(objectstore.BackupNameLayout) {
+		if !ok || !objectstore.ValidBackupName(name) {
 			continue
 		}
-		createdAt, err := time.Parse(objectstore.BackupNameLayout, name[:len(objectstore.BackupNameLayout)])
-		if err != nil {
-			continue
-		}
+		createdAt, _ := time.Parse(objectstore.BackupNameLayout, name[:len(objectstore.BackupNameLayout)])
 		key := parts[0] + "/" + parts[1]
 		result[key] = append(result[key], &orchv1alpha1.VolumeBackupInfo{Name: name, CreatedAt: timestamppb.New(createdAt),
 			SizeBytes: uint64(max(object.Size, 0)), InBucket: true})
@@ -591,46 +651,41 @@ func mergeVolumeBackups(local, remote []*orchv1alpha1.VolumeBackupInfo) []*orchv
 	return merged
 }
 
-// fetchMissingBackup downloads a backup from the bucket onto the volume's
-// node when the node does not have it, for example on a new node after the
-// old one was lost. Without a destination, or when the bucket does not have
-// it either, the restore reports the missing backup as before. The download
-// gets its own time limit, separate from the restore's.
-func (s *service) fetchMissingBackup(ctx context.Context, target volumeTarget, name string) error {
+// bucketSource returns a presigned URL for a volume backup the bucket has,
+// or "" when there is no destination, the node's agent cannot download, or
+// the bucket does not have it.
+func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) string {
 	client, err := s.offsiteClient(ctx)
 	if err != nil {
-		// A backup on the node can still be restored; a missing one is
-		// reported as not found.
 		log.Printf("controller: read backup destination: %v", err)
-		return nil
+		return ""
 	}
 	if client == nil || !s.sessions.offsiteBackups(target.node.ID) {
-		return nil
-	}
-	local, err := s.localVolumeBackups(ctx, target)
-	if err != nil {
-		return err
-	}
-	for _, backup := range local {
-		if backup.GetName() == name {
-			return nil
-		}
+		return ""
 	}
 	prefix := offsiteVolumePrefix(client.Destination(), target)
 	remote, err := listArchives(ctx, client, prefix)
-	if err != nil {
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("list backups in the bucket: %w", err))
-	}
-	if !remote[name] {
-		return nil
+	if err != nil || !remote[name] {
+		return ""
 	}
 	url, err := client.PresignGet(prefix+name+objectstore.ArchiveSuffix, offsitePresignExpiry)
 	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
+		return ""
 	}
-	return withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
+	return url
+}
+
+// fetchFromBucket downloads a backup only the bucket has to the volume's
+// node and reports whether it did.
+func (s *service) fetchFromBucket(ctx context.Context, target volumeTarget, name string) (bool, error) {
+	source := s.bucketSource(ctx, target, name)
+	if source == "" {
+		return false, nil
+	}
+	err := withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
 		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
-			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH, Backup: name, Urls: []string{url},
+			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH, Backup: name, Urls: []string{source},
 		}, func(*orchv1alpha1.VolumeResponse) error { return nil })
 	})
+	return err == nil, err
 }

@@ -512,7 +512,8 @@ enum VolumeAction {
 // volume on the node that holds it. READ returns at most one window of an
 // archive from offset, so the controller paces downloads. UPLOAD copies a
 // backup to presigned URLs: one URL takes the whole archive, several take
-// consecutive parts of part_size bytes. FETCH downloads urls[0] as backup.
+// consecutive parts of part_size bytes. FETCH downloads urls[0] as backup;
+// RESTORE with urls[0] downloads a backup the node does not have first.
 message VolumeCommand {
   string request_id = 1;
   VolumeAction action = 2;

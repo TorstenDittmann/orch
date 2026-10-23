@@ -193,3 +193,14 @@ func TestUploadPart(t *testing.T) {
 		t.Fatalf("object = %q", value)
 	}
 }
+
+func TestValidBackupName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"20261017T030000Z": true, "20261017T030000Z-manual": true, "20261017T030000Z-before-restore": true,
+		"foo": false, "20261017T030000Z-": false, "20261017T030000Zx": false, "20261017T030000Z-Manual": false, "2026-10-17": false,
+	} {
+		if got := ValidBackupName(name); got != want {
+			t.Errorf("ValidBackupName(%q) = %t", name, got)
+		}
+	}
+}
