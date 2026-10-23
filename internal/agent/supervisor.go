@@ -1653,7 +1653,12 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		if s.tcpIngress != nil {
 			s.tcpIngress.Apply(ctx, nil)
 		}
-		_ = s.allowIngressPorts(ctx, nil)
+		if err := s.allowIngressPorts(ctx, nil); err != nil {
+			networkStatus.State = model.NetworkFailed
+			networkStatus.Reason = "workload_firewall_failed"
+			networkStatus.Message = boundedMessage(err.Error())
+			return false, nil
+		}
 		if !dnsReady {
 			networkStatus.State = model.NetworkPending
 			networkStatus.Reason = "dns_pending"

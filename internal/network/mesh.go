@@ -130,3 +130,11 @@ func (m *Mesh) PublishNodePorts(ctx context.Context, ports []NodePort) ([]error,
 	}
 	return publisher.PublishNodePorts(ctx, ports)
 }
+
+func (m *Mesh) AllowIngressPorts(ctx context.Context, ports []uint16) error {
+	allower, ok := m.local.(IngressPortAllower)
+	if !ok {
+		return ErrUnsupported
+	}
+	return allower.AllowIngressPorts(ctx, ports)
+}
