@@ -19,6 +19,7 @@ import (
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
 	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/images"
 	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/TorstenDittmann/orch/internal/security"
 	"github.com/TorstenDittmann/orch/internal/store"
@@ -53,9 +54,11 @@ type service struct {
 	sessions      *sessionManager
 	reconciler    *Reconciler
 	imageResolver ImageResolver
-	backups       *backupScheduler
-	upgrades      *agentUpgrades
-	autoscaler    *autoscaler
+	// uploads holds the images orch deploy uploaded from a local engine.
+	uploads    *images.Store
+	backups    *backupScheduler
+	upgrades   *agentUpgrades
+	autoscaler *autoscaler
 	// administrators remembers administrator certificates for expiry
 	// alerts.
 	administrators *administratorCertificates

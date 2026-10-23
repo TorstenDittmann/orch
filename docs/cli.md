@@ -422,6 +422,26 @@ and cron job whose image has the same repository, which is what CI usually
 wants after building one image. Each override must match something. History
 records the deployed image like any other.
 
+Images you built yourself need no registry. When an image is in the local
+Docker (or Podman) engine and its registry does not have it, `orch deploy`
+uploads it to the controller and pins it by digest, and nodes pull it from the
+controller:
+
+```console
+docker build -t myapp .
+orch deploy
+# Uploading local image myapp (84 MB)
+```
+
+An unchanged image is not uploaded again. An image the registry has, such as
+`redis:7`, is pulled from the registry as usual, even if Docker has a copy. If
+the image was built for another architecture than your nodes, for example on
+an arm64 laptop for amd64 servers, the deploy stops before uploading and tells
+you to rebuild with `--platform`. The controller keeps the uploaded images
+of each application's last 10 deployments, so rollbacks to them keep working.
+Uploaded images are not part of controller backups; after restoring a
+controller, run `orch deploy` again to upload them.
+
 Inside GitHub Actions, the deployment also records the repository, commit,
 branch, actor and run link, shown by `orch app history`. See
 [deploy from GitHub](github.md).

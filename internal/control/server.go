@@ -20,6 +20,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/TorstenDittmann/orch/gen/orch/v1alpha1/orchv1alpha1connect"
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/images"
 	"github.com/TorstenDittmann/orch/internal/security"
 	"github.com/TorstenDittmann/orch/internal/store"
 )
@@ -61,6 +62,7 @@ type Server struct {
 	backupDone      chan struct{}
 	upgradesDone    chan struct{}
 	imagesDone      chan struct{}
+	uploadsDone     chan struct{}
 	autoscaleDone   chan struct{}
 	notifyDone      chan struct{}
 	alertsDone      chan struct{}
@@ -130,6 +132,11 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	sessions := newSessionManager(now)
 	implementation := newService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, secretBox, sessions, now)
 	implementation.imageResolver = options.ImageResolver
+	uploads, err := images.OpenStore(filepath.Join(dataDir, "images"), now)
+	if err != nil {
+		return fail(err, state, listener)
+	}
+	implementation.uploads = uploads
 	keep := options.BackupKeep
 	if keep == 0 {
 		keep = DefaultBackupKeep
@@ -158,6 +165,9 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	mux.Handle(path, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	// An image upload streams many messages, so only each message is bounded.
+	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, idleUploads(handler))))
+	adminMux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateLocalAdministrator(idleUploads(handler)))
 	adminMux.HandleFunc("/healthz", healthHandler)
 	// /metrics needs the same credentials as the administrator API: an
 	// administrator certificate on the HTTPS port, or access to the socket.
@@ -186,6 +196,8 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithSendMaxBytes(maxAgentMessageBytes),
 	)
 	mux.Handle(agentPath, authenticateAgent(cluster.ID, state, agentHandler))
+	// Agents pull uploaded images from the controller like from a registry.
+	mux.Handle("/v2/", authenticateAgent(cluster.ID, state, requireAgentHTTP(uploads.RegistryHandler())))
 	mux.HandleFunc("/healthz", healthHandler)
 	if err := reconciler.Reconcile(ctx); err != nil {
 		return fail(fmt.Errorf("reconcile initial assignment: %w", err), state, listener)
@@ -224,7 +236,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		listener: listener, http: httpServer, state: state, sessions: sessions, lock: lock,
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
-		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
+		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), uploadsDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
 		notifyDone: make(chan struct{}), alertsDone: make(chan struct{}),
 	}
 	go func() {
@@ -242,6 +254,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	go func() {
 		defer close(server.imagesDone)
 		implementation.runImageUpdates(reconcileContext)
+	}()
+	go func() {
+		defer close(server.uploadsDone)
+		implementation.runUploadCollection(reconcileContext)
 	}()
 	go func() {
 		defer close(server.autoscaleDone)
@@ -333,6 +349,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.backupDone
 		<-server.upgradesDone
 		<-server.imagesDone
+		<-server.uploadsDone
 		<-server.autoscaleDone
 		<-server.notifyDone
 		<-server.alertsDone

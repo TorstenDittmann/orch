@@ -132,6 +132,12 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		allocationCPU: newAllocationSampler(options.Runtime),
 		selfUpgrade:   selfUpgradeAvailable(), upgradeStagingDir: options.UpgradeStagingDir,
 	}
+	runner.registry = newControllerRegistry(credentials)
+	if configurable, ok := options.Runtime.(interface {
+		SetControllerRegistry(orchruntime.ControllerRegistry)
+	}); ok {
+		configurable.SetControllerRegistry(runner.registry.access)
+	}
 	if runner.upgradeStagingDir == "" {
 		runner.upgradeStagingDir = upgradeStagingDir
 	}

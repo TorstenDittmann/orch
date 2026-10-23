@@ -57,11 +57,16 @@ func newSocketClient(endpoint Endpoint) (*Client, error) {
 		connect.WithSendMaxBytes(maxMessageBytes),
 		connect.WithReadMaxBytes(maxMessageBytes),
 	)
+	uploads := orchv1alpha1connect.NewControlServiceClient(
+		httpClient, socketAuthority, connect.WithSendGzip(),
+		connect.WithSendMaxBytes(maxMessageBytes),
+		connect.WithReadMaxBytes(maxMessageBytes),
+	)
 	var local clusterctl.LocalContext
 	local.Cluster.ID = endpoint.Cluster.ID
 	local.Cluster.Name = endpoint.Cluster.Name
 	return &Client{
-		context: local, service: service, http: httpClient,
+		context: local, service: service, uploads: uploads, http: httpClient,
 		target: endpoint.Target, mode: target.TransportSocket, tunnel: tunnel,
 		controllerNotAfter: &certificateExpiry{},
 	}, nil

@@ -212,3 +212,26 @@ func observeDeploymentTx(ctx context.Context, tx *sql.Tx, name string, execution
 	}
 	return nil
 }
+
+// RecentManifests returns the canonical manifests of the last perApplication
+// revisions of every application that is not removed, plus each one's active
+// revision, so their images can be kept for rollbacks.
+func (s *Store) RecentManifests(ctx context.Context, perApplication int) ([]json.RawMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT r.canonical_manifest FROM application_revisions r
+ JOIN applications a ON a.name = r.application_name
+ LEFT JOIN application_execution x ON x.application_name = a.name
+ WHERE a.deleted_at IS NULL AND (r.generation > a.generation - ? OR r.id = COALESCE(x.active_revision_id, ''))`, perApplication)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []json.RawMessage
+	for rows.Next() {
+		var manifest string
+		if err := rows.Scan(&manifest); err != nil {
+			return nil, err
+		}
+		result = append(result, json.RawMessage(manifest))
+	}
+	return result, rows.Err()
+}

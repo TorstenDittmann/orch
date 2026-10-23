@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/TorstenDittmann/orch/internal/model"
@@ -58,6 +59,11 @@ type Options struct {
 	ResolverPath string
 	Network      network.Manager
 }
+
+// ControllerRegistry returns the controller's host:port and an HTTP client
+// that authenticates as this agent, for pulling the images orch deploy
+// uploaded to the controller. An empty host means it is unavailable.
+type ControllerRegistry func() (host string, client *http.Client)
 
 // DefaultStopGrace is how long a task may take to exit after SIGTERM when its
 // allocation does not set a stop grace period. MaxStopGraceSeconds bounds it.
