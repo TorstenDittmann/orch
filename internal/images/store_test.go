@@ -27,18 +27,18 @@ func TestStoreImportsServesAndCollectsUploads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digest, err := store.Lookup(ctx, localID); err != nil || digest != "" {
+	if digest, err := store.Lookup(ctx, "", localID); err != nil || digest != "" {
 		t.Fatalf("Lookup() before upload = %q, %v", digest, err)
 	}
 	archive, layer := imagetest.DockerArchive(t, "myapp:latest", "arm64", "hello")
-	digest, platforms, err := store.Import(ctx, "myapp", localID, bytes.NewReader(archive))
+	digest, platforms, err := store.Import(ctx, "", "myapp", localID, bytes.NewReader(archive))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(digest, "sha256:") || len(platforms) != 1 || platforms[0] != "linux/arm64" {
 		t.Fatalf("Import() = %q %v", digest, platforms)
 	}
-	if found, err := store.Lookup(ctx, localID); err != nil || found != digest {
+	if found, err := store.Lookup(ctx, "", localID); err != nil || found != digest {
 		t.Fatalf("Lookup() = %q, %v; want %q", found, err, digest)
 	}
 
@@ -104,7 +104,7 @@ func TestStoreImportsServesAndCollectsUploads(t *testing.T) {
 	if response, _ := get("/v2/x/blobs/" + manifest.Layers[0].Digest.String()); response.StatusCode != http.StatusNotFound {
 		t.Fatal("Collect() kept the layer of a removed upload")
 	}
-	if found, err := store.Lookup(ctx, localID); err != nil || found != "" {
+	if found, err := store.Lookup(ctx, "", localID); err != nil || found != "" {
 		t.Fatalf("Lookup() after collection = %q, %v", found, err)
 	}
 }
@@ -116,14 +116,95 @@ func TestStoreRejectsUnusableArchives(t *testing.T) {
 		t.Fatal(err)
 	}
 	archive, _ := imagetest.DockerArchive(t, "myapp:latest", "s390x", "hello")
-	if _, _, err := store.Import(ctx, "myapp:latest", localID, bytes.NewReader(archive)); !errors.Is(err, images.ErrPlatform) {
+	if _, _, err := store.Import(ctx, "", "myapp:latest", localID, bytes.NewReader(archive)); !errors.Is(err, images.ErrPlatform) {
 		t.Fatalf("Import(s390x) error = %v, want ErrPlatform", err)
 	}
 	archive, _ = imagetest.DockerArchive(t, "myapp:latest", "amd64", "hello")
-	if _, _, err := store.Import(ctx, "myapp:latest", localID, strings.NewReader("not a tar")); !errors.Is(err, images.ErrArchive) {
+	if _, _, err := store.Import(ctx, "", "myapp:latest", localID, strings.NewReader("not a tar")); !errors.Is(err, images.ErrArchive) {
 		t.Fatalf("Import(garbage) error = %v, want ErrArchive", err)
 	}
-	if _, _, err := store.Import(ctx, "myapp:latest", "not-an-id", bytes.NewReader(archive)); !errors.Is(err, images.ErrArchive) {
+	if _, _, err := store.Import(ctx, "", "myapp:latest", "not-an-id", bytes.NewReader(archive)); !errors.Is(err, images.ErrArchive) {
 		t.Fatalf("Import(bad id) error = %v, want ErrArchive", err)
+	}
+}
+
+func TestStoreKeepsUploadsApartPerOwner(t *testing.T) {
+	ctx := context.Background()
+	store, err := images.OpenStore(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "hello")
+	digest, _, err := store.Import(ctx, "app-a", "myapp:latest", localID, bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, _ := store.Lookup(ctx, "app-b", localID); found != "" {
+		t.Fatal("another owner found an upload it did not make")
+	}
+	if found, _ := store.Lookup(ctx, "", localID); found != "" {
+		t.Fatal("administrators share uploads with no deployer")
+	}
+	// Another owner's upload of the same ID does not replace the first.
+	other, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "evil")
+	if _, _, err := store.Import(ctx, "app-b", "myapp:latest", localID, bytes.NewReader(other)); err != nil {
+		t.Fatal(err)
+	}
+	if found, _ := store.Lookup(ctx, "app-a", localID); found != digest {
+		t.Fatalf("Lookup(app-a) = %q, want its own upload %q", found, digest)
+	}
+}
+
+func TestStoreRefusesUploadsThatWouldFillTheDisk(t *testing.T) {
+	store, err := images.OpenStore(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images.SetFreeBytes(store, func(string) (uint64, error) { return images.MinFreeBytes - 1, nil })
+	archive, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "hello")
+	if _, _, err := store.Import(context.Background(), "", "myapp:latest", localID, bytes.NewReader(archive)); !errors.Is(err, images.ErrNoSpace) {
+		t.Fatalf("Import() error = %v, want ErrNoSpace", err)
+	}
+}
+
+func TestCollectKeepsDeployedImagesAfterAReupload(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	store, err := images.OpenStore(t.TempDir(), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "one")
+	deployed, _, err := store.Import(ctx, "", "myapp:latest", localID, bytes.NewReader(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "two")
+	if _, _, err := store.Import(ctx, "", "myapp:latest", localID, bytes.NewReader(second)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+	if err := store.Collect(ctx, map[string]bool{deployed: true}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(store.RegistryHandler())
+	defer server.Close()
+	response, err := http.Get(server.URL + "/v2/x/manifests/" + deployed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest ocispec.Manifest
+	_ = json.NewDecoder(response.Body).Decode(&manifest)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || len(manifest.Layers) != 1 {
+		t.Fatalf("deployed manifest status = %d", response.StatusCode)
+	}
+	blob, err := http.Get(server.URL + "/v2/x/blobs/" + manifest.Layers[0].Digest.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = blob.Body.Close()
+	if blob.StatusCode != http.StatusOK {
+		t.Fatal("collection removed a layer of a deployed image")
 	}
 }

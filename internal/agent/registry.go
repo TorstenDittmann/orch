@@ -4,14 +4,18 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
 // controllerRegistry gives the runtime an HTTP client for the controller's
-// image endpoint that always presents the agent's current certificate.
+// image endpoint that always presents the agent's current certificate. The
+// client is rebuilt only when the certificate changes.
 type controllerRegistry struct {
-	credentials atomic.Pointer[Credentials]
+	mutex     sync.Mutex
+	host      string
+	client    *http.Client
+	transport *http.Transport
 }
 
 func newControllerRegistry(credentials Credentials) *controllerRegistry {
@@ -21,25 +25,30 @@ func newControllerRegistry(credentials Credentials) *controllerRegistry {
 }
 
 func (r *controllerRegistry) set(credentials Credentials) {
-	if r != nil {
-		r.credentials.Store(&credentials)
+	if r == nil {
+		return
 	}
-}
-
-func (r *controllerRegistry) access() (string, *http.Client) {
-	credentials := r.credentials.Load()
-	if credentials == nil {
-		return "", nil
-	}
-	server, err := url.Parse(credentials.Config.Server)
-	if err != nil || server.Host == "" {
-		return "", nil
+	host := ""
+	if server, err := url.Parse(credentials.Config.Server); err == nil {
+		host = server.Host
 	}
 	transport := &http.Transport{
 		Proxy:             http.ProxyFromEnvironment,
 		DialContext:       (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2: true, TLSClientConfig: agentTLSConfig(*credentials), TLSHandshakeTimeout: 5 * time.Second,
-		IdleConnTimeout: 30 * time.Second,
+		ForceAttemptHTTP2: true, TLSClientConfig: agentTLSConfig(credentials), TLSHandshakeTimeout: 5 * time.Second,
+		IdleConnTimeout: 60 * time.Second,
 	}
-	return server.Host, &http.Client{Transport: transport}
+	r.mutex.Lock()
+	previous := r.transport
+	r.host, r.client, r.transport = host, &http.Client{Transport: transport}, transport
+	r.mutex.Unlock()
+	if previous != nil {
+		previous.CloseIdleConnections()
+	}
+}
+
+func (r *controllerRegistry) access() (string, *http.Client) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.host, r.client
 }

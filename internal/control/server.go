@@ -166,8 +166,8 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	// An image upload streams many messages, so only each message is bounded.
-	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, handler))
-	adminMux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateLocalAdministrator(handler))
+	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, idleUploads(handler))))
+	adminMux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateLocalAdministrator(idleUploads(handler)))
 	adminMux.HandleFunc("/healthz", healthHandler)
 	// /metrics needs the same credentials as the administrator API: an
 	// administrator certificate on the HTTPS port, or access to the socket.

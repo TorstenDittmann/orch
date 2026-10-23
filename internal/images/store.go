@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,10 @@ import (
 // MaxUploadBytes bounds one image archive that orch deploy uploads.
 const MaxUploadBytes int64 = 32 << 30
 
+// MinFreeBytes is the free space an upload must leave on the controller's
+// disk, so uploads cannot starve the controller database next to them.
+const MinFreeBytes uint64 = 2 << 30
+
 // uploadGrace keeps unreferenced uploads and partial blobs for a while, so a
 // deploy that just uploaded or found an image can still use it.
 const uploadGrace = time.Hour
@@ -37,6 +42,9 @@ var localIDPattern = regexp.MustCompile(`^(sha256:)?[a-f0-9]{64}$`)
 
 // ErrArchive reports an upload that is not an image archive orch can use.
 var ErrArchive = errors.New("upload is not a docker image save archive with the named image")
+
+// ErrNoSpace reports an upload that would leave too little free disk space.
+var ErrNoSpace = errors.New("the controller's disk is too full to store the image")
 
 // Store keeps the images orch deploy uploads from a local container engine,
 // so the controller can serve them to agents without a registry. Blobs live in
@@ -50,9 +58,15 @@ type Store struct {
 	imports sync.Mutex
 	// index guards uploads.json.
 	index sync.Mutex
+	// freeBytes reports the free space below root.
+	freeBytes func(string) (uint64, error)
 }
 
+// upload records one stored local image. Owner is the application a
+// deployer credential is limited to, or empty for administrators, so a
+// deployer for one application cannot hand its image to another.
 type upload struct {
+	Owner   string    `json:"owner,omitempty"`
 	LocalID string    `json:"local_id"`
 	Digest  string    `json:"digest"`
 	UsedAt  time.Time `json:"used_at"`
@@ -74,16 +88,16 @@ func OpenStore(root string, now func() time.Time) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open image store: %w", err)
 	}
-	return &Store{root: root, content: store, now: now}, nil
+	return &Store{root: root, content: store, now: now, freeBytes: freeBytes}, nil
 }
 
 // ValidLocalID reports whether id looks like an image ID a container engine
 // reports.
 func ValidLocalID(id string) bool { return localIDPattern.MatchString(id) }
 
-// Lookup returns the digest a local image was stored as, or "" when the store
-// does not hold it. A hit counts as a use, so collection keeps the image.
-func (s *Store) Lookup(ctx context.Context, localID string) (string, error) {
+// Lookup returns the digest owner's upload of a local image was stored as, or
+// "" when there is none. A hit counts as a use, so collection keeps the image.
+func (s *Store) Lookup(ctx context.Context, owner, localID string) (string, error) {
 	s.index.Lock()
 	defer s.index.Unlock()
 	uploads, err := s.readIndex()
@@ -91,7 +105,7 @@ func (s *Store) Lookup(ctx context.Context, localID string) (string, error) {
 		return "", err
 	}
 	for i, item := range uploads {
-		if item.LocalID != localID {
+		if item.Owner != owner || item.LocalID != localID {
 			continue
 		}
 		if !s.Has(ctx, item.Digest) {
@@ -113,9 +127,9 @@ func (s *Store) Has(ctx context.Context, value string) bool {
 	return err == nil
 }
 
-// Import stores the image named image from a docker image save archive and
-// returns the digest to pin it to and the platforms it runs on.
-func (s *Store) Import(ctx context.Context, image, localID string, archiveReader io.Reader) (string, []string, error) {
+// Import stores the image named image from a docker image save archive for
+// owner and returns the digest to pin it to and the platforms it runs on.
+func (s *Store) Import(ctx context.Context, owner, image, localID string, archiveReader io.Reader) (string, []string, error) {
 	named, err := reference.ParseNormalizedNamed(image)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: invalid image reference", ErrArchive)
@@ -125,10 +139,17 @@ func (s *Store) Import(ctx context.Context, image, localID string, archiveReader
 	}
 	s.imports.Lock()
 	defer s.imports.Unlock()
-	index, err := archive.ImportIndex(ctx, s.content, io.LimitReader(archiveReader, MaxUploadBytes), archive.WithImportCompression())
+	guarded := &spaceReader{reader: io.LimitReader(archiveReader, MaxUploadBytes), check: s.checkSpace}
+	if err := s.checkSpace(); err != nil {
+		return "", nil, err
+	}
+	index, err := archive.ImportIndex(ctx, s.content, guarded, archive.WithImportCompression())
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", nil, ctx.Err()
+		}
+		if guarded.err != nil {
+			return "", nil, guarded.err
 		}
 		return "", nil, fmt.Errorf("%w: %v", ErrArchive, err)
 	}
@@ -151,15 +172,50 @@ func (s *Store) Import(ctx context.Context, image, localID string, archiveReader
 	}
 	kept := uploads[:0]
 	for _, item := range uploads {
-		if item.LocalID != localID {
+		if item.Owner != owner || item.LocalID != localID {
 			kept = append(kept, item)
 		}
 	}
-	kept = append(kept, upload{LocalID: localID, Digest: target.Digest.String(), UsedAt: s.now()})
+	kept = append(kept, upload{Owner: owner, LocalID: localID, Digest: target.Digest.String(), UsedAt: s.now()})
 	if err := s.writeIndex(kept); err != nil {
 		return "", nil, err
 	}
 	return target.Digest.String(), platforms, nil
+}
+
+func (s *Store) checkSpace() error {
+	free, err := s.freeBytes(s.root)
+	if err != nil {
+		return fmt.Errorf("check free space for the image store: %w", err)
+	}
+	if free < MinFreeBytes {
+		return ErrNoSpace
+	}
+	return nil
+}
+
+// spaceReader stops an upload that would fill the disk. Stored data can be
+// twice the archive size while uncompressed layers wait for collection.
+type spaceReader struct {
+	reader io.Reader
+	check  func() error
+	read   int64
+	err    error
+}
+
+func (r *spaceReader) Read(buffer []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	n, err := r.reader.Read(buffer)
+	before := r.read
+	r.read += int64(n)
+	if before/(256<<20) != r.read/(256<<20) {
+		if r.err = r.check(); r.err != nil {
+			return n, r.err
+		}
+	}
+	return n, err
 }
 
 // selectImage finds the named image in an imported archive index. When the
@@ -287,7 +343,10 @@ func (s *Store) readSmall(ctx context.Context, value digest.Digest) ([]byte, err
 // not used within the grace period, then deletes every blob no remaining
 // upload needs.
 func (s *Store) Collect(ctx context.Context, keep map[string]bool) error {
-	s.imports.Lock()
+	// An upload in progress holds the lock; collect on a later round.
+	if !s.imports.TryLock() {
+		return nil
+	}
 	defer s.imports.Unlock()
 	cutoff := s.now().Add(-uploadGrace)
 	s.index.Lock()
@@ -336,6 +395,15 @@ func (s *Store) Collect(ctx context.Context, keep map[string]bool) error {
 			mark(child.Digest, depth+1)
 		}
 	}
+	// Deployed digests keep their blobs even when no upload record names
+	// them any more, for example after the same local image was re-uploaded.
+	for value := range keep {
+		if parsed, err := digest.Parse(value); err == nil {
+			if _, err := s.content.Info(ctx, parsed); err == nil {
+				mark(parsed, 0)
+			}
+		}
+	}
 	for _, item := range kept {
 		if parsed, err := digest.Parse(item.Digest); err == nil {
 			mark(parsed, 0)
@@ -378,7 +446,9 @@ func (s *Store) readIndex() ([]upload, error) {
 	}
 	var uploads []upload
 	if err := json.Unmarshal(data, &uploads); err != nil {
-		return nil, fmt.Errorf("decode image store index: %w", err)
+		// The index only saves re-uploads; losing it must not block deploys.
+		log.Printf("controller: image store index is damaged and was reset: %v", err)
+		return nil, nil
 	}
 	return uploads, nil
 }
@@ -389,7 +459,18 @@ func (s *Store) writeIndex(uploads []upload) error {
 		return err
 	}
 	temporary := filepath.Join(s.root, indexFile+".tmp")
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write image store index: %w", err)
+	}
+	_, err = file.Write(data)
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return fmt.Errorf("write image store index: %w", err)
 	}
 	if err := os.Rename(temporary, filepath.Join(s.root, indexFile)); err != nil {

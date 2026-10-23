@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
@@ -38,9 +38,6 @@ type localImage struct {
 	OS           string
 	Architecture string
 	Size         int64
-	// RepoDigests is empty for an image that was built here and never pushed
-	// or pulled.
-	RepoDigests []string
 }
 
 // uploadLocalImages pins every image that only exists in the local container
@@ -78,13 +75,9 @@ func uploadLocalImages(ctx context.Context, remote imageUploader, engine localEn
 		if !ok {
 			continue
 		}
-		// An image that was never pushed or pulled cannot be in a registry,
-		// so the controller only checks the registry for the others.
-		registryImage := ""
-		if len(local.RepoDigests) != 0 {
-			registryImage = image
-		}
-		found, err := remote.LookupImage(ctx, registryImage, local.ID)
+		// The registry wins whenever it has the image, so a stale local copy
+		// never replaces what was pushed.
+		found, err := remote.LookupImage(ctx, image, local.ID)
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			return nil
 		}
@@ -137,6 +130,11 @@ func uploadLocalImages(ctx context.Context, remote imageUploader, engine localEn
 
 func nodeArchitectures(ctx context.Context, remote imageUploader) ([]string, error) {
 	nodes, err := remote.ListNodes(ctx)
+	// Deployer credentials cannot list nodes. They skip this early check, and
+	// a node still reports an image for the wrong platform when it pulls it.
+	if connect.CodeOf(err) == connect.CodePermissionDenied {
+		return []string{}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
@@ -200,19 +198,22 @@ func detectLocalEngine() localEngine {
 }
 
 func (e commandEngine) inspect(ctx context.Context, image string) (localImage, bool) {
+	// An engine that does not answer, such as an unreachable DOCKER_HOST,
+	// must not stall the deploy.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	command := exec.CommandContext(ctx, e.binary, "image", "inspect", "--format",
-		`{{.Id}}|{{.Os}}|{{.Architecture}}|{{.Size}}|{{json .RepoDigests}}`, image)
+		`{{.Id}}|{{.Os}}|{{.Architecture}}|{{.Size}}`, image)
 	output, err := command.Output()
 	if err != nil {
 		return localImage{}, false
 	}
-	fields := strings.SplitN(strings.TrimSpace(string(output)), "|", 5)
-	if len(fields) != 5 {
+	fields := strings.SplitN(strings.TrimSpace(string(output)), "|", 4)
+	if len(fields) != 4 {
 		return localImage{}, false
 	}
 	size, _ := strconv.ParseInt(fields[3], 10, 64)
 	local := localImage{ID: fields[0], OS: fields[1], Architecture: fields[2], Size: size}
-	_ = json.Unmarshal([]byte(fields[4]), &local.RepoDigests)
 	return local, local.ID != ""
 }
 

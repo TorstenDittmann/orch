@@ -207,7 +207,7 @@ the request.
 | `registry authentication failed; update credentials with orch registry login` | The image is private, or the stored credentials are wrong. Run `orch registry login HOST --username USER --password-stdin`. |
 | `registry could not resolve the image; check registry connectivity and TLS` | The controller resolves tags to digests, so the controller host needs outbound HTTPS to the registry. Check its DNS, proxy, and firewall. |
 | `local image NAME is built for linux/arm64, but the cluster's nodes run linux/amd64` | `orch deploy` found the image in your local engine, but it would not run on your nodes. Rebuild it with `docker build --platform linux/amd64` and deploy again. |
-| `upload local image NAME: ...` | The upload to the controller failed. Check that the controller host has free disk space in its data directory; uploaded images are kept in `images/` there. |
+| `upload local image NAME: ... the controller's disk is too full to store the image` | Uploads always leave 2 GiB free on the controller host. Free space in its data directory; uploaded images are kept in `images/` there, and ones no recent deployment uses are removed within two hours. |
 | `image has no supported Linux amd64 or arm64 platform` | Build or pull an image for the architecture of your nodes, `linux/amd64` or `linux/arm64`. |
 | `deploy request failed; retry with --idempotency-key KEY` | The request may or may not have reached the controller. Retry with the printed key; a retry with the same key cannot apply the change twice. |
 

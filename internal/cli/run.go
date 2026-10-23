@@ -464,6 +464,17 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
+	if idempotencyKey == "" {
+		idempotencyKey, err = newIdempotencyKey(rand.Reader)
+		if err != nil {
+			writeError(stderr, errors.New("generate idempotency key"), jsonOutput)
+			return ExitRuntime
+		}
+	}
+	if !cliIdempotencyKeyPattern.MatchString(idempotencyKey) {
+		writeError(stderr, errors.New("idempotency key must be 16-128 URL-safe characters"), jsonOutput)
+		return ExitInvalid
+	}
 	remote, err := controlclient.New(contextPath)
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
@@ -478,17 +489,6 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
-	}
-	if idempotencyKey == "" {
-		idempotencyKey, err = newIdempotencyKey(rand.Reader)
-		if err != nil {
-			writeError(stderr, errors.New("generate idempotency key"), jsonOutput)
-			return ExitRuntime
-		}
-	}
-	if !cliIdempotencyKeyPattern.MatchString(idempotencyKey) {
-		writeError(stderr, errors.New("idempotency key must be 16-128 URL-safe characters"), jsonOutput)
-		return ExitInvalid
 	}
 	response, err := remote.ApplyApplicationFrom(ctx, canonical, idempotencyKey, ciDeploymentSource(os.Getenv))
 	if err != nil {

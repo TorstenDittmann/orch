@@ -20,6 +20,7 @@ type fakeUploader struct {
 	lookups   []string
 	nodes     []string
 	lookupErr error
+	nodesErr  error
 }
 
 func (f *fakeUploader) LookupImage(_ context.Context, image, localID string) (*orchv1alpha1.LookupImageResponse, error) {
@@ -47,6 +48,9 @@ func (f *fakeUploader) UploadImage(_ context.Context, image, localID string, arc
 }
 
 func (f *fakeUploader) ListNodes(context.Context) ([]*orchv1alpha1.Node, error) {
+	if f.nodesErr != nil {
+		return nil, f.nodesErr
+	}
 	var nodes []*orchv1alpha1.Node
 	for _, architecture := range f.nodes {
 		nodes = append(nodes, &orchv1alpha1.Node{Architecture: architecture})
@@ -78,8 +82,8 @@ func TestUploadLocalImagesPinsOnlyImagesWithoutARegistry(t *testing.T) {
 	}
 	engine := fakeEngine{
 		"myapp:latest":        {ID: "sha256:" + strings.Repeat("a", 64), OS: "linux", Architecture: "amd64"},
-		"redis:7":             {ID: "sha256:" + strings.Repeat("b", 64), OS: "linux", Architecture: "amd64", RepoDigests: []string{"redis@sha256:x"}},
-		"ghcr.io/acme/api:v1": {ID: "sha256:" + strings.Repeat("c", 64), OS: "linux", Architecture: "amd64", RepoDigests: []string{"ghcr.io/acme/api@sha256:y"}},
+		"redis:7":             {ID: "sha256:" + strings.Repeat("b", 64), OS: "linux", Architecture: "amd64"},
+		"ghcr.io/acme/api:v1": {ID: "sha256:" + strings.Repeat("c", 64), OS: "linux", Architecture: "amd64"},
 		"tools:dev":           {ID: "sha256:" + strings.Repeat("e", 64), OS: "linux", Architecture: "amd64"},
 	}
 	remote := &fakeUploader{
@@ -109,11 +113,8 @@ func TestUploadLocalImagesPinsOnlyImagesWithoutARegistry(t *testing.T) {
 	if strings.Join(remote.uploads, ",") != "ghcr.io/acme/api:v1,myapp:latest" {
 		t.Errorf("uploads = %v", remote.uploads)
 	}
-	// Images that were never pushed or pulled skip the registry check.
-	for _, image := range remote.lookups {
-		if image == "myapp:latest" || image == "tools:dev" {
-			t.Errorf("checked the registry for never-pushed %s", image)
-		}
+	if strings.Join(remote.lookups, ",") != "ghcr.io/acme/api:v1,myapp:latest,redis:7,tools:dev" {
+		t.Errorf("lookups = %v, want every local image checked against its registry", remote.lookups)
 	}
 	if !strings.Contains(progress.String(), "Uploading local image myapp:latest") || !strings.Contains(progress.String(), "Using local image tools:dev, uploaded before") {
 		t.Errorf("progress = %q", progress.String())
@@ -142,5 +143,17 @@ func TestUploadLocalImagesSkipsControllersWithoutUploads(t *testing.T) {
 	}
 	if err := uploadLocalImages(context.Background(), remote, nil, manifest, io.Discard); err != nil {
 		t.Fatal("no local engine must not fail a deploy")
+	}
+}
+
+func TestUploadLocalImagesWorksWithDeployerCredentials(t *testing.T) {
+	manifest := &config.Manifest{Services: map[string]config.Service{"web": {Image: "myapp:latest"}}}
+	engine := fakeEngine{"myapp:latest": {ID: "sha256:" + strings.Repeat("a", 64), OS: "linux", Architecture: "arm64"}}
+	remote := &fakeUploader{nodesErr: connect.NewError(connect.CodePermissionDenied, errors.New("deployer credentials may only deploy their own application"))}
+	if err := uploadLocalImages(context.Background(), remote, engine, manifest, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Services["web"].Image != "docker.io/library/myapp@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("image = %q, want the upload", manifest.Services["web"].Image)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"regexp"
 	"time"
 
@@ -27,7 +28,8 @@ var imageDigestPattern = regexp.MustCompile(`sha256:[a-f0-9]{64}`)
 // needs an upload: not when the image's registry has it, and not when the
 // same local image was uploaded before.
 func (s *service) LookupImage(ctx context.Context, request *connect.Request[orchv1alpha1.LookupImageRequest]) (*connect.Response[orchv1alpha1.LookupImageResponse], error) {
-	if err := s.requireUploads(ctx); err != nil {
+	owner, err := s.requireUploads(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if !images.ValidLocalID(request.Msg.GetLocalId()) {
@@ -40,11 +42,15 @@ func (s *service) LookupImage(ctx context.Context, request *connect.Request[orch
 		if err == nil {
 			return connect.NewResponse(&orchv1alpha1.LookupImageResponse{InRegistry: true}), nil
 		}
-		if connect.CodeOf(err) == connect.CodeInvalidArgument {
+		// Only an image the registry lacks is uploaded. Docker Hub answers
+		// unauthorized for repositories that do not exist. Any other error,
+		// such as a rate limit or outage, must not silently swap a registry
+		// image for a local copy.
+		if !errors.Is(err, images.ErrNotFound) && !errors.Is(err, images.ErrUnauthorized) {
 			return nil, err
 		}
 	}
-	digest, err := s.uploads.Lookup(ctx, request.Msg.GetLocalId())
+	digest, err := s.uploads.Lookup(ctx, owner, request.Msg.GetLocalId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("read the image store"))
 	}
@@ -52,7 +58,8 @@ func (s *service) LookupImage(ctx context.Context, request *connect.Request[orch
 }
 
 func (s *service) UploadImage(ctx context.Context, stream *connect.ClientStream[orchv1alpha1.UploadImageRequest]) (*connect.Response[orchv1alpha1.UploadImageResponse], error) {
-	if err := s.requireUploads(ctx); err != nil {
+	owner, err := s.requireUploads(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if !stream.Receive() {
@@ -69,12 +76,14 @@ func (s *service) UploadImage(ctx context.Context, stream *connect.ClientStream[
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("local_id must be an image ID"))
 	}
 	reader := &uploadReader{stream: stream, pending: first.GetData()}
-	digest, platforms, err := s.uploads.Import(ctx, first.GetImage(), first.GetLocalId(), reader)
+	digest, platforms, err := s.uploads.Import(ctx, owner, first.GetImage(), first.GetLocalId(), reader)
 	switch {
 	case reader.err != nil:
 		return nil, reader.err
 	case errors.Is(err, context.Canceled):
 		return nil, connect.NewError(connect.CodeCanceled, err)
+	case errors.Is(err, images.ErrNoSpace):
+		return nil, connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, images.ErrPlatform):
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s: %w", first.GetImage(), images.ErrPlatform))
 	case errors.Is(err, images.ErrArchive), errors.Is(err, images.ErrInvalid):
@@ -86,19 +95,49 @@ func (s *service) UploadImage(ctx context.Context, stream *connect.ClientStream[
 	return connect.NewResponse(&orchv1alpha1.UploadImageResponse{Digest: digest, Platforms: platforms}), nil
 }
 
-// requireUploads admits anyone who may deploy. An upload only adds content
-// by digest, so a deployer cannot change another application's images.
-func (s *service) requireUploads(ctx context.Context) error {
-	if _, err := requireDeployerOrAdministrator(ctx); err != nil {
-		return err
+// requireUploads admits anyone who may deploy and returns who owns their
+// uploads: the application a deployer is limited to, or "" for
+// administrators. Uploads are content-addressed, and lookups only find the
+// caller's own uploads, so a deployer cannot change another application's
+// images.
+func (s *service) requireUploads(ctx context.Context) (string, error) {
+	owner, err := requireDeployerOrAdministrator(ctx)
+	if err != nil {
+		return "", err
 	}
 	if err := requireChange(ctx); err != nil {
-		return err
+		return "", err
 	}
 	if s.uploads == nil {
-		return connect.NewError(connect.CodeUnimplemented, errors.New("this controller does not store images"))
+		return "", connect.NewError(connect.CodeUnimplemented, errors.New("this controller does not store images"))
 	}
-	return nil
+	return owner, nil
+}
+
+// uploadIdleTimeout ends an upload that stopped sending, so it cannot hold
+// the image store forever.
+const uploadIdleTimeout = 2 * time.Minute
+
+// idleUploads moves the request's read deadline forward on every read of
+// the upload body.
+func idleUploads(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		controller := http.NewResponseController(response)
+		request.Body = &deadlineBody{ReadCloser: request.Body, extend: func() {
+			_ = controller.SetReadDeadline(time.Now().Add(uploadIdleTimeout))
+		}}
+		next.ServeHTTP(response, request)
+	})
+}
+
+type deadlineBody struct {
+	io.ReadCloser
+	extend func()
+}
+
+func (b *deadlineBody) Read(buffer []byte) (int, error) {
+	b.extend()
+	return b.ReadCloser.Read(buffer)
 }
 
 // uploadReader turns the chunks of an upload stream into the image archive.

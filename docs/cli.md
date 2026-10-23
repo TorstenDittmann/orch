@@ -439,6 +439,8 @@ the image was built for another architecture than your nodes, for example on
 an arm64 laptop for amd64 servers, the deploy stops before uploading and tells
 you to rebuild with `--platform`. The controller keeps the uploaded images
 of each application's last 10 deployments, so rollbacks to them keep working.
+Uploaded images are not part of controller backups; after restoring a
+controller, run `orch deploy` again to upload them.
 
 Inside GitHub Actions, the deployment also records the repository, commit,
 branch, actor and run link, shown by `orch app history`. See

@@ -144,6 +144,9 @@ func TestLookupImagePrefersTheRegistry(t *testing.T) {
 		if image == "ghcr.io/acme/api:latest" {
 			return "ghcr.io/acme/api@sha256:" + strings.Repeat("1", 64), nil
 		}
+		if image == "ghcr.io/acme/flaky:latest" {
+			return "", images.ErrUnavailable
+		}
 		return "", images.ErrNotFound
 	})
 	localID := strings.Repeat("c", 64)
@@ -160,6 +163,23 @@ func TestLookupImagePrefersTheRegistry(t *testing.T) {
 	}
 	if found := lookup("myapp:latest"); found.GetInRegistry() || found.GetDigest() != "" {
 		t.Fatalf("an image nowhere = %v", found)
+	}
+	// A registry that is down must not turn into an upload of the local copy.
+	if _, err := s.LookupImage(ctx, connect.NewRequest(&orchv1alpha1.LookupImageRequest{Image: "ghcr.io/acme/flaky:latest", LocalId: localID})); connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("lookup with the registry down error = %v, want unavailable", err)
+	}
+	// A deployer only finds its own application's uploads.
+	archive, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", "hello")
+	if _, _, err := uploads.Import(context.Background(), "", "myapp:latest", localID, bytes.NewReader(archive)); err != nil {
+		t.Fatal(err)
+	}
+	if lookup("myapp:latest").GetDigest() == "" {
+		t.Fatal("administrators find their own uploads")
+	}
+	deployer := context.WithValue(context.Background(), principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "hello"})
+	found, err := s.LookupImage(deployer, connect.NewRequest(&orchv1alpha1.LookupImageRequest{Image: "myapp:latest", LocalId: localID}))
+	if err != nil || found.Msg.GetDigest() != "" {
+		t.Fatalf("deployer lookup of an administrator upload = %v, %v", found, err)
 	}
 	viewer := context.WithValue(context.Background(), principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "hello", readOnly: true})
 	if _, err := s.LookupImage(viewer, connect.NewRequest(&orchv1alpha1.LookupImageRequest{LocalId: localID})); connect.CodeOf(err) != connect.CodePermissionDenied {
@@ -180,7 +200,7 @@ func TestCollectUploadsKeepsImagesOfRecentDeployments(t *testing.T) {
 	upload := func(tag, id string) string {
 		t.Helper()
 		archive, _ := imagetest.DockerArchive(t, tag, "amd64", tag)
-		digest, _, err := uploads.Import(context.Background(), tag, id, bytes.NewReader(archive))
+		digest, _, err := uploads.Import(context.Background(), "", tag, id, bytes.NewReader(archive))
 		if err != nil {
 			t.Fatal(err)
 		}
