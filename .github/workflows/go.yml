@@ -43,6 +43,10 @@ jobs:
                 GOOS=linux GOARCH=$arch CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-network-$arch.test ./internal/network
                 GOOS=linux GOARCH=$arch CGO_ENABLED=0 mise exec -- go test -c -o /tmp/orch-containerd-$arch.test ./internal/e2e
               done
+          - name: Test the workload firewall against the kernel
+            run: |
+              mise exec -- go test -c -o /tmp/orch-network.test ./internal/network
+              sudo ORCH_FIREWALL_E2E=1 unshare -n /tmp/orch-network.test -test.run TestWorkloadFirewall -test.v
     env:
       GOTOOLCHAIN: local
     steps:

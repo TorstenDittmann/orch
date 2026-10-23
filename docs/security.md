@@ -204,6 +204,12 @@ Installation creates separate credentials for each role.
   sets `privileged`. A privileged replica has root on its worker, so only
   administrator credentials may deploy one; its image tag, and `autoUpdate` on
   it, is as trusted as the administrator who deployed it.
+- Workloads cannot reach their own worker except for cluster DNS, HTTP
+  ingress on ports 80 and 443, and the ports of raw TCP routes. SSH, the
+  controller API, and any other service on the host are refused, even when the
+  provider firewall only blocks them from the internet. Cloud metadata
+  endpoints (`169.254.0.0/16`), which hand out instance credentials, are
+  refused too. See [networking](networking.md#what-workloads-can-reach).
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 

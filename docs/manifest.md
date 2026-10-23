@@ -449,9 +449,9 @@ A raw TCP endpoint.
 | `publicPort` | `Port?` | `null` | Opened on every ingress node and proxied to ready replicas |
 | `nodePort` | `Port?` | `null` | Published on the node that runs each replica |
 
-`publicPort` cannot be 53, 80 or 443, and two services cannot use the same
-one. `nodePort` cannot be 53, 80 or 443, and cannot reuse a `publicPort` of
-another service in the application.
+`publicPort` cannot be 22, 53, 80, 443 or 9443, and two services cannot use
+the same one. `nodePort` cannot be 22, 53, 80, 443 or 9443, and cannot reuse a
+`publicPort` of another service in the application.
 
 ```pkl
 tcp = new Tcp {

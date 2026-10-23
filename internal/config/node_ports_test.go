@@ -60,6 +60,14 @@ func TestValidateRejectsUnsafeNodePorts(t *testing.T) {
 			port := 443
 			m.Services["game-eu"].TCP.NodePort = &port
 		}, "services.game-eu.tcp.node_port"},
+		"ssh tcp": {func(m *Manifest) {
+			port := 22
+			m.Services["game-eu"].TCP.NodePort = &port
+		}, "services.game-eu.tcp.node_port"},
+		"controller tcp": {func(m *Manifest) {
+			port := 9443
+			m.Services["game-eu"].TCP.NodePort = &port
+		}, "services.game-eu.tcp.node_port"},
 		"reserved udp": {func(m *Manifest) { m.Services["game-eu"].UDP.NodePort = 51820 }, "services.game-eu.udp.node_port"},
 		"dns udp":      {func(m *Manifest) { m.Services["game-eu"].UDP.NodePort = 53 }, "services.game-eu.udp.node_port"},
 		"udp without readiness": {func(m *Manifest) {

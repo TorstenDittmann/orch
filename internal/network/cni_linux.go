@@ -456,3 +456,9 @@ func (m *linuxManager) PublishNodePorts(_ context.Context, ports []NodePort) ([]
 	}
 	return m.firewall.publish(ports)
 }
+
+func (m *linuxManager) AllowIngressPorts(_ context.Context, ports []uint16) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.firewall.allowIngress(ports)
+}
