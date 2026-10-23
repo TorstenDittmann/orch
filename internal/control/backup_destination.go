@@ -63,9 +63,9 @@ func (s *service) SetBackupDestination(ctx context.Context, request *connect.Req
 }
 
 // claimBackupDestination writes a marker naming this cluster below the
-// prefix, which also proves the credentials can write. A prefix another
-// cluster claimed is refused, so two clusters never prune each other's
-// backups.
+// prefix, every time, which also proves the credentials can write. A prefix
+// another cluster claimed is refused, so two clusters never prune each
+// other's backups.
 func (s *service) claimBackupDestination(ctx context.Context, client *objectstore.Client) error {
 	destination := client.Destination()
 	key := destination.Key(objectstore.ClusterMarker)
@@ -82,16 +82,14 @@ func (s *service) claimBackupDestination(ctx context.Context, client *objectstor
 				fmt.Errorf("%s already holds the backups of another orch cluster (%s); use another prefix, such as %s/%s",
 					destination.URL(), id, destination.URL(), s.cluster.Name))
 		}
-		return nil
-	case errors.Is(err, objectstore.ErrNotFound):
-		marker := s.cluster.ID + "\n"
-		if err := client.Put(ctx, key, strings.NewReader(marker), int64(len(marker))); err != nil {
-			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("write to %s: %w", destination.URL(), err))
-		}
-		return nil
-	default:
+	case !errors.Is(err, objectstore.ErrNotFound):
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("read %s: %w", destination.URL(), err))
 	}
+	marker := s.cluster.ID + "\n"
+	if err := client.Put(ctx, key, strings.NewReader(marker), int64(len(marker))); err != nil {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("write to %s: %w", destination.URL(), err))
+	}
+	return nil
 }
 
 func (s *service) GetBackupDestination(ctx context.Context, request *connect.Request[orchv1alpha1.GetBackupDestinationRequest]) (*connect.Response[orchv1alpha1.GetBackupDestinationResponse], error) {

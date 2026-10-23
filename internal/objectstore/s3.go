@@ -293,6 +293,25 @@ func (c *Client) CreateMultipartUpload(ctx context.Context, key string) (string,
 	return result.UploadId, nil
 }
 
+// UploadPart uploads one part, numbered from 1, and returns its ETag.
+func (c *Client) UploadPart(ctx context.Context, key, uploadID string, part int, body io.Reader, size int64) (string, error) {
+	request, err := c.request(ctx, http.MethodPut, key, url.Values{"partNumber": {strconv.Itoa(part)}, "uploadId": {uploadID}}, body)
+	if err != nil {
+		return "", err
+	}
+	request.ContentLength = size
+	c.sign(request, unsignedPayload)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", responseError(response)
+	}
+	return response.Header.Get("ETag"), nil
+}
+
 // CompleteMultipartUpload joins the uploaded parts, given by their ETags in
 // part order.
 func (c *Client) CompleteMultipartUpload(ctx context.Context, key, uploadID string, etags []string) error {

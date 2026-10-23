@@ -168,3 +168,28 @@ func TestArchives(t *testing.T) {
 		t.Fatalf("Archives() = %v", archives)
 	}
 }
+
+func TestUploadPart(t *testing.T) {
+	server := s3test.New("backups")
+	defer server.Close()
+	ctx := context.Background()
+	client := New(Destination{Bucket: "backups", Endpoint: server.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
+	uploadID, err := client.CreateMultipartUpload(ctx, "set")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var etags []string
+	for part, data := range []string{"controller ", "backup"} {
+		etag, err := client.UploadPart(ctx, "set", uploadID, part+1, strings.NewReader(data), int64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		etags = append(etags, etag)
+	}
+	if err := client.CompleteMultipartUpload(ctx, "set", uploadID, etags); err != nil {
+		t.Fatal(err)
+	}
+	if value, _ := server.Object("set"); string(value) != "controller backup" {
+		t.Fatalf("object = %q", value)
+	}
+}

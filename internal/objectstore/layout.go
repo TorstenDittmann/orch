@@ -11,6 +11,8 @@ const (
 	VolumeBackups     = "volumes/"
 	ClusterMarker     = "orch-cluster"
 	ArchiveSuffix     = ".tar.gz"
+	// BackupNameLayout starts every backup name.
+	BackupNameLayout = "20060102T150405Z"
 )
 
 // VolumeBackupsPrefix is where a volume's archives are, below the

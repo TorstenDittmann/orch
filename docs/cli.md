@@ -680,8 +680,8 @@ kept as a `-before-restore` backup, and the command prints how to restore it.
 [volume backups](operations.md#volume-backups).
 
 With a [backup destination](#orch-backup), `backups` also lists the copies in
-the bucket and where each backup is stored, and `restore` downloads a backup
-that only the bucket still has to the volume's node first.
+the bucket and where each backup is stored, and `restore` and `download`
+fetch a backup that only the bucket still has to the volume's node first.
 
 ### orch backup
 

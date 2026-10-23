@@ -16,10 +16,13 @@ import (
 )
 
 const (
-	volumeListTimeout      = 5 * time.Second
-	volumeOperationTimeout = time.Hour
-	restartReadyTimeout    = 2 * time.Minute
-	restartPollInterval    = time.Second
+	volumeListTimeout = 5 * time.Second
+	// volumeBucketListTimeout bounds listing the bucket's copies, so a slow
+	// bucket only delays volume listings a little.
+	volumeBucketListTimeout = 10 * time.Second
+	volumeOperationTimeout  = time.Hour
+	restartReadyTimeout     = 2 * time.Minute
+	restartPollInterval     = time.Second
 )
 
 // volumeTarget is a declared local volume and the node that holds it.
@@ -183,7 +186,7 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 	if client, err := s.offsiteClient(ctx); err != nil {
 		bucketError = "read backup destination"
 	} else if client != nil {
-		if remote, err = remoteBackups(ctx, client, name); err != nil {
+		if remote, err = remoteBackups(ctx, client, name, volumeBucketListTimeout); err != nil {
 			bucketError = boundedFailure(err.Error())
 		}
 	}
@@ -303,6 +306,9 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 	}
 	target, err := s.volumeTarget(ctx, request.Msg.GetApplication(), request.Msg.GetVolume())
 	if err != nil {
+		return err
+	}
+	if err := s.fetchMissingBackup(ctx, target, request.Msg.GetBackup()); err != nil {
 		return err
 	}
 	var offset uint64

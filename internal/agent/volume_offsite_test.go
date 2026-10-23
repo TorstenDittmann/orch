@@ -45,6 +45,8 @@ func TestVolumeBackupUploadsInPartsAndFetchesBack(t *testing.T) {
 		url, _ := client.PresignUploadPart("copy", uploadID, part, time.Hour)
 		urls = append(urls, url)
 	}
+	partRetryDelay = time.Millisecond
+	bucket.FailNext(2)
 	etags, err := backups.upload(ctx, "game", "data", backup.Name, urls, partSize)
 	if err != nil || len(etags) != 3 {
 		t.Fatalf("upload() = %v, %v", etags, err)

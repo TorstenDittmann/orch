@@ -12,8 +12,14 @@ import (
 	"time"
 )
 
-// maxUploadParts bounds how many presigned part URLs one upload may carry.
-const maxUploadParts = 10000
+const (
+	// maxUploadParts bounds how many presigned part URLs one upload may carry.
+	maxUploadParts = 10000
+	partAttempts   = 3
+)
+
+// partRetryDelay grows with each retry of a part; tests shorten it.
+var partRetryDelay = 2 * time.Second
 
 // offsiteHTTP talks to the bucket through presigned URLs, so the agent never
 // holds the bucket's credentials.
@@ -65,7 +71,7 @@ func (v *volumeBackups) upload(ctx context.Context, application, volume, name st
 	for index, target := range urls {
 		offset := uint64(index) * partSize
 		length := min(partSize, size-offset)
-		etag, err := putPart(ctx, target, io.NewSectionReader(file, int64(offset), int64(length)), int64(length))
+		etag, err := putPartWithRetries(ctx, target, func() io.Reader { return io.NewSectionReader(file, int64(offset), int64(length)) }, int64(length))
 		if err != nil {
 			if len(urls) > 1 {
 				return nil, fmt.Errorf("upload part %d of %d: %w", index+1, len(urls), err)
@@ -75,6 +81,26 @@ func (v *volumeBackups) upload(ctx context.Context, application, volume, name st
 		etags = append(etags, etag)
 	}
 	return etags, nil
+}
+
+// putPartWithRetries retries a part a few times, so one dropped connection
+// does not restart a large upload from its first part.
+func putPartWithRetries(ctx context.Context, target string, body func() io.Reader, length int64) (string, error) {
+	var err error
+	for attempt := 0; attempt < partAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(time.Duration(attempt) * partRetryDelay):
+			}
+		}
+		var etag string
+		if etag, err = putPart(ctx, target, body(), length); err == nil {
+			return etag, nil
+		}
+	}
+	return "", err
 }
 
 func putPart(ctx context.Context, target string, body io.Reader, length int64) (string, error) {

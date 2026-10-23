@@ -25,8 +25,10 @@ type Server struct {
 	objects map[string][]byte
 	uploads map[string]map[int][]byte
 	next    int
-	// FailPuts makes every upload fail while it is set.
-	FailPuts bool
+	// FailPuts makes every upload fail while it is set; FailNextPuts fails
+	// that many uploads, parts included, and then counts down.
+	FailPuts     bool
+	FailNextPuts int
 }
 
 // New starts a server for bucket. Close it when done.
@@ -56,6 +58,13 @@ func (s *Server) Keys() []string {
 	return keys
 }
 
+// FailNext makes the next count uploads fail.
+func (s *Server) FailNext(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.FailNextPuts = count
+}
+
 // SetObject stores an object directly.
 func (s *Server) SetObject(key string, value []byte) {
 	s.mu.Lock()
@@ -78,6 +87,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.Method == http.MethodPut && s.FailNextPuts > 0 {
+		s.FailNextPuts--
+		writeError(w, http.StatusServiceUnavailable, "SlowDown", "try again")
+		return
+	}
 	switch {
 	case key == "" && r.Method == http.MethodHead:
 		w.Header().Set("X-Amz-Bucket-Region", "us-east-1")

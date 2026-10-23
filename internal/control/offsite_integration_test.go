@@ -78,16 +78,21 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	manifest := newTestManifest("game", map[string]config.Service{
 		"server": {
 			Image: executableImage, Command: []string{"/bin/sleep"}, Args: []string{"3600"}, Restart: "always",
-			Mounts: []config.Mount{{Source: "data", Target: "/data"}},
+			Mounts: []config.Mount{{Source: "data", Target: "/data"}, {Source: "logs", Target: "/logs"}},
 		},
 	})
-	manifest.Volumes = map[string]config.Volume{"data": {Driver: "local", Backup: &config.VolumeBackup{Schedule: "0 3 * * *", Keep: 7}}}
+	manifest.Volumes = map[string]config.Volume{
+		"data": {Driver: "local", Backup: &config.VolumeBackup{Schedule: "0 3 * * *", Keep: 7}},
+		"logs": {Driver: "local"},
+	}
 	if _, err := remote.ApplyApplication(ctx, mustCanonicalConfig(t, manifest), "offsite-deploy-key"); err != nil {
 		t.Fatal(err)
 	}
 	volumeDir := filepath.Join(agentDir, agentctl.VolumesDirectory, "game", "data")
-	if err := os.MkdirAll(volumeDir, 0o700); err != nil {
-		t.Fatal(err)
+	for _, directory := range []string{volumeDir, filepath.Join(agentDir, agentctl.VolumesDirectory, "game", "logs")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	world := []byte("the world before the disk died")
 	if err := os.WriteFile(filepath.Join(volumeDir, "world.dat"), world, 0o600); err != nil {
@@ -116,6 +121,13 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	if archive, _ := bucket.Object(key); !bytes.Equal(archivedFile(t, archive, "world.dat"), world) {
 		t.Fatal("the bucket's copy does not hold the volume's data")
 	}
+
+	// A manual backup of a volume without a schedule is copied too.
+	logs, err := remote.BackupVolume(ctx, "game", "logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForBucketKey(t, bucket, "prod/volumes/game/logs/"+logs.GetName()+".tar.gz")
 
 	// Losing the node's copy leaves the bucket's, which a restore fetches.
 	if err := os.Remove(filepath.Join(agentDir, agentctl.VolumeBackupsDirectory, "game", "data", manual.GetName()+".tar.gz")); err != nil {
@@ -173,10 +185,10 @@ func TestPruneRemoteKeepsNewestScheduledAndLabeledBackups(t *testing.T) {
 	bucket := s3test.New("backups")
 	defer bucket.Close()
 	client := objectstore.New(objectstore.Destination{Bucket: "backups", Endpoint: bucket.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
-	names := map[string]objectstore.Object{}
+	names := map[string]bool{}
 	for _, name := range []string{"20261014T030000Z", "20261015T030000Z", "20261016T030000Z", "20261014T120000Z-manual", "20261013T120000Z-before-restore"} {
 		bucket.SetObject("v/"+name+".tar.gz", []byte("x"))
-		names[name] = objectstore.Object{Key: "v/" + name + ".tar.gz"}
+		names[name] = true
 	}
 	if err := pruneRemote(context.Background(), client, "v/", names, 2); err != nil {
 		t.Fatal(err)
@@ -189,7 +201,7 @@ func TestPruneRemoteKeepsNewestScheduledAndLabeledBackups(t *testing.T) {
 
 func TestMissingNewestSkipsBackupsPruningWouldDelete(t *testing.T) {
 	names := []string{"20261016T030000Z", "20261015T120000Z-manual", "20261015T030000Z", "20261014T030000Z", "20261013T030000Z"}
-	remote := map[string]objectstore.Object{"20261015T030000Z": {}}
+	remote := map[string]bool{"20261015T030000Z": true}
 	got := missingNewest(names, remote, 2)
 	if len(got) != 2 || names[got[0]] != "20261015T120000Z-manual" || names[got[1]] != "20261016T030000Z" {
 		t.Fatalf("missingNewest() = %v", got)
