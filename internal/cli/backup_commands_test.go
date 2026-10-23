@@ -63,11 +63,20 @@ func TestLatestScheduledBackupAsksAfterAMove(t *testing.T) {
 		return &orchv1alpha1.VolumeBackupInfo{Name: name, CreatedAt: timestamppb.New(created)}
 	}
 	moved := &orchv1alpha1.VolumeSummary{Node: "node-2", ClaimedAt: timestamppb.New(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)),
-		Backups: []*orchv1alpha1.VolumeBackupInfo{at("20261019T030000Z"), at("20261018T130000Z-before-restore"), at("20261017T030000Z")}}
+		Backups: []*orchv1alpha1.VolumeBackupInfo{at("20261019T030000Z"), at("20261018T110000Z-before-restore"), at("20261017T030000Z")}}
 	if _, err := latestScheduledBackup(moved); err == nil || !strings.Contains(err.Error(), "20261017T030000Z") {
 		t.Fatalf("latestScheduledBackup() after a move = %v", err)
 	}
-	moved.Backups = moved.Backups[2:]
+	moved.Backups = append(moved.Backups, at("20261019T120000Z-before-restore"))
+	if name, err := latestScheduledBackup(moved); err != nil || name != "20261019T030000Z" {
+		t.Fatalf("latestScheduledBackup() after a restore since the move = %q, %v", name, err)
+	}
+	moved.BucketError = "timeout"
+	if _, err := latestScheduledBackup(moved); err == nil {
+		t.Fatal("latestScheduledBackup() guessed without the bucket's backups")
+	}
+	moved.BucketError = ""
+	moved.Backups = moved.Backups[2:3]
 	if name, err := latestScheduledBackup(moved); err != nil || name != "20261017T030000Z" {
 		t.Fatalf("latestScheduledBackup() with only older backups = %q, %v", name, err)
 	}

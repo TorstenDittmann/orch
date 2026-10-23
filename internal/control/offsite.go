@@ -149,8 +149,9 @@ func (s *service) offsiteClient(ctx context.Context) (*objectstore.Client, error
 // withTimeout bounds one bucket request, so a stalled connection cannot
 // hold up the sync or shutdown.
 func withTimeout(ctx context.Context, limit time.Duration, call func(context.Context) error) error {
-	_, err := timed(ctx, limit, func(ctx context.Context) (struct{}, error) { return struct{}{}, call(ctx) })
-	return err
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	return call(ctx)
 }
 
 // timed is withTimeout for a call that returns a value.
@@ -189,6 +190,9 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	}
 	var failures []string
 	incomplete := false
+	if err != nil && ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		// Keep the status visible even though the destination is unknown.
 		o.mu.Lock()

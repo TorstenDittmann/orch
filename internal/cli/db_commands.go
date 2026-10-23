@@ -347,27 +347,31 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 // latestScheduledBackup picks the backup a restore without a name takes: the
 // newest, preferring scheduled and manual ones over the copies a restore
-// keeps of the data it replaced. When
-// the volume moved off a lost node and has backups from both nodes, the
-// newest may hold the new node's empty database, so the choice is left to
-// the user.
+// keeps of the data it replaced. When the volume moved off a lost node and
+// has not been restored since, the newest may hold the new node's empty
+// database, so the choice is left to the user. So it is when the bucket,
+// which keeps the lost node's backups, could not be listed.
 func latestScheduledBackup(volume *orchv1alpha1.VolumeSummary) (string, error) {
 	backups := volume.GetBackups()
+	if volume.GetBucketError() != "" {
+		return "", fmt.Errorf("the bucket's backups could not be listed (%s); name the backup to restore", volume.GetBucketError())
+	}
 	if claimed := volume.GetClaimedAt(); claimed != nil && claimed.CheckValid() == nil {
+		movedAt := claimed.AsTime().Truncate(time.Second)
 		var before, after string
+		restoredSince := false
 		for _, backup := range backups {
-			if strings.HasSuffix(backup.GetName(), "-before-restore") {
-				continue
-			}
-			if backup.GetCreatedAt().AsTime().Before(claimed.AsTime().Truncate(time.Second)) {
-				if before == "" {
-					before = backup.GetName()
-				}
-			} else if after == "" {
+			since := !backup.GetCreatedAt().AsTime().Before(movedAt)
+			switch {
+			case strings.HasSuffix(backup.GetName(), "-before-restore"):
+				restoredSince = restoredSince || since
+			case !since && before == "":
+				before = backup.GetName()
+			case since && after == "":
 				after = backup.GetName()
 			}
 		}
-		if before != "" && after != "" {
+		if before != "" && after != "" && !restoredSince {
 			return "", fmt.Errorf("the volume moved to node %s at %s; name the backup to restore: %s is the newest from before the move, %s the newest since",
 				volume.GetNode(), claimed.AsTime().UTC().Format(time.RFC3339), before, after)
 		}

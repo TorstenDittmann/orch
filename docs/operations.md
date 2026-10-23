@@ -348,8 +348,8 @@ from it. `orch volume restore` and `orch db restore` download a backup the node
 no longer has from the bucket first, so after a worker is lost and its
 volumes move with `orch node remove --lost --confirm-fenced`, restore works on
 the new node. Pick the lost node's last backup from `orch db backups`; a
-restore without a name refuses to guess once the new node has taken backups of
-its own:
+restore without a name refuses to guess while the new node's own backups are
+newer:
 
 ```console
 orch db backups shop main

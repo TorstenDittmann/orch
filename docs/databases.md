@@ -166,7 +166,9 @@ backup.
 
 After a worker is lost and the database moved to another node, a restore
 without a name stops and names the newest backup from before and after the
-move, because the newest may hold the new node's empty database.
+move, because the newest may hold the new node's empty database. Once you have
+restored one by name, the newest is picked again. A restore without a name also
+stops when the bucket's backups cannot be listed.
 
 Loading a dump is limited to five minutes. For a larger database, download the
 dump and load it yourself with `orch exec`.

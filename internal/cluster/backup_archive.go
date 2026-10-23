@@ -112,6 +112,8 @@ func ExtractBackupSet(r io.Reader, directory string) (finalErr error) {
 		}
 	}
 	// Reading to the end checks the gzip trailer, so a cut-off archive fails.
+	// Only the one gzip member is read, so appended data costs nothing.
+	compressed.Multistream(false)
 	if _, err := io.Copy(io.Discard, compressed); err != nil {
 		return fmt.Errorf("read backup archive: %w", err)
 	}
