@@ -56,6 +56,9 @@ type service struct {
 	backups       *backupScheduler
 	upgrades      *agentUpgrades
 	autoscaler    *autoscaler
+	// administrators remembers administrator certificates for expiry
+	// alerts.
+	administrators *administratorCertificates
 	// databaseSecrets serializes generating database secrets, so two
 	// deploys cannot give one database different passwords.
 	databaseSecrets sync.Mutex
@@ -68,7 +71,7 @@ func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, 
 	return &service{
 		state: state, cluster: cluster, now: now, random: rand.Reader,
 		caPEM: append([]byte(nil), caPEM...), caKey: append([]byte(nil), caKey...), secretBox: secretBox,
-		sessions: sessions,
+		sessions: sessions, administrators: &administratorCertificates{},
 	}
 }
 

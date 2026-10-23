@@ -42,7 +42,7 @@ compatibility and cannot be combined with `--target`. See
 [targets and interfaces](targets.md) for how targets are stored and reached.
 
 These are the remote commands: `join-token`, `status`, `events`, `deploy`,
-`rollback`, `nodes`, `logs`, `exec`, `remove`, `job`, `secret`, `registry`,
+`rollback`, `nodes`, `logs`, `exec`, `remove`, `job`, `secret`, `registry`, `notify`,
 `tui`, `web`, `app list|status|history|diff|watch`, `cron runs|logs`,
 `network configure`, and every `node` subcommand except `node install` and
 `node doctor`. All other commands run locally.
@@ -807,6 +807,22 @@ the same without touching the checkout and prints the workflow instead. When `OR
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
 application when the repository is trusted for several. See
 [deploy from GitHub](github.md).
+
+### orch notify
+
+```text
+orch notify add slack|discord|webhook [URL] [--name NAME] [--on EVENT,...] [--target NAME] [--json]
+orch notify list [--target NAME] [--json]
+orch notify test [NAME] [--target NAME] [--json]
+orch notify remove NAME [--target NAME] [--json]
+```
+
+Sends cluster problems (a lost node, a full disk, a certificate close to
+expiry, a stale controller backup) to Slack, Discord or a webhook. `add`
+stores the URL encrypted on the controller, reading it from stdin when it is
+left out, and sends a test message; it exits nonzero when the test fails.
+`--on` can also name application events, which are then sent for every
+application. See [cluster notifications](notifications.md#cluster-notifications).
 
 ### orch token
 

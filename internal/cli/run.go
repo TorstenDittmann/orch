@@ -95,6 +95,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runToken(ctx, args[1:], stdout, stderr)
 	case "github":
 		return runGitHub(ctx, args[1:], stdout, stderr)
+	case "notify":
+		return runNotify(ctx, args[1:], stdout, stderr)
 	case "remove":
 		return runRemove(ctx, args[1:], stdout, stderr)
 	case "runtime-log-sink":
@@ -1123,6 +1125,8 @@ Usage:
   orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
   orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
   orch token list|revoke [NAME] [--target NAME] [--json]
+  orch notify add slack|discord|webhook [URL] [--name NAME] [--on EVENT,...] [--target NAME] [--json]
+  orch notify list|test|remove [NAME] [--target NAME] [--json]
   orch remove APP [--target NAME] [--idempotency-key KEY] [--json]
   orch status [--target NAME] [--json]
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]

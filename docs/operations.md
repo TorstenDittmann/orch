@@ -189,6 +189,9 @@ http://orch/metrics` prints the same metrics as root.
 | `orch_controller_backup_timestamp_seconds` | | Unix time of the newest automatic controller backup |
 | `orch_controller_backup_failed` | | 1 when the last automatic backup attempt failed |
 
+Without Prometheus, [`orch notify add slack URL`](notifications.md#cluster-notifications)
+sends the node, disk, certificate and backup alerts below to a chat channel.
+
 Suggested alerts:
 
 ```yaml

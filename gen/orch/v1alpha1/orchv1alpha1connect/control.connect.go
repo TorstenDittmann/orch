@@ -171,6 +171,18 @@ const (
 	// ControlServiceDeleteAccessTokenProcedure is the fully-qualified name of the ControlService's
 	// DeleteAccessToken RPC.
 	ControlServiceDeleteAccessTokenProcedure = "/orch.v1alpha1.ControlService/DeleteAccessToken"
+	// ControlServiceSetNotificationProcedure is the fully-qualified name of the ControlService's
+	// SetNotification RPC.
+	ControlServiceSetNotificationProcedure = "/orch.v1alpha1.ControlService/SetNotification"
+	// ControlServiceListNotificationsProcedure is the fully-qualified name of the ControlService's
+	// ListNotifications RPC.
+	ControlServiceListNotificationsProcedure = "/orch.v1alpha1.ControlService/ListNotifications"
+	// ControlServiceDeleteNotificationProcedure is the fully-qualified name of the ControlService's
+	// DeleteNotification RPC.
+	ControlServiceDeleteNotificationProcedure = "/orch.v1alpha1.ControlService/DeleteNotification"
+	// ControlServiceTestNotificationProcedure is the fully-qualified name of the ControlService's
+	// TestNotification RPC.
+	ControlServiceTestNotificationProcedure = "/orch.v1alpha1.ControlService/TestNotification"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -224,6 +236,10 @@ type ControlServiceClient interface {
 	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
 	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
 	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
+	SetNotification(context.Context, *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error)
+	ListNotifications(context.Context, *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error)
+	DeleteNotification(context.Context, *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error)
+	TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -525,6 +541,30 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("DeleteAccessToken")),
 			connect.WithClientOptions(opts...),
 		),
+		setNotification: connect.NewClient[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse](
+			httpClient,
+			baseURL+ControlServiceSetNotificationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SetNotification")),
+			connect.WithClientOptions(opts...),
+		),
+		listNotifications: connect.NewClient[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse](
+			httpClient,
+			baseURL+ControlServiceListNotificationsProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ListNotifications")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteNotification: connect.NewClient[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse](
+			httpClient,
+			baseURL+ControlServiceDeleteNotificationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("DeleteNotification")),
+			connect.WithClientOptions(opts...),
+		),
+		testNotification: connect.NewClient[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse](
+			httpClient,
+			baseURL+ControlServiceTestNotificationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("TestNotification")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -578,6 +618,10 @@ type controlServiceClient struct {
 	createAccessToken    *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
 	listAccessTokens     *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
 	deleteAccessToken    *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
+	setNotification      *connect.Client[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse]
+	listNotifications    *connect.Client[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse]
+	deleteNotification   *connect.Client[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse]
+	testNotification     *connect.Client[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -822,6 +866,26 @@ func (c *controlServiceClient) DeleteAccessToken(ctx context.Context, req *conne
 	return c.deleteAccessToken.CallUnary(ctx, req)
 }
 
+// SetNotification calls orch.v1alpha1.ControlService.SetNotification.
+func (c *controlServiceClient) SetNotification(ctx context.Context, req *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error) {
+	return c.setNotification.CallUnary(ctx, req)
+}
+
+// ListNotifications calls orch.v1alpha1.ControlService.ListNotifications.
+func (c *controlServiceClient) ListNotifications(ctx context.Context, req *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error) {
+	return c.listNotifications.CallUnary(ctx, req)
+}
+
+// DeleteNotification calls orch.v1alpha1.ControlService.DeleteNotification.
+func (c *controlServiceClient) DeleteNotification(ctx context.Context, req *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error) {
+	return c.deleteNotification.CallUnary(ctx, req)
+}
+
+// TestNotification calls orch.v1alpha1.ControlService.TestNotification.
+func (c *controlServiceClient) TestNotification(ctx context.Context, req *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error) {
+	return c.testNotification.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
@@ -873,6 +937,10 @@ type ControlServiceHandler interface {
 	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
 	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
 	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
+	SetNotification(context.Context, *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error)
+	ListNotifications(context.Context, *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error)
+	DeleteNotification(context.Context, *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error)
+	TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1170,6 +1238,30 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("DeleteAccessToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceSetNotificationHandler := connect.NewUnaryHandler(
+		ControlServiceSetNotificationProcedure,
+		svc.SetNotification,
+		connect.WithSchema(controlServiceMethods.ByName("SetNotification")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceListNotificationsHandler := connect.NewUnaryHandler(
+		ControlServiceListNotificationsProcedure,
+		svc.ListNotifications,
+		connect.WithSchema(controlServiceMethods.ByName("ListNotifications")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceDeleteNotificationHandler := connect.NewUnaryHandler(
+		ControlServiceDeleteNotificationProcedure,
+		svc.DeleteNotification,
+		connect.WithSchema(controlServiceMethods.ByName("DeleteNotification")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceTestNotificationHandler := connect.NewUnaryHandler(
+		ControlServiceTestNotificationProcedure,
+		svc.TestNotification,
+		connect.WithSchema(controlServiceMethods.ByName("TestNotification")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
@@ -1268,6 +1360,14 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListAccessTokensHandler.ServeHTTP(w, r)
 		case ControlServiceDeleteAccessTokenProcedure:
 			controlServiceDeleteAccessTokenHandler.ServeHTTP(w, r)
+		case ControlServiceSetNotificationProcedure:
+			controlServiceSetNotificationHandler.ServeHTTP(w, r)
+		case ControlServiceListNotificationsProcedure:
+			controlServiceListNotificationsHandler.ServeHTTP(w, r)
+		case ControlServiceDeleteNotificationProcedure:
+			controlServiceDeleteNotificationHandler.ServeHTTP(w, r)
+		case ControlServiceTestNotificationProcedure:
+			controlServiceTestNotificationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1467,4 +1567,20 @@ func (UnimplementedControlServiceHandler) ListAccessTokens(context.Context, *con
 
 func (UnimplementedControlServiceHandler) DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteAccessToken is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SetNotification(context.Context, *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.SetNotification is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ListNotifications(context.Context, *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ListNotifications is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) DeleteNotification(context.Context, *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DeleteNotification is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.TestNotification is not implemented"))
 }

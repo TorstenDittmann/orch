@@ -176,7 +176,7 @@ func TestOpenExistingMigratesVersionOneStateWithoutLoss(t *testing.T) {
 		FROM idempotency_keys WHERE key = 'legacy-key'`).Scan(&operation, &requestHash, &response); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 18 || eventCount != 1 || operation != "reserved" || requestHash != strings.Repeat("0", 64) || response != "{}" {
+	if migrationCount != 19 || eventCount != 1 || operation != "reserved" || requestHash != strings.Repeat("0", 64) || response != "{}" {
 		t.Fatalf("migrated state: migrations=%d events=%d operation=%q hash=%q response=%q", migrationCount, eventCount, operation, requestHash, response)
 	}
 }
@@ -309,7 +309,7 @@ func TestOpenExistingMigratesVersionThreeExecutionWithoutActiveRevisionLoss(t *t
 	if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM idempotency_keys WHERE key = 'legacy-idempotency'").Scan(&idempotency); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 18 || events != 1 || idempotency != 1 {
+	if migrations != 19 || events != 1 || idempotency != 1 {
 		t.Fatalf("migrated counts = migrations %d events %d idempotency %d", migrations, events, idempotency)
 	}
 }

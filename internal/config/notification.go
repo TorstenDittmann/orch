@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -18,6 +19,12 @@ const (
 	NotifyCronFailed       = "cron.failed"
 	NotifyReplicaUnhealthy = "replica.unhealthy"
 
+	// Cluster events go only to cluster notifications (orch notify add).
+	NotifyNodeLost            = "node.lost"
+	NotifyNodeDiskLow         = "node.disk_low"
+	NotifyCertificateExpiring = "certificate.expiring"
+	NotifyBackupStale         = "backup.stale"
+
 	maxNotifications = 20
 )
 
@@ -27,6 +34,26 @@ var DefaultNotificationEvents = []string{NotifyBackupFailed, NotifyCronFailed, N
 var notificationEvents = map[string]bool{
 	NotifyDeploySucceeded: true, NotifyDeployFailed: true, NotifyDeployRolledBack: true,
 	NotifyBackupFailed: true, NotifyCronFailed: true, NotifyReplicaUnhealthy: true,
+}
+
+// ClusterNotificationEvents are sent to a cluster notification that names
+// no events.
+var ClusterNotificationEvents = []string{NotifyBackupStale, NotifyCertificateExpiring, NotifyNodeDiskLow, NotifyNodeLost}
+
+// ValidateClusterNotificationEvents checks the events of a cluster
+// notification, which may also ask for any application event.
+func ValidateClusterNotificationEvents(events []string) error {
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		if !slices.Contains(ClusterNotificationEvents, event) && !notificationEvents[event] {
+			return fmt.Errorf("%q is not a notification event", event)
+		}
+		if seen[event] {
+			return fmt.Errorf("%q is listed twice", event)
+		}
+		seen[event] = true
+	}
+	return nil
 }
 
 // Notification sends an application's events to a webhook whose URL is kept

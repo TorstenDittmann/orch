@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +28,8 @@ const (
 	notifyMaxTextBytes = 1900
 )
 
-// notifier sends the events applications ask for in `notifications` to their
+// notifier sends the events applications ask for in `notifications`, and
+// the events cluster notifications (orch notify add) ask for, to their
 // webhooks. It follows the event log with a durable cursor, so each event is
 // handled once even across controller restarts; an endpoint that keeps
 // failing is skipped after a few attempts rather than holding up the rest.
@@ -98,6 +100,27 @@ func (n *notifier) handle(ctx context.Context, event model.Event) {
 	if !ok {
 		return
 	}
+	if notice.Application != "" {
+		n.notifyApplication(ctx, notice)
+	}
+	notifications, err := n.state.ClusterNotifications(ctx)
+	if err != nil {
+		log.Printf("controller: notifications: %v", err)
+		return
+	}
+	for _, notification := range notifications {
+		if !slices.Contains(notification.Events, notice.Event) {
+			continue
+		}
+		if err := n.sendCluster(ctx, notice, notification); err != nil && ctx.Err() == nil {
+			log.Printf("controller: notify via %s: %v", notification.Name, err)
+		}
+	}
+}
+
+// notifyApplication sends a notice to the notifications in its
+// application's manifest.
+func (n *notifier) notifyApplication(ctx context.Context, notice notice) {
 	application, err := n.state.Application(ctx, notice.Application)
 	if err != nil {
 		return
@@ -175,6 +198,14 @@ func (n *notifier) describe(ctx context.Context, event model.Event) (notice, boo
 		}
 		result.Application, result.Event = payload.Application, config.NotifyReplicaUnhealthy
 		result.Text = fmt.Sprintf("replica %d of %s is unhealthy", payload.Replica, payload.Service)
+	case config.NotifyNodeLost, config.NotifyNodeDiskLow, config.NotifyCertificateExpiring, config.NotifyBackupStale:
+		var payload model.ClusterAlert
+		if json.Unmarshal(event.Payload, &payload) != nil || payload.Message == "" {
+			return notice{}, false
+		}
+		result.Event = event.Kind
+		result.Text = fmt.Sprintf("[%s] %s", n.cluster, payload.Message)
+		return result, true
 	default:
 		return notice{}, false
 	}
@@ -219,7 +250,7 @@ func (n *notifier) notificationBody(kind string, notice notice) ([]byte, error) 
 		return json.Marshal(struct {
 			Event       string          `json:"event"`
 			Cluster     string          `json:"cluster"`
-			Application string          `json:"application"`
+			Application string          `json:"application,omitempty"`
 			Text        string          `json:"text"`
 			Time        time.Time       `json:"time"`
 			Data        json.RawMessage `json:"data"`
@@ -235,17 +266,44 @@ func (n *notifier) send(ctx context.Context, notice notice, notification config.
 	if err != nil {
 		return fmt.Errorf("read secret %s: %w", notification.URLSecret, err)
 	}
-	target, err := url.Parse(strings.TrimSpace(string(secret.Value)))
-	wipeBytes(secret.Value)
-	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" {
-		return fmt.Errorf("secret %s does not hold an http or https URL", notification.URLSecret)
+	target, err := webhookURL(secret.Value)
+	if err != nil {
+		return fmt.Errorf("secret %s %w", notification.URLSecret, err)
 	}
-	body, err := n.notificationBody(notification.Kind, notice)
+	return n.deliver(ctx, notice, notification.Kind, target)
+}
+
+// sendCluster sends a notice to a notification set with orch notify add.
+func (n *notifier) sendCluster(ctx context.Context, notice notice, notification model.ClusterNotification) error {
+	value, err := n.state.ResolveClusterNotificationURL(ctx, n.box, notification.Name)
+	if err != nil {
+		return fmt.Errorf("read URL: %w", err)
+	}
+	target, err := webhookURL(value)
+	if err != nil {
+		return fmt.Errorf("URL %w", err)
+	}
+	return n.deliver(ctx, notice, notification.Kind, target)
+}
+
+// webhookURL parses a stored URL and wipes the stored bytes.
+func webhookURL(value []byte) (string, error) {
+	target, err := url.Parse(strings.TrimSpace(string(value)))
+	wipeBytes(value)
+	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" {
+		return "", errors.New("does not hold an http or https URL")
+	}
+	return target.String(), nil
+}
+
+// deliver posts a notice to target, retrying failures that may pass.
+func (n *notifier) deliver(ctx context.Context, notice notice, kind, target string) error {
+	body, err := n.notificationBody(kind, notice)
 	if err != nil {
 		return err
 	}
 	for attempt := 0; ; attempt++ {
-		retry, err := n.post(ctx, target.String(), body)
+		retry, err := n.post(ctx, target, body)
 		if err == nil {
 			return nil
 		}
