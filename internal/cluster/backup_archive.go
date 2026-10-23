@@ -111,5 +111,13 @@ func ExtractBackupSet(r io.Reader, directory string) (finalErr error) {
 			return fmt.Errorf("unpack %s: %w", header.Name, err)
 		}
 	}
+	// Reading to the end checks the gzip trailer, so a cut-off archive fails.
+	if _, err := io.Copy(io.Discard, compressed); err != nil {
+		return fmt.Errorf("read backup archive: %w", err)
+	}
+	delete(allowed, SecretKeyFilename)
+	for name := range allowed {
+		return fmt.Errorf("backup archive is incomplete: it has no %s", name)
+	}
 	return nil
 }

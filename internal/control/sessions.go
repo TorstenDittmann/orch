@@ -52,7 +52,7 @@ type agentSession struct {
 	buildID      string
 	architecture string
 	selfUpgrade  bool
-	// offsiteBackups is set when the agent accepts UPLOAD and FETCH.
+	// offsiteBackups is set when the agent accepts UPLOAD and RESTORE with urls.
 	offsiteBackups bool
 }
 

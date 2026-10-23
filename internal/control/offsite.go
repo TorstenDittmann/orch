@@ -149,9 +149,8 @@ func (s *service) offsiteClient(ctx context.Context) (*objectstore.Client, error
 // withTimeout bounds one bucket request, so a stalled connection cannot
 // hold up the sync or shutdown.
 func withTimeout(ctx context.Context, limit time.Duration, call func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
-	return call(ctx)
+	_, err := timed(ctx, limit, func(ctx context.Context) (struct{}, error) { return struct{}{}, call(ctx) })
+	return err
 }
 
 // timed is withTimeout for a call that returns a value.
@@ -191,7 +190,14 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	var failures []string
 	incomplete := false
 	if err != nil {
-		failures = append(failures, err.Error())
+		// Keep the status visible even though the destination is unknown.
+		o.mu.Lock()
+		unknown := o.url == ""
+		o.mu.Unlock()
+		if unknown {
+			o.reset("(unreadable)", "\x00unreadable")
+		}
+		failures = append(failures, "read the backup destination: "+err.Error())
 	} else {
 		if err := o.syncController(ctx, client); err != nil {
 			failures = append(failures, "controller backups: "+err.Error())
@@ -686,15 +692,15 @@ func mergeVolumeBackups(local, remote []*orchv1alpha1.VolumeBackupInfo) []*orchv
 }
 
 // bucketSource returns a presigned URL for a volume backup the bucket has,
-// or "" when there is no destination, the node's agent cannot download, or
-// the bucket does not have it. A bucket it cannot read is an error, so a
+// or "" when there is no destination or the bucket does not have it. A
+// bucket it cannot read, or an agent too old to download, is an error, so a
 // restore reports that instead of a missing backup.
 func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) (string, error) {
 	client, err := s.offsiteClient(ctx)
 	if err != nil {
 		return "", connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup destination: %w", err))
 	}
-	if client == nil || !s.sessions.offsiteBackups(target.node.ID) || !objectstore.ValidBackupName(name) {
+	if client == nil || !objectstore.ValidBackupName(name) {
 		return "", nil
 	}
 	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
@@ -704,6 +710,10 @@ func (s *service) bucketSource(ctx context.Context, target volumeTarget, name st
 	}
 	if !exists {
 		return "", nil
+	}
+	if !s.sessions.offsiteBackups(target.node.ID) {
+		return "", connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("backup %s is only in the bucket; upgrade the agent on node %s to restore it", name, target.node.Name))
 	}
 	url, err := client.PresignGet(key, offsitePresignExpiry)
 	if err != nil {

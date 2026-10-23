@@ -14,6 +14,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/TorstenDittmann/orch/internal/store"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -104,7 +105,7 @@ func (s *service) volumeTarget(ctx context.Context, applicationName, volume stri
 	}
 	target := targets[0]
 	if !target.placed {
-		return volumeTarget{}, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("volume %q is not on a node yet", volume))
+		return target, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("volume %q is not on a node yet", volume))
 	}
 	if s.sessions == nil || !s.sessions.Connected(target.node.ID) {
 		// The target comes along, so a caller can read the bucket instead.
@@ -223,11 +224,17 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			if target.backup != nil {
 				summary.BackupSchedule, summary.BackupKeep = target.backup.Schedule, uint32(target.backup.Keep)
 			}
+			item := pendingMerge{summary: summary, key: target.application + "/" + target.volume}
 			if target.placed {
 				summary.Node = target.node.Name
-				pending = append(pending, pendingMerge{summary: summary, key: target.application + "/" + target.volume,
-					local: s.localBackupsForListing(ctx, target, summary)})
+				item.local = s.localBackupsForListing(ctx, target, summary)
+				if claimedAt, err := s.state.VolumeClaimedAt(ctx, target.application, target.volume); err == nil && !claimedAt.IsZero() {
+					summary.ClaimedAt = timestamppb.New(claimedAt)
+				}
 			}
+			// A volume not on a node, such as one whose node was lost, still
+			// lists the bucket's backups.
+			pending = append(pending, item)
 			response.Volumes = append(response.Volumes, summary)
 		}
 	}
@@ -349,8 +356,8 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("backup name is required"))
 	}
 	target, err := s.volumeTarget(ctx, request.Msg.GetApplication(), request.Msg.GetVolume())
-	if connect.CodeOf(err) == connect.CodeUnavailable {
-		// The node is offline; the bucket may still have the backup.
+	if code := connect.CodeOf(err); target.application != "" && (code == connect.CodeUnavailable || code == connect.CodeFailedPrecondition) {
+		// The node is offline or gone; the bucket may still have the backup.
 		body, size, bucketErr := s.openBucketBackup(ctx, target, request.Msg.GetBackup())
 		if bucketErr != nil {
 			return bucketErr

@@ -152,7 +152,7 @@ ClickHouse's `dump` directory).
 ## Restore
 
 ```sh
-orch db restore shop main            # the newest backup
+orch db restore shop main            # the newest backup (see below after a lost node)
 orch db restore shop main 20261020T030000Z
 ```
 
@@ -163,6 +163,10 @@ or ClickHouse's `RESTORE` after dropping the database. For the Redis-compatible
 engines and LibSQL it swaps the backup into `main-data` and restarts
 the database on it; the data it replaced is kept as a `-before-restore`
 backup.
+
+After a worker is lost and the database moved to another node, a restore
+without a name stops and names the newest backup from before and after the
+move, because the newest may hold the new node's empty database.
 
 Loading a dump is limited to five minutes. For a larger database, download the
 dump and load it yourself with `orch exec`.

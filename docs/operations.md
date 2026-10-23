@@ -347,11 +347,17 @@ stored. `orch volume download` streams a backup only the bucket has straight
 from it. `orch volume restore` and `orch db restore` download a backup the node
 no longer has from the bucket first, so after a worker is lost and its
 volumes move with `orch node remove --lost --confirm-fenced`, restore works on
-the new node:
+the new node. Pick the lost node's last backup from `orch db backups`; a
+restore without a name refuses to guess once the new node has taken backups of
+its own:
 
 ```console
-orch db restore shop main
+orch db backups shop main
+orch db restore shop main 20261017T030000Z
 ```
+
+`orch volume backups` and `orch volume download` work from the bucket even
+while the volume's node is offline or the volume is not on a node at all.
 
 If the controller host is lost, restore it on a new host straight from the
 bucket, then continue with [recovery](security.md#recovery):

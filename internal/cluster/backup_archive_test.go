@@ -65,3 +65,21 @@ func TestExtractBackupSetRejectsOtherEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractBackupSetRejectsIncompleteArchives(t *testing.T) {
+	var archive bytes.Buffer
+	compressed := gzip.NewWriter(&archive)
+	writer := tar.NewWriter(compressed)
+	_ = writer.WriteHeader(&tar.Header{Name: SecretKeyFilename, Mode: 0o600, Size: 1, Typeflag: tar.TypeReg})
+	_, _ = writer.Write([]byte("x"))
+	_ = writer.Close()
+	_ = compressed.Close()
+	destination := filepath.Join(t.TempDir(), "set")
+	if err := ExtractBackupSet(bytes.NewReader(archive.Bytes()), destination); err == nil {
+		t.Fatal("ExtractBackupSet accepted an archive without the database")
+	}
+	// An archive cut off before the gzip trailer fails too.
+	if err := ExtractBackupSet(bytes.NewReader(archive.Bytes()[:archive.Len()-4]), filepath.Join(t.TempDir(), "set")); err == nil {
+		t.Fatal("ExtractBackupSet accepted a truncated archive")
+	}
+}

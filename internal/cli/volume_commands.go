@@ -202,7 +202,7 @@ func volumeBackupSummary(volume *orchv1alpha1.VolumeSummary, now time.Time) stri
 		parts = append(parts, "not scheduled")
 	}
 	switch {
-	case volume.GetNode() == "":
+	case volume.GetNode() == "" && len(volume.GetBackups()) == 0:
 		parts = append(parts, "not on a node yet")
 	case !volume.GetReachable() && len(volume.GetBackups()) == 0:
 		parts = append(parts, "node unreachable")
@@ -215,7 +215,9 @@ func volumeBackupSummary(volume *orchv1alpha1.VolumeSummary, now time.Time) stri
 			age += " ago"
 		}
 		parts = append(parts, fmt.Sprintf("%d, latest %s (%s)", volume.GetBackupCount(), latest.GetName(), age))
-		if !volume.GetReachable() {
+		if volume.GetNode() == "" {
+			parts = append(parts, "not on a node yet")
+		} else if !volume.GetReachable() {
 			parts = append(parts, "node unreachable")
 		}
 	}
@@ -266,6 +268,9 @@ func runVolumeBackups(ctx context.Context, args []string, stdout, stderr io.Writ
 			return ExitRuntime
 		}
 		fmt.Fprintf(stdout, "Node %s is not reachable; listing the backups in the bucket.\n\n", volume.GetNode())
+	}
+	if volume.GetNode() == "" && len(volume.GetBackups()) > 0 {
+		fmt.Fprintf(stdout, "Volume %s is not on a node yet; listing the backups in the bucket.\n\n", name)
 	}
 	if volume.GetBackupFailure() != "" {
 		fmt.Fprintf(stdout, "Last scheduled backup failed at %s: %s\n\n",

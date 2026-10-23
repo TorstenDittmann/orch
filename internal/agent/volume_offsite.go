@@ -188,6 +188,9 @@ func download(ctx context.Context, source, destination string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Asking for the stored bytes keeps the transport from decompressing
+	// the archive.
+	request.Header.Set("Accept-Encoding", "identity")
 	response, err := offsiteHTTP.Do(request)
 	if err != nil {
 		return 0, redactURLError(err)

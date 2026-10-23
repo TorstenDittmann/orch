@@ -538,6 +538,9 @@ message VolumeSummary {
   uint32 backup_count = 11;
   // Why the bucket's copies could not be listed, when a destination is set.
   string bucket_error = 12;
+  // When the volume was placed on its current node. Backups older than it
+  // were taken on a node that was lost.
+  google.protobuf.Timestamp claimed_at = 13;
 }
 
 message ListVolumesResponse {
