@@ -21,6 +21,8 @@ type fakeUploader struct {
 	nodes     []string
 	lookupErr error
 	nodesErr  error
+	// registryDown makes registry checks fail as unavailable.
+	registryDown bool
 }
 
 func (f *fakeUploader) LookupImage(_ context.Context, image, localID string) (*orchv1alpha1.LookupImageResponse, error) {
@@ -28,6 +30,9 @@ func (f *fakeUploader) LookupImage(_ context.Context, image, localID string) (*o
 		return nil, f.lookupErr
 	}
 	f.lookups = append(f.lookups, image)
+	if image != "" && f.registryDown {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("registry could not resolve the image"))
+	}
 	if image != "" && f.registry[image] {
 		return &orchv1alpha1.LookupImageResponse{InRegistry: true}, nil
 	}
@@ -155,5 +160,28 @@ func TestUploadLocalImagesWorksWithDeployerCredentials(t *testing.T) {
 	}
 	if manifest.Services["web"].Image != "docker.io/library/myapp@sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("image = %q, want the upload", manifest.Services["web"].Image)
+	}
+}
+
+func TestUploadLocalImagesWithoutRegistryAccess(t *testing.T) {
+	manifest := &config.Manifest{}
+	engine := fakeEngine{
+		"myapp:latest":        {ID: "sha256:" + strings.Repeat("a", 64)},
+		"ghcr.io/acme/api:v1": {ID: "sha256:" + strings.Repeat("c", 64), RepoDigests: []string{"ghcr.io/acme/api@sha256:" + strings.Repeat("c", 64)}},
+	}
+	// A never-pushed image still uploads while the registry is unreachable.
+	remote := &fakeUploader{registryDown: true}
+	manifest.Services = map[string]config.Service{"web": {Image: "myapp:latest"}}
+	if err := uploadLocalImages(context.Background(), remote, engine, manifest, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Services["web"].Image != "docker.io/library/myapp@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("image = %q, want the upload", manifest.Services["web"].Image)
+	}
+	// A pushed image is not swapped for its local copy during an outage.
+	manifest.Services = map[string]config.Service{"api": {Image: "ghcr.io/acme/api:v1"}}
+	err := uploadLocalImages(context.Background(), remote, engine, manifest, io.Discard)
+	if connect.CodeOf(err) != connect.CodeUnavailable || len(remote.uploads) != 1 {
+		t.Fatalf("error = %v, uploads = %v", err, remote.uploads)
 	}
 }

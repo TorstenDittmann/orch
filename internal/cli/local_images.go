@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,9 @@ type localImage struct {
 	OS           string
 	Architecture string
 	Size         int64
+	// RepoDigests is empty for an image that was built here and never pushed
+	// or pulled.
+	RepoDigests []string
 }
 
 // uploadLocalImages pins every image that only exists in the local container
@@ -80,6 +84,11 @@ func uploadLocalImages(ctx context.Context, remote imageUploader, engine localEn
 		found, err := remote.LookupImage(ctx, image, local.ID)
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			return nil
+		}
+		// An image that was never pushed or pulled cannot be in a registry,
+		// so a controller that cannot reach the registry still uploads it.
+		if code := connect.CodeOf(err); len(local.RepoDigests) == 0 && (code == connect.CodeUnavailable || code == connect.CodeDeadlineExceeded) {
+			found, err = remote.LookupImage(ctx, "", local.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("check local image %s: %w", image, err)
@@ -203,17 +212,18 @@ func (e commandEngine) inspect(ctx context.Context, image string) (localImage, b
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, e.binary, "image", "inspect", "--format",
-		`{{.Id}}|{{.Os}}|{{.Architecture}}|{{.Size}}`, image)
+		`{{.Id}}|{{.Os}}|{{.Architecture}}|{{.Size}}|{{json .RepoDigests}}`, image)
 	output, err := command.Output()
 	if err != nil {
 		return localImage{}, false
 	}
-	fields := strings.SplitN(strings.TrimSpace(string(output)), "|", 4)
-	if len(fields) != 4 {
+	fields := strings.SplitN(strings.TrimSpace(string(output)), "|", 5)
+	if len(fields) != 5 {
 		return localImage{}, false
 	}
 	size, _ := strconv.ParseInt(fields[3], 10, 64)
 	local := localImage{ID: fields[0], OS: fields[1], Architecture: fields[2], Size: size}
+	_ = json.Unmarshal([]byte(fields[4]), &local.RepoDigests)
 	return local, local.ID != ""
 }
 

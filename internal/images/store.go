@@ -194,6 +194,9 @@ func (s *Store) checkSpace() error {
 	return nil
 }
 
+// spaceCheckBytes is how much of an upload is read between free space checks.
+var spaceCheckBytes int64 = 256 << 20
+
 // spaceReader stops an upload that would fill the disk. Stored data can be
 // twice the archive size while uncompressed layers wait for collection.
 type spaceReader struct {
@@ -210,7 +213,7 @@ func (r *spaceReader) Read(buffer []byte) (int, error) {
 	n, err := r.reader.Read(buffer)
 	before := r.read
 	r.read += int64(n)
-	if before/(256<<20) != r.read/(256<<20) {
+	if before/spaceCheckBytes != r.read/spaceCheckBytes {
 		if r.err = r.check(); r.err != nil {
 			return n, r.err
 		}

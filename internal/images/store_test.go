@@ -208,3 +208,30 @@ func TestCollectKeepsDeployedImagesAfterAReupload(t *testing.T) {
 		t.Fatal("collection removed a layer of a deployed image")
 	}
 }
+
+func TestStoreStopsUploadsThatFillTheDiskMidway(t *testing.T) {
+	store, err := images.OpenStore(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images.SetSpaceCheckBytes(4 << 10)
+	t.Cleanup(func() { images.SetSpaceCheckBytes(256 << 20) })
+	checks := 0
+	images.SetFreeBytes(store, func(string) (uint64, error) {
+		checks++
+		if checks > 1 {
+			return images.MinFreeBytes - 1, nil
+		}
+		return images.MinFreeBytes, nil
+	})
+	archive, _ := imagetest.DockerArchive(t, "myapp:latest", "amd64", strings.Repeat("x", 64<<10))
+	if _, _, err := store.Import(context.Background(), "", "myapp:latest", localID, bytes.NewReader(archive)); !errors.Is(err, images.ErrNoSpace) {
+		t.Fatalf("Import() error = %v, want ErrNoSpace", err)
+	}
+	if checks < 2 {
+		t.Fatalf("free space was checked %d times, want a check during the upload", checks)
+	}
+	if found, _ := store.Lookup(context.Background(), "", localID); found != "" {
+		t.Fatal("a stopped upload was recorded")
+	}
+}
