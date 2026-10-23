@@ -105,6 +105,10 @@ func (a *clusterAlerts) check(ctx context.Context) error {
 		if a.lost(node, now) {
 			active["node.lost/"+node.ID] = alert{config.NotifyNodeLost, model.ClusterAlert{Node: node.Name,
 				Message: fmt.Sprintf("node %s is unreachable; last heartbeat %s", node.Name, node.LastSeenAt.UTC().Format(time.RFC3339))}}
+		} else if !a.connected(node) {
+			// A lost node is cleared only once it is back, not while the
+			// controller's startup grace hides it.
+			keep["node.lost/"+node.ID] = true
 		}
 		diskKey := "node.disk_low/" + node.ID
 		if sample, ok := usage[node.ID]; ok && now.Sub(sample.ObservedAt) <= nodeUsageFresh && sample.DiskTotalBytes > 0 {
@@ -176,7 +180,7 @@ func (a *clusterAlerts) check(ctx context.Context) error {
 // before the controller started does not count, so restarting a controller
 // that was down for a while does not report every node as lost.
 func (a *clusterAlerts) lost(node model.Node, now time.Time) bool {
-	if node.LastSeenAt == nil || (a.service.sessions != nil && a.service.sessions.Connected(node.ID)) {
+	if node.LastSeenAt == nil || a.connected(node) {
 		return false
 	}
 	since := *node.LastSeenAt
@@ -184,6 +188,10 @@ func (a *clusterAlerts) lost(node model.Node, now time.Time) bool {
 		since = a.startedAt
 	}
 	return now.Sub(since) >= nodeLostAfter
+}
+
+func (a *clusterAlerts) connected(node model.Node) bool {
+	return a.service.sessions != nil && a.service.sessions.Connected(node.ID)
 }
 
 // certificate adds an alert when notAfter is within the warning window. The

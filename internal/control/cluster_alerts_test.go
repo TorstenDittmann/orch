@@ -126,6 +126,42 @@ func TestClusterAlertsNotifyOncePerProblem(t *testing.T) {
 	}
 }
 
+func TestClusterAlertsKeepLostNodeAcrossControllerRestart(t *testing.T) {
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	ctx := context.Background()
+	now := reconcilerTestTime.Add(time.Hour)
+	s := newService(state, cluster, nil, nil, nil, nil, func() time.Time { return now })
+	if _, err := state.RaiseClusterAlert(ctx, "node.lost/node-one", config.NotifyNodeLost, model.ClusterAlert{Message: "lost"}, now); err != nil {
+		t.Fatal(err)
+	}
+	// A restarted controller does not clear the alert during its startup
+	// grace, so it does not send it again once the grace ends.
+	alerts := newClusterAlerts(s, time.Time{})
+	for range 2 {
+		if err := alerts.check(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if raised, err := state.ClusterAlerts(ctx); err != nil || !slices.Contains(raised, "node.lost/node-one") {
+			t.Fatalf("raised = %v, %v", raised, err)
+		}
+		now = now.Add(nodeLostAfter)
+	}
+	events, err := state.EventsAfter(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lost := 0
+	for _, event := range events {
+		if event.Kind == config.NotifyNodeLost {
+			lost++
+		}
+	}
+	if lost != 1 {
+		t.Fatalf("node.lost events = %d, want 1", lost)
+	}
+}
+
 func TestClusterAlertsIgnoreDowntimeBeforeControllerStart(t *testing.T) {
 	state, cluster := reconcilerStore(t)
 	enrollCompatibleNode(t, state)

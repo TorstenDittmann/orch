@@ -91,10 +91,13 @@ func runNotify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			testError = results[0].GetError()
 		}
 		if jsonOutput {
-			return writeJSON(stdout, stderr, struct {
+			if code := writeJSON(stdout, stderr, struct {
 				Notification any    `json:"notification"`
 				TestError    string `json:"test_error,omitempty"`
-			}{notificationJSON(notification), testError})
+			}{notificationJSON(notification), testError}); code != ExitOK || testError == "" {
+				return code
+			}
+			return ExitRuntime
 		}
 		fmt.Fprintf(stdout, "Added notification %s for %s.\n", notification.GetName(), strings.Join(notification.GetEvents(), ", "))
 		if testError != "" {
