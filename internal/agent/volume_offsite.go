@@ -53,8 +53,11 @@ func (v *volumeBackups) upload(ctx context.Context, application, volume, name st
 		return nil, err
 	}
 	file, err := os.Open(path)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, errVolumeBackupNotFound
+	}
+	if err != nil {
+		return nil, err
 	}
 	defer file.Close()
 	info, err := file.Stat()
@@ -127,7 +130,8 @@ func putPart(ctx context.Context, target string, body io.Reader, length int64) (
 // stageFetch downloads a backup the node does not have yet without holding
 // the volume's lock, so a long download does not delay scheduled backups.
 // The caller takes the lock and calls publish to move it into place, which
-// keeps a copy that appeared meanwhile.
+// keeps a copy that appeared meanwhile. It always downloads: a local copy
+// seen before the lock is taken could be pruned before it is used.
 func (v *volumeBackups) stageFetch(ctx context.Context, application, volume, name, source string) (VolumeBackup, func() error, func(), error) {
 	backup, ok := parseVolumeBackupName(name + volumeBackupExtension)
 	if !ok {
@@ -135,13 +139,6 @@ func (v *volumeBackups) stageFetch(ctx context.Context, application, volume, nam
 	}
 	if err := checkPresignedURL(source); err != nil {
 		return VolumeBackup{}, nil, nil, err
-	}
-	nothing := func() {}
-	if path, err := v.path(application, volume, name); err == nil {
-		if info, err := os.Stat(path); err == nil {
-			backup.Size = info.Size()
-			return backup, func() error { return nil }, nothing, nil
-		}
 	}
 	directory := v.archiveDir(application, volume)
 	if err := os.MkdirAll(directory, 0o700); err != nil {

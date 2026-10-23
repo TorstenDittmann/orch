@@ -328,8 +328,9 @@ prefix and prune each other's backups.
 From then on:
 
 - Volume and database backups, scheduled and manual, are copied to
-  `PREFIX/volumes/APP/VOLUME/` within 15 minutes, and right away after
-  `orch volume backup` or `orch db backup`. The bucket keeps the same number
+  `PREFIX/volumes/APP/VOLUME/` by a copy run every 15 minutes, and one starts
+  right away after `orch volume backup` or `orch db backup`. Runs copy one
+  backup at a time, so a large first copy delays the others. The bucket keeps the same number
   of scheduled backups as the volume's `keep`; manual and before-restore
   backups stay until you delete them, and so do the backups a lost worker
   took before its volumes moved to another node.

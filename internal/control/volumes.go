@@ -107,7 +107,8 @@ func (s *service) volumeTarget(ctx context.Context, applicationName, volume stri
 		return volumeTarget{}, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("volume %q is not on a node yet", volume))
 	}
 	if s.sessions == nil || !s.sessions.Connected(target.node.ID) {
-		return volumeTarget{}, connect.NewError(connect.CodeUnavailable, fmt.Errorf("node %q that holds volume %q is not connected", target.node.Name, volume))
+		// The target comes along, so a caller can read the bucket instead.
+		return target, connect.NewError(connect.CodeUnavailable, fmt.Errorf("node %q that holds volume %q is not connected", target.node.Name, volume))
 	}
 	return target, nil
 }
@@ -162,6 +163,11 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 	if name == "" && only != "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("a volume filter needs an application"))
 	}
+	if only != "" {
+		if err := config.ValidateApplicationName(only); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid volume name: %w", err))
+		}
+	}
 	var applications []model.Application
 	if name != "" {
 		if err := config.ValidateApplicationName(name); err != nil {
@@ -181,8 +187,8 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read applications"))
 		}
 	}
-	// One listing of the bucket covers every volume. It runs while the
-	// nodes list their own backups.
+	// One listing of the bucket covers every volume asked for. It runs
+	// while the nodes list their own backups.
 	type bucketListing struct {
 		backups map[string][]*orchv1alpha1.VolumeBackupInfo
 		failure string
@@ -193,7 +199,7 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 		if client, err := s.offsiteClient(ctx); err != nil {
 			result.failure = "read backup destination"
 		} else if client != nil {
-			if result.backups, err = remoteBackups(ctx, client, name, volumeBucketListTimeout); err != nil {
+			if result.backups, err = remoteBackups(ctx, client, name, only, volumeBucketListTimeout); err != nil {
 				result.failure = boundedFailure(err.Error())
 			}
 		}
@@ -316,7 +322,11 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		// The node does not have it; the bucket may. The node downloads it
 		// and restores it in one step, with time for the download.
-		if source := s.bucketSource(ctx, target, request.Msg.GetBackup()); source != "" {
+		source, sourceErr := s.bucketSource(ctx, target, request.Msg.GetBackup())
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		if source != "" {
 			err = restore([]string{source}, offsiteTransferLimit+volumeOperationTimeout)
 		}
 	}
@@ -339,6 +349,18 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("backup name is required"))
 	}
 	target, err := s.volumeTarget(ctx, request.Msg.GetApplication(), request.Msg.GetVolume())
+	if connect.CodeOf(err) == connect.CodeUnavailable {
+		// The node is offline; the bucket may still have the backup.
+		body, size, bucketErr := s.openBucketBackup(ctx, target, request.Msg.GetBackup())
+		if bucketErr != nil {
+			return bucketErr
+		}
+		if body == nil {
+			return err
+		}
+		defer body.Close()
+		return streamBucketBackup(body, size, stream)
+	}
 	if err != nil {
 		return err
 	}
@@ -388,11 +410,11 @@ func streamBucketBackup(body io.Reader, size int64, stream *connect.ServerStream
 		sent += int64(count)
 		if count > 0 {
 			if sendErr := stream.Send(&orchv1alpha1.DownloadVolumeBackupResponse{Data: append([]byte(nil), buffer[:count]...),
-				SizeBytes: uint64(max(size, 0))}); sendErr != nil {
+				SizeBytes: uint64(size)}); sendErr != nil {
 				return sendErr
 			}
 		}
-		if (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && (size <= 0 || sent == size) {
+		if (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && sent == size {
 			return nil
 		}
 		if err != nil {

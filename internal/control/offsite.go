@@ -206,8 +206,11 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if len(failures) == 0 {
+		// A sync that left volumes out still clears the last failure, but
+		// only a complete one says when every backup was last copied.
+		o.failedAt, o.failure = time.Time{}, ""
 		if !incomplete {
-			o.syncedAt, o.failedAt, o.failure = now, time.Time{}, ""
+			o.syncedAt = now
 		}
 		return
 	}
@@ -403,7 +406,7 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 	if err != nil {
 		return []string{"read applications: " + err.Error()}, false
 	}
-	remote, err := remoteBackups(ctx, client, "", offsiteRequestTimeout)
+	remote, err := remoteBackups(ctx, client, "", "", offsiteRequestTimeout)
 	if err != nil {
 		return []string{"list volume backups in the bucket: " + err.Error()}, false
 	}
@@ -424,11 +427,13 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 			name := target.application + "/" + target.volume
 			connected := o.service.sessions != nil && o.service.sessions.Connected(target.node.ID)
 			if !connected || !o.service.sessions.offsiteBackups(target.node.ID) {
-				// Without a policy or right after a start, the volume is only
-				// left out, so the sync is not reported as complete.
+				// Right after a start the volume is only left out, so the sync
+				// is not reported as complete. A volume without a policy has
+				// only manual backups, so it is never reported.
 				switch {
-				case target.backup == nil || (!connected && !settled):
+				case !connected && !settled:
 					incomplete = true
+				case target.backup == nil:
 				case !connected:
 					failures = append(failures, fmt.Sprintf("volume %s waits for node %s to connect", name, target.node.Name))
 				case connected:
@@ -611,12 +616,16 @@ func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string,
 
 // remoteBackups lists every volume backup in the bucket below the
 // application's prefix, or every application's when application is empty,
-// keyed by application and volume, newest first.
-func remoteBackups(ctx context.Context, client *objectstore.Client, application string, limit time.Duration) (map[string][]*orchv1alpha1.VolumeBackupInfo, error) {
+// keyed by application and volume, newest first. A volume narrows it to
+// that volume's prefix.
+func remoteBackups(ctx context.Context, client *objectstore.Client, application, volume string, limit time.Duration) (map[string][]*orchv1alpha1.VolumeBackupInfo, error) {
 	base := client.Destination().Key(objectstore.VolumeBackups)
 	prefix := base
 	if application != "" {
 		prefix += application + "/"
+		if volume != "" {
+			prefix += volume + "/"
+		}
 	}
 	objects, err := listObjects(ctx, client, prefix, limit)
 	if err != nil {
@@ -678,33 +687,39 @@ func mergeVolumeBackups(local, remote []*orchv1alpha1.VolumeBackupInfo) []*orchv
 
 // bucketSource returns a presigned URL for a volume backup the bucket has,
 // or "" when there is no destination, the node's agent cannot download, or
-// the bucket does not have it.
-func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) string {
+// the bucket does not have it. A bucket it cannot read is an error, so a
+// restore reports that instead of a missing backup.
+func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) (string, error) {
 	client, err := s.offsiteClient(ctx)
 	if err != nil {
-		log.Printf("controller: read backup destination: %v", err)
-		return ""
+		return "", connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup destination: %w", err))
 	}
 	if client == nil || !s.sessions.offsiteBackups(target.node.ID) || !objectstore.ValidBackupName(name) {
-		return ""
+		return "", nil
 	}
 	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
 	exists, err := timed(ctx, offsiteRequestTimeout, func(ctx context.Context) (bool, error) { return client.Exists(ctx, key) })
-	if err != nil || !exists {
-		return ""
+	if err != nil {
+		return "", connect.NewError(connect.CodeUnavailable, fmt.Errorf("look for the backup in the bucket: %w", err))
+	}
+	if !exists {
+		return "", nil
 	}
 	url, err := client.PresignGet(key, offsitePresignExpiry)
 	if err != nil {
-		return ""
+		return "", connect.NewError(connect.CodeInternal, fmt.Errorf("presign the bucket's backup: %w", err))
 	}
-	return url
+	return url, nil
 }
 
 // openBucketBackup opens a volume backup in the bucket for streaming to a
 // client, or returns nil when there is no destination or no such backup.
 func (s *service) openBucketBackup(ctx context.Context, target volumeTarget, name string) (io.ReadCloser, int64, error) {
 	client, err := s.offsiteClient(ctx)
-	if err != nil || client == nil || !objectstore.ValidBackupName(name) {
+	if err != nil {
+		return nil, 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup destination: %w", err))
+	}
+	if client == nil || !objectstore.ValidBackupName(name) {
 		return nil, 0, nil
 	}
 	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
@@ -714,6 +729,11 @@ func (s *service) openBucketBackup(ctx context.Context, target volumeTarget, nam
 	}
 	if err != nil {
 		return nil, 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup from the bucket: %w", err))
+	}
+	if size < 0 {
+		// Clients check a download against its size, so it must be known.
+		body.Close()
+		return nil, 0, connect.NewError(connect.CodeUnavailable, errors.New("the bucket did not say how large the backup is"))
 	}
 	return body, size, nil
 }

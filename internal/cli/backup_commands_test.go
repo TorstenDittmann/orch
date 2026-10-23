@@ -34,3 +34,21 @@ func TestBackupCommandRejectsUnknownActions(t *testing.T) {
 		t.Fatalf("set without a URL code = %d", code)
 	}
 }
+
+func TestBackupDestinationActionAllowsLeadingFlags(t *testing.T) {
+	for _, test := range []struct {
+		args   []string
+		action string
+		rest   string
+	}{
+		{[]string{"set", "s3://b/p", "--context", "c"}, "set", "s3://b/p --context c"},
+		{[]string{"--context", "set", "--json", "set", "s3://b/p"}, "set", "--context set --json s3://b/p"},
+		{[]string{"--endpoint", "https://x", "remove"}, "remove", "--endpoint https://x"},
+		{[]string{"--context", "c", "--json"}, "show", "--context c --json"},
+	} {
+		action, rest := backupDestinationAction(test.args)
+		if action != test.action || strings.Join(rest, " ") != test.rest {
+			t.Fatalf("backupDestinationAction(%q) = %q, %q", test.args, action, rest)
+		}
+	}
+}

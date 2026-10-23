@@ -50,11 +50,7 @@ func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		printBackupHelp(stderr)
 		return ExitInvalid
 	}
-	rest := args[1:]
-	action := "show"
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
-		action, rest = rest[0], rest[1:]
-	}
+	action, rest := backupDestinationAction(args[1:])
 	switch action {
 	case "show":
 		return runBackupDestinationShow(ctx, rest, stdout, stderr)
@@ -67,6 +63,23 @@ func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		printBackupHelp(stderr)
 		return ExitInvalid
 	}
+}
+
+// backupDestinationAction finds the subcommand among the arguments, so flags
+// may come before it, and returns the remaining arguments.
+func backupDestinationAction(args []string) (string, []string) {
+	valueFlags := map[string]bool{"-context": true, "--context": true, "-endpoint": true, "--endpoint": true, "-region": true, "--region": true}
+	for index := 0; index < len(args); index++ {
+		if strings.HasPrefix(args[index], "-") {
+			if valueFlags[args[index]] {
+				index++
+			}
+			continue
+		}
+		rest := append(append([]string(nil), args[:index]...), args[index+1:]...)
+		return args[index], rest
+	}
+	return "show", args
 }
 
 type backupDestinationOutput struct {

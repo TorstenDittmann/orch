@@ -218,6 +218,9 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, int64, err
 	if err != nil {
 		return nil, 0, err
 	}
+	// Asking for the stored bytes keeps the transport from decompressing
+	// them, so the length matches what is read.
+	request.Header.Set("Accept-Encoding", "identity")
 	c.sign(request, unsignedPayload)
 	response, err := c.http.Do(request)
 	if err != nil {

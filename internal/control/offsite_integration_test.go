@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,10 +107,9 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 			Now: time.Now, Random: rand.Reader,
 		})
 	}()
-	defer func() {
-		stopAgent()
-		<-agentDone
-	}()
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(func() { stopAgent(); <-agentDone }) }
+	defer stop()
 	waitForApplicationStatus(t, remote, "game", orchv1alpha1.ExecutionStatus_EXECUTION_STATUS_RUNNING)
 
 	// A manual backup starts a copy at once.
@@ -155,6 +155,37 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	}
 	if restored, _ := os.ReadFile(filepath.Join(volumeDir, "world.dat")); !bytes.Equal(restored, world) {
 		t.Fatal("restore did not bring back the bucket's backup")
+	}
+
+	// With the node offline, a download streams the bucket's copy.
+	stop()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		volumes, err := remote.ListVolumes(ctx, "game", "logs")
+		if err == nil && !volumes[0].GetReachable() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("node still reachable: %v, %v", volumes, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	stream, err := remote.DownloadVolumeBackup(ctx, "game", "logs", logs.GetName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var downloaded []byte
+	for stream.Receive() {
+		downloaded = append(downloaded, stream.Msg().GetData()...)
+		if stream.Msg().GetSizeBytes() != logs.GetSizeBytes() {
+			t.Fatalf("download reports %d bytes, want %d", stream.Msg().GetSizeBytes(), logs.GetSizeBytes())
+		}
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ := bucket.Object("prod/volumes/game/logs/" + logs.GetName() + ".tar.gz"); !bytes.Equal(downloaded, stored) {
+		t.Fatal("download from the bucket differs from its copy")
 	}
 
 	status, err := remote.GetBackupDestination(ctx)
