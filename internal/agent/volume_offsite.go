@@ -124,23 +124,6 @@ func putPart(ctx context.Context, target string, body io.Reader, length int64) (
 	return response.Header.Get("ETag"), nil
 }
 
-// fetch downloads a backup from the bucket into this node's backups, so it
-// can be read like one taken here. A backup that is already here is kept as
-// it is.
-func (v *volumeBackups) fetch(ctx context.Context, application, volume, name, source string) (VolumeBackup, error) {
-	backup, publish, cleanup, err := v.stageFetch(ctx, application, volume, name, source)
-	if err != nil {
-		return VolumeBackup{}, err
-	}
-	defer cleanup()
-	unlock := v.lock(application, volume)
-	defer unlock()
-	if err := publish(); err != nil {
-		return VolumeBackup{}, err
-	}
-	return backup, nil
-}
-
 // stageFetch downloads a backup the node does not have yet without holding
 // the volume's lock, so a long download does not delay scheduled backups.
 // The caller takes the lock and calls publish to move it into place, which

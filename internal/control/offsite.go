@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 	"github.com/TorstenDittmann/orch/internal/objectstore"
@@ -187,13 +189,15 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 		o.reset(destination.URL(), destination.URL()+"\x00"+destination.Endpoint+"\x00"+destination.AccessKeyID)
 	}
 	var failures []string
+	incomplete := false
 	if err != nil {
 		failures = append(failures, err.Error())
 	} else {
 		if err := o.syncController(ctx, client); err != nil {
 			failures = append(failures, "controller backups: "+err.Error())
 		}
-		failures = append(failures, o.syncVolumes(ctx, client)...)
+		volumeFailures, skipped := o.syncVolumes(ctx, client)
+		failures, incomplete = append(failures, volumeFailures...), skipped
 	}
 	if ctx.Err() != nil {
 		return
@@ -202,7 +206,9 @@ func (o *offsiteBackups) syncOnce(ctx context.Context) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if len(failures) == 0 {
-		o.syncedAt, o.failedAt, o.failure = now, time.Time{}, ""
+		if !incomplete {
+			o.syncedAt, o.failedAt, o.failure = now, time.Time{}, ""
+		}
 		return
 	}
 	o.failedAt, o.failure = now, failures[0]
@@ -252,7 +258,7 @@ func (o *offsiteBackups) syncController(ctx context.Context, client *objectstore
 		}
 		remote[name] = true
 	}
-	return pruneRemote(ctx, client, prefix, remote, o.keep)
+	return pruneRemote(ctx, client, prefix, remote, o.keep, time.Time{})
 }
 
 // missingNewest returns the indexes, oldest first, of the backups (named
@@ -392,17 +398,16 @@ func abortMultipart(ctx context.Context, client *objectstore.Client, key, upload
 // manual, using one listing of the bucket. A volume with a backup policy
 // whose node cannot upload right now is reported, so status never claims a
 // copy that is missing, but raises no notification.
-func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Client) []string {
+func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Client) (failures []string, incomplete bool) {
 	applications, err := o.service.state.Applications(ctx, false)
 	if err != nil {
-		return []string{"read applications: " + err.Error()}
+		return []string{"read applications: " + err.Error()}, false
 	}
 	remote, err := remoteBackups(ctx, client, "", offsiteRequestTimeout)
 	if err != nil {
-		return []string{"list volume backups in the bucket: " + err.Error()}
+		return []string{"list volume backups in the bucket: " + err.Error()}, false
 	}
 	settled := o.service.now().Sub(o.startedAt) >= offsiteStartupGrace
-	var failures []string
 	for _, application := range applications {
 		targets, err := o.service.volumeTargets(ctx, application, "")
 		if err != nil {
@@ -411,7 +416,7 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 		}
 		for _, target := range targets {
 			if ctx.Err() != nil {
-				return failures
+				return failures, incomplete
 			}
 			if !target.placed {
 				continue
@@ -419,9 +424,12 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 			name := target.application + "/" + target.volume
 			connected := o.service.sessions != nil && o.service.sessions.Connected(target.node.ID)
 			if !connected || !o.service.sessions.offsiteBackups(target.node.ID) {
+				// Without a policy or right after a start, the volume is only
+				// left out, so the sync is not reported as complete.
 				switch {
-				case target.backup == nil:
-				case !connected && settled:
+				case target.backup == nil || (!connected && !settled):
+					incomplete = true
+				case !connected:
 					failures = append(failures, fmt.Sprintf("volume %s waits for node %s to connect", name, target.node.Name))
 				case connected:
 					failures = append(failures, fmt.Sprintf("volume %s waits for node %s to upgrade its agent", name, target.node.Name))
@@ -439,10 +447,14 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 			}
 		}
 	}
-	return failures
+	return failures, incomplete
 }
 
 func (o *offsiteBackups) recordVolume(ctx context.Context, target volumeTarget, err error) {
+	if ctx.Err() != nil {
+		// An interrupted sync says nothing about the volume.
+		return
+	}
 	key := target.application + "/" + target.volume
 	o.mu.Lock()
 	wasFailing := o.failing[key]
@@ -452,7 +464,7 @@ func (o *offsiteBackups) recordVolume(ctx context.Context, target volumeTarget, 
 		o.failing[key] = true
 	}
 	o.mu.Unlock()
-	if err == nil || wasFailing || ctx.Err() != nil {
+	if err == nil || wasFailing {
 		return
 	}
 	message := boundedFailure("copy to the bucket failed: " + err.Error())
@@ -489,12 +501,23 @@ func (o *offsiteBackups) syncVolume(ctx context.Context, client *objectstore.Cli
 	for _, index := range missingNewest(names, remote, keep) {
 		backup := local[index]
 		key := prefix + backup.GetName() + objectstore.ArchiveSuffix
-		if err := o.service.uploadVolumeBackup(ctx, client, target, backup, key); err != nil {
+		err := o.service.uploadVolumeBackup(ctx, client, target, backup, key)
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			// The node pruned it since it listed it; nothing to copy.
+			continue
+		}
+		if err != nil {
 			return fmt.Errorf("upload %s: %w", backup.GetName(), err)
 		}
 		remote[backup.GetName()] = true
 	}
-	return pruneRemote(ctx, client, prefix, remote, keep)
+	// Backups older than the volume's claim on this node were taken on a
+	// node that was lost; pruning leaves them, so they stay restorable.
+	since, err := o.service.state.VolumeClaimedAt(ctx, target.application, target.volume)
+	if err != nil {
+		return err
+	}
+	return pruneRemote(ctx, client, prefix, remote, keep, since)
 }
 
 func offsiteVolumePrefix(destination objectstore.Destination, target volumeTarget) string {
@@ -559,15 +582,17 @@ func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Cl
 	return completeMultipart(ctx, client, key, uploadID, etags)
 }
 
-// pruneRemote keeps the newest keep scheduled backups below prefix. Labeled
-// backups (manual, before-restore) stay, like on the node.
-func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string, archives map[string]bool, keep int) error {
+// pruneRemote keeps the newest keep scheduled backups below prefix taken
+// since the given time. Labeled backups (manual, before-restore) stay, like
+// on the node, and so do older ones.
+func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string, archives map[string]bool, keep int, since time.Time) error {
 	if keep < 1 {
 		return nil
 	}
+	since = since.Truncate(time.Second)
 	var scheduled []string
 	for name := range archives {
-		if isScheduledBackup(name) {
+		if isScheduledBackup(name) && !objectstore.BackupTime(name).Before(since) {
 			scheduled = append(scheduled, name)
 		}
 	}
@@ -660,32 +685,35 @@ func (s *service) bucketSource(ctx context.Context, target volumeTarget, name st
 		log.Printf("controller: read backup destination: %v", err)
 		return ""
 	}
-	if client == nil || !s.sessions.offsiteBackups(target.node.ID) {
+	if client == nil || !s.sessions.offsiteBackups(target.node.ID) || !objectstore.ValidBackupName(name) {
 		return ""
 	}
-	prefix := offsiteVolumePrefix(client.Destination(), target)
-	remote, err := listArchives(ctx, client, prefix)
-	if err != nil || !remote[name] {
+	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
+	exists, err := timed(ctx, offsiteRequestTimeout, func(ctx context.Context) (bool, error) { return client.Exists(ctx, key) })
+	if err != nil || !exists {
 		return ""
 	}
-	url, err := client.PresignGet(prefix+name+objectstore.ArchiveSuffix, offsitePresignExpiry)
+	url, err := client.PresignGet(key, offsitePresignExpiry)
 	if err != nil {
 		return ""
 	}
 	return url
 }
 
-// fetchFromBucket downloads a backup only the bucket has to the volume's
-// node and reports whether it did.
-func (s *service) fetchFromBucket(ctx context.Context, target volumeTarget, name string) (bool, error) {
-	source := s.bucketSource(ctx, target, name)
-	if source == "" {
-		return false, nil
+// openBucketBackup opens a volume backup in the bucket for streaming to a
+// client, or returns nil when there is no destination or no such backup.
+func (s *service) openBucketBackup(ctx context.Context, target volumeTarget, name string) (io.ReadCloser, int64, error) {
+	client, err := s.offsiteClient(ctx)
+	if err != nil || client == nil || !objectstore.ValidBackupName(name) {
+		return nil, 0, nil
 	}
-	err := withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
-		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
-			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH, Backup: name, Urls: []string{source},
-		}, func(*orchv1alpha1.VolumeResponse) error { return nil })
-	})
-	return err == nil, err
+	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
+	body, size, err := client.Get(ctx, key)
+	if errors.Is(err, objectstore.ErrNotFound) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup from the bucket: %w", err))
+	}
+	return body, size, nil
 }

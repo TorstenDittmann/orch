@@ -41,9 +41,9 @@ func Archives(objects []Object, prefix string) map[string]Object {
 }
 
 // ValidBackupName reports whether name is a backup name: a UTC time,
-// optionally followed by a label of lowercase letters and hyphens. Other
-// objects below the prefix are never treated as backups, so they are never
-// pruned or restored.
+// optionally labeled as a manual or before-restore backup. Other objects
+// below the prefix are never treated as backups, so they are never pruned
+// or restored.
 func ValidBackupName(name string) bool {
 	if len(name) < len(BackupNameLayout) {
 		return false
@@ -51,17 +51,15 @@ func ValidBackupName(name string) bool {
 	if _, err := time.Parse(BackupNameLayout, name[:len(BackupNameLayout)]); err != nil {
 		return false
 	}
-	label := name[len(BackupNameLayout):]
-	if label == "" {
+	switch name[len(BackupNameLayout):] {
+	case "", "-manual", "-before-restore":
 		return true
 	}
-	if label[0] != '-' || len(label) == 1 || len(label) > 32 {
-		return false
-	}
-	for _, character := range label[1:] {
-		if (character < 'a' || character > 'z') && character != '-' {
-			return false
-		}
-	}
-	return true
+	return false
+}
+
+// BackupTime returns when a backup with a valid name was taken.
+func BackupTime(name string) time.Time {
+	at, _ := time.Parse(BackupNameLayout, name[:min(len(name), len(BackupNameLayout))])
+	return at
 }

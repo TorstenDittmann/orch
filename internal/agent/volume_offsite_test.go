@@ -61,19 +61,8 @@ func TestVolumeBackupUploadsInPartsAndFetchesBack(t *testing.T) {
 		t.Fatal("upload accepted parts that do not cover the archive")
 	}
 
-	if err := os.Remove(filepath.Join(backups.archiveDir("game", "data"), backup.Name+volumeBackupExtension)); err != nil {
-		t.Fatal(err)
-	}
 	url, _ := client.PresignGet("copy", time.Hour)
-	fetched, err := backups.fetch(ctx, "game", "data", backup.Name, url)
-	if err != nil || fetched.Name != backup.Name || fetched.Size != backup.Size {
-		t.Fatalf("fetch() = %+v, %v", fetched, err)
-	}
-	listed, err := backups.list("game", "data")
-	if err != nil || len(listed) != 1 || listed[0].Name != backup.Name {
-		t.Fatalf("list() after fetch = %+v, %v", listed, err)
-	}
-	if _, err := backups.fetch(ctx, "game", "data", "../escape", url); err == nil {
-		t.Fatal("fetch accepted an invalid backup name")
+	if _, _, _, err := backups.stageFetch(ctx, "game", "data", "../escape", url); err == nil {
+		t.Fatal("stageFetch accepted an invalid backup name")
 	}
 }

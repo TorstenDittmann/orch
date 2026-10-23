@@ -53,7 +53,14 @@ func runClusterRecovery(ctx context.Context, args []string, restore bool, stdout
 		return ExitInvalid
 	}
 	if from != "" {
-		directory, cleanup, err := downloadControllerBackup(ctx, from, endpoint, region, options.Backup, stderr)
+		// Inspect has no data directory, so its download stages in the temp directory.
+		stageParent := ""
+		if restore {
+			if parent := filepath.Dir(filepath.Clean(options.DataDir)); isDirectory(parent) {
+				stageParent = parent
+			}
+		}
+		directory, cleanup, err := downloadControllerBackup(ctx, from, endpoint, region, options.Backup, stageParent, stderr)
 		if err != nil {
 			writeError(stderr, err, jsonOutput)
 			return ExitRuntime
@@ -103,8 +110,10 @@ func runClusterRecovery(ctx context.Context, args []string, restore bool, stdout
 }
 
 // downloadControllerBackup fetches a controller backup set from the bucket
-// into a private temporary directory: the newest one, or the one named.
-func downloadControllerBackup(ctx context.Context, from, endpoint, region, name string, stderr io.Writer) (string, func(), error) {
+// into a private directory under stageParent, next to the restore's data
+// directory so the database is not staged on a small temp filesystem: the
+// newest one, or the one named.
+func downloadControllerBackup(ctx context.Context, from, endpoint, region, name, stageParent string, stderr io.Writer) (string, func(), error) {
 	bucket, prefix, err := objectstore.ParseURL(from)
 	if err != nil {
 		return "", nil, err
@@ -148,7 +157,7 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name 
 		}
 		return "", nil, fmt.Errorf("%s has no controller backups", from)
 	}
-	stage, err := os.MkdirTemp("", ".orch-bucket-*")
+	stage, err := os.MkdirTemp(stageParent, ".orch-bucket-*")
 	if err != nil {
 		return "", nil, err
 	}
@@ -166,4 +175,9 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name 
 	}
 	fmt.Fprintf(stderr, "Downloaded controller backup %s from %s\n", filepath.Base(directory), from)
 	return directory, cleanup, nil
+}
+
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

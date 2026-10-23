@@ -32,7 +32,8 @@ const (
 )
 
 var (
-	bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	bucketPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-[0-9]+$`)
 	// ErrNotFound is returned for a missing object.
 	ErrNotFound = errors.New("object was not found")
 )
@@ -120,8 +121,13 @@ func RegionFromEndpoint(endpoint string) string {
 		return labels[1]
 	case len(labels) == 3 && labels[1] == "your-objectstorage":
 		return labels[0]
-	case len(labels) >= 4 && labels[0] == "s3" && labels[len(labels)-2] == "amazonaws":
-		return labels[1]
+	case len(labels) >= 4 && labels[len(labels)-2] == "amazonaws":
+		// s3.REGION, s3.dualstack.REGION, s3-fips.REGION and the like.
+		for _, label := range labels {
+			if awsRegionPattern.MatchString(label) {
+				return label
+			}
+		}
 	case len(labels) == 3 && labels[1] == "digitaloceanspaces":
 		return labels[0]
 	}
@@ -222,6 +228,28 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, int64, err
 		return nil, 0, responseError(response)
 	}
 	return response.Body, response.ContentLength, nil
+}
+
+// Exists reports whether key is in the bucket.
+func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
+	request, err := c.request(ctx, http.MethodHead, key, nil, nil)
+	if err != nil {
+		return false, err
+	}
+	c.sign(request, unsignedPayload)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return false, err
+	}
+	response.Body.Close()
+	switch {
+	case response.StatusCode == http.StatusOK:
+		return true, nil
+	case response.StatusCode == http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("s3 answered %s", response.Status)
+	}
 }
 
 // Delete removes key. A missing key is not an error.

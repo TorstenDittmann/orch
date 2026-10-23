@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -342,7 +343,6 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		return err
 	}
 	var offset uint64
-	fetched := false
 	for {
 		size := uint64(0)
 		windowContext, cancel := context.WithTimeout(ctx, time.Minute)
@@ -357,15 +357,15 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 			return stream.Send(&orchv1alpha1.DownloadVolumeBackupResponse{Data: result.GetData(), SizeBytes: size})
 		})
 		cancel()
-		if connect.CodeOf(err) == connect.CodeNotFound && offset == 0 && !fetched {
-			// Download a backup only the bucket has to the node first.
-			fetched = true
-			found, fetchErr := s.fetchFromBucket(ctx, target, request.Msg.GetBackup())
-			if fetchErr != nil {
-				return fetchErr
+		if connect.CodeOf(err) == connect.CodeNotFound && offset == 0 {
+			// A backup only the bucket has streams straight from it.
+			body, bucketSize, bucketErr := s.openBucketBackup(ctx, target, request.Msg.GetBackup())
+			if bucketErr != nil {
+				return bucketErr
 			}
-			if found {
-				continue
+			if body != nil {
+				defer body.Close()
+				return streamBucketBackup(body, bucketSize, stream)
 			}
 		}
 		if err != nil {
@@ -373,6 +373,33 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		}
 		if offset >= size {
 			return nil
+		}
+	}
+}
+
+// bucketStreamChunk matches the agents' download frame size.
+const bucketStreamChunk = 64 << 10
+
+func streamBucketBackup(body io.Reader, size int64, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) error {
+	buffer := make([]byte, bucketStreamChunk)
+	var sent int64
+	for {
+		count, err := io.ReadFull(body, buffer)
+		sent += int64(count)
+		if count > 0 {
+			if sendErr := stream.Send(&orchv1alpha1.DownloadVolumeBackupResponse{Data: append([]byte(nil), buffer[:count]...),
+				SizeBytes: uint64(max(size, 0))}); sendErr != nil {
+				return sendErr
+			}
+		}
+		if (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && (size <= 0 || sent == size) {
+			return nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				err = fmt.Errorf("got %d of %d bytes", sent, size)
+			}
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup from the bucket: %w", err))
 		}
 	}
 }

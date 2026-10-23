@@ -331,7 +331,8 @@ From then on:
   `PREFIX/volumes/APP/VOLUME/` within 15 minutes, and right away after
   `orch volume backup` or `orch db backup`. The bucket keeps the same number
   of scheduled backups as the volume's `keep`; manual and before-restore
-  backups stay until you delete them.
+  backups stay until you delete them, and so do the backups a lost worker
+  took before its volumes moved to another node.
 - The controller's daily backups are copied to `PREFIX/controller/`, and the
   bucket keeps as many as the controller does.
 - A copy that fails is retried on the next run. It raises the application's
@@ -341,7 +342,8 @@ From then on:
   metrics follow it too.
 
 `orch volume backups` and `orch db backups` list each backup with where it is
-stored. `orch volume restore` and `orch db restore` download a backup the node
+stored. `orch volume download` streams a backup only the bucket has straight
+from it. `orch volume restore` and `orch db restore` download a backup the node
 no longer has from the bucket first, so after a worker is lost and its
 volumes move with `orch node remove --lost --confirm-fenced`, restore works on
 the new node:

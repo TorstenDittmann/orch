@@ -155,6 +155,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		s.objects[key] = body
+	case r.Method == http.MethodHead:
+		value, ok := s.objects[key]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(value)))
 	case r.Method == http.MethodGet:
 		value, ok := s.objects[key]
 		if !ok {

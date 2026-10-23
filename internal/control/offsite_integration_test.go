@@ -190,10 +190,30 @@ func TestPruneRemoteKeepsNewestScheduledAndLabeledBackups(t *testing.T) {
 		bucket.SetObject("v/"+name+".tar.gz", []byte("x"))
 		names[name] = true
 	}
-	if err := pruneRemote(context.Background(), client, "v/", names, 2); err != nil {
+	if err := pruneRemote(context.Background(), client, "v/", names, 2, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"v/20261013T120000Z-before-restore.tar.gz", "v/20261014T120000Z-manual.tar.gz", "v/20261015T030000Z.tar.gz", "v/20261016T030000Z.tar.gz"}
+	if got := bucket.Keys(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("kept %v, want %v", got, want)
+	}
+}
+
+func TestPruneRemoteKeepsBackupsFromBeforeTheClaim(t *testing.T) {
+	bucket := s3test.New("backups")
+	defer bucket.Close()
+	client := objectstore.New(objectstore.Destination{Bucket: "backups", Endpoint: bucket.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
+	names := map[string]bool{}
+	for _, name := range []string{"20261010T030000Z", "20261011T030000Z", "20261015T030000Z", "20261016T030000Z", "20261017T030000Z"} {
+		bucket.SetObject("v/"+name+".tar.gz", []byte("x"))
+		names[name] = true
+	}
+	// The volume moved to a new node on the 14th; the lost node's backups stay.
+	claimed := time.Date(2026, 10, 14, 9, 30, 15, 500, time.UTC)
+	if err := pruneRemote(context.Background(), client, "v/", names, 2, claimed); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"v/20261010T030000Z.tar.gz", "v/20261011T030000Z.tar.gz", "v/20261016T030000Z.tar.gz", "v/20261017T030000Z.tar.gz"}
 	if got := bucket.Keys(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("kept %v, want %v", got, want)
 	}

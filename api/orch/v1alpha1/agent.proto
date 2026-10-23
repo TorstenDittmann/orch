@@ -415,8 +415,8 @@ message AgentHello {
   string agent_version = 23;
   string agent_build_id = 24;
   bool self_upgrade = 25;
-  // Set by agents that upload and fetch volume backups through presigned
-  // URLs (VOLUME_ACTION_UPLOAD and VOLUME_ACTION_FETCH).
+  // Set by agents that upload volume backups to, and restore them from,
+  // presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
   bool offsite_backups = 26;
 }
 
@@ -505,14 +505,13 @@ enum VolumeAction {
   VOLUME_ACTION_RESTORE = 3;
   VOLUME_ACTION_READ = 4;
   VOLUME_ACTION_UPLOAD = 5;
-  VOLUME_ACTION_FETCH = 6;
 }
 
 // VolumeCommand lists, takes, restores or reads the backups of one local
 // volume on the node that holds it. READ returns at most one window of an
 // archive from offset, so the controller paces downloads. UPLOAD copies a
 // backup to presigned URLs: one URL takes the whole archive, several take
-// consecutive parts of part_size bytes. FETCH downloads urls[0] as backup;
+// consecutive parts of part_size bytes.
 // RESTORE with urls[0] downloads a backup the node does not have first.
 message VolumeCommand {
   string request_id = 1;

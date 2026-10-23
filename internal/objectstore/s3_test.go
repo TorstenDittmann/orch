@@ -99,8 +99,14 @@ func TestClientRoundTrip(t *testing.T) {
 	if string(contents) != "archive" || size != 7 {
 		t.Fatalf("Get = %q, %d", contents, size)
 	}
+	if exists, err := client.Exists(ctx, key); err != nil || !exists {
+		t.Fatalf("Exists() = %t, %v", exists, err)
+	}
 	if err := client.Delete(ctx, key); err != nil {
 		t.Fatal(err)
+	}
+	if exists, err := client.Exists(ctx, key); err != nil || exists {
+		t.Fatalf("Exists() after delete = %t, %v", exists, err)
 	}
 	if _, _, err := client.Get(ctx, key); err != ErrNotFound {
 		t.Fatalf("Get after delete = %v", err)
@@ -197,7 +203,7 @@ func TestUploadPart(t *testing.T) {
 func TestValidBackupName(t *testing.T) {
 	for name, want := range map[string]bool{
 		"20261017T030000Z": true, "20261017T030000Z-manual": true, "20261017T030000Z-before-restore": true,
-		"foo": false, "20261017T030000Z-": false, "20261017T030000Zx": false, "20261017T030000Z-Manual": false, "2026-10-17": false,
+		"foo": false, "20261017T030000Z-": false, "20261017T030000Z-weekly": false, "20261017T030000Zx": false, "20261017T030000Z-Manual": false, "2026-10-17": false,
 	} {
 		if got := ValidBackupName(name); got != want {
 			t.Errorf("ValidBackupName(%q) = %t", name, got)

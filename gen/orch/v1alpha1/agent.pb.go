@@ -364,7 +364,6 @@ const (
 	VolumeAction_VOLUME_ACTION_RESTORE     VolumeAction = 3
 	VolumeAction_VOLUME_ACTION_READ        VolumeAction = 4
 	VolumeAction_VOLUME_ACTION_UPLOAD      VolumeAction = 5
-	VolumeAction_VOLUME_ACTION_FETCH       VolumeAction = 6
 )
 
 // Enum value maps for VolumeAction.
@@ -376,7 +375,6 @@ var (
 		3: "VOLUME_ACTION_RESTORE",
 		4: "VOLUME_ACTION_READ",
 		5: "VOLUME_ACTION_UPLOAD",
-		6: "VOLUME_ACTION_FETCH",
 	}
 	VolumeAction_value = map[string]int32{
 		"VOLUME_ACTION_UNSPECIFIED": 0,
@@ -385,7 +383,6 @@ var (
 		"VOLUME_ACTION_RESTORE":     3,
 		"VOLUME_ACTION_READ":        4,
 		"VOLUME_ACTION_UPLOAD":      5,
-		"VOLUME_ACTION_FETCH":       6,
 	}
 )
 
@@ -3363,8 +3360,8 @@ type AgentHello struct {
 	AgentVersion string `protobuf:"bytes,23,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	AgentBuildId string `protobuf:"bytes,24,opt,name=agent_build_id,json=agentBuildId,proto3" json:"agent_build_id,omitempty"`
 	SelfUpgrade  bool   `protobuf:"varint,25,opt,name=self_upgrade,json=selfUpgrade,proto3" json:"self_upgrade,omitempty"`
-	// Set by agents that upload and fetch volume backups through presigned
-	// URLs (VOLUME_ACTION_UPLOAD and VOLUME_ACTION_FETCH).
+	// Set by agents that upload volume backups to, and restore them from,
+	// presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
 	OffsiteBackups bool `protobuf:"varint,26,opt,name=offsite_backups,json=offsiteBackups,proto3" json:"offsite_backups,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -4295,7 +4292,8 @@ func (x *CancelOperation) GetRequestId() string {
 // volume on the node that holds it. READ returns at most one window of an
 // archive from offset, so the controller paces downloads. UPLOAD copies a
 // backup to presigned URLs: one URL takes the whole archive, several take
-// consecutive parts of part_size bytes. FETCH downloads urls[0] as backup.
+// consecutive parts of part_size bytes.
+// RESTORE with urls[0] downloads a backup the node does not have first.
 type VolumeCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -6025,15 +6023,14 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x17JOB_RUN_STATE_SUCCEEDED\x10\x03\x12\x18\n" +
 	"\x14JOB_RUN_STATE_FAILED\x10\x04\x12\x1b\n" +
 	"\x17JOB_RUN_STATE_TIMED_OUT\x10\x05\x12\x19\n" +
-	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\xc5\x01\n" +
+	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\xac\x01\n" +
 	"\fVolumeAction\x12\x1d\n" +
 	"\x19VOLUME_ACTION_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12VOLUME_ACTION_LIST\x10\x01\x12\x18\n" +
 	"\x14VOLUME_ACTION_BACKUP\x10\x02\x12\x19\n" +
 	"\x15VOLUME_ACTION_RESTORE\x10\x03\x12\x16\n" +
 	"\x12VOLUME_ACTION_READ\x10\x04\x12\x18\n" +
-	"\x14VOLUME_ACTION_UPLOAD\x10\x05\x12\x17\n" +
-	"\x13VOLUME_ACTION_FETCH\x10\x062\xa2\x02\n" +
+	"\x14VOLUME_ACTION_UPLOAD\x10\x052\xa2\x02\n" +
 	"\fAgentService\x12L\n" +
 	"\aConnect\x12\x1d.orch.v1alpha1.ConnectRequest\x1a\x1e.orch.v1alpha1.ConnectResponse(\x010\x01\x12c\n" +
 	"\x10RenewCertificate\x12&.orch.v1alpha1.RenewCertificateRequest\x1a'.orch.v1alpha1.RenewCertificateResponse\x12_\n" +
