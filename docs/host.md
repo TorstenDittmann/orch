@@ -69,8 +69,9 @@ cloud firewalls. Open these ports yourself.
 The controller listen port must be 1024 or higher. `orch init` listens on
 `0.0.0.0` at that port and advertises `https://ADDRESS:PORT` to workers.
 
-Some ports on workers are reserved: TCP 53, 80, and 443 and UDP 53 and 51820
-cannot be used as `publicPort` or `nodePort` values.
+Some ports on workers are reserved: TCP 22, 53, 80, 443, and 9443 (the default
+controller port) and UDP 53 and 51820 cannot be used as `publicPort` or
+`nodePort` values.
 
 ### Local listeners
 

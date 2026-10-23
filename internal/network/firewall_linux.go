@@ -33,6 +33,9 @@ type firewall struct {
 	// unflushed holds ports whose conntrack entries still need deleting
 	// after an earlier flush failed.
 	unflushed []NodePort
+	// ingressPorts are the host TCP ports of raw TCP routes, which workloads
+	// may reach on this node like any other client.
+	ingressPorts []uint16
 }
 
 type firewallOwner struct {
@@ -97,6 +100,16 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 	})
 	prerouting, published := f.addNodePortChains(connection, table)
 	interfaceName := append([]byte(f.bridge), 0)
+	ingress := f.addWorkloadInputChains(connection, table, config)
+	// Cloud metadata services hand out instance credentials. Workloads never
+	// reach link-local addresses through this node.
+	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{169, 254}},
+		rejectAdministratively(),
+	}})
 	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},
@@ -159,6 +172,7 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		&expr.Masq{},
 	}})
 	f.addNodePortRules(connection, table, prerouting, published, f.published)
+	f.addIngressPortRules(connection, table, ingress, f.ingressPorts)
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("install orch nftables rules: %w", err)
 	}

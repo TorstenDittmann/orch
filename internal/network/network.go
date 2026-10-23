@@ -98,6 +98,13 @@ type NodePortPublisher interface {
 	PublishNodePorts(context.Context, []NodePort) (results []error, err error)
 }
 
+// IngressPortAllower replaces the host TCP ports of raw TCP routes that
+// workloads may connect to on this node. Every other host port is closed to
+// workloads, apart from cluster DNS and HTTP ingress.
+type IngressPortAllower interface {
+	AllowIngressPorts(context.Context, []uint16) error
+}
+
 func validateNodePorts(ports []NodePort) error {
 	seen := make(map[string]struct{}, len(ports))
 	for _, port := range ports {
@@ -137,7 +144,16 @@ type Fake struct {
 	// by key, for example "udp/8790".
 	NodePorts      []NodePort
 	NodePortErrors map[string]error
-	next           netip.Addr
+	// IngressPorts is the last set passed to AllowIngressPorts.
+	IngressPorts []uint16
+	next         netip.Addr
+}
+
+func (f *Fake) AllowIngressPorts(_ context.Context, ports []uint16) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.IngressPorts = append([]uint16(nil), ports...)
+	return nil
 }
 
 func (f *Fake) PublishNodePorts(_ context.Context, ports []NodePort) ([]error, error) {

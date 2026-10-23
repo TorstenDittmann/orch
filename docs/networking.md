@@ -162,8 +162,8 @@ the replica; `orch app status` lists each published port with its node.
 - Applications that publish node ports must set `maxSurge = 0`, because the old
   replica must stop before its replacement can take the port. Expect a short
   gap during each rollout.
-- TCP ports 53, 80, and 443 and UDP ports 53 and 51820 are reserved for cluster
-  DNS, ingress, and WireGuard. A port that a host process already listens on
+- TCP ports 22, 53, 80, 443, and 9443 and UDP ports 53 and 51820 are reserved
+  for SSH, cluster DNS, ingress, the controller API, and WireGuard. A port that a host process already listens on
   is reported as `node_port_unavailable` instead of being taken over.
 - Connections from the node to its own address are not translated. Test from
   another machine.
@@ -188,6 +188,21 @@ database.shop.svc.internal
 
 Only ready endpoints are returned. During a rolling update, old endpoints are
 removed after replacements become ready.
+
+## What workloads can reach
+
+Workloads reach other services through cluster DNS and can open outbound
+connections to the internet. On the worker they run on, they reach only:
+
+- cluster DNS;
+- HTTP ingress on ports 80 and 443, so an application can call its own
+  public domain;
+- the `publicPort` of raw TCP routes on that worker.
+
+Every other port on the worker, such as SSH, the controller API, or a database
+installed on the host, is refused. Cloud metadata endpoints in
+`169.254.0.0/16`, which hand out instance credentials, are refused as well.
+Run anything that workloads need as an orch service instead.
 
 ## Troubleshooting
 

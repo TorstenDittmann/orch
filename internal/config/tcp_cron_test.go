@@ -138,7 +138,7 @@ func TestValidateRejectsDependencyCycle(t *testing.T) {
 func TestValidateRejectsReservedTCPPortAndCronExtensions(t *testing.T) {
 	manifest := loadManifest(t, tcpCronManifest)
 	gitd := manifest.Services["gitd"]
-	reserved := 443
+	reserved := 22
 	gitd.TCP.PublicPort = &reserved
 	manifest.Services["gitd"] = gitd
 	job := manifest.CronJobs["backup-monitor"]

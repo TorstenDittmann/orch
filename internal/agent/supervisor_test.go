@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -300,8 +301,10 @@ func TestSupervisorPublishesReadyTCPRoute(t *testing.T) {
 	runtime := orchruntime.NewFake()
 	proxy := &fakeTCPIngress{}
 	now := supervisorTestTime
+	local := network.NewFake()
 	supervisor := NewSupervisorWithServices(cache, runtime, func() time.Time { return now }, SupervisorServices{
 		Prober: &health.Fake{}, Discovery: discovery.NewFake(), Ingress: &ingress.Fake{}, TCPIngress: proxy,
+		NodePorts: local,
 	})
 	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
 	if err != nil {
@@ -321,6 +324,10 @@ func TestSupervisorPublishesReadyTCPRoute(t *testing.T) {
 	routes := supervisor.TCPObservations()
 	if len(routes) != 1 || routes[0].State != model.TCPRouteActive || routes[0].UpstreamCount != 1 || len(proxy.routes) != 1 {
 		t.Fatalf("TCP routes = %#v, applied = %#v", routes, proxy.routes)
+	}
+	// Workloads on this node may reach the route's public port.
+	if !slices.Equal(local.IngressPorts, []uint16{9418}) {
+		t.Fatalf("ingress ports = %v, want [9418]", local.IngressPorts)
 	}
 }
 

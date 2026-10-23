@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/TorstenDittmann/orch/internal/model"
@@ -32,6 +33,22 @@ func (w *meshTestWireGuard) EnsureOwnership(context.Context) error { return w.ow
 func (w *meshTestWireGuard) Reconcile(context.Context, model.WireGuardConfig) error {
 	w.reconciled++
 	return nil
+}
+
+func TestMeshForwardsNodeLocalFirewallChanges(t *testing.T) {
+	local := NewFake()
+	mesh, err := NewMesh(local, &meshTestWireGuard{}, "10.0.0.11", model.DefaultWireGuardListenPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent hands the mesh to the supervisor as its node-port publisher.
+	var allower IngressPortAllower = mesh
+	if err := allower.AllowIngressPorts(context.Background(), []uint16{9418}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(local.IngressPorts, []uint16{9418}) {
+		t.Fatalf("ingress ports = %v", local.IngressPorts)
+	}
 }
 
 func TestMeshRunsSingleNodeWithoutKernelWireGuard(t *testing.T) {

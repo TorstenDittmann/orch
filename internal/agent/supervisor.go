@@ -1504,6 +1504,20 @@ func (s *Supervisor) NodePortObservations() []model.NodePortStatus {
 	return append([]model.NodePortStatus(nil), s.nodePorts...)
 }
 
+// allowIngressPorts lets local workloads reach this node's raw TCP route
+// listeners, so an application can call its own public address.
+func (s *Supervisor) allowIngressPorts(ctx context.Context, routes []tcpingress.Route) error {
+	allower, ok := s.publisher.(network.IngressPortAllower)
+	if !ok {
+		return nil
+	}
+	ports := make([]uint16, 0, len(routes))
+	for _, route := range routes {
+		ports = append(ports, uint16(route.PublicPort))
+	}
+	return allower.AllowIngressPorts(ctx, ports)
+}
+
 // publishNodePorts forwards the node-local ports of every ready local
 // allocation to its serving address. A port is published only for the
 // contract (desired or rollback) of the revision that is actually serving.
@@ -1639,6 +1653,12 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		if s.tcpIngress != nil {
 			s.tcpIngress.Apply(ctx, nil)
 		}
+		if err := s.allowIngressPorts(ctx, nil); err != nil {
+			networkStatus.State = model.NetworkFailed
+			networkStatus.Reason = "workload_firewall_failed"
+			networkStatus.Message = boundedMessage(err.Error())
+			return false, nil
+		}
 		if !dnsReady {
 			networkStatus.State = model.NetworkPending
 			networkStatus.Reason = "dns_pending"
@@ -1734,6 +1754,13 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		}
 	}
 	tcpRoutes := desiredTCPRoutes(routeAllocations, routeServing, routeSpecs)
+	if err := s.allowIngressPorts(ctx, tcpRoutes); err != nil {
+		activated = false
+		networkStatus.IngressState = model.SubsystemFailed
+		networkStatus.State = model.NetworkFailed
+		networkStatus.Reason = "workload_firewall_failed"
+		networkStatus.Message = boundedMessage(err.Error())
+	}
 	if len(tcpRoutes) == 0 {
 		s.tcpRoutes = nil
 		if s.tcpIngress != nil {

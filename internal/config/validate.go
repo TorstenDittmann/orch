@@ -32,7 +32,16 @@ const (
 	maxManifestStringBytes   = 4 << 10
 	// wireGuardPort is the default mesh port (model.DefaultWireGuardListenPort).
 	wireGuardPort = 51820
+	// controllerPort is the default controller API port (orch init --port).
+	controllerPort = 9443
 )
+
+const reservedTCPPortMessage = "port is reserved by orch DNS, HTTP ingress, SSH, or the controller API"
+
+// reservedTCPPort reports host TCP ports an application may never take over.
+func reservedTCPPort(port int) bool {
+	return port == 22 || port == 53 || port == 80 || port == 443 || port == controllerPort
+}
 
 var (
 	dnsLabelPattern  = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -243,8 +252,8 @@ func Validate(manifest *Manifest) error {
 				port := *service.TCP.PublicPort
 				if port < 1 || port > 65535 {
 					add(base+".tcp.public_port", "must be between 1 and 65535")
-				} else if port == 53 || port == 80 || port == 443 {
-					add(base+".tcp.public_port", "port is reserved by orch DNS or HTTP ingress")
+				} else if reservedTCPPort(port) {
+					add(base+".tcp.public_port", reservedTCPPortMessage)
 				} else if owner, exists := publicPortOwners[port]; exists {
 					add(base+".tcp.public_port", fmt.Sprintf("is already exposed by service %q", owner))
 				} else {
@@ -255,8 +264,8 @@ func Validate(manifest *Manifest) error {
 				port := *service.TCP.NodePort
 				if port < 1 || port > 65535 {
 					add(base+".tcp.node_port", "must be between 1 and 65535")
-				} else if port == 53 || port == 80 || port == 443 {
-					add(base+".tcp.node_port", "port is reserved by orch DNS or HTTP ingress")
+				} else if reservedTCPPort(port) {
+					add(base+".tcp.node_port", reservedTCPPortMessage)
 				}
 			}
 		}
