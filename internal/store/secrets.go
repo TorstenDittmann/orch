@@ -66,7 +66,8 @@ func (s *Store) HasEncryptedMaterial(ctx context.Context) (bool, error) {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM application_secret_versions) +
-		(SELECT count(*) FROM registry_credential_versions)`).Scan(&count); err != nil {
+		(SELECT count(*) FROM registry_credential_versions) +
+		(SELECT count(*) FROM cluster_notifications)`).Scan(&count); err != nil {
 		return false, fmt.Errorf("count encrypted material: %w", err)
 	}
 	return count != 0, nil

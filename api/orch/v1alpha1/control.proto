@@ -58,6 +58,10 @@ service ControlService {
   rpc CreateAccessToken(CreateAccessTokenRequest) returns (CreateAccessTokenResponse);
   rpc ListAccessTokens(ListAccessTokensRequest) returns (ListAccessTokensResponse);
   rpc DeleteAccessToken(DeleteAccessTokenRequest) returns (DeleteAccessTokenResponse);
+  rpc SetNotification(SetNotificationRequest) returns (SetNotificationResponse);
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  rpc TestNotification(TestNotificationRequest) returns (TestNotificationResponse);
 }
 
 enum ExecutionStatus {
@@ -878,6 +882,58 @@ message DeleteGitHubTrustRequest {
 
 message DeleteGitHubTrustResponse {
   bool changed = 1;
+}
+
+// Notification sends cluster events, and optionally the events of every
+// application, to a webhook. The URL is stored encrypted and never returned.
+message Notification {
+  string name = 1;
+  // slack, discord or webhook.
+  string kind = 2;
+  repeated string events = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message SetNotificationRequest {
+  // Defaults to kind.
+  string name = 1;
+  string kind = 2;
+  string url = 3;
+  // Defaults to the cluster events.
+  repeated string events = 4;
+}
+
+message SetNotificationResponse {
+  Notification notification = 1;
+}
+
+message ListNotificationsRequest {}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message DeleteNotificationRequest {
+  string name = 1;
+}
+
+message DeleteNotificationResponse {
+  bool changed = 1;
+}
+
+message TestNotificationRequest {
+  // Empty tests every notification.
+  string name = 1;
+}
+
+message TestNotificationResponse {
+  // One entry per notification tested; error is empty when it was delivered.
+  repeated TestNotificationResult results = 1;
+}
+
+message TestNotificationResult {
+  string name = 1;
+  string error = 2;
 }
 
 // AccessToken lets an agent or script outside the cluster deploy, or with

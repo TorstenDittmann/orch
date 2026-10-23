@@ -1,8 +1,12 @@
 # Notifications
 
-Tell orch where to report problems with an application, and it posts to Slack,
-Discord or any webhook when a deploy fails, a backup fails or a cron job fails.
-Like everything else, notifications live in `orch.pkl`.
+Tell orch where to report problems, and it posts to Slack, Discord or any
+webhook. Problems with an application, such as a failed deploy, backup or cron
+job, are set in that application's `orch.pkl`. Problems with the cluster
+itself, such as a lost node, are set once for the cluster with
+[`orch notify`](#cluster-notifications).
+
+## Application notifications
 
 ```pkl
 notifications {
@@ -21,7 +25,7 @@ appears in the manifest or its history:
 orch secret set shop slack-webhook --from-stdin <<< "https://hooks.slack.com/services/..."
 ```
 
-## Events
+### Events
 
 | Event | Sent when |
 | --- | --- |
@@ -36,7 +40,7 @@ A notification without `on` gets the failures: `deploy.failed`,
 `deploy.rolled_back`, `backup.failed` and `cron.failed`. Setting `on` replaces
 that list.
 
-## Targets
+### Targets
 
 | Class | Sends |
 | --- | --- |
@@ -64,6 +68,50 @@ A `Webhook` is sent:
 
 `data` is the underlying event; its fields depend on the event.
 
+## Cluster notifications
+
+One command sends cluster problems to Slack, and sends a test message so you
+know it works:
+
+```sh
+orch notify add slack https://hooks.slack.com/services/...
+```
+
+The URL is stored encrypted on the controller. Leave it out to read it from
+stdin instead, which keeps it out of your shell history. `discord` and
+`webhook` work the same way.
+
+| Event | Sent when |
+| --- | --- |
+| `node.lost` | A node has had no heartbeat for 3 minutes |
+| `node.disk_low` | A node's disk is 90% full; sent again only after it drops below 85% |
+| `certificate.expiring` | The controller, cluster CA, a node's agent or a recently used administrator certificate expires within 30 days |
+| `backup.stale` | The newest automatic controller backup is more than 2 days old |
+
+Each problem is sent once when it starts, and again only if it clears and
+comes back. Agents renew their certificates 90 days ahead, so an agent
+certificate reaching the 30-day line means renewal is failing on that node.
+
+`--on` picks the events instead. It can also name any application event,
+which is then sent for every application, so one channel can hear about
+everything:
+
+```sh
+orch notify add slack --name ops --on node.lost,deploy.failed,backup.failed < slack-url
+```
+
+```sh
+orch notify list               # name, kind and events
+orch notify test [NAME]        # send a test message now
+orch notify remove NAME
+```
+
+Each notification has a name, `slack` by default for `add slack`; adding the
+same name again replaces it. Slack and Discord get one line such as
+`[production] node web-2 is unreachable; last heartbeat 2026-10-23T14:03:00Z`.
+A `Webhook` gets the same JSON document as above, without `application`, and
+with `data` holding the node, the certificate or the message.
+
 ## Delivery
 
 The controller sends each event once, in order, and remembers where it got to
@@ -74,3 +122,8 @@ from before notifications were first configured on a cluster are not sent.
 
 A secret that a notification uses cannot be deleted while the application
 references it.
+
+Cluster problems are checked once a minute. A node that was already down
+while the controller itself was stopped counts as lost only 3 minutes after
+the controller starts again, so restarting the controller does not report
+every node.

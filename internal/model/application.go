@@ -159,6 +159,24 @@ type AccessToken struct {
 // instead of access to one application.
 func (token AccessToken) Administrator() bool { return token.Application == "" }
 
+// ClusterNotification is a webhook for cluster events, set with orch notify
+// add. Its URL is kept encrypted in the store.
+type ClusterNotification struct {
+	Name      string
+	Kind      string
+	Events    []string
+	CreatedAt time.Time
+}
+
+// ClusterAlert is the payload of a cluster event the controller raises
+// itself, such as a lost node.
+type ClusterAlert struct {
+	Node     string    `json:"node,omitempty"`
+	Subject  string    `json:"subject,omitempty"`
+	Message  string    `json:"message"`
+	NotAfter time.Time `json:"not_after,omitzero"`
+}
+
 type GitHubTrust struct {
 	Repository  string
 	Application string

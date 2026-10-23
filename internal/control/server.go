@@ -63,6 +63,7 @@ type Server struct {
 	imagesDone      chan struct{}
 	autoscaleDone   chan struct{}
 	notifyDone      chan struct{}
+	alertsDone      chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -154,7 +155,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithSendMaxBytes(maxHTTPBodyBytes),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(path, authenticateAdministrator(cluster.ID, http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
+	mux.Handle(path, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	adminMux.HandleFunc("/healthz", healthHandler)
@@ -224,11 +225,15 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
 		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
-		notifyDone: make(chan struct{}),
+		notifyDone: make(chan struct{}), alertsDone: make(chan struct{}),
 	}
 	go func() {
 		defer close(server.notifyDone)
 		newNotifier(state, secretBox, cluster.Name).run(reconcileContext)
+	}()
+	go func() {
+		defer close(server.alertsDone)
+		newClusterAlerts(implementation, credentials.Certificate.Leaf.NotAfter).run(reconcileContext)
 	}()
 	go func() {
 		defer close(server.upgradesDone)
@@ -330,6 +335,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.imagesDone
 		<-server.autoscaleDone
 		<-server.notifyDone
+		<-server.alertsDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {
