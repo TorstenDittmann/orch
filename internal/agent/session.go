@@ -42,6 +42,7 @@ const (
 
 type sessionRunner struct {
 	credentials            Credentials
+	registry               *controllerRegistry
 	cache                  *state.Store
 	supervisor             *Supervisor
 	capabilities           orchruntime.Capabilities

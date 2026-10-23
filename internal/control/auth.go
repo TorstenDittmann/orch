@@ -176,3 +176,15 @@ func requireChange(ctx context.Context) error {
 	}
 	return nil
 }
+
+// requireAgentHTTP rejects plain HTTP requests that authenticateAgent did not
+// admit, for handlers outside Connect.
+func requireAgentHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if _, err := requireAgent(request.Context()); err != nil {
+			http.Error(response, "agent credentials are required", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(response, request)
+	})
+}

@@ -21,6 +21,7 @@ import (
 
 	containerdclient "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/leases"
+	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/containerd/v2/pkg/cio"
@@ -53,6 +54,7 @@ type runtimeClient struct {
 	networkCapabilities network.Capabilities
 	networkPreflightErr error
 	attachmentStore     network.AttachmentStore
+	controllerRegistry  orchruntime.ControllerRegistry
 }
 
 func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error) {
@@ -182,6 +184,14 @@ func (c *runtimeClient) SetAttachmentStore(store network.AttachmentStore) {
 	c.mu.Lock()
 	c.attachmentStore = store
 	c.mu.Unlock()
+}
+
+// SetControllerRegistry lets the runtime pull images uploaded to the
+// controller.
+func (c *runtimeClient) SetControllerRegistry(registry orchruntime.ControllerRegistry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.controllerRegistry = registry
 }
 
 func (c *runtimeClient) networkAttachmentStore() network.AttachmentStore {
@@ -371,6 +381,19 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 		containerdclient.WithPullSnapshotter(c.options.Snapshotter),
 		containerdclient.WithPlatform(platforms.DefaultString()),
 	}
+	if resolver := c.controllerResolver(ctx, reference); resolver != nil {
+		image, err = c.client.Pull(ctx, reference, append(pullOptions, containerdclient.WithResolver(resolver))...)
+		if err != nil {
+			if strings.Contains(err.Error(), "no match for platform") {
+				return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("the image was built for another platform than this node's %s; rebuild it with --platform %s", platforms.DefaultString(), platforms.DefaultString())}
+			}
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("pull the uploaded image from the controller: %w", err)}
+		}
+		if !imageMatchesDigest(image, reference) {
+			return nil, &orchruntime.ImagePullError{Image: reference, Err: errors.New("the pulled image does not match its digest")}
+		}
+		return image, nil
+	}
 	if credential := allocation.RegistryCredential; credential != nil {
 		secret := append([]byte(nil), allocation.RuntimeRegistrySecrets[credential.VersionID]...)
 		if len(secret) == 0 {
@@ -397,6 +420,34 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 		return nil, &orchruntime.ImagePullError{Image: reference, Err: errors.New("the pulled image does not match its digest")}
 	}
 	return image, nil
+}
+
+// controllerResolver returns a resolver for the controller when it holds the
+// image, which orch deploy uploaded from a local engine, and nil otherwise so
+// the image is pulled from its registry.
+func (c *runtimeClient) controllerResolver(ctx context.Context, reference string) remotes.Resolver {
+	c.mu.RLock()
+	registry := c.controllerRegistry
+	c.mu.RUnlock()
+	if registry == nil || !strings.Contains(reference, "@") {
+		return nil
+	}
+	host, client := registry()
+	if host == "" || client == nil {
+		return nil
+	}
+	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: func(string) ([]docker.RegistryHost, error) {
+		return []docker.RegistryHost{{
+			Client: client, Host: host, Scheme: "https", Path: "/v2",
+			Capabilities: docker.HostCapabilityPull | docker.HostCapabilityResolve,
+		}}, nil
+	}})
+	probe, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if _, _, err := resolver.Resolve(probe, reference); err != nil {
+		return nil
+	}
+	return resolver
 }
 
 func wipeSecretBytes(value []byte) {
