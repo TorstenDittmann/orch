@@ -1,7 +1,10 @@
 package ingress
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"strings"
 	"testing"
 
@@ -101,5 +104,30 @@ func TestRenderRejectsUnsafeRoutePolicy(t *testing.T) {
 				t.Fatal("Render() accepted an unsafe route")
 			}
 		})
+	}
+}
+
+func TestProbeUpstreamsSeesPastBasicAuth(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := listener.Addr().String()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := closed.Addr().String()
+	_ = closed.Close()
+	defer listener.Close()
+
+	route := Route{Domain: "example.com", Upstreams: []string{dead, live}}
+	if err := probeUpstreams(context.Background(), route); err != nil {
+		t.Fatalf("probeUpstreams() with a live upstream = %v", err)
+	}
+	route.Upstreams = []string{dead}
+	var status *routeStatusError
+	if err := probeUpstreams(context.Background(), route); !errors.As(err, &status) || status.status != 502 {
+		t.Fatalf("probeUpstreams() with no live upstream = %v, want 502", err)
 	}
 }
