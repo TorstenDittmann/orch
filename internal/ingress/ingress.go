@@ -18,6 +18,10 @@ type Route struct {
 	Domain      string
 	HTTPS       bool
 	Upstreams   []string
+	// BasicAuth, when set, is checked before a request reaches an upstream.
+	BasicAuth *model.HTTPBasicAuth
+	// RedirectFrom lists domains that permanently redirect to Domain.
+	RedirectFrom []string
 }
 
 type Controller interface {
@@ -71,6 +75,7 @@ func cloneRoutes(input []Route) []Route {
 	for index, route := range input {
 		result[index] = route
 		result[index].Upstreams = append([]string(nil), route.Upstreams...)
+		result[index].RedirectFrom = append([]string(nil), route.RedirectFrom...)
 	}
 	return result
 }

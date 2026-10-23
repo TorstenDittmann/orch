@@ -250,6 +250,10 @@ func localizeDevManifest(manifest *config.Manifest, httpPort int) ([]string, []d
 			domain := name + "." + manifest.Name + ".localhost"
 			service.HTTP.Domains = []string{domain}
 			service.HTTP.HTTPS = false
+			// Redirects name production domains, and a local app needs no
+			// password prompt.
+			service.HTTP.Redirects = nil
+			service.HTTP.BasicAuth = nil
 			urls = append(urls, "http://"+domain+suffix)
 		}
 		if service.TCP != nil && service.TCP.PublicPort != nil {

@@ -2265,7 +2265,8 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 		}
 		if (endpoint.HTTPPublic || len(endpoint.Domains) != 0) &&
 			(!endpoint.HTTPNodeLocal || endpoint.NodeID == assignment.NodeID) {
-			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS}
+			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS,
+				BasicAuth: endpoint.BasicAuth, Redirects: cloneStringMap(endpoint.Redirects)}
 		}
 		if endpoint.TCPPublicPort != 0 {
 			allocation.TCP = &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort}
@@ -2504,13 +2505,21 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 		if contract.Public {
 			candidates[model.PublicHTTPRoute] = append(candidates[model.PublicHTTPRoute], routeCandidate{owner: key, route: ingress.Route{
 				Application: key.application, Service: key.service, Domain: model.PublicHTTPRoute,
-				Upstreams: append([]string(nil), upstreams...),
+				Upstreams: append([]string(nil), upstreams...), BasicAuth: contract.BasicAuth,
 			}})
 		}
 		for _, domain := range contract.Domains {
+			var redirectFrom []string
+			for from, to := range contract.Redirects {
+				if to == domain {
+					redirectFrom = append(redirectFrom, from)
+				}
+			}
+			sort.Strings(redirectFrom)
 			candidates[domain] = append(candidates[domain], routeCandidate{owner: key, route: ingress.Route{
 				Application: key.application, Service: key.service, Domain: domain,
 				HTTPS: contract.HTTPS, Upstreams: append([]string(nil), upstreams...),
+				BasicAuth: contract.BasicAuth, RedirectFrom: redirectFrom,
 			}})
 		}
 	}
