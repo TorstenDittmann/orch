@@ -171,7 +171,7 @@ dump and load it yourself with `orch exec`.
 
 - A database runs one replica on one node, like any service with a local
   volume. There is no replication or failover.
-- Backups stay on the database's node. Copy them elsewhere with `orch volume
-  download` if you need them off the node.
+- Backups stay on the database's node unless a
+  [backup destination](operations.md#off-host-backups) copies them to S3.
 - Removing a database from `orch.pkl` stops it. Its secrets stay until you
   delete them with `orch secret delete`.

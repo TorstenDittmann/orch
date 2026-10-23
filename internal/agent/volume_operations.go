@@ -83,6 +83,24 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_READ:
 		r.readVolumeBackup(ctx, command, send, fail)
+	case orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD:
+		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize())
+		if err != nil {
+			fail(err)
+			return
+		}
+		send(&orchv1alpha1.VolumeResponse{Etags: etags, Complete: true})
+	case orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH:
+		if len(command.GetUrls()) != 1 {
+			fail(errors.New("fetch needs one URL"))
+			return
+		}
+		backup, err := r.volumes.fetch(ctx, application, volume, command.GetBackup(), command.GetUrls()[0])
+		if err != nil {
+			fail(err)
+			return
+		}
+		send(&orchv1alpha1.VolumeResponse{Backup: volumeBackupMessage(backup), Complete: true})
 	default:
 		fail(errors.New("unsupported volume action"))
 	}

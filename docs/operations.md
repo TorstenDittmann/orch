@@ -226,7 +226,8 @@ controller identity. `orch status` shows the newest one and warns when it is
 older than 2 days or the last attempt failed.
 
 Those backups protect against a bad change or a damaged database, not against
-losing the host. Copy them off the controller regularly, for example:
+losing the host. Set a [backup destination](#off-host-backups) to copy them
+off the controller, or copy them yourself, for example:
 
 ```console
 sudo rsync -a /var/lib/orch-controller/backups/ backup-host:/srv/orch-backups/
@@ -299,8 +300,68 @@ before a restore are never pruned; delete them from the backup directory when
 you no longer need them.
 
 Like controller backups, these protect against mistakes and damaged data, not
-against losing the worker. Copy them off the worker, for example with `rsync`,
-or download them with `orch volume download`.
+against losing the worker, unless a [backup destination](#off-host-backups)
+copies them off it.
+
+## Off-host backups
+
+Point the cluster at an S3 bucket once, and every backup is copied there:
+
+```console
+orch backup destination set s3://acme-backups/production
+```
+
+Any S3-compatible service works. Leave out `--endpoint` for AWS; for others
+pass the service's endpoint, for example
+`--endpoint https://ACCOUNT.r2.cloudflarestorage.com` for Cloudflare R2,
+`--endpoint https://s3.eu-central-003.backblazeb2.com` for Backblaze B2,
+`--endpoint https://fsn1.your-objectstorage.com` for Hetzner, or your MinIO
+address. The region is detected. The access key comes from
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or is asked for, and is
+stored encrypted on the controller. Workers never get it: the controller
+hands them short-lived presigned URLs for each upload and download.
+
+`set` checks that the key can write to the bucket and claims the prefix for
+this cluster with an `orch-cluster` file, so two clusters cannot share a
+prefix and prune each other's backups.
+
+From then on:
+
+- Volume and database backups, scheduled and manual, are copied to
+  `PREFIX/volumes/APP/VOLUME/` within 15 minutes, and right away after
+  `orch volume backup` or `orch db backup`. The bucket keeps the same number
+  of scheduled backups as the volume's `keep`; manual and before-restore
+  backups stay until you delete them.
+- The controller's daily backups are copied to `PREFIX/controller/`, and the
+  bucket keeps as many as the controller does.
+- A copy that fails is retried on the next run. It raises the application's
+  `backup.failed` [notification](notifications.md), and `orch status` and
+  `orch backup destination` show it. The
+  `orch_backup_upload_failed` and `orch_backup_upload_timestamp_seconds`
+  metrics follow it too.
+
+`orch volume backups` and `orch db backups` list each backup with where it is
+stored. `orch volume restore` and `orch db restore` download a backup the node
+no longer has from the bucket first, so after a worker is lost and its
+volumes move with `orch node remove --lost --confirm-fenced`, restore works on
+the new node:
+
+```console
+orch db restore shop main
+```
+
+If the controller host is lost, restore it on a new host straight from the
+bucket, then continue with [recovery](security.md#recovery):
+
+```console
+sudo -E orch cluster restore --from s3://acme-backups/production \
+  --data-dir /var/lib/orch-controller.restored
+```
+
+The bucket holds the controller's secret-encryption key and every volume's
+data, so treat its access key like an administrator credential, and prefer a
+bucket with versioning or object lock so a leaked key cannot delete history.
+`orch backup destination remove` stops copying; what is in the bucket stays.
 
 ## Upgrades
 

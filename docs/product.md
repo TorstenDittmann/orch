@@ -43,7 +43,7 @@ orch installs and manages its own services, but you remain responsible for:
 - DNS and public routing;
 - operating-system security updates;
 - access to the hosts;
-- backup retention outside the controller;
+- a bucket for off-host backups, if you want them;
 - monitoring application behavior beyond declared health checks.
 
 Start with the [installation guide](installation.md), or review

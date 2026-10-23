@@ -183,6 +183,15 @@ const (
 	// ControlServiceTestNotificationProcedure is the fully-qualified name of the ControlService's
 	// TestNotification RPC.
 	ControlServiceTestNotificationProcedure = "/orch.v1alpha1.ControlService/TestNotification"
+	// ControlServiceSetBackupDestinationProcedure is the fully-qualified name of the ControlService's
+	// SetBackupDestination RPC.
+	ControlServiceSetBackupDestinationProcedure = "/orch.v1alpha1.ControlService/SetBackupDestination"
+	// ControlServiceGetBackupDestinationProcedure is the fully-qualified name of the ControlService's
+	// GetBackupDestination RPC.
+	ControlServiceGetBackupDestinationProcedure = "/orch.v1alpha1.ControlService/GetBackupDestination"
+	// ControlServiceRemoveBackupDestinationProcedure is the fully-qualified name of the
+	// ControlService's RemoveBackupDestination RPC.
+	ControlServiceRemoveBackupDestinationProcedure = "/orch.v1alpha1.ControlService/RemoveBackupDestination"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -240,6 +249,9 @@ type ControlServiceClient interface {
 	ListNotifications(context.Context, *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error)
 	DeleteNotification(context.Context, *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error)
 	TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error)
+	SetBackupDestination(context.Context, *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error)
+	GetBackupDestination(context.Context, *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error)
+	RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -565,63 +577,84 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("TestNotification")),
 			connect.WithClientOptions(opts...),
 		),
+		setBackupDestination: connect.NewClient[v1alpha1.SetBackupDestinationRequest, v1alpha1.SetBackupDestinationResponse](
+			httpClient,
+			baseURL+ControlServiceSetBackupDestinationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SetBackupDestination")),
+			connect.WithClientOptions(opts...),
+		),
+		getBackupDestination: connect.NewClient[v1alpha1.GetBackupDestinationRequest, v1alpha1.GetBackupDestinationResponse](
+			httpClient,
+			baseURL+ControlServiceGetBackupDestinationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetBackupDestination")),
+			connect.WithClientOptions(opts...),
+		),
+		removeBackupDestination: connect.NewClient[v1alpha1.RemoveBackupDestinationRequest, v1alpha1.RemoveBackupDestinationResponse](
+			httpClient,
+			baseURL+ControlServiceRemoveBackupDestinationProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RemoveBackupDestination")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	runJob               *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
-	runCronJob           *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
-	getJob               *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
-	listJobs             *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
-	cancelJob            *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
-	retryJob             *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
-	getCluster           *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
-	getApplication       *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
-	listDeployments      *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
-	getDeployment        *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
-	compareDeployments   *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
-	rollbackApplication  *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
-	listApplications     *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
-	listRuntimes         *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
-	listEvents           *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
-	listRecentEvents     *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
-	applyApplication     *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
-	enrollAgent          *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
-	listNodes            *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
-	getNodeUsage         *connect.Client[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse]
-	removeApplication    *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
-	tailLogs             *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
-	exec                 *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	restartService       *connect.Client[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse]
-	listVolumes          *connect.Client[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse]
-	backupVolume         *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
-	restoreVolume        *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
-	downloadVolumeBackup *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
-	configureNetwork     *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
-	listCronRuns         *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
-	tailCronLogs         *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
-	setSecret            *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
-	listSecrets          *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
-	deleteSecret         *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
-	loginRegistry        *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
-	listRegistries       *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
-	logoutRegistry       *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
-	updateNode           *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
-	removeNode           *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
-	createJoinToken      *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
-	listJoinTokens       *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
-	revokeJoinToken      *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
-	setGitHubTrust       *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
-	listGitHubTrusts     *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
-	deleteGitHubTrust    *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
-	createAccessToken    *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
-	listAccessTokens     *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
-	deleteAccessToken    *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
-	setNotification      *connect.Client[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse]
-	listNotifications    *connect.Client[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse]
-	deleteNotification   *connect.Client[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse]
-	testNotification     *connect.Client[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse]
+	runJob                  *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
+	runCronJob              *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
+	getJob                  *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
+	listJobs                *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
+	cancelJob               *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
+	retryJob                *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
+	getCluster              *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
+	getApplication          *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listDeployments         *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
+	getDeployment           *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
+	compareDeployments      *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
+	rollbackApplication     *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
+	listApplications        *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
+	listRuntimes            *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
+	listEvents              *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	listRecentEvents        *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
+	applyApplication        *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	enrollAgent             *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
+	listNodes               *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	getNodeUsage            *connect.Client[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse]
+	removeApplication       *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
+	tailLogs                *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
+	exec                    *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	restartService          *connect.Client[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse]
+	listVolumes             *connect.Client[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse]
+	backupVolume            *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
+	restoreVolume           *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
+	downloadVolumeBackup    *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
+	configureNetwork        *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
+	listCronRuns            *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
+	tailCronLogs            *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
+	setSecret               *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
+	listSecrets             *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
+	deleteSecret            *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
+	loginRegistry           *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
+	listRegistries          *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
+	logoutRegistry          *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	updateNode              *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
+	removeNode              *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	createJoinToken         *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
+	listJoinTokens          *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
+	revokeJoinToken         *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+	setGitHubTrust          *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
+	listGitHubTrusts        *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
+	deleteGitHubTrust       *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
+	createAccessToken       *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
+	listAccessTokens        *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
+	deleteAccessToken       *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
+	setNotification         *connect.Client[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse]
+	listNotifications       *connect.Client[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse]
+	deleteNotification      *connect.Client[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse]
+	testNotification        *connect.Client[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse]
+	setBackupDestination    *connect.Client[v1alpha1.SetBackupDestinationRequest, v1alpha1.SetBackupDestinationResponse]
+	getBackupDestination    *connect.Client[v1alpha1.GetBackupDestinationRequest, v1alpha1.GetBackupDestinationResponse]
+	removeBackupDestination *connect.Client[v1alpha1.RemoveBackupDestinationRequest, v1alpha1.RemoveBackupDestinationResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -886,6 +919,21 @@ func (c *controlServiceClient) TestNotification(ctx context.Context, req *connec
 	return c.testNotification.CallUnary(ctx, req)
 }
 
+// SetBackupDestination calls orch.v1alpha1.ControlService.SetBackupDestination.
+func (c *controlServiceClient) SetBackupDestination(ctx context.Context, req *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error) {
+	return c.setBackupDestination.CallUnary(ctx, req)
+}
+
+// GetBackupDestination calls orch.v1alpha1.ControlService.GetBackupDestination.
+func (c *controlServiceClient) GetBackupDestination(ctx context.Context, req *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error) {
+	return c.getBackupDestination.CallUnary(ctx, req)
+}
+
+// RemoveBackupDestination calls orch.v1alpha1.ControlService.RemoveBackupDestination.
+func (c *controlServiceClient) RemoveBackupDestination(ctx context.Context, req *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error) {
+	return c.removeBackupDestination.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
@@ -941,6 +989,9 @@ type ControlServiceHandler interface {
 	ListNotifications(context.Context, *connect.Request[v1alpha1.ListNotificationsRequest]) (*connect.Response[v1alpha1.ListNotificationsResponse], error)
 	DeleteNotification(context.Context, *connect.Request[v1alpha1.DeleteNotificationRequest]) (*connect.Response[v1alpha1.DeleteNotificationResponse], error)
 	TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error)
+	SetBackupDestination(context.Context, *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error)
+	GetBackupDestination(context.Context, *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error)
+	RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1262,6 +1313,24 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("TestNotification")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceSetBackupDestinationHandler := connect.NewUnaryHandler(
+		ControlServiceSetBackupDestinationProcedure,
+		svc.SetBackupDestination,
+		connect.WithSchema(controlServiceMethods.ByName("SetBackupDestination")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetBackupDestinationHandler := connect.NewUnaryHandler(
+		ControlServiceGetBackupDestinationProcedure,
+		svc.GetBackupDestination,
+		connect.WithSchema(controlServiceMethods.ByName("GetBackupDestination")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceRemoveBackupDestinationHandler := connect.NewUnaryHandler(
+		ControlServiceRemoveBackupDestinationProcedure,
+		svc.RemoveBackupDestination,
+		connect.WithSchema(controlServiceMethods.ByName("RemoveBackupDestination")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
@@ -1368,6 +1437,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceDeleteNotificationHandler.ServeHTTP(w, r)
 		case ControlServiceTestNotificationProcedure:
 			controlServiceTestNotificationHandler.ServeHTTP(w, r)
+		case ControlServiceSetBackupDestinationProcedure:
+			controlServiceSetBackupDestinationHandler.ServeHTTP(w, r)
+		case ControlServiceGetBackupDestinationProcedure:
+			controlServiceGetBackupDestinationHandler.ServeHTTP(w, r)
+		case ControlServiceRemoveBackupDestinationProcedure:
+			controlServiceRemoveBackupDestinationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1583,4 +1658,16 @@ func (UnimplementedControlServiceHandler) DeleteNotification(context.Context, *c
 
 func (UnimplementedControlServiceHandler) TestNotification(context.Context, *connect.Request[v1alpha1.TestNotificationRequest]) (*connect.Response[v1alpha1.TestNotificationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.TestNotification is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SetBackupDestination(context.Context, *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.SetBackupDestination is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetBackupDestination(context.Context, *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetBackupDestination is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveBackupDestination is not implemented"))
 }

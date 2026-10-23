@@ -26,6 +26,8 @@ type backupScheduler struct {
 	dataDir string
 	keep    int
 	now     func() time.Time
+	// written is called after each new backup set, to copy it off the host.
+	written func()
 
 	mu       sync.Mutex
 	latest   clusterctl.BackupSet
@@ -89,6 +91,9 @@ func (b *backupScheduler) runOnce(ctx context.Context) {
 	}
 	if err := clusterctl.PruneBackupSets(b.dataDir, b.keep); err != nil {
 		log.Printf("controller: prune old backups: %v", err)
+	}
+	if b.written != nil {
+		b.written()
 	}
 }
 

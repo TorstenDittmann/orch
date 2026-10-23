@@ -28,9 +28,11 @@ Usage:
   orch volume restore APP VOLUME BACKUP [--target NAME] [--json]
   orch volume download APP VOLUME BACKUP [--output FILE|-] [--target NAME]
 
-Backups are archives kept on the node that holds the volume. Restoring stops
-the service that mounts the volume, swaps in the backup, and starts it again;
-the volume's previous contents are kept as a backup first.`)
+Backups are archives kept on the node that holds the volume, and copied to
+the bucket when orch backup destination is set. Restoring stops the service
+that mounts the volume, swaps in the backup, and starts it again; the
+volume's previous contents are kept as a backup first. A backup that is only
+in the bucket is downloaded to the node first.`)
 }
 
 func runVolume(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -98,6 +100,8 @@ type volumeBackupOutput struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	SizeBytes uint64    `json:"size_bytes"`
+	OnNode    bool      `json:"on_node"`
+	InBucket  bool      `json:"in_bucket"`
 }
 
 type volumeOutput struct {
@@ -115,7 +119,8 @@ type volumeOutput struct {
 }
 
 func volumeBackupJSON(backup *orchv1alpha1.VolumeBackupInfo) volumeBackupOutput {
-	return volumeBackupOutput{Name: backup.GetName(), CreatedAt: backup.GetCreatedAt().AsTime().UTC(), SizeBytes: backup.GetSizeBytes()}
+	return volumeBackupOutput{Name: backup.GetName(), CreatedAt: backup.GetCreatedAt().AsTime().UTC(), SizeBytes: backup.GetSizeBytes(),
+		OnNode: backup.GetOnNode(), InBucket: backup.GetInBucket()}
 }
 
 func volumeJSON(volume *orchv1alpha1.VolumeSummary) volumeOutput {
@@ -197,7 +202,7 @@ func volumeBackupSummary(volume *orchv1alpha1.VolumeSummary, now time.Time) stri
 	switch {
 	case volume.GetNode() == "":
 		parts = append(parts, "not on a node yet")
-	case !volume.GetReachable():
+	case !volume.GetReachable() && len(volume.GetBackups()) == 0:
 		parts = append(parts, "node unreachable")
 	case len(volume.GetBackups()) == 0:
 		parts = append(parts, "none yet")
@@ -208,6 +213,9 @@ func volumeBackupSummary(volume *orchv1alpha1.VolumeSummary, now time.Time) stri
 			age += " ago"
 		}
 		parts = append(parts, fmt.Sprintf("%d, latest %s (%s)", volume.GetBackupCount(), latest.GetName(), age))
+		if !volume.GetReachable() {
+			parts = append(parts, "node unreachable")
+		}
 	}
 	if volume.GetBackupFailure() != "" {
 		parts = append(parts, "LAST BACKUP FAILED: "+volume.GetBackupFailure())
@@ -248,8 +256,11 @@ func runVolumeBackups(ctx context.Context, args []string, stdout, stderr io.Writ
 		return writeJSON(stdout, stderr, volumeJSON(volume))
 	}
 	if volume.GetNode() != "" && !volume.GetReachable() {
-		writeError(stderr, fmt.Errorf("node %q that holds volume %q is not reachable", volume.GetNode(), name), false)
-		return ExitRuntime
+		if len(volume.GetBackups()) == 0 {
+			writeError(stderr, fmt.Errorf("node %q that holds volume %q is not reachable", volume.GetNode(), name), false)
+			return ExitRuntime
+		}
+		fmt.Fprintf(stdout, "Node %s is not reachable; listing the backups in the bucket.\n\n", volume.GetNode())
 	}
 	if volume.GetBackupFailure() != "" {
 		fmt.Fprintf(stdout, "Last scheduled backup failed at %s: %s\n\n",
@@ -260,15 +271,28 @@ func runVolumeBackups(ctx context.Context, args []string, stdout, stderr io.Writ
 		return ExitOK
 	}
 	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "BACKUP\tCREATED\tSIZE")
+	fmt.Fprintln(table, "BACKUP\tCREATED\tSIZE\tSTORED")
 	for _, backup := range volume.GetBackups() {
-		fmt.Fprintf(table, "%s\t%s\t%s\n", backup.GetName(), backup.GetCreatedAt().AsTime().UTC().Format(time.RFC3339), formatSize(backup.GetSizeBytes()))
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", backup.GetName(), backup.GetCreatedAt().AsTime().UTC().Format(time.RFC3339),
+			formatSize(backup.GetSizeBytes()), backupLocation(backup))
 	}
 	if err := table.Flush(); err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+// backupLocation says where copies of a backup are.
+func backupLocation(backup *orchv1alpha1.VolumeBackupInfo) string {
+	switch {
+	case backup.GetOnNode() && backup.GetInBucket():
+		return "node, bucket"
+	case backup.GetInBucket():
+		return "bucket"
+	default:
+		return "node"
+	}
 }
 
 func runVolumeBackup(ctx context.Context, args []string, stdout, stderr io.Writer) int {

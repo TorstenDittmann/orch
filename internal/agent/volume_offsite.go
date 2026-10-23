@@ -1,0 +1,178 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// maxUploadParts bounds how many presigned part URLs one upload may carry.
+const maxUploadParts = 10000
+
+// offsiteHTTP talks to the bucket through presigned URLs, so the agent never
+// holds the bucket's credentials.
+var offsiteHTTP = &http.Client{Transport: &http.Transport{
+	Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 30 * time.Second,
+	ResponseHeaderTimeout: 5 * time.Minute, IdleConnTimeout: time.Minute,
+}}
+
+func checkPresignedURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return errors.New("invalid presigned URL")
+	}
+	return nil
+}
+
+// upload copies a local backup to the bucket. One URL takes the whole
+// archive; several take consecutive parts of partSize bytes and the ETag of
+// each part is returned for completing the multipart upload.
+func (v *volumeBackups) upload(ctx context.Context, application, volume, name string, urls []string, partSize uint64) ([]string, error) {
+	if len(urls) == 0 || len(urls) > maxUploadParts {
+		return nil, errors.New("upload needs between 1 and 10000 URLs")
+	}
+	for _, target := range urls {
+		if err := checkPresignedURL(target); err != nil {
+			return nil, err
+		}
+	}
+	path, err := v.path(application, volume, name)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errVolumeBackupNotFound
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := uint64(info.Size())
+	if len(urls) == 1 {
+		partSize = size
+	} else if partSize == 0 || uint64(len(urls)-1)*partSize >= size || uint64(len(urls))*partSize < size {
+		return nil, fmt.Errorf("%d parts of %d bytes do not cover a %d byte backup", len(urls), partSize, size)
+	}
+	etags := make([]string, 0, len(urls))
+	for index, target := range urls {
+		offset := uint64(index) * partSize
+		length := min(partSize, size-offset)
+		etag, err := putPart(ctx, target, io.NewSectionReader(file, int64(offset), int64(length)), int64(length))
+		if err != nil {
+			if len(urls) > 1 {
+				return nil, fmt.Errorf("upload part %d of %d: %w", index+1, len(urls), err)
+			}
+			return nil, fmt.Errorf("upload: %w", err)
+		}
+		etags = append(etags, etag)
+	}
+	return etags, nil
+}
+
+func putPart(ctx context.Context, target string, body io.Reader, length int64) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, target, body)
+	if err != nil {
+		return "", err
+	}
+	request.ContentLength = length
+	if length == 0 {
+		request.Body = http.NoBody
+	}
+	response, err := offsiteHTTP.Do(request)
+	if err != nil {
+		return "", redactURLError(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		detail, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return "", fmt.Errorf("bucket answered %s: %s", response.Status, boundedMessage(string(detail)))
+	}
+	return response.Header.Get("ETag"), nil
+}
+
+// fetch downloads a backup from the bucket into this node's backups, so it
+// can be restored like one taken here. A backup that is already here is
+// kept as it is.
+func (v *volumeBackups) fetch(ctx context.Context, application, volume, name, source string) (VolumeBackup, error) {
+	backup, ok := parseVolumeBackupName(name + volumeBackupExtension)
+	if !ok {
+		return VolumeBackup{}, errVolumeBackupNotFound
+	}
+	if err := checkPresignedURL(source); err != nil {
+		return VolumeBackup{}, err
+	}
+	unlock := v.lock(application, volume)
+	defer unlock()
+	if path, err := v.path(application, volume, name); err == nil {
+		if info, err := os.Stat(path); err == nil {
+			backup.Size = info.Size()
+			return backup, nil
+		}
+	}
+	directory := v.archiveDir(application, volume)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return VolumeBackup{}, err
+	}
+	scratch, err := os.MkdirTemp(directory, ".partial-")
+	if err != nil {
+		return VolumeBackup{}, err
+	}
+	defer os.RemoveAll(scratch)
+	staged := filepath.Join(scratch, "archive"+volumeBackupExtension)
+	size, err := download(ctx, source, staged)
+	if err != nil {
+		return VolumeBackup{}, fmt.Errorf("download backup %s from the bucket: %w", name, err)
+	}
+	if err := os.Rename(staged, filepath.Join(directory, name+volumeBackupExtension)); err != nil {
+		return VolumeBackup{}, err
+	}
+	backup.Size = size
+	return backup, nil
+}
+
+func download(ctx context.Context, source, destination string) (int64, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return 0, err
+	}
+	response, err := offsiteHTTP.Do(request)
+	if err != nil {
+		return 0, redactURLError(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("bucket answered %s", response.Status)
+	}
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	size, copyErr := io.Copy(file, response.Body)
+	if syncErr := file.Sync(); copyErr == nil {
+		copyErr = syncErr
+	}
+	if closeErr := file.Close(); copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr == nil && response.ContentLength >= 0 && size != response.ContentLength {
+		copyErr = fmt.Errorf("download ended after %d of %d bytes", size, response.ContentLength)
+	}
+	return size, copyErr
+}
+
+// redactURLError keeps presigned signatures out of error messages.
+func redactURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
+}

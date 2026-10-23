@@ -79,6 +79,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return runExec(ctx, args[1:], stdout, stderr)
 	case "restart":
 		return runRestart(ctx, args[1:], stdout, stderr)
+	case "backup":
+		return runBackup(ctx, args[1:], stdout, stderr)
 	case "volume":
 		return runVolume(ctx, args[1:], stdout, stderr)
 	case "db":
@@ -298,6 +300,9 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	if backup != nil {
 		fmt.Fprintf(stdout, "Backups:    %s\n", backupSummary(backup, now))
+		if backup.GetDestination() != "" {
+			fmt.Fprintf(stdout, "Off-host:   %s\n", offsiteSummary(backup))
+		}
 	}
 	return ExitOK
 }
@@ -311,6 +316,11 @@ type backupStatus struct {
 	LatestPath string     `json:"latest_path,omitempty"`
 	FailedAt   *time.Time `json:"failed_at,omitempty"`
 	Failure    string     `json:"failure,omitempty"`
+	// Destination is the bucket every backup is copied to, when one is set.
+	Destination    string     `json:"destination,omitempty"`
+	UploadedAt     *time.Time `json:"uploaded_at,omitempty"`
+	UploadFailedAt *time.Time `json:"upload_failed_at,omitempty"`
+	UploadFailure  string     `json:"upload_failure,omitempty"`
 }
 
 func backupStatusJSON(backup *orchv1alpha1.ControllerBackup) *backupStatus {
@@ -326,7 +336,29 @@ func backupStatusJSON(backup *orchv1alpha1.ControllerBackup) *backupStatus {
 		failed := value.AsTime()
 		status.FailedAt = &failed
 	}
+	status.Destination, status.UploadFailure = backup.GetDestination(), backup.GetUploadFailure()
+	if value := backup.GetUploadedAt(); value != nil && value.CheckValid() == nil {
+		uploaded := value.AsTime()
+		status.UploadedAt = &uploaded
+	}
+	if value := backup.GetUploadFailedAt(); value != nil && value.CheckValid() == nil {
+		failed := value.AsTime()
+		status.UploadFailedAt = &failed
+	}
 	return status
+}
+
+func offsiteSummary(backup *orchv1alpha1.ControllerBackup) string {
+	summary := backup.GetDestination()
+	switch {
+	case backup.GetUploadFailure() != "":
+		summary += "; last copy failed: " + backup.GetUploadFailure()
+	case backup.GetUploadedAt() != nil && backup.GetUploadedAt().CheckValid() == nil:
+		summary += ", all copied as of " + backup.GetUploadedAt().AsTime().UTC().Format(time.RFC3339)
+	default:
+		summary += ", first copy pending"
+	}
+	return summary
 }
 
 func backupSummary(backup *orchv1alpha1.ControllerBackup, now time.Time) string {
@@ -1078,6 +1110,7 @@ Usage:
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+  orch cluster restore --from s3://BUCKET[/PREFIX] [--backup NAME] [--endpoint URL] --data-dir NEW_DIR [--json]
   orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]
   orch target add NAME ssh://[USER@]HOST[:PORT] [--use]
   orch target import NAME CONTEXT [--use]
@@ -1107,6 +1140,7 @@ Usage:
   orch exec APP SERVICE --replica N [--target NAME] -- COMMAND [ARG...]
   orch restart APP [SERVICE] [--replica N] [--target NAME]
   orch volume list|backups|backup|restore|download ... [--target NAME]
+  orch backup destination [set s3://BUCKET[/PREFIX] [--endpoint URL]|remove] [--target NAME]
   orch db list|backups|backup|restore ... [--target NAME]
   orch job run APP SERVICE [--target NAME] [--wait] -- COMMAND [ARG...]
   orch job list [APP] [--target NAME] [--limit N] [--before ID] [--json]
@@ -1162,6 +1196,7 @@ Usage:
   orch cluster backup --data-dir DIR --output FILE [--secret-key-output FILE] [--json]
   orch cluster backup inspect --backup FILE [--pki-dir DIR] [--secret-key FILE] [--json]
   orch cluster restore --backup FILE --pki-dir DIR [--secret-key FILE] --data-dir NEW_DIR [--json]
+  orch cluster restore --from s3://BUCKET[/PREFIX] [--backup NAME] [--endpoint URL] --data-dir NEW_DIR [--json]
   orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]`)
 }
 

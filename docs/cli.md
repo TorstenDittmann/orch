@@ -679,6 +679,28 @@ kept as a `-before-restore` backup, and the command prints how to restore it.
 `APP-VOLUME-BACKUP.tar.gz`; `--output -` writes it to standard output. See
 [volume backups](operations.md#volume-backups).
 
+With a [backup destination](#orch-backup), `backups` also lists the copies in
+the bucket and where each backup is stored, and `restore` downloads a backup
+that only the bucket still has to the volume's node first.
+
+### orch backup
+
+```text
+orch backup destination [--target NAME] [--json]
+orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--target NAME] [--json]
+orch backup destination remove [--target NAME] [--json]
+```
+
+`set` makes the cluster copy every volume and database backup, and the
+controller's daily backups, to an S3 bucket. It checks that the bucket is
+writable and claims the prefix for this cluster first. Any S3-compatible
+service works; leave out `--endpoint` for AWS. The region is detected when
+left out. The access key comes from `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`, or is asked for, and is stored encrypted on the
+controller. Without an argument, `destination` shows the bucket and whether
+the last copy succeeded. `remove` stops copying and leaves the bucket as it
+is. See [off-host backups](operations.md#off-host-backups).
+
 ### orch db
 
 ```text
@@ -983,6 +1005,7 @@ material.
 
 ```text
 orch cluster restore --backup FILE|DIR [--pki-dir DIR] [--secret-key FILE] --data-dir NEW_DIR [--json]
+orch cluster restore --from s3://BUCKET[/PREFIX] [--backup NAME] [--endpoint URL] --data-dir NEW_DIR [--json]
 ```
 
 Restores a backup into a new controller directory, which must not exist.
@@ -991,9 +1014,17 @@ from `DATA_DIR/backups`, which already holds the PKI and secret key, so the
 other two flags are not needed. `orch cluster backup inspect` accepts the
 same.
 
+`--from` downloads the newest controller backup from the cluster's
+[backup destination](#orch-backup) instead, or the one `--backup` names. It
+reads the access key from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
+asks for it.
+
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--backup` | required | Standalone database backup, or an automatic backup directory |
+| `--backup` | required without `--from` | Standalone database backup, an automatic backup directory, or with `--from` a backup name |
+| `--from` | none | Bucket to download the backup from |
+| `--endpoint` | AWS | S3 endpoint for `--from` |
+| `--region` | detected | Signing region for `--from` |
 | `--pki-dir` | none | Saved controller PKI directory |
 | `--secret-key` | none | Saved secret-encryption key |
 | `--data-dir` | required | New controller directory |

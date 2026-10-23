@@ -114,7 +114,7 @@ func (s *service) volumeOperation(ctx context.Context, target volumeTarget, comm
 	_, frames, cancel, err := s.sessions.beginOperation(ctx, target.node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
 		message := &orchv1alpha1.VolumeCommand{
 			RequestId: requestID, Action: command.GetAction(), Application: target.application, Volume: target.volume,
-			Backup: command.GetBackup(), Offset: command.GetOffset(),
+			Backup: command.GetBackup(), Offset: command.GetOffset(), Urls: command.GetUrls(), PartSize: command.GetPartSize(),
 		}
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Volume{Volume: message}}
 	})
@@ -198,23 +198,33 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 	return connect.NewResponse(response), nil
 }
 
+// describeVolumeBackups lists a volume's backups on its node and, when a
+// backup destination is set, in the bucket.
 func (s *service) describeVolumeBackups(ctx context.Context, target volumeTarget, summary *orchv1alpha1.VolumeSummary, all bool) {
-	if s.sessions == nil || !s.sessions.Connected(target.node.ID) {
-		return
-	}
 	ctx, cancel := context.WithTimeout(ctx, volumeListTimeout)
 	defer cancel()
-	err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_LIST},
-		func(response *orchv1alpha1.VolumeResponse) error {
-			summary.BackupCount = uint32(len(response.GetBackups()))
-			summary.Backups = response.GetBackups()
-			if !all && len(summary.Backups) > 1 {
-				summary.Backups = summary.Backups[:1]
-			}
-			summary.BackupFailedAt, summary.BackupFailure = response.GetFailedAt(), response.GetFailure()
-			return nil
-		})
-	summary.Reachable = err == nil
+	var local []*orchv1alpha1.VolumeBackupInfo
+	if s.sessions != nil && s.sessions.Connected(target.node.ID) {
+		err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_LIST},
+			func(response *orchv1alpha1.VolumeResponse) error {
+				local = response.GetBackups()
+				summary.BackupFailedAt, summary.BackupFailure = response.GetFailedAt(), response.GetFailure()
+				return nil
+			})
+		summary.Reachable = err == nil
+	}
+	var remote []*orchv1alpha1.VolumeBackupInfo
+	if client, err := s.offsiteClient(ctx); err == nil && client != nil {
+		remote, _ = s.remoteVolumeBackups(ctx, client, target)
+	}
+	if !summary.Reachable && len(remote) == 0 {
+		return
+	}
+	summary.Backups = mergeVolumeBackups(local, remote)
+	summary.BackupCount = uint32(len(summary.Backups))
+	if !all && len(summary.Backups) > 1 {
+		summary.Backups = summary.Backups[:1]
+	}
 }
 
 func (s *service) BackupVolume(ctx context.Context, request *connect.Request[orchv1alpha1.BackupVolumeRequest]) (*connect.Response[orchv1alpha1.BackupVolumeResponse], error) {
@@ -238,6 +248,7 @@ func (s *service) BackupVolume(ctx context.Context, request *connect.Request[orc
 		}); err != nil {
 		return nil, err
 	}
+	s.offsite.kick()
 	return connect.NewResponse(response), nil
 }
 
@@ -257,6 +268,9 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 	}
 	ctx, cancel := context.WithTimeout(ctx, volumeOperationTimeout)
 	defer cancel()
+	if err := s.fetchMissingBackup(ctx, target, request.Msg.GetBackup()); err != nil {
+		return nil, err
+	}
 	response := &orchv1alpha1.RestoreVolumeResponse{}
 	if err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup()},
 		func(result *orchv1alpha1.VolumeResponse) error {
