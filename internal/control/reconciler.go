@@ -321,8 +321,14 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				message: base + " contains secret references but no secret resolver is configured",
 			}, nil
 		}
-		if service.HTTP != nil && len(service.HTTP.Domains) != 0 {
-			for _, domain := range service.HTTP.Domains {
+		if service.HTTP != nil && service.HTTP.BasicAuth != nil && resolved == nil {
+			return plannedApplication{}, &blockReason{
+				reason:  "secrets_unsupported",
+				message: base + ".http.basicAuth references a secret but no secret resolver is configured",
+			}, nil
+		}
+		if service.HTTP != nil && len(service.HTTP.Domains)+len(service.HTTP.Redirects) != 0 {
+			for _, domain := range httpRouteDomains(service.HTTP) {
 				owner := application.Name + "/" + name
 				if domainOwners != nil && domainOwners[domain] != owner {
 					return plannedApplication{}, &blockReason{reason: "domain_conflict", message: base + ".http domain " + domain + " is already owned by an earlier application"}, nil
@@ -421,6 +427,10 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				allocation.HTTP = &model.HTTPDesired{
 					Port: uint32(service.HTTP.Port), Public: service.HTTP.Public, Domains: append([]string(nil), service.HTTP.Domains...),
 					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS, NodeLocal: service.HTTP.NodeLocal,
+					Redirects: cloneEnvironment(service.HTTP.Redirects),
+				}
+				if auth := service.HTTP.BasicAuth; auth != nil {
+					allocation.HTTP.BasicAuth = &model.HTTPBasicAuth{User: auth.User, PasswordHash: basicAuthHash(resolved.secrets[auth.PasswordSecret])}
 				}
 			}
 			if service.TCP != nil {
@@ -624,6 +634,11 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 	if input.HTTP != nil {
 		http := *input.HTTP
 		http.Domains = append([]string(nil), input.HTTP.Domains...)
+		http.Redirects = cloneEnvironment(input.HTTP.Redirects)
+		if input.HTTP.BasicAuth != nil {
+			auth := *input.HTTP.BasicAuth
+			http.BasicAuth = &auth
+		}
 		result.HTTP = &http
 	}
 	if input.TCP != nil {
@@ -657,6 +672,11 @@ func (r *Reconciler) resolveApplicationIntent(ctx context.Context, application m
 		for _, item := range service.SecretFiles {
 			if _, exists := secretUses[item.Source]; !exists {
 				secretUses[item.Source] = false
+			}
+		}
+		if service.HTTP != nil && service.HTTP.BasicAuth != nil {
+			if _, exists := secretUses[service.HTTP.BasicAuth.PasswordSecret]; !exists {
+				secretUses[service.HTTP.BasicAuth.PasswordSecret] = false
 			}
 		}
 	}
@@ -879,7 +899,7 @@ func desiredDomainOwners(applications []model.Application) (map[string]string, e
 			if service.HTTP.Public {
 				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, model.PublicHTTPRoute})
 			}
-			for _, domain := range service.HTTP.Domains {
+			for _, domain := range httpRouteDomains(service.HTTP) {
 				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, domain})
 			}
 		}
@@ -1066,4 +1086,15 @@ func executionState(status string, generation uint64, reason, message string, no
 	return model.ApplicationExecution{
 		Status: status, ObservedGeneration: generation, Reason: reason, Message: message, UpdatedAt: now,
 	}
+}
+
+// httpRouteDomains returns every hostname a service claims on ingress: the
+// domains it serves and the domains that redirect to them.
+func httpRouteDomains(http *config.HTTP) []string {
+	domains := append([]string(nil), http.Domains...)
+	for from := range http.Redirects {
+		domains = append(domains, from)
+	}
+	sort.Strings(domains)
+	return domains
 }

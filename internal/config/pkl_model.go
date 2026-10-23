@@ -65,12 +65,19 @@ type pklResources struct {
 }
 
 type pklHTTP struct {
-	Port       int      `pkl:"port"`
-	Public     bool     `pkl:"public"`
-	Domains    []string `pkl:"domains"`
-	HealthPath string   `pkl:"healthPath"`
-	HTTPS      bool     `pkl:"https"`
-	NodeLocal  bool     `pkl:"nodeLocal"`
+	Port       int               `pkl:"port"`
+	Public     bool              `pkl:"public"`
+	Domains    []string          `pkl:"domains"`
+	HealthPath string            `pkl:"healthPath"`
+	HTTPS      bool              `pkl:"https"`
+	NodeLocal  bool              `pkl:"nodeLocal"`
+	BasicAuth  *pklBasicAuth     `pkl:"basicAuth"`
+	Redirects  map[string]string `pkl:"redirects"`
+}
+
+type pklBasicAuth struct {
+	User           string `pkl:"user"`
+	PasswordSecret string `pkl:"passwordSecret"`
 }
 
 type pklTCP struct {
@@ -167,6 +174,10 @@ func resolvePkl(doc pklDocument) *Manifest {
 				HealthPath: input.HTTP.HealthPath,
 				HTTPS:      input.HTTP.HTTPS,
 				NodeLocal:  input.HTTP.NodeLocal,
+				Redirects:  cloneMap(input.HTTP.Redirects),
+			}
+			if auth := input.HTTP.BasicAuth; auth != nil {
+				httpConfig.BasicAuth = &BasicAuth{User: auth.User, PasswordSecret: auth.PasswordSecret}
 			}
 		}
 		var tcpConfig *TCP

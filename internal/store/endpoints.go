@@ -53,6 +53,16 @@ func (s *Store) ReadyServiceEndpoints(ctx context.Context) ([]model.ServiceEndpo
 			endpoint.HTTPPublic = http.Public
 			endpoint.HTTPNodeLocal = http.NodeLocal
 			endpoint.HTTPS = http.HTTPS
+			if http.BasicAuth != nil {
+				auth := *http.BasicAuth
+				endpoint.BasicAuth = &auth
+			}
+			if len(http.Redirects) != 0 {
+				endpoint.Redirects = make(map[string]string, len(http.Redirects))
+				for from, to := range http.Redirects {
+					endpoint.Redirects[from] = to
+				}
+			}
 		}
 		if tcp != nil {
 			endpoint.TCPPublicPort = tcp.PublicPort

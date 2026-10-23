@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -109,6 +110,24 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 			}
 			previous = domain
 			totalBytes += len(domain)
+		}
+		if len(allocation.HTTP.Redirects) > maxRuntimeDomains {
+			return fmt.Errorf("runtime HTTP intent contains too many redirects")
+		}
+		for from, to := range allocation.HTTP.Redirects {
+			if err := config.ValidateDomain(from); err != nil {
+				return fmt.Errorf("runtime HTTP redirect is invalid: %w", err)
+			}
+			if _, found := slices.BinarySearch(allocation.HTTP.Domains, to); !found {
+				return fmt.Errorf("runtime HTTP redirect must target a domain of the service")
+			}
+			totalBytes += len(from) + len(to)
+		}
+		if auth := allocation.HTTP.BasicAuth; auth != nil {
+			if auth.User == "" || auth.PasswordHash == "" {
+				return fmt.Errorf("runtime HTTP basic auth is incomplete")
+			}
+			totalBytes += len(auth.User) + len(auth.PasswordHash)
 		}
 		totalBytes += len(allocation.HTTP.HealthPath)
 	}

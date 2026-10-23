@@ -75,6 +75,19 @@ type HTTPDesired struct {
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
 	NodeLocal  bool     `json:"node_local,omitempty"`
+	// BasicAuth and Redirects are omitted when unset so existing allocations
+	// keep their spec digest.
+	BasicAuth *HTTPBasicAuth `json:"basic_auth,omitempty"`
+	// Redirects maps a domain to one of Domains it permanently redirects to.
+	Redirects map[string]string `json:"redirects,omitempty"`
+}
+
+// HTTPBasicAuth is the account ingress checks before forwarding a request.
+// PasswordHash is an argon2id PHC string; the password never leaves the
+// controller.
+type HTTPBasicAuth struct {
+	User         string `json:"user"`
+	PasswordHash string `json:"password_hash"`
 }
 
 type TCPDesired struct {
@@ -177,6 +190,10 @@ type ServiceEndpoint struct {
 	HTTPNodeLocal bool     `json:"http_node_local,omitempty"`
 	HTTPS         bool     `json:"https,omitempty"`
 	TCPPublicPort uint32   `json:"tcp_public_port,omitempty"`
+	// BasicAuth and Redirects carry the service's route policy so every
+	// ingress node enforces it, not only the replica's own node.
+	BasicAuth *HTTPBasicAuth    `json:"basic_auth,omitempty"`
+	Redirects map[string]string `json:"redirects,omitempty"`
 }
 
 func NetworkConfigEqual(left, right NetworkConfig) bool { return reflect.DeepEqual(left, right) }

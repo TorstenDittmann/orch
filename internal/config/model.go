@@ -101,6 +101,18 @@ type HTTP struct {
 	HealthPath string   `json:"health_path,omitempty"`
 	HTTPS      bool     `json:"https"`
 	NodeLocal  bool     `json:"node_local,omitempty"`
+	// BasicAuth and Redirects are omitted when unset so existing manifests
+	// keep their canonical digest.
+	BasicAuth *BasicAuth `json:"basic_auth,omitempty"`
+	// Redirects maps a domain to one of Domains it permanently redirects to.
+	Redirects map[string]string `json:"redirects,omitempty"`
+}
+
+// BasicAuth asks for a username and the password held in an application
+// secret before ingress forwards a request.
+type BasicAuth struct {
+	User           string `json:"user"`
+	PasswordSecret string `json:"password_secret"`
 }
 
 type TCP struct {
