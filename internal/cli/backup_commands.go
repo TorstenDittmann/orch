@@ -134,7 +134,7 @@ func runBackupDestinationShow(ctx context.Context, args []string, stdout, stderr
 	case response.GetUploadFailure() != "":
 		fmt.Fprintf(stdout, "Last copy FAILED at %s: %s\n", response.GetUploadFailedAt().AsTime().UTC().Format(time.RFC3339), response.GetUploadFailure())
 	case response.GetUploadedAt() != nil:
-		fmt.Fprintf(stdout, "Last copy:   %s (every backup is in the bucket)\n", response.GetUploadedAt().AsTime().UTC().Format(time.RFC3339))
+		fmt.Fprintf(stdout, "Last copy:   %s (every scheduled backup is in the bucket)\n", response.GetUploadedAt().AsTime().UTC().Format(time.RFC3339))
 	default:
 		fmt.Fprintln(stdout, "Last copy:   not yet")
 	}

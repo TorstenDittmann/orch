@@ -4021,8 +4021,10 @@ type VolumeSummary struct {
 	BackupFailedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=backup_failed_at,json=backupFailedAt,proto3" json:"backup_failed_at,omitempty"`
 	BackupFailure  string                 `protobuf:"bytes,10,opt,name=backup_failure,json=backupFailure,proto3" json:"backup_failure,omitempty"`
 	BackupCount    uint32                 `protobuf:"varint,11,opt,name=backup_count,json=backupCount,proto3" json:"backup_count,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Why the bucket's copies could not be listed, when a destination is set.
+	BucketError   string `protobuf:"bytes,12,opt,name=bucket_error,json=bucketError,proto3" json:"bucket_error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VolumeSummary) Reset() {
@@ -4130,6 +4132,13 @@ func (x *VolumeSummary) GetBackupCount() uint32 {
 		return x.BackupCount
 	}
 	return 0
+}
+
+func (x *VolumeSummary) GetBucketError() string {
+	if x != nil {
+		return x.BucketError
+	}
+	return ""
 }
 
 type ListVolumesResponse struct {
@@ -9327,7 +9336,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\breplicas\x18\x01 \x03(\rR\breplicas\"N\n" +
 	"\x12ListVolumesRequest\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x16\n" +
-	"\x06volume\x18\x02 \x01(\tR\x06volume\"\xaa\x03\n" +
+	"\x06volume\x18\x02 \x01(\tR\x06volume\"\xcd\x03\n" +
 	"\rVolumeSummary\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x16\n" +
 	"\x06volume\x18\x02 \x01(\tR\x06volume\x12\x18\n" +
@@ -9341,7 +9350,8 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x10backup_failed_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x0ebackupFailedAt\x12%\n" +
 	"\x0ebackup_failure\x18\n" +
 	" \x01(\tR\rbackupFailure\x12!\n" +
-	"\fbackup_count\x18\v \x01(\rR\vbackupCount\"M\n" +
+	"\fbackup_count\x18\v \x01(\rR\vbackupCount\x12!\n" +
+	"\fbucket_error\x18\f \x01(\tR\vbucketError\"M\n" +
 	"\x13ListVolumesResponse\x126\n" +
 	"\avolumes\x18\x01 \x03(\v2\x1c.orch.v1alpha1.VolumeSummaryR\avolumes\"O\n" +
 	"\x13BackupVolumeRequest\x12 \n" +

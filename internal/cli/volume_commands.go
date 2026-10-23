@@ -116,6 +116,7 @@ type volumeOutput struct {
 	Backups        []volumeBackupOutput `json:"backups"`
 	BackupFailedAt *time.Time           `json:"backup_failed_at,omitempty"`
 	BackupFailure  string               `json:"backup_failure,omitempty"`
+	BucketError    string               `json:"bucket_error,omitempty"`
 }
 
 func volumeBackupJSON(backup *orchv1alpha1.VolumeBackupInfo) volumeBackupOutput {
@@ -128,6 +129,7 @@ func volumeJSON(volume *orchv1alpha1.VolumeSummary) volumeOutput {
 		Application: volume.GetApplication(), Volume: volume.GetVolume(), Service: volume.GetService(), Node: volume.GetNode(),
 		BackupSchedule: volume.GetBackupSchedule(), BackupKeep: volume.GetBackupKeep(), Reachable: volume.GetReachable(),
 		BackupCount: volume.GetBackupCount(), Backups: []volumeBackupOutput{}, BackupFailure: volume.GetBackupFailure(),
+		BucketError: volume.GetBucketError(),
 	}
 	for _, backup := range volume.GetBackups() {
 		result.Backups = append(result.Backups, volumeBackupJSON(backup))
@@ -220,6 +222,9 @@ func volumeBackupSummary(volume *orchv1alpha1.VolumeSummary, now time.Time) stri
 	if volume.GetBackupFailure() != "" {
 		parts = append(parts, "LAST BACKUP FAILED: "+volume.GetBackupFailure())
 	}
+	if volume.GetBucketError() != "" {
+		parts = append(parts, "bucket not listed: "+volume.GetBucketError())
+	}
 	return strings.Join(parts, ", ")
 }
 
@@ -265,6 +270,9 @@ func runVolumeBackups(ctx context.Context, args []string, stdout, stderr io.Writ
 	if volume.GetBackupFailure() != "" {
 		fmt.Fprintf(stdout, "Last scheduled backup failed at %s: %s\n\n",
 			volume.GetBackupFailedAt().AsTime().UTC().Format(time.RFC3339), volume.GetBackupFailure())
+	}
+	if volume.GetBucketError() != "" {
+		fmt.Fprintf(stdout, "Could not list the copies in the bucket: %s\n\n", volume.GetBucketError())
 	}
 	if len(volume.GetBackups()) == 0 {
 		fmt.Fprintln(stdout, "No backups yet. Take one with: orch volume backup", application, name)

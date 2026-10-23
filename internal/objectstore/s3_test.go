@@ -149,3 +149,22 @@ func TestPresignedMultipartUpload(t *testing.T) {
 		t.Fatalf("presigned get = %q", contents)
 	}
 }
+
+func TestPresignedPathMatchesSignedPath(t *testing.T) {
+	client := New(Destination{Bucket: "backups", Prefix: "team+prod", Endpoint: "https://minio.example.com", AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
+	signed, err := client.PresignGet(client.Destination().Key("a=b c.tar.gz"), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(signed, "https://minio.example.com/backups/team%2Bprod/a%3Db%20c.tar.gz?") {
+		t.Fatalf("presigned URL = %s", signed)
+	}
+}
+
+func TestArchives(t *testing.T) {
+	archives := Archives([]Object{{Key: "p/controller/20261017T030000Z.tar.gz"}, {Key: "p/controller/nested/x.tar.gz"},
+		{Key: "p/controller/notes.txt"}, {Key: "p/other/20261017T030000Z.tar.gz"}}, "p/controller/")
+	if len(archives) != 1 || archives["20261017T030000Z"].Key != "p/controller/20261017T030000Z.tar.gz" {
+		t.Fatalf("Archives() = %v", archives)
+	}
+}

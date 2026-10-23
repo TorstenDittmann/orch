@@ -11,7 +11,8 @@ import (
 
 func TestBackupSetArchiveRoundTrip(t *testing.T) {
 	source := t.TempDir()
-	files := map[string]string{DatabaseFilename: "database", SecretKeyFilename: "key", "pki/ca.pem": "ca", "pki/controller-key.pem": "leaf key"}
+	files := map[string]string{DatabaseFilename: "database", SecretKeyFilename: "key", "pki/ca.pem": "ca", "pki/ca-key.pem": "ca key",
+		"pki/controller.pem": "leaf", "pki/controller-key.pem": "leaf key"}
 	if err := os.Mkdir(filepath.Join(source, "pki"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +34,16 @@ func TestBackupSetArchiveRoundTrip(t *testing.T) {
 		if err != nil || string(got) != contents {
 			t.Fatalf("%s = %q, %v", name, got, err)
 		}
+	}
+}
+
+func TestArchiveBackupSetRefusesIncompleteSets(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, SecretKeyFilename), []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ArchiveBackupSet(source, &bytes.Buffer{}); err == nil {
+		t.Fatal("ArchiveBackupSet archived a set without its database")
 	}
 }
 

@@ -173,10 +173,10 @@ func TestPruneRemoteKeepsNewestScheduledAndLabeledBackups(t *testing.T) {
 	bucket := s3test.New("backups")
 	defer bucket.Close()
 	client := objectstore.New(objectstore.Destination{Bucket: "backups", Endpoint: bucket.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
-	names := map[string]bool{}
+	names := map[string]objectstore.Object{}
 	for _, name := range []string{"20261014T030000Z", "20261015T030000Z", "20261016T030000Z", "20261014T120000Z-manual", "20261013T120000Z-before-restore"} {
 		bucket.SetObject("v/"+name+".tar.gz", []byte("x"))
-		names[name] = true
+		names[name] = objectstore.Object{Key: "v/" + name + ".tar.gz"}
 	}
 	if err := pruneRemote(context.Background(), client, "v/", names, 2); err != nil {
 		t.Fatal(err)
@@ -184,5 +184,14 @@ func TestPruneRemoteKeepsNewestScheduledAndLabeledBackups(t *testing.T) {
 	want := []string{"v/20261013T120000Z-before-restore.tar.gz", "v/20261014T120000Z-manual.tar.gz", "v/20261015T030000Z.tar.gz", "v/20261016T030000Z.tar.gz"}
 	if got := bucket.Keys(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("kept %v, want %v", got, want)
+	}
+}
+
+func TestMissingNewestSkipsBackupsPruningWouldDelete(t *testing.T) {
+	names := []string{"20261016T030000Z", "20261015T120000Z-manual", "20261015T030000Z", "20261014T030000Z", "20261013T030000Z"}
+	remote := map[string]objectstore.Object{"20261015T030000Z": {}}
+	got := missingNewest(names, remote, 2)
+	if len(got) != 2 || names[got[0]] != "20261015T120000Z-manual" || names[got[1]] != "20261016T030000Z" {
+		t.Fatalf("missingNewest() = %v", got)
 	}
 }

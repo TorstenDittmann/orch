@@ -22,24 +22,21 @@ import (
 const (
 	offsiteSyncEvery      = 15 * time.Minute
 	offsitePresignExpiry  = 12 * time.Hour
-	offsiteUploadTimeout  = 6 * time.Hour
-	offsiteListTimeout    = 30 * time.Second
+	offsiteTransferLimit  = 6 * time.Hour
+	offsiteRequestTimeout = time.Minute
 	offsiteSinglePutLimit = 1 << 30
 	offsiteMinPartSize    = 128 << 20
 	offsiteMaxParts       = 1000
-	// Object keys below the destination prefix.
-	offsiteControllerKey = "controller/"
-	offsiteVolumesKey    = "volumes/"
-	offsiteMarkerKey     = "orch-cluster"
-	offsiteArchiveSuffix = ".tar.gz"
+	// backupNameLayout starts every backup name.
+	backupNameLayout = "20060102T150405Z"
 )
 
 // offsiteBackups copies every backup to the cluster's S3 bucket, when one is
 // set. The controller keeps the bucket's credentials: it uploads its own
 // backup sets itself and hands workers presigned URLs for their volume
-// backups. A sync runs every 15 minutes and right after a manual backup, and
-// uploads whatever the bucket is missing, so a failed upload is retried on
-// the next run.
+// backups. A sync runs every 15 minutes, after each controller backup and
+// right after a manual backup, and uploads whatever the bucket is missing,
+// so a failed upload is retried on the next run.
 type offsiteBackups struct {
 	service *service
 	// dataDir holds the controller's backup sets; keep is how many of them
@@ -107,14 +104,35 @@ func (o *offsiteBackups) run(ctx context.Context) {
 	}
 }
 
-// client returns a client for the stored destination, or nil when none is
-// set.
+// offsiteClient returns a client for the stored destination, or nil when
+// none is set.
 func (s *service) offsiteClient(ctx context.Context) (*objectstore.Client, error) {
 	destination, found, err := s.state.BackupDestination(ctx, s.secretBox)
 	if err != nil || !found {
 		return nil, err
 	}
 	return objectstore.New(destination, nil), nil
+}
+
+// withTimeout bounds one bucket request, so a stalled connection cannot
+// hold up the sync or shutdown.
+func withTimeout(ctx context.Context, limit time.Duration, call func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	return call(ctx)
+}
+
+func listArchives(ctx context.Context, client *objectstore.Client, prefix string) (map[string]objectstore.Object, error) {
+	var objects []objectstore.Object
+	err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		var err error
+		objects, err = client.List(ctx, prefix)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return objectstore.Archives(objects, prefix), nil
 }
 
 func (o *offsiteBackups) syncOnce(ctx context.Context) {
@@ -160,8 +178,8 @@ func (o *offsiteBackups) reset(url string) {
 	clear(o.failing)
 }
 
-// syncController uploads the controller's backup sets the bucket does not
-// have yet and keeps the newest keep there.
+// syncController uploads the newest keep controller backup sets the bucket
+// does not have yet and prunes the rest there.
 func (o *offsiteBackups) syncController(ctx context.Context, client *objectstore.Client) error {
 	if o.dataDir == "" {
 		return nil
@@ -170,22 +188,50 @@ func (o *offsiteBackups) syncController(ctx context.Context, client *objectstore
 	if err != nil {
 		return err
 	}
-	destination := client.Destination()
-	remote, err := remoteBackupNames(ctx, client, destination.Key(offsiteControllerKey))
+	prefix := client.Destination().Key(objectstore.ControllerBackups)
+	remote, err := listArchives(ctx, client, prefix)
 	if err != nil {
 		return err
 	}
-	for index := len(sets) - 1; index >= 0; index-- {
-		name := filepath.Base(sets[index].Path)
-		if remote[name] {
-			continue
-		}
-		if err := uploadBackupSet(ctx, client, sets[index].Path, destination.Key(offsiteControllerKey+name+offsiteArchiveSuffix)); err != nil {
+	names := make([]string, 0, len(sets))
+	for _, set := range sets {
+		names = append(names, filepath.Base(set.Path))
+	}
+	for _, index := range missingNewest(names, remote, o.keep) {
+		name := names[index]
+		key := prefix + name + objectstore.ArchiveSuffix
+		if err := withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
+			return uploadBackupSet(ctx, client, sets[index].Path, key)
+		}); err != nil {
 			return fmt.Errorf("upload %s: %w", name, err)
 		}
-		remote[name] = true
+		remote[name] = objectstore.Object{Key: key}
 	}
-	return pruneRemote(ctx, client, destination.Key(offsiteControllerKey), remote, o.keep)
+	return pruneRemote(ctx, client, prefix, remote, o.keep)
+}
+
+// missingNewest returns the indexes, oldest first, of the backups (named
+// newest first) the bucket does not have yet. Scheduled backups older than
+// the newest keep are left out, because pruning would delete them again;
+// labeled ones are always included.
+func missingNewest(names []string, remote map[string]objectstore.Object, keep int) []int {
+	var missing []int
+	scheduled := 0
+	for index, name := range names {
+		if !strings.Contains(name, "-") {
+			scheduled++
+			if keep > 0 && scheduled > keep {
+				continue
+			}
+		}
+		if _, ok := remote[name]; !ok {
+			missing = append(missing, index)
+		}
+	}
+	for left, right := 0, len(missing)-1; left < right; left, right = left+1, right-1 {
+		missing[left], missing[right] = missing[right], missing[left]
+	}
+	return missing
 }
 
 func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory, key string) error {
@@ -209,7 +255,8 @@ func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory,
 }
 
 // syncVolumes uploads the backups of every volume with a backup policy. A
-// volume whose node is not connected is skipped until it is.
+// volume whose node cannot upload right now is reported, so status never
+// claims a copy that is missing, but raises no notification.
 func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Client) []string {
 	applications, err := o.service.state.Applications(ctx, false)
 	if err != nil {
@@ -226,14 +273,22 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 			if ctx.Err() != nil {
 				return failures
 			}
-			if target.backup == nil || !target.placed || o.service.sessions == nil ||
-				!o.service.sessions.Connected(target.node.ID) || !o.service.sessions.offsiteBackups(target.node.ID) {
+			if target.backup == nil || !target.placed {
+				continue
+			}
+			name := target.application + "/" + target.volume
+			switch {
+			case o.service.sessions == nil || !o.service.sessions.Connected(target.node.ID):
+				failures = append(failures, fmt.Sprintf("volume %s waits for node %s to connect", name, target.node.Name))
+				continue
+			case !o.service.sessions.offsiteBackups(target.node.ID):
+				failures = append(failures, fmt.Sprintf("volume %s waits for node %s to upgrade its agent", name, target.node.Name))
 				continue
 			}
 			err := o.syncVolume(ctx, client, target)
 			o.recordVolume(ctx, target, err)
 			if err != nil {
-				failures = append(failures, fmt.Sprintf("volume %s/%s: %v", target.application, target.volume, err))
+				failures = append(failures, fmt.Sprintf("volume %s: %v", name, err))
 			}
 		}
 	}
@@ -273,44 +328,46 @@ func (o *offsiteBackups) syncVolume(ctx context.Context, client *objectstore.Cli
 		return err
 	}
 	prefix := offsiteVolumePrefix(client.Destination(), target)
-	remote, err := remoteBackupNames(ctx, client, prefix)
+	remote, err := listArchives(ctx, client, prefix)
 	if err != nil {
 		return err
 	}
-	for index := len(local) - 1; index >= 0; index-- {
+	names := make([]string, 0, len(local))
+	for _, backup := range local {
+		names = append(names, backup.GetName())
+	}
+	for _, index := range missingNewest(names, remote, target.backup.Keep) {
 		backup := local[index]
-		if remote[backup.GetName()] {
-			continue
-		}
-		if err := o.service.uploadVolumeBackup(ctx, client, target, backup, prefix+backup.GetName()+offsiteArchiveSuffix); err != nil {
+		key := prefix + backup.GetName() + objectstore.ArchiveSuffix
+		if err := o.service.uploadVolumeBackup(ctx, client, target, backup, key); err != nil {
 			return fmt.Errorf("upload %s: %w", backup.GetName(), err)
 		}
-		remote[backup.GetName()] = true
+		remote[backup.GetName()] = objectstore.Object{Key: key}
 	}
 	return pruneRemote(ctx, client, prefix, remote, target.backup.Keep)
 }
 
 func offsiteVolumePrefix(destination objectstore.Destination, target volumeTarget) string {
-	return destination.Key(offsiteVolumesKey + target.application + "/" + target.volume + "/")
+	return destination.Key(objectstore.VolumeBackupsPrefix(target.application, target.volume))
 }
 
 // localVolumeBackups asks the volume's node for its backups, newest first.
 func (s *service) localVolumeBackups(ctx context.Context, target volumeTarget) ([]*orchv1alpha1.VolumeBackupInfo, error) {
-	ctx, cancel := context.WithTimeout(ctx, offsiteListTimeout)
-	defer cancel()
 	var backups []*orchv1alpha1.VolumeBackupInfo
-	err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_LIST},
-		func(response *orchv1alpha1.VolumeResponse) error {
-			backups = response.GetBackups()
-			return nil
-		})
+	err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_LIST},
+			func(response *orchv1alpha1.VolumeResponse) error {
+				backups = response.GetBackups()
+				return nil
+			})
+	})
 	return backups, err
 }
 
 // uploadVolumeBackup has the volume's node upload one backup through
 // presigned URLs: one PUT up to 1 GiB, a multipart upload above.
 func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Client, target volumeTarget, backup *orchv1alpha1.VolumeBackupInfo, key string) error {
-	ctx, cancel := context.WithTimeout(ctx, offsiteUploadTimeout)
+	ctx, cancel := context.WithTimeout(ctx, offsiteTransferLimit)
 	defer cancel()
 	command := &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD, Backup: backup.GetName()}
 	size := backup.GetSizeBytes()
@@ -327,11 +384,21 @@ func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Cl
 		partSize = (needed + 1<<20 - 1) &^ (1<<20 - 1)
 	}
 	parts := int((size + partSize - 1) / partSize)
-	uploadID, err := client.CreateMultipartUpload(ctx, key)
-	if err != nil {
+	var uploadID string
+	if err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		var err error
+		uploadID, err = client.CreateMultipartUpload(ctx, key)
+		return err
+	}); err != nil {
 		return err
 	}
-	abort := func() { _ = client.AbortMultipartUpload(context.WithoutCancel(ctx), key, uploadID) }
+	// Drop the uploaded parts on failure, even when ctx has ended, but
+	// never wait long for it: the bucket expires them on its own too.
+	abort := func() {
+		_ = withTimeout(context.WithoutCancel(ctx), offsiteRequestTimeout/2, func(ctx context.Context) error {
+			return client.AbortMultipartUpload(ctx, key, uploadID)
+		})
+	}
 	for part := 1; part <= parts; part++ {
 		url, err := client.PresignUploadPart(key, uploadID, part, offsitePresignExpiry)
 		if err != nil {
@@ -353,37 +420,23 @@ func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Cl
 		abort()
 		return fmt.Errorf("node uploaded %d of %d parts", len(etags), parts)
 	}
-	if err := client.CompleteMultipartUpload(ctx, key, uploadID, etags); err != nil {
+	if err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		return client.CompleteMultipartUpload(ctx, key, uploadID, etags)
+	}); err != nil {
 		abort()
 		return err
 	}
 	return nil
 }
 
-// remoteBackupNames lists the archives directly below prefix by backup name.
-func remoteBackupNames(ctx context.Context, client *objectstore.Client, prefix string) (map[string]bool, error) {
-	objects, err := client.List(ctx, prefix)
-	if err != nil {
-		return nil, err
-	}
-	names := make(map[string]bool, len(objects))
-	for _, object := range objects {
-		name, ok := strings.CutSuffix(strings.TrimPrefix(object.Key, prefix), offsiteArchiveSuffix)
-		if ok && name != "" && !strings.Contains(name, "/") {
-			names[name] = true
-		}
-	}
-	return names, nil
-}
-
 // pruneRemote keeps the newest keep scheduled backups below prefix. Labeled
 // backups (manual, before-restore) stay, like on the node.
-func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string, names map[string]bool, keep int) error {
+func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string, archives map[string]objectstore.Object, keep int) error {
 	if keep < 1 {
 		return nil
 	}
 	var scheduled []string
-	for name := range names {
+	for name := range archives {
 		if !strings.Contains(name, "-") {
 			scheduled = append(scheduled, name)
 		}
@@ -391,40 +444,56 @@ func pruneRemote(ctx context.Context, client *objectstore.Client, prefix string,
 	// Names are UTC timestamps, so they sort by age.
 	sort.Sort(sort.Reverse(sort.StringSlice(scheduled)))
 	for _, name := range scheduled[min(keep, len(scheduled)):] {
-		if err := client.Delete(ctx, prefix+name+offsiteArchiveSuffix); err != nil {
+		if err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+			return client.Delete(ctx, prefix+name+objectstore.ArchiveSuffix)
+		}); err != nil {
 			return fmt.Errorf("remove old backup %s: %w", name, err)
 		}
-		delete(names, name)
+		delete(archives, name)
 	}
 	return nil
 }
 
-// remoteVolumeBackups lists a volume's backups in the bucket, newest first.
-func (s *service) remoteVolumeBackups(ctx context.Context, client *objectstore.Client, target volumeTarget) ([]*orchv1alpha1.VolumeBackupInfo, error) {
-	prefix := offsiteVolumePrefix(client.Destination(), target)
-	objects, err := client.List(ctx, prefix)
-	if err != nil {
+// remoteBackups lists every volume backup in the bucket below the
+// application's prefix, or every application's when application is empty,
+// keyed by application and volume, newest first.
+func remoteBackups(ctx context.Context, client *objectstore.Client, application string) (map[string][]*orchv1alpha1.VolumeBackupInfo, error) {
+	base := client.Destination().Key(objectstore.VolumeBackups)
+	prefix := base
+	if application != "" {
+		prefix += application + "/"
+	}
+	var objects []objectstore.Object
+	if err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		var err error
+		objects, err = client.List(ctx, prefix)
+		return err
+	}); err != nil {
 		return nil, err
 	}
-	var backups []*orchv1alpha1.VolumeBackupInfo
+	result := make(map[string][]*orchv1alpha1.VolumeBackupInfo)
 	for _, object := range objects {
-		name, ok := strings.CutSuffix(strings.TrimPrefix(object.Key, prefix), offsiteArchiveSuffix)
-		if !ok || strings.Contains(name, "/") || len(name) < len(backupNameLayout) {
+		parts := strings.Split(strings.TrimPrefix(object.Key, base), "/")
+		if len(parts) != 3 {
+			continue
+		}
+		name, ok := strings.CutSuffix(parts[2], objectstore.ArchiveSuffix)
+		if !ok || len(name) < len(backupNameLayout) {
 			continue
 		}
 		createdAt, err := time.Parse(backupNameLayout, name[:len(backupNameLayout)])
 		if err != nil {
 			continue
 		}
-		backups = append(backups, &orchv1alpha1.VolumeBackupInfo{Name: name, CreatedAt: timestamppb.New(createdAt),
+		key := parts[0] + "/" + parts[1]
+		result[key] = append(result[key], &orchv1alpha1.VolumeBackupInfo{Name: name, CreatedAt: timestamppb.New(createdAt),
 			SizeBytes: uint64(max(object.Size, 0)), InBucket: true})
 	}
-	sortBackups(backups)
-	return backups, nil
+	for _, backups := range result {
+		sortBackups(backups)
+	}
+	return result, nil
 }
-
-// backupNameLayout starts every volume backup name.
-const backupNameLayout = "20060102T150405Z"
 
 func sortBackups(backups []*orchv1alpha1.VolumeBackupInfo) {
 	sort.SliceStable(backups, func(i, j int) bool {
@@ -462,7 +531,8 @@ func mergeVolumeBackups(local, remote []*orchv1alpha1.VolumeBackupInfo) []*orchv
 // fetchMissingBackup downloads a backup from the bucket onto the volume's
 // node when the node does not have it, for example on a new node after the
 // old one was lost. Without a destination, or when the bucket does not have
-// it either, the restore reports the missing backup as before.
+// it either, the restore reports the missing backup as before. The download
+// gets its own time limit, separate from the restore's.
 func (s *service) fetchMissingBackup(ctx context.Context, target volumeTarget, name string) error {
 	client, err := s.offsiteClient(ctx)
 	if err != nil {
@@ -480,23 +550,22 @@ func (s *service) fetchMissingBackup(ctx context.Context, target volumeTarget, n
 			return nil
 		}
 	}
-	key := offsiteVolumePrefix(client.Destination(), target) + name + offsiteArchiveSuffix
-	remote, err := s.remoteVolumeBackups(ctx, client, target)
+	prefix := offsiteVolumePrefix(client.Destination(), target)
+	remote, err := listArchives(ctx, client, prefix)
 	if err != nil {
 		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("list backups in the bucket: %w", err))
 	}
-	found := false
-	for _, backup := range remote {
-		found = found || backup.GetName() == name
-	}
+	object, found := remote[name]
 	if !found {
 		return nil
 	}
-	url, err := client.PresignGet(key, offsitePresignExpiry)
+	url, err := client.PresignGet(object.Key, offsitePresignExpiry)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}
-	return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
-		Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH, Backup: name, Urls: []string{url},
-	}, func(*orchv1alpha1.VolumeResponse) error { return nil })
+	return withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
+		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
+			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_FETCH, Backup: name, Urls: []string{url},
+		}, func(*orchv1alpha1.VolumeResponse) error { return nil })
+	})
 }

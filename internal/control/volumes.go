@@ -177,6 +177,16 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read applications"))
 		}
 	}
+	// One listing of the bucket covers every volume.
+	var remote map[string][]*orchv1alpha1.VolumeBackupInfo
+	bucketError := ""
+	if client, err := s.offsiteClient(ctx); err != nil {
+		bucketError = "read backup destination"
+	} else if client != nil {
+		if remote, err = remoteBackups(ctx, client, name); err != nil {
+			bucketError = boundedFailure(err.Error())
+		}
+	}
 	response := &orchv1alpha1.ListVolumesResponse{}
 	for _, application := range applications {
 		targets, err := s.volumeTargets(ctx, application, only)
@@ -188,9 +198,10 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			if target.backup != nil {
 				summary.BackupSchedule, summary.BackupKeep = target.backup.Schedule, uint32(target.backup.Keep)
 			}
+			summary.BucketError = bucketError
 			if target.placed {
 				summary.Node = target.node.Name
-				s.describeVolumeBackups(ctx, target, summary, only != "")
+				s.describeVolumeBackups(ctx, target, summary, remote[target.application+"/"+target.volume], only != "")
 			}
 			response.Volumes = append(response.Volumes, summary)
 		}
@@ -198,9 +209,9 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 	return connect.NewResponse(response), nil
 }
 
-// describeVolumeBackups lists a volume's backups on its node and, when a
-// backup destination is set, in the bucket.
-func (s *service) describeVolumeBackups(ctx context.Context, target volumeTarget, summary *orchv1alpha1.VolumeSummary, all bool) {
+// describeVolumeBackups lists a volume's backups on its node and merges in
+// its copies in the bucket.
+func (s *service) describeVolumeBackups(ctx context.Context, target volumeTarget, summary *orchv1alpha1.VolumeSummary, remote []*orchv1alpha1.VolumeBackupInfo, all bool) {
 	ctx, cancel := context.WithTimeout(ctx, volumeListTimeout)
 	defer cancel()
 	var local []*orchv1alpha1.VolumeBackupInfo
@@ -212,10 +223,6 @@ func (s *service) describeVolumeBackups(ctx context.Context, target volumeTarget
 				return nil
 			})
 		summary.Reachable = err == nil
-	}
-	var remote []*orchv1alpha1.VolumeBackupInfo
-	if client, err := s.offsiteClient(ctx); err == nil && client != nil {
-		remote, _ = s.remoteVolumeBackups(ctx, client, target)
 	}
 	if !summary.Reachable && len(remote) == 0 {
 		return
@@ -266,11 +273,11 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, volumeOperationTimeout)
-	defer cancel()
 	if err := s.fetchMissingBackup(ctx, target, request.Msg.GetBackup()); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, volumeOperationTimeout)
+	defer cancel()
 	response := &orchv1alpha1.RestoreVolumeResponse{}
 	if err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup()},
 		func(result *orchv1alpha1.VolumeResponse) error {

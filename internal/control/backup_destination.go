@@ -68,7 +68,7 @@ func (s *service) SetBackupDestination(ctx context.Context, request *connect.Req
 // backups.
 func (s *service) claimBackupDestination(ctx context.Context, client *objectstore.Client) error {
 	destination := client.Destination()
-	key := destination.Key(offsiteMarkerKey)
+	key := destination.Key(objectstore.ClusterMarker)
 	body, _, err := client.Get(ctx, key)
 	switch {
 	case err == nil:

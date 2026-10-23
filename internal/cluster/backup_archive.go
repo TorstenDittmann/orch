@@ -24,13 +24,16 @@ func backupSetFiles() []string {
 }
 
 // ArchiveBackupSet writes the backup set in directory to w as a
-// gzip-compressed tar, for copying it off the controller.
+// gzip-compressed tar, for copying it off the controller. Only the secret
+// key may be missing, as it is in sets of clusters without one; any other
+// missing file fails, so a set pruned while it is read is never copied
+// incomplete.
 func ArchiveBackupSet(directory string, w io.Writer) error {
 	compressed := gzip.NewWriter(w)
 	archive := tar.NewWriter(compressed)
 	for _, name := range backupSetFiles() {
 		file, err := os.Open(filepath.Join(directory, filepath.FromSlash(name)))
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) && name == SecretKeyFilename {
 			continue
 		}
 		if err != nil {

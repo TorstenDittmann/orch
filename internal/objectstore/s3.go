@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -127,6 +128,18 @@ func RegionFromEndpoint(endpoint string) string {
 	return ""
 }
 
+// defaultHTTP gives up on a bucket that stops answering. Transfers have no
+// overall limit, since archives can be large; callers bound them with their
+// context.
+var defaultHTTP = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   30 * time.Second,
+	ResponseHeaderTimeout: 2 * time.Minute,
+	IdleConnTimeout:       time.Minute,
+	ForceAttemptHTTP2:     true,
+}}
+
 // Client talks to one destination.
 type Client struct {
 	destination Destination
@@ -142,7 +155,7 @@ func New(destination Destination, httpClient *http.Client) *Client {
 		destination.Region = defaultRegion
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 0}
+		httpClient = defaultHTTP
 	}
 	return &Client{destination: destination, http: httpClient, now: time.Now}
 }
@@ -361,6 +374,7 @@ func (c *Client) presign(method, key string, query url.Values, expires time.Dura
 	canonical := strings.Join([]string{method, escapePath(target.Path), canonicalQuery(values),
 		"host:" + target.Host + "\n", "host", unsignedPayload}, "\n")
 	values.Set("X-Amz-Signature", c.signature(now, canonical))
+	target.RawPath = escapePath(target.Path)
 	target.RawQuery = canonicalQuery(values)
 	return target.String(), nil
 }

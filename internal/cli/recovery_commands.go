@@ -129,19 +129,18 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name 
 			return "", nil, fmt.Errorf("reach %s: %w", from, err)
 		}
 	}
-	listPrefix := client.Destination().Key("controller/")
+	listPrefix := client.Destination().Key(objectstore.ControllerBackups)
 	objects, err := client.List(ctx, listPrefix)
 	if err != nil {
 		return "", nil, fmt.Errorf("list controller backups in %s: %w", from, err)
 	}
 	key := ""
-	for _, object := range objects {
-		candidate, ok := strings.CutSuffix(strings.TrimPrefix(object.Key, listPrefix), ".tar.gz")
-		if !ok || strings.Contains(candidate, "/") || (name != "" && candidate != name) {
-			continue
+	newest := ""
+	for candidate, object := range objectstore.Archives(objects, listPrefix) {
+		// Names are UTC timestamps, so the greatest is the newest.
+		if (name == "" && candidate > newest) || candidate == name {
+			newest, key = candidate, object.Key
 		}
-		// Names are UTC timestamps, so the last one listed is the newest.
-		key = object.Key
 	}
 	if key == "" {
 		if name != "" {
@@ -160,7 +159,7 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name 
 		return "", nil, fmt.Errorf("download %s: %w", key, err)
 	}
 	defer body.Close()
-	directory := filepath.Join(stage, strings.TrimSuffix(filepath.Base(key), ".tar.gz"))
+	directory := filepath.Join(stage, newest)
 	if err := clusterctl.ExtractBackupSet(body, directory); err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("unpack %s: %w", key, err)
