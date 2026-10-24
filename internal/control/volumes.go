@@ -292,6 +292,9 @@ func (s *service) BackupVolume(ctx context.Context, request *connect.Request[orc
 	if err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_BACKUP},
 		func(result *orchv1alpha1.VolumeResponse) error {
 			response.Backup = result.GetBackup()
+			if response.Backup != nil {
+				response.Backup.OnNode = true
+			}
 			return nil
 		}); err != nil {
 		return nil, err
@@ -322,6 +325,10 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup(), Urls: urls,
 		}, func(result *orchv1alpha1.VolumeResponse) error {
 			response.Previous = result.GetBackup()
+			if response.Previous != nil {
+				// The replaced data is kept on the node.
+				response.Previous.OnNode = true
+			}
 			return nil
 		})
 	}

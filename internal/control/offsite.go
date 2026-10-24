@@ -25,12 +25,17 @@ const (
 	offsitePresignExpiry  = 12 * time.Hour
 	offsiteTransferLimit  = 6 * time.Hour
 	offsiteRequestTimeout = time.Minute
-	offsiteSinglePutLimit = 1 << 30
-	offsiteMinPartSize    = 128 << 20
 	offsiteMaxParts       = 1000
 	// offsiteStartupGrace is how long after the controller starts a node
 	// that has not reconnected yet is not reported as holding up copies.
 	offsiteStartupGrace = 5 * time.Minute
+)
+
+// Uploads up to offsiteSinglePutLimit take one PUT; larger ones are split
+// into parts of at least offsiteMinPartSize. Tests shrink both.
+var (
+	offsiteSinglePutLimit int64 = 1 << 30
+	offsiteMinPartSize    int64 = 128 << 20
 )
 
 // isScheduledBackup reports whether a backup was taken on schedule.
@@ -559,7 +564,7 @@ func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Cl
 	defer cancel()
 	command := &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD, Backup: backup.GetName()}
 	size := backup.GetSizeBytes()
-	if size <= offsiteSinglePutLimit {
+	if size <= uint64(offsiteSinglePutLimit) {
 		url, err := client.PresignPut(key, offsitePresignExpiry)
 		if err != nil {
 			return err

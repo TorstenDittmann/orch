@@ -114,8 +114,8 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 
 	// A manual backup starts a copy at once.
 	manual, err := remote.BackupVolume(ctx, "game", "data")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !manual.GetOnNode() {
+		t.Fatalf("BackupVolume() = %v, %v; want a backup on the node", manual, err)
 	}
 	key := waitForBucketKey(t, bucket, "prod/volumes/game/data/"+manual.GetName()+".tar.gz")
 	if archive, _ := bucket.Object(key); !bytes.Equal(archivedFile(t, archive, "world.dat"), world) {
@@ -136,6 +136,15 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(volumeDir, "world.dat"), []byte("griefed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A single node never records a claim; record one as a move would.
+	node, err := server.state.NodeByName(ctx, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimedAt := time.Now().Add(-time.Hour).UTC()
+	if err := server.state.ClaimVolume(ctx, "game", "data", node.ID, claimedAt); err != nil {
+		t.Fatal(err)
+	}
 	volumes, err := remote.ListVolumes(ctx, "game", "data")
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +157,10 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("listing does not show %s as only in the bucket: %#v", manual.GetName(), volumes[0].GetBackups())
+	}
+	// db restore relies on the claim time to spot backups from a lost node.
+	if claimed := volumes[0].GetClaimedAt(); claimed == nil || !claimed.AsTime().Equal(claimedAt) {
+		t.Fatalf("claimed_at = %v, want %s", claimed, claimedAt)
 	}
 	time.Sleep(1100 * time.Millisecond)
 	if _, err := remote.RestoreVolume(ctx, "game", "data", manual.GetName()); err != nil {
@@ -256,5 +269,57 @@ func TestMissingNewestSkipsBackupsPruningWouldDelete(t *testing.T) {
 	got := missingNewest(names, remote, 2)
 	if len(got) != 2 || names[got[0]] != "20261015T120000Z-manual" || names[got[1]] != "20261016T030000Z" {
 		t.Fatalf("missingNewest() = %v", got)
+	}
+}
+
+func TestUploadBackupSetRetriesFailedParts(t *testing.T) {
+	singlePut, minPart, delay := offsiteSinglePutLimit, offsiteMinPartSize, offsiteRetryDelay
+	offsiteSinglePutLimit, offsiteMinPartSize, offsiteRetryDelay = 1, 1024, time.Millisecond
+	defer func() { offsiteSinglePutLimit, offsiteMinPartSize, offsiteRetryDelay = singlePut, minPart, delay }()
+
+	set := filepath.Join(t.TempDir(), "20261017T030000Z")
+	if err := os.MkdirAll(filepath.Join(set, "pki"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	database := make([]byte, 8<<10)
+	_, _ = rand.Read(database)
+	files := map[string][]byte{clusterctl.DatabaseFilename: database}
+	for _, name := range []string{"ca.pem", "ca-key.pem", "controller.pem", "controller-key.pem"} {
+		files[filepath.Join("pki", name)] = []byte(name)
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(set, name), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bucket := s3test.New("backups")
+	defer bucket.Close()
+	client := objectstore.New(objectstore.Destination{Bucket: "backups", Endpoint: bucket.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
+	// The first part fails twice and goes through on its last attempt.
+	bucket.FailNext(2)
+	if err := uploadBackupSet(context.Background(), client, set, "controller/20261017T030000Z.tar.gz"); err != nil {
+		t.Fatal(err)
+	}
+	archive, ok := bucket.Object("controller/20261017T030000Z.tar.gz")
+	if !ok || len(archive) <= 1024 {
+		t.Fatalf("uploaded %d bytes, want a multipart archive", len(archive))
+	}
+	extracted := filepath.Join(t.TempDir(), "set")
+	if err := clusterctl.ExtractBackupSet(bytes.NewReader(archive), extracted); err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range files {
+		if got, err := os.ReadFile(filepath.Join(extracted, name)); err != nil || !bytes.Equal(got, contents) {
+			t.Fatalf("%s differs after the multipart upload: %v", name, err)
+		}
+	}
+
+	// A part that keeps failing aborts the upload and leaves nothing behind.
+	bucket.FailNext(3)
+	if err := uploadBackupSet(context.Background(), client, set, "controller/20261018T030000Z.tar.gz"); err == nil {
+		t.Fatal("uploadBackupSet succeeded although a part failed three times")
+	}
+	if _, ok := bucket.Object("controller/20261018T030000Z.tar.gz"); ok {
+		t.Fatal("a failed multipart upload left an object")
 	}
 }

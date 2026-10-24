@@ -78,8 +78,27 @@ func TestExtractBackupSetRejectsIncompleteArchives(t *testing.T) {
 	if err := ExtractBackupSet(bytes.NewReader(archive.Bytes()), destination); err == nil {
 		t.Fatal("ExtractBackupSet accepted an archive without the database")
 	}
-	// An archive cut off before the gzip trailer fails too.
+}
+
+func TestExtractBackupSetRejectsArchivesCutOffBeforeTheTrailer(t *testing.T) {
+	source := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, "pki"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range backupSetFiles() {
+		if err := os.WriteFile(filepath.Join(source, filepath.FromSlash(name)), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var archive bytes.Buffer
+	if err := ArchiveBackupSet(source, &archive); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractBackupSet(bytes.NewReader(archive.Bytes()), filepath.Join(t.TempDir(), "set")); err != nil {
+		t.Fatalf("the complete archive: %v", err)
+	}
+	// Every entry is there; only the gzip trailer is missing.
 	if err := ExtractBackupSet(bytes.NewReader(archive.Bytes()[:archive.Len()-4]), filepath.Join(t.TempDir(), "set")); err == nil {
-		t.Fatal("ExtractBackupSet accepted a truncated archive")
+		t.Fatal("ExtractBackupSet accepted an archive without its gzip trailer")
 	}
 }
