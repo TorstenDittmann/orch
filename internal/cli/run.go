@@ -496,11 +496,6 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
 	}
-	canonical, err := config.CanonicalJSON(manifest)
-	if err != nil {
-		writeError(stderr, err, jsonOutput)
-		return ExitRuntime
-	}
 	if idempotencyKey == "" {
 		idempotencyKey, err = newIdempotencyKey(rand.Reader)
 		if err != nil {
@@ -518,6 +513,15 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
+	if err := uploadLocalImages(ctx, remote, detectLocalEngine(), manifest, stderr); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	canonical, err := config.CanonicalJSON(manifest)
+	if err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
 	response, err := remote.ApplyApplicationFrom(ctx, canonical, idempotencyKey, ciDeploymentSource(os.Getenv))
 	if err != nil {
 		writeError(stderr, fmt.Errorf("deploy request failed; retry with --idempotency-key %s: %w", idempotencyKey, err), jsonOutput)

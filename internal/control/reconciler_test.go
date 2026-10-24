@@ -1338,3 +1338,73 @@ func TestPlanApplicationCarriesVolumeBackupsOutsideTheSpecDigest(t *testing.T) {
 		t.Fatal("adding a backup policy changes the spec digest and would restart the service")
 	}
 }
+
+func TestReconcilerHashesBasicAuthSecretAndRollsOnRotation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) {
+		service.HTTP = &config.HTTP{Port: 8080, Domains: []string{"hello.example.com"}, HealthPath: "/healthz", HTTPS: true,
+			BasicAuth: &config.BasicAuth{User: "admin", PasswordSecret: "admin-password"},
+			Redirects: map[string]string{"www.hello.example.com": "hello.example.com"}}
+	}), "revision-one", "application-key-one", reconcilerTestTime)
+	box, err := security.NewSecretBox(bytes.Repeat([]byte{5}, security.SecretKeySize), bytes.NewReader(bytes.Repeat([]byte{6}, 4096)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
+	reconciler.secretBox = box
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Reason != "secret_missing" {
+		t.Fatalf("missing-password execution = %#v, %v", application.Execution, err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if _, err := state.SetApplicationSecret(ctx, box, "hello", "admin-password", "secv_one", []byte("first"), "secret-key-one-0001", reconcilerTestTime.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(first.Allocations) != 1 || first.Allocations[0].HTTP == nil {
+		t.Fatalf("first basic auth assignment = %#v, %v", first, err)
+	}
+	firstHTTP := first.Allocations[0].HTTP
+	wantHash := basicAuthHash(model.ResolvedSecret{Application: "hello", Name: "admin-password", VersionID: "secv_one", Value: []byte("first")})
+	if firstHTTP.BasicAuth == nil || *firstHTTP.BasicAuth != (model.HTTPBasicAuth{User: "admin", PasswordHash: wantHash}) ||
+		firstHTTP.Redirects["www.hello.example.com"] != "hello.example.com" {
+		t.Fatalf("first HTTP intent = %#v", firstHTTP)
+	}
+	// Only the hash travels: the password is not hydrated as secret material.
+	hydrated, err := reconciler.HydrateAssignment(ctx, first)
+	if err != nil || len(hydrated.Materials) != 0 {
+		t.Fatalf("hydrated assignment = %#v, %v", hydrated.Materials, err)
+	}
+	firstDigest := first.Allocations[0].SpecDigest
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	replanned, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(replanned.Allocations) != 1 || replanned.Allocations[0].SpecDigest != firstDigest {
+		t.Fatalf("replanned assignment = %#v, %v", replanned, err)
+	}
+	if _, err := state.SetApplicationSecret(ctx, box, "hello", "admin-password", "secv_two", []byte("second"), "secret-key-two-0002", reconcilerTestTime.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(second.Allocations) != 1 || second.Allocations[0].SpecDigest == firstDigest ||
+		second.Allocations[0].HTTP.BasicAuth == nil || second.Allocations[0].HTTP.BasicAuth.PasswordHash == wantHash {
+		t.Fatalf("rotated basic auth assignment = %#v, %v", second, err)
+	}
+}

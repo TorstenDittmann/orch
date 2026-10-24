@@ -128,6 +128,7 @@ func (r *sessionRunner) maybeRenewCertificate(ctx context.Context) (completed bo
 		return false, err
 	}
 	r.credentials = credentials
+	r.registry.set(credentials)
 	if err := os.Remove(stagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("remove completed certificate renewal: %w", err)
 	}
@@ -165,12 +166,16 @@ func (r *sessionRunner) renewalClient() (orchv1alpha1connect.AgentServiceClient,
 }
 
 func (r *sessionRunner) agentTLSConfig() *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: r.credentials.RootCAs,
-		Certificates: []tls.Certificate{r.credentials.Certificate}, ServerName: r.credentials.ServerName,
+	return agentTLSConfig(r.credentials)
+}
+
+func agentTLSConfig(credentials Credentials) *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: credentials.RootCAs,
+		Certificates: []tls.Certificate{credentials.Certificate}, ServerName: credentials.ServerName,
 		VerifyConnection: func(connection tls.ConnectionState) error {
 			if len(connection.PeerCertificates) == 0 || len(connection.VerifiedChains) == 0 {
 				return errors.New("controller certificate was not verified")
 			}
-			return security.VerifyPeerIdentity(connection.PeerCertificates[0], r.credentials.Config.ClusterID, security.RoleController)
+			return security.VerifyPeerIdentity(connection.PeerCertificates[0], credentials.Config.ClusterID, security.RoleController)
 		}}
 }

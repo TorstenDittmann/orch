@@ -133,6 +133,20 @@ class Http {
   /// Publish HTTP routes only on the ingress-enabled node running each replica.
   /// Use this when a hostname points at that node, rather than shared ingress.
   nodeLocal: Boolean = false
+
+  /// Ask for a username and password before a request reaches the service.
+  basicAuth: BasicAuth? = null
+
+  /// Domains that permanently redirect to one of `domains`, such as
+  /// `["www.example.com"] = "example.com"`. The path and query are kept.
+  redirects: Mapping<String, String>(length <= 100) = new {}
+}
+
+class BasicAuth {
+  user: String(matches(Regex(#"^[A-Za-z0-9._-]{1,64}$"#)))
+
+  /// Name of the application secret that holds the password.
+  passwordSecret: DnsLabel
 }
 
 class Tcp {

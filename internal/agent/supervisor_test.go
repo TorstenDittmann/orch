@@ -1805,3 +1805,26 @@ func TestSupervisorPublishesNodePortsOnceReady(t *testing.T) {
 		t.Fatalf("withdrawn node ports remain: %#v", publisher.NodePorts)
 	}
 }
+
+func TestRemoteEndpointKeepsBasicAuthAndRedirects(t *testing.T) {
+	t.Parallel()
+	auth := &model.HTTPBasicAuth{User: "admin", PasswordHash: "$argon2id$v=19$m=47104,t=1,p=1$c2FsdA$a2V5"}
+	endpoint := model.ServiceEndpoint{
+		AllocationID: "alloc-remote", Application: "hello", Service: "web", NodeID: "node-two",
+		Address: "10.88.1.2", Port: 8080, Domains: []string{"api.example.com", "app.example.com"}, HTTPS: true,
+		BasicAuth: auth, Redirects: map[string]string{"www.app.example.com": "app.example.com", "app.example.net": "app.example.com"},
+	}
+	assignment := model.Assignment{Network: model.NetworkConfig{Generation: 1, Endpoints: []model.ServiceEndpoint{endpoint}}}
+	allocations, serving, specs := remoteServingView(assignment, nil, nil)
+	routes, pending := desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+	if len(pending) != 0 || len(routes) != 2 {
+		t.Fatalf("routes = %#v, pending = %#v", routes, pending)
+	}
+	if routes[0].Domain != "api.example.com" || routes[0].BasicAuth == nil || *routes[0].BasicAuth != *auth || len(routes[0].RedirectFrom) != 0 {
+		t.Fatalf("api route = %#v", routes[0])
+	}
+	if routes[1].Domain != "app.example.com" || routes[1].BasicAuth == nil ||
+		!reflect.DeepEqual(routes[1].RedirectFrom, []string{"app.example.net", "www.app.example.com"}) {
+		t.Fatalf("app route = %#v", routes[1])
+	}
+}

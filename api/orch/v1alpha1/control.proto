@@ -47,6 +47,8 @@ service ControlService {
   rpc LoginRegistry(LoginRegistryRequest) returns (LoginRegistryResponse);
   rpc ListRegistries(ListRegistriesRequest) returns (ListRegistriesResponse);
   rpc LogoutRegistry(LogoutRegistryRequest) returns (LogoutRegistryResponse);
+  rpc LookupImage(LookupImageRequest) returns (LookupImageResponse);
+  rpc UploadImage(stream UploadImageRequest) returns (UploadImageResponse);
   rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
@@ -660,6 +662,42 @@ message RegistryCredentialMetadata {
   string current_version_id = 3;
   google.protobuf.Timestamp created_at = 4;
   google.protobuf.Timestamp updated_at = 5;
+}
+
+// LookupImageRequest asks where orch deploy should take an image it found in
+// the local engine from: the image's registry, an earlier upload of the same
+// local image, or a new upload.
+message LookupImageRequest {
+  // The image reference as authored. When set, the controller first checks
+  // whether the image's registry has it.
+  string image = 1;
+  // The image ID the local engine reports.
+  string local_id = 2;
+}
+
+message LookupImageResponse {
+  // Set when the image's registry has the image, so it needs no upload.
+  bool in_registry = 1;
+  // The digest of an earlier upload of this local image, or empty.
+  string digest = 2;
+}
+
+// UploadImageRequest streams a local image to the controller, which stores it
+// and serves it to agents, so images need no registry. The first message sets
+// image and local_id; every later message carries the next chunk of the image
+// archive that docker image save writes.
+message UploadImageRequest {
+  string image = 1;
+  string local_id = 2;
+  bytes data = 3;
+}
+
+message UploadImageResponse {
+  // The digest the stored image is pinned to, for the image reference
+  // NAME@DIGEST.
+  string digest = 1;
+  // The platforms the image runs on, such as linux/amd64.
+  repeated string platforms = 2;
 }
 
 message LoginRegistryRequest {

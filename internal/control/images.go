@@ -24,57 +24,20 @@ type ImageResolver interface {
 func (s *service) resolveImages(ctx context.Context, manifest *config.Manifest) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	resolver := s.imageResolver
-	if resolver == nil {
-		resolver = images.Resolver{}
-	}
 	cache := make(map[string]string)
 	resolve := func(path, image string) (string, error) {
-		named, err := reference.ParseNormalizedNamed(image)
-		if err != nil {
-			return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s: invalid image reference", path))
+		key := image
+		if named, err := reference.ParseNormalizedNamed(image); err == nil {
+			key = reference.TagNameOnly(named).String()
 		}
-		if _, ok := named.(reference.Digested); ok {
-			return image, nil
-		}
-		normalized := reference.TagNameOnly(named).String()
-		if pinned, ok := cache[normalized]; ok {
+		if pinned, ok := cache[key]; ok {
 			return pinned, nil
 		}
-		credential, err := s.state.ResolveRegistryCredential(ctx, s.secretBox, reference.Domain(named))
-		if errors.Is(err, store.ErrRegistryCredentialNotFound) {
-			credential = model.ResolvedRegistryCredential{}
-		} else if err != nil {
-			return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s: registry credentials are unavailable", path))
-		}
-		defer func() { clear(credential.Secret) }()
-		pinned, err := resolver.Resolve(ctx, normalized, credential.Username, credential.Secret)
+		pinned, err := s.resolveImage(ctx, path, image)
 		if err != nil {
-			code, reason := connect.CodeUnavailable, images.ErrUnavailable
-			switch {
-			case errors.Is(err, context.Canceled):
-				code, reason = connect.CodeCanceled, context.Canceled
-			case errors.Is(err, context.DeadlineExceeded):
-				code, reason = connect.CodeDeadlineExceeded, context.DeadlineExceeded
-			case errors.Is(err, images.ErrNotFound):
-				code, reason = connect.CodeNotFound, images.ErrNotFound
-			case errors.Is(err, images.ErrUnauthorized):
-				code, reason = connect.CodeFailedPrecondition, images.ErrUnauthorized
-			case errors.Is(err, images.ErrPlatform):
-				code, reason = connect.CodeFailedPrecondition, images.ErrPlatform
-			case errors.Is(err, images.ErrInvalid):
-				code, reason = connect.CodeFailedPrecondition, images.ErrInvalid
-			}
-			return "", connect.NewError(code, fmt.Errorf("%s: %w", path, reason))
+			return "", err
 		}
-		resolved, err := reference.ParseNormalizedNamed(pinned)
-		if err != nil || reference.TrimNamed(resolved).String() != reference.TrimNamed(named).String() {
-			return "", connect.NewError(connect.CodeInternal, errors.New("resolver returned a different image repository"))
-		}
-		if _, ok := resolved.(reference.Digested); !ok {
-			return "", connect.NewError(connect.CodeInternal, errors.New("resolver returned an unpinned image"))
-		}
-		cache[normalized] = pinned
+		cache[key] = pinned
 		return pinned, nil
 	}
 	names := make([]string, 0, len(manifest.Services))
@@ -113,4 +76,56 @@ func (s *service) resolveImages(ctx context.Context, manifest *config.Manifest) 
 		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("resolved manifest exceeds size limit"))
 	}
 	return canonical, nil
+}
+
+// resolveImage pins one authored image reference to the digest its registry
+// reports, using stored registry credentials. path names the reference in
+// errors.
+func (s *service) resolveImage(ctx context.Context, path, image string) (string, error) {
+	resolver := s.imageResolver
+	if resolver == nil {
+		resolver = images.Resolver{}
+	}
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s: invalid image reference", path))
+	}
+	if _, ok := named.(reference.Digested); ok {
+		return image, nil
+	}
+	normalized := reference.TagNameOnly(named).String()
+	credential, err := s.state.ResolveRegistryCredential(ctx, s.secretBox, reference.Domain(named))
+	if errors.Is(err, store.ErrRegistryCredentialNotFound) {
+		credential = model.ResolvedRegistryCredential{}
+	} else if err != nil {
+		return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s: registry credentials are unavailable", path))
+	}
+	defer func() { clear(credential.Secret) }()
+	pinned, err := resolver.Resolve(ctx, normalized, credential.Username, credential.Secret)
+	if err != nil {
+		code, reason := connect.CodeUnavailable, images.ErrUnavailable
+		switch {
+		case errors.Is(err, context.Canceled):
+			code, reason = connect.CodeCanceled, context.Canceled
+		case errors.Is(err, context.DeadlineExceeded):
+			code, reason = connect.CodeDeadlineExceeded, context.DeadlineExceeded
+		case errors.Is(err, images.ErrNotFound):
+			code, reason = connect.CodeNotFound, images.ErrNotFound
+		case errors.Is(err, images.ErrUnauthorized):
+			code, reason = connect.CodeFailedPrecondition, images.ErrUnauthorized
+		case errors.Is(err, images.ErrPlatform):
+			code, reason = connect.CodeFailedPrecondition, images.ErrPlatform
+		case errors.Is(err, images.ErrInvalid):
+			code, reason = connect.CodeFailedPrecondition, images.ErrInvalid
+		}
+		return "", connect.NewError(code, fmt.Errorf("%s: %w", path, reason))
+	}
+	resolved, err := reference.ParseNormalizedNamed(pinned)
+	if err != nil || reference.TrimNamed(resolved).String() != reference.TrimNamed(named).String() {
+		return "", connect.NewError(connect.CodeInternal, errors.New("resolver returned a different image repository"))
+	}
+	if _, ok := resolved.(reference.Digested); !ok {
+		return "", connect.NewError(connect.CodeInternal, errors.New("resolver returned an unpinned image"))
+	}
+	return pinned, nil
 }

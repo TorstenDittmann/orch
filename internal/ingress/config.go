@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,6 +116,26 @@ type caddyUpstream struct {
 	Dial string `json:"dial"`
 }
 
+type authenticationHandler struct {
+	Handler   string                  `json:"handler"`
+	Providers authenticationProviders `json:"providers"`
+}
+
+type authenticationProviders struct {
+	HTTPBasic httpBasicProvider `json:"http_basic"`
+}
+
+type httpBasicProvider struct {
+	Hash      map[string]string `json:"hash"`
+	Accounts  []basicAccount    `json:"accounts"`
+	HashCache struct{}          `json:"hash_cache"`
+}
+
+type basicAccount struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type staticResponseHandler struct {
 	Handler    string              `json:"handler"`
 	StatusCode int                 `json:"status_code"`
@@ -174,26 +195,47 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		if len(upstreams) == 0 {
 			return nil, "", fmt.Errorf("ingress route %q has no ready upstream", route.Domain)
 		}
-		reverse := caddyRoute{
-			Handle:   []any{reverseProxyHandler{Handler: "reverse_proxy", Upstreams: upstreams}},
-			Terminal: true,
+		handlers := make([]any, 0, 2)
+		if route.BasicAuth != nil {
+			handler, err := basicAuthHandler(*route.BasicAuth)
+			if err != nil {
+				return nil, "", fmt.Errorf("ingress route %q: %w", route.Domain, err)
+			}
+			handlers = append(handlers, handler)
 		}
+		handlers = append(handlers, reverseProxyHandler{Handler: "reverse_proxy", Upstreams: upstreams})
+		reverse := caddyRoute{Handle: handlers, Terminal: true}
 		if route.Domain != model.PublicHTTPRoute {
 			reverse.Match = []caddyMatcher{{Host: []string{route.Domain}}}
+		} else if len(route.RedirectFrom) != 0 {
+			return nil, "", fmt.Errorf("public IP ingress cannot have redirects")
 		}
+		scheme := "http://"
 		if route.HTTPS {
+			scheme = "https://"
 			httpsRoutes = append(httpsRoutes, reverse)
 			httpsSubjects = append(httpsSubjects, route.Domain)
-			httpRoutes = append(httpRoutes, caddyRoute{
-				Match: []caddyMatcher{{Host: []string{route.Domain}}},
-				Handle: []any{staticResponseHandler{
-					Handler: "static_response", StatusCode: 308,
-					Headers: map[string][]string{"Location": {"https://" + route.Domain + "{http.request.uri}"}},
-				}},
-				Terminal: true,
-			})
+			httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://"+route.Domain))
 		} else {
 			httpRoutes = append(httpRoutes, reverse)
+		}
+		redirectFrom := append([]string(nil), route.RedirectFrom...)
+		sort.Strings(redirectFrom)
+		for _, from := range redirectFrom {
+			if err := config.ValidateDomain(from); err != nil {
+				return nil, "", fmt.Errorf("invalid ingress redirect domain %q: %w", from, err)
+			}
+			if _, exists := seen[from]; exists {
+				return nil, "", fmt.Errorf("ingress domains must be unique")
+			}
+			seen[from] = struct{}{}
+			// Plain HTTP goes straight to the target so a redirect never
+			// takes two hops.
+			httpRoutes = append(httpRoutes, redirectRoute(from, scheme+route.Domain))
+			if route.HTTPS {
+				httpsRoutes = append(httpsRoutes, redirectRoute(from, scheme+route.Domain))
+				httpsSubjects = append(httpsSubjects, from)
+			}
 		}
 	}
 	servers := map[string]caddyServer{
@@ -233,6 +275,34 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 	configuration := append(encoded, '\n')
 	digest := sha256.Sum256(configuration)
 	return configuration, "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+var (
+	basicAuthUser = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+	argon2idHash  = regexp.MustCompile(`^\$argon2id\$v=19\$m=[0-9]+,t=[0-9]+,p=[0-9]+\$[A-Za-z0-9+/]+\$[A-Za-z0-9+/]+$`)
+)
+
+// basicAuthHandler checks the account before the reverse proxy runs. The hash
+// cache keeps argon2id from running on every request with the same password.
+func basicAuthHandler(auth model.HTTPBasicAuth) (authenticationHandler, error) {
+	if !basicAuthUser.MatchString(auth.User) || !argon2idHash.MatchString(auth.PasswordHash) {
+		return authenticationHandler{}, fmt.Errorf("basic auth account is invalid")
+	}
+	return authenticationHandler{Handler: "authentication", Providers: authenticationProviders{HTTPBasic: httpBasicProvider{
+		Hash:     map[string]string{"algorithm": "argon2id"},
+		Accounts: []basicAccount{{Username: auth.User, Password: auth.PasswordHash}},
+	}}}, nil
+}
+
+func redirectRoute(from, target string) caddyRoute {
+	return caddyRoute{
+		Match: []caddyMatcher{{Host: []string{from}}},
+		Handle: []any{staticResponseHandler{
+			Handler: "static_response", StatusCode: 308,
+			Headers: map[string][]string{"Location": {target + "{http.request.uri}"}},
+		}},
+		Terminal: true,
+	}
 }
 
 func validateTestACMEIssuer(issuer *testACMEIssuer) error {

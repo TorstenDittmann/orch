@@ -5,6 +5,7 @@ import (
 	"net"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,8 @@ var (
 	envNamePattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	cpuPattern       = regexp.MustCompile(`^([1-9][0-9]*)(m)?$`)
 	memoryPattern    = regexp.MustCompile(`^[1-9][0-9]*(Ki|Mi|Gi|Ti)$`)
+	// basicAuthUserPattern keeps usernames free of ':' and Caddy placeholders.
+	basicAuthUserPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 )
 
 type Problem struct {
@@ -224,6 +227,39 @@ func Validate(manifest *Manifest) error {
 					add(field, fmt.Sprintf("is already routed by service %q", owner))
 				} else {
 					domainOwners[normalized] = serviceName
+				}
+			}
+			if len(service.HTTP.Redirects) > maxDomainsPerService {
+				add(base+".http.redirects", fmt.Sprintf("must not contain more than %d domains", maxDomainsPerService))
+			}
+			totalDomains += len(service.HTTP.Redirects)
+			for _, from := range sortedKeys(service.HTTP.Redirects) {
+				to := service.HTTP.Redirects[from]
+				field := base + ".http.redirects[" + strconv.Quote(from) + "]"
+				if !validHostname(from) {
+					add(field, "must be keyed by a normalized lowercase DNS hostname without a wildcard or trailing dot")
+					continue
+				}
+				if _, exists := seenDomains[from]; exists {
+					add(field, "must not redirect a domain the service also serves")
+					continue
+				}
+				if !slices.Contains(service.HTTP.Domains, to) {
+					add(field, "must redirect to one of this service's domains")
+				}
+				if owner, exists := domainOwners[from]; exists && owner != serviceName {
+					add(field, fmt.Sprintf("is already routed by service %q", owner))
+				} else {
+					domainOwners[from] = serviceName
+				}
+			}
+			if auth := service.HTTP.BasicAuth; auth != nil {
+				if !basicAuthUserPattern.MatchString(auth.User) {
+					add(base+".http.basic_auth.user", "must be 1-64 letters, digits, dots, underscores or hyphens")
+				}
+				validateDNSLabel(base+".http.basic_auth.password_secret", auth.PasswordSecret, add)
+				if !service.HTTP.Public && len(service.HTTP.Domains) == 0 {
+					add(base+".http.basic_auth", "requires public HTTP ingress or domains")
 				}
 			}
 			if service.HTTP.Public {

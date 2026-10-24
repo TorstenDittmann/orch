@@ -86,6 +86,15 @@ message HTTPDesired {
   bool https = 4;
   bool public = 5;
   bool node_local = 6;
+  HTTPBasicAuth basic_auth = 7;
+  // Domains that permanently redirect to one of domains.
+  map<string, string> redirects = 8;
+}
+
+// HTTPBasicAuth carries an argon2id hash, never the password.
+message HTTPBasicAuth {
+  string user = 1;
+  string password_hash = 2;
 }
 
 message TCPDesired {
@@ -183,6 +192,8 @@ message ServiceEndpoint {
   uint32 tcp_public_port = 9;
   bool http_public = 10;
   bool http_node_local = 11;
+  HTTPBasicAuth basic_auth = 12;
+  map<string, string> redirects = 13;
 }
 
 message AllocationDesired {

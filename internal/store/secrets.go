@@ -544,6 +544,9 @@ func manifestReferencesSecret(manifest config.Manifest, name string) bool {
 				return true
 			}
 		}
+		if service.HTTP != nil && service.HTTP.BasicAuth != nil && service.HTTP.BasicAuth.PasswordSecret == name {
+			return true
+		}
 	}
 	for _, job := range manifest.CronJobs {
 		for _, ref := range job.SecretEnv {

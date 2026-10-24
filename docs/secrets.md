@@ -139,6 +139,9 @@ continues on its own.
 
 ## Registry credentials
 
+Images you build locally need no registry or credentials: `orch deploy`
+uploads them to the controller (see [orch deploy](cli.md#orch-deploy)).
+
 Registry credentials are cluster-wide. Each one is stored for a registry host,
 optionally with a port, and is used for every image on exactly that host.
 

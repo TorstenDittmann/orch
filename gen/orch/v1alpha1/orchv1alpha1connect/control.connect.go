@@ -138,6 +138,12 @@ const (
 	// ControlServiceLogoutRegistryProcedure is the fully-qualified name of the ControlService's
 	// LogoutRegistry RPC.
 	ControlServiceLogoutRegistryProcedure = "/orch.v1alpha1.ControlService/LogoutRegistry"
+	// ControlServiceLookupImageProcedure is the fully-qualified name of the ControlService's
+	// LookupImage RPC.
+	ControlServiceLookupImageProcedure = "/orch.v1alpha1.ControlService/LookupImage"
+	// ControlServiceUploadImageProcedure is the fully-qualified name of the ControlService's
+	// UploadImage RPC.
+	ControlServiceUploadImageProcedure = "/orch.v1alpha1.ControlService/UploadImage"
 	// ControlServiceUpdateNodeProcedure is the fully-qualified name of the ControlService's UpdateNode
 	// RPC.
 	ControlServiceUpdateNodeProcedure = "/orch.v1alpha1.ControlService/UpdateNode"
@@ -234,6 +240,8 @@ type ControlServiceClient interface {
 	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
 	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
+	LookupImage(context.Context, *connect.Request[v1alpha1.LookupImageRequest]) (*connect.Response[v1alpha1.LookupImageResponse], error)
+	UploadImage(context.Context) *connect.ClientStreamForClient[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
@@ -487,6 +495,18 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
 			connect.WithClientOptions(opts...),
 		),
+		lookupImage: connect.NewClient[v1alpha1.LookupImageRequest, v1alpha1.LookupImageResponse](
+			httpClient,
+			baseURL+ControlServiceLookupImageProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("LookupImage")),
+			connect.WithClientOptions(opts...),
+		),
+		uploadImage: connect.NewClient[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse](
+			httpClient,
+			baseURL+ControlServiceUploadImageProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("UploadImage")),
+			connect.WithClientOptions(opts...),
+		),
 		updateNode: connect.NewClient[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse](
 			httpClient,
 			baseURL+ControlServiceUpdateNodeProcedure,
@@ -637,6 +657,8 @@ type controlServiceClient struct {
 	loginRegistry           *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
 	listRegistries          *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
 	logoutRegistry          *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	lookupImage             *connect.Client[v1alpha1.LookupImageRequest, v1alpha1.LookupImageResponse]
+	uploadImage             *connect.Client[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
 	updateNode              *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
 	removeNode              *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
 	createJoinToken         *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
@@ -844,6 +866,16 @@ func (c *controlServiceClient) LogoutRegistry(ctx context.Context, req *connect.
 	return c.logoutRegistry.CallUnary(ctx, req)
 }
 
+// LookupImage calls orch.v1alpha1.ControlService.LookupImage.
+func (c *controlServiceClient) LookupImage(ctx context.Context, req *connect.Request[v1alpha1.LookupImageRequest]) (*connect.Response[v1alpha1.LookupImageResponse], error) {
+	return c.lookupImage.CallUnary(ctx, req)
+}
+
+// UploadImage calls orch.v1alpha1.ControlService.UploadImage.
+func (c *controlServiceClient) UploadImage(ctx context.Context) *connect.ClientStreamForClient[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse] {
+	return c.uploadImage.CallClientStream(ctx)
+}
+
 // UpdateNode calls orch.v1alpha1.ControlService.UpdateNode.
 func (c *controlServiceClient) UpdateNode(ctx context.Context, req *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error) {
 	return c.updateNode.CallUnary(ctx, req)
@@ -974,6 +1006,8 @@ type ControlServiceHandler interface {
 	LoginRegistry(context.Context, *connect.Request[v1alpha1.LoginRegistryRequest]) (*connect.Response[v1alpha1.LoginRegistryResponse], error)
 	ListRegistries(context.Context, *connect.Request[v1alpha1.ListRegistriesRequest]) (*connect.Response[v1alpha1.ListRegistriesResponse], error)
 	LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error)
+	LookupImage(context.Context, *connect.Request[v1alpha1.LookupImageRequest]) (*connect.Response[v1alpha1.LookupImageResponse], error)
+	UploadImage(context.Context, *connect.ClientStream[v1alpha1.UploadImageRequest]) (*connect.Response[v1alpha1.UploadImageResponse], error)
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
@@ -1223,6 +1257,18 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("LogoutRegistry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceLookupImageHandler := connect.NewUnaryHandler(
+		ControlServiceLookupImageProcedure,
+		svc.LookupImage,
+		connect.WithSchema(controlServiceMethods.ByName("LookupImage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceUploadImageHandler := connect.NewClientStreamHandler(
+		ControlServiceUploadImageProcedure,
+		svc.UploadImage,
+		connect.WithSchema(controlServiceMethods.ByName("UploadImage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceUpdateNodeHandler := connect.NewUnaryHandler(
 		ControlServiceUpdateNodeProcedure,
 		svc.UpdateNode,
@@ -1407,6 +1453,10 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceListRegistriesHandler.ServeHTTP(w, r)
 		case ControlServiceLogoutRegistryProcedure:
 			controlServiceLogoutRegistryHandler.ServeHTTP(w, r)
+		case ControlServiceLookupImageProcedure:
+			controlServiceLookupImageHandler.ServeHTTP(w, r)
+		case ControlServiceUploadImageProcedure:
+			controlServiceUploadImageHandler.ServeHTTP(w, r)
 		case ControlServiceUpdateNodeProcedure:
 			controlServiceUpdateNodeHandler.ServeHTTP(w, r)
 		case ControlServiceRemoveNodeProcedure:
@@ -1598,6 +1648,14 @@ func (UnimplementedControlServiceHandler) ListRegistries(context.Context, *conne
 
 func (UnimplementedControlServiceHandler) LogoutRegistry(context.Context, *connect.Request[v1alpha1.LogoutRegistryRequest]) (*connect.Response[v1alpha1.LogoutRegistryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.LogoutRegistry is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) LookupImage(context.Context, *connect.Request[v1alpha1.LookupImageRequest]) (*connect.Response[v1alpha1.LookupImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.LookupImage is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) UploadImage(context.Context, *connect.ClientStream[v1alpha1.UploadImageRequest]) (*connect.Response[v1alpha1.UploadImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.UploadImage is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error) {

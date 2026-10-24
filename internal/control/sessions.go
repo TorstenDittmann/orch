@@ -415,6 +415,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 				Address: endpoint.Address, Port: endpoint.Port, NodeId: endpoint.NodeID,
 				Domains: append([]string(nil), endpoint.Domains...), Https: endpoint.HTTPS, HttpPublic: endpoint.HTTPPublic,
 				TcpPublicPort: endpoint.TCPPublicPort, HttpNodeLocal: endpoint.HTTPNodeLocal,
+				BasicAuth: basicAuthMessage(endpoint.BasicAuth), Redirects: cloneEnvironment(endpoint.Redirects),
 			})
 		}
 	}
@@ -512,7 +513,15 @@ func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
 	if http == nil {
 		return nil
 	}
-	return &orchv1alpha1.HTTPDesired{Port: http.Port, Public: http.Public, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS, NodeLocal: http.NodeLocal}
+	return &orchv1alpha1.HTTPDesired{Port: http.Port, Public: http.Public, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS, NodeLocal: http.NodeLocal,
+		BasicAuth: basicAuthMessage(http.BasicAuth), Redirects: cloneEnvironment(http.Redirects)}
+}
+
+func basicAuthMessage(auth *model.HTTPBasicAuth) *orchv1alpha1.HTTPBasicAuth {
+	if auth == nil {
+		return nil
+	}
+	return &orchv1alpha1.HTTPBasicAuth{User: auth.User, PasswordHash: auth.PasswordHash}
 }
 
 func tcpDesiredMessage(tcp *model.TCPDesired) *orchv1alpha1.TCPDesired {

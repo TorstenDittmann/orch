@@ -42,6 +42,7 @@ const (
 
 type sessionRunner struct {
 	credentials            Credentials
+	registry               *controllerRegistry
 	cache                  *state.Store
 	supervisor             *Supervisor
 	capabilities           orchruntime.Capabilities
@@ -981,6 +982,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				Address: endpoint.GetAddress(), Port: endpoint.GetPort(), NodeID: endpoint.GetNodeId(),
 				Domains: append([]string(nil), endpoint.GetDomains()...), HTTPS: endpoint.GetHttps(), HTTPPublic: endpoint.GetHttpPublic(),
 				TCPPublicPort: endpoint.GetTcpPublicPort(), HTTPNodeLocal: endpoint.GetHttpNodeLocal(),
+				BasicAuth: basicAuthModel(endpoint.GetBasicAuth()), Redirects: cloneStringMap(endpoint.GetRedirects()),
 			})
 		}
 		if err := model.ValidateNodeNetwork(assignment.Network); err != nil {
@@ -1029,9 +1031,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				Volume: backup.GetVolume(), Schedule: backup.GetSchedule(), Keep: backup.GetKeep(), Before: before,
 			})
 		}
-		if desiredHTTP := item.GetHttp(); desiredHTTP != nil {
-			allocation.HTTP = &model.HTTPDesired{Port: desiredHTTP.GetPort(), Public: desiredHTTP.GetPublic(), Domains: append([]string(nil), desiredHTTP.GetDomains()...), HealthPath: desiredHTTP.GetHealthPath(), HTTPS: desiredHTTP.GetHttps(), NodeLocal: desiredHTTP.GetNodeLocal()}
-		}
+		allocation.HTTP = httpDesiredModel(item.GetHttp())
 		if desiredTCP := item.GetTcp(); desiredTCP != nil {
 			allocation.TCP = &model.TCPDesired{Port: desiredTCP.GetPort(), PublicPort: desiredTCP.GetPublicPort(), NodePort: desiredTCP.GetNodePort()}
 		}
@@ -1054,9 +1054,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			allocation.Rollback.SecretEnvironment = secretEnvironmentModel(rollback.GetSecretEnvironment())
 			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())
 			allocation.Rollback.RegistryCredential = registryCredentialModel(rollback.GetRegistryCredential())
-			if rollback.GetHttp() != nil {
-				allocation.Rollback.HTTP = &model.HTTPDesired{Port: rollback.GetHttp().GetPort(), Public: rollback.GetHttp().GetPublic(), Domains: append([]string(nil), rollback.GetHttp().GetDomains()...), HealthPath: rollback.GetHttp().GetHealthPath(), HTTPS: rollback.GetHttp().GetHttps(), NodeLocal: rollback.GetHttp().GetNodeLocal()}
-			}
+			allocation.Rollback.HTTP = httpDesiredModel(rollback.GetHttp())
 			if rollback.GetTcp() != nil {
 				allocation.Rollback.TCP = &model.TCPDesired{Port: rollback.GetTcp().GetPort(), PublicPort: rollback.GetTcp().GetPublicPort(), NodePort: rollback.GetTcp().GetNodePort()}
 			}
@@ -1292,4 +1290,20 @@ func logStreamProto(stream string) orchv1alpha1.LogStream {
 		return orchv1alpha1.LogStream_LOG_STREAM_STDERR
 	}
 	return orchv1alpha1.LogStream_LOG_STREAM_STDOUT
+}
+
+func httpDesiredModel(desired *orchv1alpha1.HTTPDesired) *model.HTTPDesired {
+	if desired == nil {
+		return nil
+	}
+	return &model.HTTPDesired{Port: desired.GetPort(), Public: desired.GetPublic(), Domains: append([]string(nil), desired.GetDomains()...),
+		HealthPath: desired.GetHealthPath(), HTTPS: desired.GetHttps(), NodeLocal: desired.GetNodeLocal(),
+		BasicAuth: basicAuthModel(desired.GetBasicAuth()), Redirects: cloneStringMap(desired.GetRedirects())}
+}
+
+func basicAuthModel(auth *orchv1alpha1.HTTPBasicAuth) *model.HTTPBasicAuth {
+	if auth == nil {
+		return nil
+	}
+	return &model.HTTPBasicAuth{User: auth.GetUser(), PasswordHash: auth.GetPasswordHash()}
 }

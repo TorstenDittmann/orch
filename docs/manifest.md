@@ -406,6 +406,8 @@ An HTTP endpoint. Ingress nodes route the listed domains to ready replicas.
 | `domains` | `Listing<String>` | empty | At most 100 distinct hostnames |
 | `healthPath` | String | `""` | Required when `public` or `domains` is set |
 | `https` | Boolean | `true` | Obtain certificates and redirect HTTP to HTTPS |
+| `basicAuth` | `BasicAuth?` | `null` | Ask for a username and password first |
+| `redirects` | `Mapping<String, String>` | empty | Domains that redirect to one of `domains` |
 
 Rules for `domains`:
 
@@ -438,6 +440,51 @@ http = new Http {
 ```
 
 See [networking](networking.md#https) for DNS and firewall requirements.
+
+### Basic auth
+
+`basicAuth` puts a username and password in front of every domain and the
+public listener of the service. Ingress answers `401` until the browser sends
+the right account, so the service never sees an unauthenticated request.
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `user` | String | 1–64 letters, digits, `.`, `_` or `-` |
+| `passwordSecret` | DnsLabel | Name of the application secret that holds the password |
+
+```pkl
+http = new Http {
+  port = 8080
+  domains { "admin.example.com" }
+  healthPath = "/healthz"
+  basicAuth = new BasicAuth { user = "admin"; passwordSecret = "admin-password" }
+}
+```
+
+```sh
+printf '%s' "$ADMIN_PASSWORD" | orch secret set APP admin-password --from-stdin
+```
+
+The controller hashes the password with argon2id and only the hash reaches the
+nodes. Setting a new value for the secret rolls the service like any other
+secret change. Health checks go straight to the replica, so they don't need
+the password. `orch dev` leaves basic auth off.
+
+### Redirects
+
+`redirects` sends every request for a domain to one of the service's
+`domains` with a permanent `308`, keeping the path and query. A redirected
+domain gets its own certificate when `https = true`, follows the same rules as
+`domains`, and can't also be in `domains`.
+
+```pkl
+http = new Http {
+  port = 8080
+  domains { "example.com" }
+  healthPath = "/healthz"
+  redirects { ["www.example.com"] = "example.com" }
+}
+```
 
 ## Tcp
 

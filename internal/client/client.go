@@ -25,6 +25,8 @@ const maxMessageBytes = 2 << 20
 type Client struct {
 	context clusterctl.LocalContext
 	service orchv1alpha1connect.ControlServiceClient
+	// uploads compresses what it sends, for image uploads.
+	uploads orchv1alpha1connect.ControlServiceClient
 	http    *http.Client
 	target  string
 	mode    string
@@ -193,8 +195,13 @@ func newCertificateClient(endpoint Endpoint, credentials clusterctl.Administrato
 		connect.WithSendMaxBytes(maxMessageBytes),
 		connect.WithReadMaxBytes(maxMessageBytes),
 	)
+	uploads := orchv1alpha1connect.NewControlServiceClient(
+		httpClient, credentials.Context.Server, connect.WithSendGzip(),
+		connect.WithSendMaxBytes(maxMessageBytes),
+		connect.WithReadMaxBytes(maxMessageBytes),
+	)
 	return &Client{
-		context: credentials.Context, service: service, http: httpClient,
+		context: credentials.Context, service: service, uploads: uploads, http: httpClient,
 		target: endpoint.Target, mode: endpoint.Transport.Type, tunnel: tunnel,
 		administratorNotAfter: credentials.Certificate.Leaf.NotAfter, controllerNotAfter: controllerNotAfter,
 	}, nil

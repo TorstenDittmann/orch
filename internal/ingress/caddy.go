@@ -626,7 +626,23 @@ func probeRoute(ctx context.Context, route Route) error {
 	if response.StatusCode >= 500 {
 		return &routeStatusError{domain: route.Domain, status: response.StatusCode}
 	}
+	if route.BasicAuth != nil && response.StatusCode == http.StatusUnauthorized {
+		// The probe has no password, so Caddy answers before proxying. Check
+		// that an upstream accepts connections, as the proxy would.
+		return probeUpstreams(ctx, route)
+	}
 	return nil
+}
+
+func probeUpstreams(ctx context.Context, route Route) error {
+	for _, upstream := range route.Upstreams {
+		connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", upstream)
+		if err == nil {
+			_ = connection.Close()
+			return nil
+		}
+	}
+	return &routeStatusError{domain: route.Domain, status: http.StatusBadGateway}
 }
 
 func activeRoutes(routes []Route, now time.Time) []model.RouteStatus {
