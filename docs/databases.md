@@ -152,7 +152,7 @@ ClickHouse's `dump` directory).
 ## Restore
 
 ```sh
-orch db restore shop main            # the newest backup
+orch db restore shop main            # the newest backup (see below after a lost node)
 orch db restore shop main 20261020T030000Z
 ```
 
@@ -164,6 +164,13 @@ engines and LibSQL it swaps the backup into `main-data` and restarts
 the database on it; the data it replaced is kept as a `-before-restore`
 backup.
 
+After a worker is lost and the database moved to another node, a restore
+without a name stops and names the newest backup from before and after the
+move, because the newest may hold the new node's empty database. Backups taken
+after you restore one by name are trusted again, so the next scheduled backup
+ends the question. A restore without a name also stops when the bucket's
+backups cannot be listed.
+
 Loading a dump is limited to five minutes. For a larger database, download the
 dump and load it yourself with `orch exec`.
 
@@ -171,7 +178,7 @@ dump and load it yourself with `orch exec`.
 
 - A database runs one replica on one node, like any service with a local
   volume. There is no replication or failover.
-- Backups stay on the database's node. Copy them elsewhere with `orch volume
-  download` if you need them off the node.
+- Backups stay on the database's node unless a
+  [backup destination](operations.md#off-host-backups) copies them to S3.
 - Removing a database from `orch.pkl` stops it. Its secrets stay until you
   delete them with `orch secret delete`.

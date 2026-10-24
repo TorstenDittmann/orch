@@ -71,7 +71,16 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		send(&orchv1alpha1.VolumeResponse{Backup: volumeBackupMessage(backup), Complete: true})
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE:
 		owner, _ := r.volumeOwner(ctx, application, volume)
-		previous, err := r.volumes.restore(ctx, application, volume, command.GetBackup(), owner.ID)
+		var previous VolumeBackup
+		var err error
+		switch len(command.GetUrls()) {
+		case 0:
+			previous, err = r.volumes.restore(ctx, application, volume, command.GetBackup(), owner.ID)
+		case 1:
+			previous, err = r.volumes.restoreFromBucket(ctx, application, volume, command.GetBackup(), command.GetUrls()[0], owner.ID)
+		default:
+			err = errors.New("restore takes at most one URL")
+		}
 		if err != nil {
 			fail(err)
 			return
@@ -83,6 +92,13 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_READ:
 		r.readVolumeBackup(ctx, command, send, fail)
+	case orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD:
+		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize())
+		if err != nil {
+			fail(err)
+			return
+		}
+		send(&orchv1alpha1.VolumeResponse{Etags: etags, Complete: true})
 	default:
 		fail(errors.New("unsupported volume action"))
 	}

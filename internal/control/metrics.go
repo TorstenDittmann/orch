@@ -34,6 +34,8 @@ type metricsInput struct {
 	adminNotAfter time.Time
 	// backups is nil when automatic controller backups are off.
 	backups *backupStatus
+	// offsite is nil when no backup destination is set.
+	offsite *offsiteStatus
 	// autoscale holds each autoscaled service's status keyed by
 	// application and service.
 	autoscale map[string]map[string]AutoscaleStatus
@@ -78,6 +80,9 @@ func (s *service) metricsHandler(controllerNotAfter time.Time) http.Handler {
 
 func (s *service) collectMetrics(ctx context.Context) (metricsInput, error) {
 	input := metricsInput{now: s.now()}
+	if status := s.offsite.status(); status.URL != "" {
+		input.offsite = &status
+	}
 	if s.backups != nil {
 		status := s.backups.status()
 		input.backups = &status
@@ -155,6 +160,18 @@ func renderMetrics(input metricsInput) []byte {
 			failed = 1
 		}
 		out.family("orch_controller_backup_failed", "1 when the last automatic controller backup attempt failed.", []metricSample{{value: failed}})
+	}
+	if input.offsite != nil {
+		synced := []metricSample{}
+		if !input.offsite.SyncedAt.IsZero() {
+			synced = append(synced, metricSample{value: float64(input.offsite.SyncedAt.Unix())})
+		}
+		out.family("orch_backup_upload_timestamp_seconds", "Unix time of the last run that copied every backup to the bucket.", synced)
+		failed := 0.0
+		if input.offsite.Failure != "" {
+			failed = 1
+		}
+		out.family("orch_backup_upload_failed", "1 when the last run that copies backups to the bucket failed.", []metricSample{{value: failed}})
 	}
 
 	nodeCounts := metricCounter{}

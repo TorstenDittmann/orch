@@ -426,6 +426,9 @@ message AgentHello {
   string agent_version = 23;
   string agent_build_id = 24;
   bool self_upgrade = 25;
+  // Set by agents that upload volume backups to, and restore them from,
+  // presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
+  bool offsite_backups = 26;
 }
 
 message AssignmentAck {
@@ -512,11 +515,15 @@ enum VolumeAction {
   VOLUME_ACTION_BACKUP = 2;
   VOLUME_ACTION_RESTORE = 3;
   VOLUME_ACTION_READ = 4;
+  VOLUME_ACTION_UPLOAD = 5;
 }
 
 // VolumeCommand lists, takes, restores or reads the backups of one local
 // volume on the node that holds it. READ returns at most one window of an
-// archive from offset, so the controller paces downloads.
+// archive from offset, so the controller paces downloads. UPLOAD copies a
+// backup to presigned URLs: one URL takes the whole archive, several take
+// consecutive parts of part_size bytes.
+// RESTORE with urls[0] downloads a backup the node does not have first.
 message VolumeCommand {
   string request_id = 1;
   VolumeAction action = 2;
@@ -524,12 +531,17 @@ message VolumeCommand {
   string volume = 4;
   string backup = 5;
   uint64 offset = 6;
+  repeated string urls = 7;
+  uint64 part_size = 8;
 }
 
 message VolumeBackupInfo {
   string name = 1;
   google.protobuf.Timestamp created_at = 2;
   uint64 size_bytes = 3;
+  // Set by the controller: where copies of the backup are.
+  bool on_node = 4;
+  bool in_bucket = 5;
 }
 
 message VolumeResponse {
@@ -541,6 +553,8 @@ message VolumeResponse {
   bool complete = 6;
   google.protobuf.Timestamp failed_at = 7;
   string failure = 8;
+  // The ETag of each uploaded part, in part order.
+  repeated string etags = 9;
 }
 
 // RestartCommand stops one allocation's process so the agent starts a fresh

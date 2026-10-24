@@ -2651,11 +2651,13 @@ func networkFailureStatuses(allocations []model.AllocationDesired, now time.Time
 	return result
 }
 
+// boundedMessage cuts value to 512 bytes without splitting a character, so
+// it stays valid in protobuf strings.
 func boundedMessage(value string) string {
 	if len(value) > 512 {
-		return value[:512]
+		value = value[:512]
 	}
-	return value
+	return strings.ToValidUTF8(value, "")
 }
 
 func shouldRestart(policy string, exitCode *int32) bool {

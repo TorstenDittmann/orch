@@ -66,6 +66,7 @@ type Server struct {
 	autoscaleDone   chan struct{}
 	notifyDone      chan struct{}
 	alertsDone      chan struct{}
+	offsiteDone     chan struct{}
 }
 
 // Start validates initialized state and identity, acquires controller
@@ -143,6 +144,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	}
 	if keep > 0 {
 		implementation.backups = newBackupScheduler(state, dataDir, keep, now)
+	}
+	implementation.offsite = newOffsiteBackups(implementation, dataDir, keep)
+	if implementation.backups != nil {
+		implementation.backups.written = implementation.offsite.kick
 	}
 	reconciler := NewReconciler(state, cluster, now, sessions.PublishAssignment)
 	reconciler.secretBox = secretBox
@@ -237,7 +242,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
 		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), uploadsDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
-		notifyDone: make(chan struct{}), alertsDone: make(chan struct{}),
+		notifyDone: make(chan struct{}), alertsDone: make(chan struct{}), offsiteDone: make(chan struct{}),
 	}
 	go func() {
 		defer close(server.notifyDone)
@@ -262,6 +267,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	go func() {
 		defer close(server.autoscaleDone)
 		implementation.autoscaler.run(reconcileContext)
+	}()
+	go func() {
+		defer close(server.offsiteDone)
+		implementation.offsite.run(reconcileContext)
 	}()
 	go func() {
 		defer close(server.backupDone)
@@ -353,6 +362,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.autoscaleDone
 		<-server.notifyDone
 		<-server.alertsDone
+		<-server.offsiteDone
 		server.sessions.Close()
 		shutdownErr := server.http.Shutdown(ctx)
 		if shutdownErr != nil {

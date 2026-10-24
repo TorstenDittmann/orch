@@ -57,6 +57,7 @@ type service struct {
 	// uploads holds the images orch deploy uploaded from a local engine.
 	uploads    *images.Store
 	backups    *backupScheduler
+	offsite    *offsiteBackups
 	upgrades   *agentUpgrades
 	autoscaler *autoscaler
 	// administrators remembers administrator certificates for expiry
@@ -94,7 +95,9 @@ func (s *service) GetCluster(ctx context.Context, request *connect.Request[orchv
 
 func (s *service) backupMessage() *orchv1alpha1.ControllerBackup {
 	if s.backups == nil {
-		return &orchv1alpha1.ControllerBackup{}
+		message := &orchv1alpha1.ControllerBackup{}
+		s.describeOffsite(message)
+		return message
 	}
 	status := s.backups.status()
 	message := &orchv1alpha1.ControllerBackup{Enabled: true, LatestPath: status.Latest.Path, Failure: status.Failure}
@@ -104,6 +107,7 @@ func (s *service) backupMessage() *orchv1alpha1.ControllerBackup {
 	if !status.FailedAt.IsZero() {
 		message.FailedAt = timestamppb.New(status.FailedAt)
 	}
+	s.describeOffsite(message)
 	return message
 }
 

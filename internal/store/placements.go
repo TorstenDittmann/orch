@@ -145,6 +145,20 @@ func (s *Store) VolumeClaim(ctx context.Context, application, volume string) (st
 	return nodeID, nil
 }
 
+// VolumeClaimedAt returns when a volume was claimed on its current node, or
+// zero when it is not claimed.
+func (s *Store) VolumeClaimedAt(ctx context.Context, application, volume string) (time.Time, error) {
+	var createdAt string
+	err := s.db.QueryRowContext(ctx, `SELECT created_at FROM volume_claims WHERE application_name = ? AND volume_name = ?`, application, volume).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read volume claim: %w", err)
+	}
+	return time.Parse(time.RFC3339Nano, createdAt)
+}
+
 func (s *Store) ClaimVolume(ctx context.Context, application, volume, nodeID string, now time.Time) error {
 	if application == "" || volume == "" || nodeID == "" || now.IsZero() {
 		return fmt.Errorf("application, volume, node, and claim time are required")

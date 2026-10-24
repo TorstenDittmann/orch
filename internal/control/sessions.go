@@ -52,6 +52,8 @@ type agentSession struct {
 	buildID      string
 	architecture string
 	selfUpgrade  bool
+	// offsiteBackups is set when the agent accepts UPLOAD and RESTORE with urls.
+	offsiteBackups bool
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -184,6 +186,18 @@ func (session *agentSession) agent() (version, buildID, architecture string, sel
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return session.version, session.buildID, session.architecture, session.selfUpgrade
+}
+
+// offsiteBackups reports whether the node's agent can upload and fetch
+// volume backups. Older agents reject the commands and their fields.
+func (m *sessionManager) offsiteBackups(nodeID string) bool {
+	session := m.session(nodeID)
+	if session == nil {
+		return false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.offsiteBackups
 }
 
 // session returns the node's current session, or nil when it is not connected.

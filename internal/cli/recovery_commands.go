@@ -6,12 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
+	"github.com/TorstenDittmann/orch/internal/objectstore"
 )
 
-func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) int {
+func runClusterRecovery(ctx context.Context, args []string, restore bool, stdout, stderr io.Writer) int {
 	name := "cluster backup inspect"
 	if restore {
 		name = "cluster restore"
@@ -20,7 +23,11 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 	flags.SetOutput(stderr)
 	var options clusterctl.RecoveryOptions
 	var jsonOutput bool
-	flags.StringVar(&options.Backup, "backup", "", "standalone database backup")
+	var from, endpoint, region string
+	flags.StringVar(&options.Backup, "backup", "", "standalone database backup, or with --from the bucket backup's name")
+	flags.StringVar(&from, "from", "", "restore the newest backup from s3://BUCKET[/PREFIX]")
+	flags.StringVar(&endpoint, "endpoint", "", "S3 endpoint URL for --from; leave out for AWS")
+	flags.StringVar(&region, "region", "", "signing region for --from; detected when left out")
 	flags.StringVar(&options.PKIDir, "pki-dir", "", "saved controller PKI directory")
 	flags.StringVar(&options.SecretKey, "secret-key", "", "saved secret master key")
 	if restore {
@@ -37,20 +44,36 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, name+" accepts flags only")
 		return ExitInvalid
 	}
-	if strings.TrimSpace(options.Backup) == "" || restore && strings.TrimSpace(options.DataDir) == "" {
-		required := "--backup"
+	if (from == "" && strings.TrimSpace(options.Backup) == "") || restore && strings.TrimSpace(options.DataDir) == "" {
+		required := "--backup or --from"
 		if restore {
 			required += " and --data-dir"
 		}
 		writeError(stderr, fmt.Errorf("%s requires %s", name, required), jsonOutput)
 		return ExitInvalid
 	}
+	if from != "" {
+		// Inspect has no data directory, so its download stages in the temp directory.
+		stageParent := ""
+		if restore {
+			if parent := filepath.Dir(filepath.Clean(options.DataDir)); isDirectory(parent) {
+				stageParent = parent
+			}
+		}
+		directory, cleanup, err := downloadControllerBackup(ctx, from, endpoint, region, options.Backup, stageParent, stderr)
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		defer cleanup()
+		options.Backup = directory
+	}
 	var result clusterctl.RecoveryResult
 	var err error
 	if restore {
-		result, err = clusterctl.Restore(context.Background(), options)
+		result, err = clusterctl.Restore(ctx, options)
 	} else {
-		result, err = clusterctl.InspectBackup(context.Background(), options)
+		result, err = clusterctl.InspectBackup(ctx, options)
 	}
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
@@ -84,4 +107,77 @@ func runClusterRecovery(args []string, restore bool, stdout, stderr io.Writer) i
 		fmt.Fprintln(stdout, "Keep the old controller stopped. Restore endpoint routing before starting the recovered controller; keep existing agent caches.")
 	}
 	return ExitOK
+}
+
+// downloadControllerBackup fetches a controller backup set from the bucket
+// into a private directory under stageParent, next to the restore's data
+// directory so the database is not staged on a small temp filesystem: the
+// newest one, or the one named.
+func downloadControllerBackup(ctx context.Context, from, endpoint, region, name, stageParent string, stderr io.Writer) (string, func(), error) {
+	bucket, prefix, err := objectstore.ParseURL(from)
+	if err != nil {
+		return "", nil, err
+	}
+	if endpoint == "" {
+		endpoint = firstEnv("AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL")
+	}
+	if endpoint, err = objectstore.NormalizeEndpoint(endpoint); err != nil {
+		return "", nil, err
+	}
+	if region == "" {
+		region = objectstore.RegionFromEndpoint(endpoint)
+	}
+	accessKeyID, secretAccessKey, err := backupCredentials(ctx, stderr)
+	if err != nil {
+		return "", nil, err
+	}
+	client := objectstore.New(objectstore.Destination{Bucket: bucket, Prefix: prefix, Endpoint: endpoint, Region: region,
+		AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey}, nil)
+	if region == "" {
+		if _, err := client.DetectRegion(ctx); err != nil {
+			return "", nil, fmt.Errorf("reach %s: %w", from, err)
+		}
+	}
+	listPrefix := client.Destination().Key(objectstore.ControllerBackups)
+	objects, err := client.List(ctx, listPrefix)
+	if err != nil {
+		return "", nil, fmt.Errorf("list controller backups in %s: %w", from, err)
+	}
+	key := ""
+	newest := ""
+	for candidate, object := range objectstore.Archives(objects, listPrefix) {
+		// Names are UTC timestamps, so the greatest is the newest.
+		if (name == "" && candidate > newest) || candidate == name {
+			newest, key = candidate, object.Key
+		}
+	}
+	if key == "" {
+		if name != "" {
+			return "", nil, fmt.Errorf("%s has no controller backup %s", from, name)
+		}
+		return "", nil, fmt.Errorf("%s has no controller backups", from)
+	}
+	stage, err := os.MkdirTemp(stageParent, ".orch-bucket-*")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(stage) }
+	body, _, err := client.Get(ctx, key)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("download %s: %w", key, err)
+	}
+	defer body.Close()
+	directory := filepath.Join(stage, newest)
+	if err := clusterctl.ExtractBackupSet(body, directory); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("unpack %s: %w", key, err)
+	}
+	fmt.Fprintf(stderr, "Downloaded controller backup %s from %s\n", filepath.Base(directory), from)
+	return directory, cleanup, nil
+}
+
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

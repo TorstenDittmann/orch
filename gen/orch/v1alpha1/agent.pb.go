@@ -363,6 +363,7 @@ const (
 	VolumeAction_VOLUME_ACTION_BACKUP      VolumeAction = 2
 	VolumeAction_VOLUME_ACTION_RESTORE     VolumeAction = 3
 	VolumeAction_VOLUME_ACTION_READ        VolumeAction = 4
+	VolumeAction_VOLUME_ACTION_UPLOAD      VolumeAction = 5
 )
 
 // Enum value maps for VolumeAction.
@@ -373,6 +374,7 @@ var (
 		2: "VOLUME_ACTION_BACKUP",
 		3: "VOLUME_ACTION_RESTORE",
 		4: "VOLUME_ACTION_READ",
+		5: "VOLUME_ACTION_UPLOAD",
 	}
 	VolumeAction_value = map[string]int32{
 		"VOLUME_ACTION_UNSPECIFIED": 0,
@@ -380,6 +382,7 @@ var (
 		"VOLUME_ACTION_BACKUP":      2,
 		"VOLUME_ACTION_RESTORE":     3,
 		"VOLUME_ACTION_READ":        4,
+		"VOLUME_ACTION_UPLOAD":      5,
 	}
 )
 
@@ -3440,11 +3443,14 @@ type AgentHello struct {
 	WireguardListenPort        uint32                 `protobuf:"varint,22,opt,name=wireguard_listen_port,json=wireguardListenPort,proto3" json:"wireguard_listen_port,omitempty"`
 	// The agent's own build. self_upgrade is set by agents installed by
 	// orch node install, which accept an UpgradeCommand.
-	AgentVersion  string `protobuf:"bytes,23,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
-	AgentBuildId  string `protobuf:"bytes,24,opt,name=agent_build_id,json=agentBuildId,proto3" json:"agent_build_id,omitempty"`
-	SelfUpgrade   bool   `protobuf:"varint,25,opt,name=self_upgrade,json=selfUpgrade,proto3" json:"self_upgrade,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AgentVersion string `protobuf:"bytes,23,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	AgentBuildId string `protobuf:"bytes,24,opt,name=agent_build_id,json=agentBuildId,proto3" json:"agent_build_id,omitempty"`
+	SelfUpgrade  bool   `protobuf:"varint,25,opt,name=self_upgrade,json=selfUpgrade,proto3" json:"self_upgrade,omitempty"`
+	// Set by agents that upload volume backups to, and restore them from,
+	// presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
+	OffsiteBackups bool `protobuf:"varint,26,opt,name=offsite_backups,json=offsiteBackups,proto3" json:"offsite_backups,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AgentHello) Reset() {
@@ -3648,6 +3654,13 @@ func (x *AgentHello) GetAgentBuildId() string {
 func (x *AgentHello) GetSelfUpgrade() bool {
 	if x != nil {
 		return x.SelfUpgrade
+	}
+	return false
+}
+
+func (x *AgentHello) GetOffsiteBackups() bool {
+	if x != nil {
+		return x.OffsiteBackups
 	}
 	return false
 }
@@ -4363,7 +4376,10 @@ func (x *CancelOperation) GetRequestId() string {
 
 // VolumeCommand lists, takes, restores or reads the backups of one local
 // volume on the node that holds it. READ returns at most one window of an
-// archive from offset, so the controller paces downloads.
+// archive from offset, so the controller paces downloads. UPLOAD copies a
+// backup to presigned URLs: one URL takes the whole archive, several take
+// consecutive parts of part_size bytes.
+// RESTORE with urls[0] downloads a backup the node does not have first.
 type VolumeCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -4372,6 +4388,8 @@ type VolumeCommand struct {
 	Volume        string                 `protobuf:"bytes,4,opt,name=volume,proto3" json:"volume,omitempty"`
 	Backup        string                 `protobuf:"bytes,5,opt,name=backup,proto3" json:"backup,omitempty"`
 	Offset        uint64                 `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
+	Urls          []string               `protobuf:"bytes,7,rep,name=urls,proto3" json:"urls,omitempty"`
+	PartSize      uint64                 `protobuf:"varint,8,opt,name=part_size,json=partSize,proto3" json:"part_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4448,11 +4466,28 @@ func (x *VolumeCommand) GetOffset() uint64 {
 	return 0
 }
 
+func (x *VolumeCommand) GetUrls() []string {
+	if x != nil {
+		return x.Urls
+	}
+	return nil
+}
+
+func (x *VolumeCommand) GetPartSize() uint64 {
+	if x != nil {
+		return x.PartSize
+	}
+	return 0
+}
+
 type VolumeBackupInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	SizeBytes     uint64                 `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	SizeBytes uint64                 `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// Set by the controller: where copies of the backup are.
+	OnNode        bool `protobuf:"varint,4,opt,name=on_node,json=onNode,proto3" json:"on_node,omitempty"`
+	InBucket      bool `protobuf:"varint,5,opt,name=in_bucket,json=inBucket,proto3" json:"in_bucket,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4508,16 +4543,32 @@ func (x *VolumeBackupInfo) GetSizeBytes() uint64 {
 	return 0
 }
 
+func (x *VolumeBackupInfo) GetOnNode() bool {
+	if x != nil {
+		return x.OnNode
+	}
+	return false
+}
+
+func (x *VolumeBackupInfo) GetInBucket() bool {
+	if x != nil {
+		return x.InBucket
+	}
+	return false
+}
+
 type VolumeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Backups       []*VolumeBackupInfo    `protobuf:"bytes,2,rep,name=backups,proto3" json:"backups,omitempty"`
-	Backup        *VolumeBackupInfo      `protobuf:"bytes,3,opt,name=backup,proto3" json:"backup,omitempty"`
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
-	SizeBytes     uint64                 `protobuf:"varint,5,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
-	Complete      bool                   `protobuf:"varint,6,opt,name=complete,proto3" json:"complete,omitempty"`
-	FailedAt      *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=failed_at,json=failedAt,proto3" json:"failed_at,omitempty"`
-	Failure       string                 `protobuf:"bytes,8,opt,name=failure,proto3" json:"failure,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Backups   []*VolumeBackupInfo    `protobuf:"bytes,2,rep,name=backups,proto3" json:"backups,omitempty"`
+	Backup    *VolumeBackupInfo      `protobuf:"bytes,3,opt,name=backup,proto3" json:"backup,omitempty"`
+	Data      []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	SizeBytes uint64                 `protobuf:"varint,5,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Complete  bool                   `protobuf:"varint,6,opt,name=complete,proto3" json:"complete,omitempty"`
+	FailedAt  *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=failed_at,json=failedAt,proto3" json:"failed_at,omitempty"`
+	Failure   string                 `protobuf:"bytes,8,opt,name=failure,proto3" json:"failure,omitempty"`
+	// The ETag of each uploaded part, in part order.
+	Etags         []string `protobuf:"bytes,9,rep,name=etags,proto3" json:"etags,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4606,6 +4657,13 @@ func (x *VolumeResponse) GetFailure() string {
 		return x.Failure
 	}
 	return ""
+}
+
+func (x *VolumeResponse) GetEtags() []string {
+	if x != nil {
+		return x.Etags
+	}
+	return nil
 }
 
 // RestartCommand stops one allocation's process so the agent starts a fresh
@@ -5838,7 +5896,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\tdns_state\x18\b \x01(\tR\bdnsState\x12#\n" +
 	"\ringress_state\x18\t \x01(\tR\fingressState\x12)\n" +
 	"\x10draining_objects\x18\n" +
-	" \x01(\rR\x0fdrainingObjects\"\x9e\b\n" +
+	" \x01(\rR\x0fdrainingObjects\"\xc7\b\n" +
 	"\n" +
 	"AgentHello\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12\x17\n" +
@@ -5868,7 +5926,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x15wireguard_listen_port\x18\x16 \x01(\rR\x13wireguardListenPort\x12#\n" +
 	"\ragent_version\x18\x17 \x01(\tR\fagentVersion\x12$\n" +
 	"\x0eagent_build_id\x18\x18 \x01(\tR\fagentBuildId\x12!\n" +
-	"\fself_upgrade\x18\x19 \x01(\bR\vselfUpgrade\"`\n" +
+	"\fself_upgrade\x18\x19 \x01(\bR\vselfUpgrade\x12'\n" +
+	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\"`\n" +
 	"\rAssignmentAck\x12\x17\n" +
 	"\aboot_id\x18\x01 \x01(\tR\x06bootId\x12\x1e\n" +
 	"\n" +
@@ -5932,7 +5991,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\rR\x0etimeoutSeconds\"0\n" +
 	"\x0fCancelOperation\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xcd\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xfe\x01\n" +
 	"\rVolumeCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x123\n" +
@@ -5940,13 +5999,17 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vapplication\x18\x03 \x01(\tR\vapplication\x12\x16\n" +
 	"\x06volume\x18\x04 \x01(\tR\x06volume\x12\x16\n" +
 	"\x06backup\x18\x05 \x01(\tR\x06backup\x12\x16\n" +
-	"\x06offset\x18\x06 \x01(\x04R\x06offset\"\x80\x01\n" +
+	"\x06offset\x18\x06 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04urls\x18\a \x03(\tR\x04urls\x12\x1b\n" +
+	"\tpart_size\x18\b \x01(\x04R\bpartSize\"\xb6\x01\n" +
 	"\x10VolumeBackupInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x03 \x01(\x04R\tsizeBytes\"\xc5\x02\n" +
+	"size_bytes\x18\x03 \x01(\x04R\tsizeBytes\x12\x17\n" +
+	"\aon_node\x18\x04 \x01(\bR\x06onNode\x12\x1b\n" +
+	"\tin_bucket\x18\x05 \x01(\bR\binBucket\"\xdb\x02\n" +
 	"\x0eVolumeResponse\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x129\n" +
@@ -5957,7 +6020,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\x12\x1a\n" +
 	"\bcomplete\x18\x06 \x01(\bR\bcomplete\x127\n" +
 	"\tfailed_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\bfailedAt\x12\x18\n" +
-	"\afailure\x18\b \x01(\tR\afailure\"T\n" +
+	"\afailure\x18\b \x01(\tR\afailure\x12\x14\n" +
+	"\x05etags\x18\t \x03(\tR\x05etags\"T\n" +
 	"\x0eRestartCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -6060,13 +6124,14 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x17JOB_RUN_STATE_SUCCEEDED\x10\x03\x12\x18\n" +
 	"\x14JOB_RUN_STATE_FAILED\x10\x04\x12\x1b\n" +
 	"\x17JOB_RUN_STATE_TIMED_OUT\x10\x05\x12\x19\n" +
-	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\x92\x01\n" +
+	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\xac\x01\n" +
 	"\fVolumeAction\x12\x1d\n" +
 	"\x19VOLUME_ACTION_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12VOLUME_ACTION_LIST\x10\x01\x12\x18\n" +
 	"\x14VOLUME_ACTION_BACKUP\x10\x02\x12\x19\n" +
 	"\x15VOLUME_ACTION_RESTORE\x10\x03\x12\x16\n" +
-	"\x12VOLUME_ACTION_READ\x10\x042\xa2\x02\n" +
+	"\x12VOLUME_ACTION_READ\x10\x04\x12\x18\n" +
+	"\x14VOLUME_ACTION_UPLOAD\x10\x052\xa2\x02\n" +
 	"\fAgentService\x12L\n" +
 	"\aConnect\x12\x1d.orch.v1alpha1.ConnectRequest\x1a\x1e.orch.v1alpha1.ConnectResponse(\x010\x01\x12c\n" +
 	"\x10RenewCertificate\x12&.orch.v1alpha1.RenewCertificateRequest\x1a'.orch.v1alpha1.RenewCertificateResponse\x12_\n" +

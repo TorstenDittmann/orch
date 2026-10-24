@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -13,13 +14,17 @@ import (
 	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/TorstenDittmann/orch/internal/store"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	volumeListTimeout      = 5 * time.Second
-	volumeOperationTimeout = time.Hour
-	restartReadyTimeout    = 2 * time.Minute
-	restartPollInterval    = time.Second
+	volumeListTimeout = 5 * time.Second
+	// volumeBucketListTimeout bounds listing the bucket's copies, so a slow
+	// bucket only delays volume listings a little.
+	volumeBucketListTimeout = 10 * time.Second
+	volumeOperationTimeout  = time.Hour
+	restartReadyTimeout     = 2 * time.Minute
+	restartPollInterval     = time.Second
 )
 
 // volumeTarget is a declared local volume and the node that holds it.
@@ -100,10 +105,11 @@ func (s *service) volumeTarget(ctx context.Context, applicationName, volume stri
 	}
 	target := targets[0]
 	if !target.placed {
-		return volumeTarget{}, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("volume %q is not on a node yet", volume))
+		return target, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("volume %q is not on a node yet", volume))
 	}
 	if s.sessions == nil || !s.sessions.Connected(target.node.ID) {
-		return volumeTarget{}, connect.NewError(connect.CodeUnavailable, fmt.Errorf("node %q that holds volume %q is not connected", target.node.Name, volume))
+		// The target comes along, so a caller can read the bucket instead.
+		return target, connect.NewError(connect.CodeUnavailable, fmt.Errorf("node %q that holds volume %q is not connected", target.node.Name, volume))
 	}
 	return target, nil
 }
@@ -114,7 +120,7 @@ func (s *service) volumeOperation(ctx context.Context, target volumeTarget, comm
 	_, frames, cancel, err := s.sessions.beginOperation(ctx, target.node.ID, func(requestID string) *orchv1alpha1.ConnectResponse {
 		message := &orchv1alpha1.VolumeCommand{
 			RequestId: requestID, Action: command.GetAction(), Application: target.application, Volume: target.volume,
-			Backup: command.GetBackup(), Offset: command.GetOffset(),
+			Backup: command.GetBackup(), Offset: command.GetOffset(), Urls: command.GetUrls(), PartSize: command.GetPartSize(),
 		}
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Volume{Volume: message}}
 	})
@@ -158,6 +164,11 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 	if name == "" && only != "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("a volume filter needs an application"))
 	}
+	if only != "" {
+		if err := config.ValidateApplicationName(only); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid volume name: %w", err))
+		}
+	}
 	var applications []model.Application
 	if name != "" {
 		if err := config.ValidateApplicationName(name); err != nil {
@@ -177,10 +188,35 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			return nil, connect.NewError(connect.CodeInternal, errors.New("read applications"))
 		}
 	}
+	// One listing of the bucket covers every volume asked for. It runs
+	// while the nodes list their own backups.
+	type bucketListing struct {
+		backups map[string][]*orchv1alpha1.VolumeBackupInfo
+		failure string
+	}
+	listed := make(chan bucketListing, 1)
+	go func() {
+		var result bucketListing
+		if client, err := s.offsiteClient(ctx); err != nil {
+			result.failure = "read backup destination"
+		} else if client != nil {
+			if result.backups, err = remoteBackups(ctx, client, name, only, volumeBucketListTimeout); err != nil {
+				result.failure = boundedFailure(err.Error())
+			}
+		}
+		listed <- result
+	}()
+	type pendingMerge struct {
+		summary *orchv1alpha1.VolumeSummary
+		key     string
+		local   []*orchv1alpha1.VolumeBackupInfo
+	}
+	var pending []pendingMerge
 	response := &orchv1alpha1.ListVolumesResponse{}
 	for _, application := range applications {
 		targets, err := s.volumeTargets(ctx, application, only)
 		if err != nil {
+			<-listed
 			return nil, err
 		}
 		for _, target := range targets {
@@ -188,33 +224,55 @@ func (s *service) ListVolumes(ctx context.Context, request *connect.Request[orch
 			if target.backup != nil {
 				summary.BackupSchedule, summary.BackupKeep = target.backup.Schedule, uint32(target.backup.Keep)
 			}
+			item := pendingMerge{summary: summary, key: target.application + "/" + target.volume}
 			if target.placed {
 				summary.Node = target.node.Name
-				s.describeVolumeBackups(ctx, target, summary, only != "")
+				item.local = s.localBackupsForListing(ctx, target, summary)
+				if claimedAt, err := s.state.VolumeClaimedAt(ctx, target.application, target.volume); err == nil && !claimedAt.IsZero() {
+					summary.ClaimedAt = timestamppb.New(claimedAt)
+				}
 			}
+			// A volume not on a node, such as one whose node was lost, still
+			// lists the bucket's backups.
+			pending = append(pending, item)
 			response.Volumes = append(response.Volumes, summary)
+		}
+	}
+	bucket := <-listed
+	for _, summary := range response.Volumes {
+		summary.BucketError = bucket.failure
+	}
+	for _, item := range pending {
+		remote := bucket.backups[item.key]
+		if !item.summary.Reachable && len(remote) == 0 {
+			continue
+		}
+		item.summary.Backups = mergeVolumeBackups(item.local, remote)
+		item.summary.BackupCount = uint32(len(item.summary.Backups))
+		if only == "" && len(item.summary.Backups) > 1 {
+			item.summary.Backups = item.summary.Backups[:1]
 		}
 	}
 	return connect.NewResponse(response), nil
 }
 
-func (s *service) describeVolumeBackups(ctx context.Context, target volumeTarget, summary *orchv1alpha1.VolumeSummary, all bool) {
+// localBackupsForListing asks a volume's node for its backups and records
+// on summary whether it answered and how its last scheduled backup went.
+func (s *service) localBackupsForListing(ctx context.Context, target volumeTarget, summary *orchv1alpha1.VolumeSummary) []*orchv1alpha1.VolumeBackupInfo {
 	if s.sessions == nil || !s.sessions.Connected(target.node.ID) {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, volumeListTimeout)
 	defer cancel()
+	var local []*orchv1alpha1.VolumeBackupInfo
 	err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_LIST},
 		func(response *orchv1alpha1.VolumeResponse) error {
-			summary.BackupCount = uint32(len(response.GetBackups()))
-			summary.Backups = response.GetBackups()
-			if !all && len(summary.Backups) > 1 {
-				summary.Backups = summary.Backups[:1]
-			}
+			local = response.GetBackups()
 			summary.BackupFailedAt, summary.BackupFailure = response.GetFailedAt(), response.GetFailure()
 			return nil
 		})
 	summary.Reachable = err == nil
+	return local
 }
 
 func (s *service) BackupVolume(ctx context.Context, request *connect.Request[orchv1alpha1.BackupVolumeRequest]) (*connect.Response[orchv1alpha1.BackupVolumeResponse], error) {
@@ -234,10 +292,14 @@ func (s *service) BackupVolume(ctx context.Context, request *connect.Request[orc
 	if err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_BACKUP},
 		func(result *orchv1alpha1.VolumeResponse) error {
 			response.Backup = result.GetBackup()
+			if response.Backup != nil {
+				response.Backup.OnNode = true
+			}
 			return nil
 		}); err != nil {
 		return nil, err
 	}
+	s.offsite.kick()
 	return connect.NewResponse(response), nil
 }
 
@@ -255,14 +317,34 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, volumeOperationTimeout)
-	defer cancel()
 	response := &orchv1alpha1.RestoreVolumeResponse{}
-	if err := s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup()},
-		func(result *orchv1alpha1.VolumeResponse) error {
+	restore := func(urls []string, limit time.Duration) error {
+		ctx, cancel := context.WithTimeout(ctx, limit)
+		defer cancel()
+		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
+			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup(), Urls: urls,
+		}, func(result *orchv1alpha1.VolumeResponse) error {
 			response.Previous = result.GetBackup()
+			if response.Previous != nil {
+				// The replaced data is kept on the node.
+				response.Previous.OnNode = true
+			}
 			return nil
-		}); err != nil {
+		})
+	}
+	err = restore(nil, volumeOperationTimeout)
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		// The node does not have it; the bucket may. The node downloads it
+		// and restores it in one step, with time for the download.
+		source, sourceErr := s.bucketSource(ctx, target, request.Msg.GetBackup())
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		if source != "" {
+			err = restore([]string{source}, offsiteTransferLimit+volumeOperationTimeout)
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(response), nil
@@ -281,6 +363,13 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("backup name is required"))
 	}
 	target, err := s.volumeTarget(ctx, request.Msg.GetApplication(), request.Msg.GetVolume())
+	if code := connect.CodeOf(err); target.application != "" && (code == connect.CodeUnavailable || code == connect.CodeFailedPrecondition) {
+		// The node is offline or gone; the bucket may still have the backup.
+		if handled, bucketErr := s.streamBucketBackup(ctx, target, request.Msg.GetBackup(), stream); handled {
+			return bucketErr
+		}
+		return err
+	}
 	if err != nil {
 		return err
 	}
@@ -299,11 +388,58 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 			return stream.Send(&orchv1alpha1.DownloadVolumeBackupResponse{Data: result.GetData(), SizeBytes: size})
 		})
 		cancel()
+		if connect.CodeOf(err) == connect.CodeNotFound && offset == 0 {
+			// A backup only the bucket has streams straight from it.
+			if handled, bucketErr := s.streamBucketBackup(ctx, target, request.Msg.GetBackup(), stream); handled {
+				return bucketErr
+			}
+		}
 		if err != nil {
 			return err
 		}
 		if offset >= size {
 			return nil
+		}
+	}
+}
+
+// bucketStreamChunk matches the agents' download frame size.
+const bucketStreamChunk = 64 << 10
+
+// streamBucketBackup streams a volume backup from the bucket. It reports
+// false when there is no destination or the bucket does not have it.
+func (s *service) streamBucketBackup(ctx context.Context, target volumeTarget, name string, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) (bool, error) {
+	body, size, err := s.openBucketBackup(ctx, target, name)
+	if err != nil {
+		return true, err
+	}
+	if body == nil {
+		return false, nil
+	}
+	defer body.Close()
+	return true, sendBucketBackup(body, size, stream)
+}
+
+func sendBucketBackup(body io.Reader, size int64, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) error {
+	buffer := make([]byte, bucketStreamChunk)
+	var sent int64
+	for {
+		count, err := io.ReadFull(body, buffer)
+		sent += int64(count)
+		if count > 0 {
+			if sendErr := stream.Send(&orchv1alpha1.DownloadVolumeBackupResponse{Data: append([]byte(nil), buffer[:count]...),
+				SizeBytes: uint64(size)}); sendErr != nil {
+				return sendErr
+			}
+		}
+		if (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && sent == size {
+			return nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				err = fmt.Errorf("got %d of %d bytes", sent, size)
+			}
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup from the bucket: %w", err))
 		}
 	}
 }

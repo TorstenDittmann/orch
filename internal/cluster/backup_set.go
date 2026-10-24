@@ -116,7 +116,7 @@ func PruneBackupSets(dataDir string, keep int) error {
 	root := filepath.Join(dataDir, BackupsDirectory)
 	if entries, err := os.ReadDir(root); err == nil {
 		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), ".partial-") {
+			if strings.HasPrefix(entry.Name(), ".partial-") || strings.HasPrefix(entry.Name(), ".upload-") {
 				_ = os.RemoveAll(filepath.Join(root, entry.Name()))
 			}
 		}

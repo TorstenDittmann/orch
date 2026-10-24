@@ -64,6 +64,9 @@ service ControlService {
   rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
   rpc TestNotification(TestNotificationRequest) returns (TestNotificationResponse);
+  rpc SetBackupDestination(SetBackupDestinationRequest) returns (SetBackupDestinationResponse);
+  rpc GetBackupDestination(GetBackupDestinationRequest) returns (GetBackupDestinationResponse);
+  rpc RemoveBackupDestination(RemoveBackupDestinationRequest) returns (RemoveBackupDestinationResponse);
 }
 
 enum ExecutionStatus {
@@ -229,6 +232,11 @@ message ControllerBackup {
   string latest_path = 3;
   google.protobuf.Timestamp failed_at = 4;
   string failure = 5;
+  // The bucket backups are copied to, when one is set.
+  string destination = 6;
+  google.protobuf.Timestamp uploaded_at = 7;
+  google.protobuf.Timestamp upload_failed_at = 8;
+  string upload_failure = 9;
 }
 
 message GetApplicationRequest {
@@ -530,6 +538,11 @@ message VolumeSummary {
   google.protobuf.Timestamp backup_failed_at = 9;
   string backup_failure = 10;
   uint32 backup_count = 11;
+  // Why the bucket's copies could not be listed, when a destination is set.
+  string bucket_error = 12;
+  // When the volume was placed on its current node. Backups older than it
+  // were taken on a node that was lost.
+  google.protobuf.Timestamp claimed_at = 13;
 }
 
 message ListVolumesResponse {
@@ -1017,5 +1030,43 @@ message DeleteAccessTokenRequest {
 }
 
 message DeleteAccessTokenResponse {
+  bool changed = 1;
+}
+
+message BackupDestination {
+  // s3://bucket/prefix
+  string url = 1;
+  // Empty for AWS S3.
+  string endpoint = 2;
+  string region = 3;
+  string access_key_id = 4;
+}
+
+message SetBackupDestinationRequest {
+  string url = 1;
+  string endpoint = 2;
+  // Detected from the endpoint or the bucket when empty.
+  string region = 3;
+  string access_key_id = 4;
+  string secret_access_key = 5;
+}
+
+message SetBackupDestinationResponse {
+  BackupDestination destination = 1;
+}
+
+message GetBackupDestinationRequest {}
+
+message GetBackupDestinationResponse {
+  // Unset when backups stay on their nodes.
+  BackupDestination destination = 1;
+  google.protobuf.Timestamp uploaded_at = 2;
+  google.protobuf.Timestamp upload_failed_at = 3;
+  string upload_failure = 4;
+}
+
+message RemoveBackupDestinationRequest {}
+
+message RemoveBackupDestinationResponse {
   bool changed = 1;
 }
