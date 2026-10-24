@@ -358,15 +358,10 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 	target, err := s.volumeTarget(ctx, request.Msg.GetApplication(), request.Msg.GetVolume())
 	if code := connect.CodeOf(err); target.application != "" && (code == connect.CodeUnavailable || code == connect.CodeFailedPrecondition) {
 		// The node is offline or gone; the bucket may still have the backup.
-		body, size, bucketErr := s.openBucketBackup(ctx, target, request.Msg.GetBackup())
-		if bucketErr != nil {
+		if handled, bucketErr := s.streamBucketBackup(ctx, target, request.Msg.GetBackup(), stream); handled {
 			return bucketErr
 		}
-		if body == nil {
-			return err
-		}
-		defer body.Close()
-		return streamBucketBackup(body, size, stream)
+		return err
 	}
 	if err != nil {
 		return err
@@ -388,13 +383,8 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 		cancel()
 		if connect.CodeOf(err) == connect.CodeNotFound && offset == 0 {
 			// A backup only the bucket has streams straight from it.
-			body, bucketSize, bucketErr := s.openBucketBackup(ctx, target, request.Msg.GetBackup())
-			if bucketErr != nil {
+			if handled, bucketErr := s.streamBucketBackup(ctx, target, request.Msg.GetBackup(), stream); handled {
 				return bucketErr
-			}
-			if body != nil {
-				defer body.Close()
-				return streamBucketBackup(body, bucketSize, stream)
 			}
 		}
 		if err != nil {
@@ -409,7 +399,21 @@ func (s *service) DownloadVolumeBackup(ctx context.Context, request *connect.Req
 // bucketStreamChunk matches the agents' download frame size.
 const bucketStreamChunk = 64 << 10
 
-func streamBucketBackup(body io.Reader, size int64, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) error {
+// streamBucketBackup streams a volume backup from the bucket. It reports
+// false when there is no destination or the bucket does not have it.
+func (s *service) streamBucketBackup(ctx context.Context, target volumeTarget, name string, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) (bool, error) {
+	body, size, err := s.openBucketBackup(ctx, target, name)
+	if err != nil {
+		return true, err
+	}
+	if body == nil {
+		return false, nil
+	}
+	defer body.Close()
+	return true, sendBucketBackup(body, size, stream)
+}
+
+func sendBucketBackup(body io.Reader, size int64, stream *connect.ServerStream[orchv1alpha1.DownloadVolumeBackupResponse]) error {
 	buffer := make([]byte, bucketStreamChunk)
 	var sent int64
 	for {

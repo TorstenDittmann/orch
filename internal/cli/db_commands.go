@@ -292,7 +292,10 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	}
 	if backupName == "" {
 		volumes, err := remote.ListVolumes(ctx, application, volume)
-		if err == nil && (len(volumes) != 1 || len(volumes[0].GetBackups()) == 0) {
+		if err == nil && len(volumes) != 1 {
+			err = fmt.Errorf("database %s has no backups yet", name)
+		}
+		if err == nil && len(volumes[0].GetBackups()) == 0 && volumes[0].GetBucketError() == "" {
 			err = fmt.Errorf("database %s has no backups yet", name)
 		}
 		if err != nil {
@@ -348,8 +351,8 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 // latestScheduledBackup picks the backup a restore without a name takes: the
 // newest, preferring scheduled and manual ones over the copies a restore
 // keeps of the data it replaced. When the volume moved off a lost node and
-// has not been restored since, the newest may hold the new node's empty
-// database, so the choice is left to the user. So it is when the bucket,
+// the newest backup since was not taken after a restore, it may hold the new
+// node's empty database, so the choice is left to the user. So it is when the bucket,
 // which keeps the lost node's backups, could not be listed.
 func latestScheduledBackup(volume *orchv1alpha1.VolumeSummary) (string, error) {
 	backups := volume.GetBackups()
@@ -358,22 +361,29 @@ func latestScheduledBackup(volume *orchv1alpha1.VolumeSummary) (string, error) {
 	}
 	if claimed := volume.GetClaimedAt(); claimed != nil && claimed.CheckValid() == nil {
 		movedAt := claimed.AsTime().Truncate(time.Second)
-		var before, after string
-		restoredSince := false
+		var before, newest *orchv1alpha1.VolumeBackupInfo
+		var restoredAt time.Time
 		for _, backup := range backups {
-			since := !backup.GetCreatedAt().AsTime().Before(movedAt)
+			created := backup.GetCreatedAt().AsTime()
 			switch {
 			case strings.HasSuffix(backup.GetName(), "-before-restore"):
-				restoredSince = restoredSince || since
-			case !since && before == "":
-				before = backup.GetName()
-			case since && after == "":
-				after = backup.GetName()
+				if !created.Before(movedAt) && created.After(restoredAt) {
+					restoredAt = created
+				}
+			case newest == nil:
+				newest = backup
+				if created.Before(movedAt) {
+					before = backup
+				}
+			case before == nil && created.Before(movedAt):
+				before = backup
 			}
 		}
-		if before != "" && after != "" && !restoredSince {
+		// The newest is trusted when it is from before the move, or was taken
+		// after a restore since the move put data back.
+		if before != nil && newest != before && (restoredAt.IsZero() || !newest.GetCreatedAt().AsTime().After(restoredAt)) {
 			return "", fmt.Errorf("the volume moved to node %s at %s; name the backup to restore: %s is the newest from before the move, %s the newest since",
-				volume.GetNode(), claimed.AsTime().UTC().Format(time.RFC3339), before, after)
+				volume.GetNode(), claimed.AsTime().UTC().Format(time.RFC3339), before.GetName(), newest.GetName())
 		}
 	}
 	for _, backup := range backups {

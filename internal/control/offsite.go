@@ -651,7 +651,7 @@ func remoteBackups(ctx context.Context, client *objectstore.Client, application,
 		if !ok || !objectstore.ValidBackupName(name) {
 			continue
 		}
-		createdAt, _ := time.Parse(objectstore.BackupNameLayout, name[:len(objectstore.BackupNameLayout)])
+		createdAt := objectstore.BackupTime(name)
 		key := parts[0] + "/" + parts[1]
 		result[key] = append(result[key], &orchv1alpha1.VolumeBackupInfo{Name: name, CreatedAt: timestamppb.New(createdAt),
 			SizeBytes: uint64(max(object.Size, 0)), InBucket: true})

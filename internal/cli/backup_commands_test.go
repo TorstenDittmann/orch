@@ -67,8 +67,14 @@ func TestLatestScheduledBackupAsksAfterAMove(t *testing.T) {
 	if _, err := latestScheduledBackup(moved); err == nil || !strings.Contains(err.Error(), "20261017T030000Z") {
 		t.Fatalf("latestScheduledBackup() after a move = %v", err)
 	}
-	moved.Backups = append(moved.Backups, at("20261019T120000Z-before-restore"))
-	if name, err := latestScheduledBackup(moved); err != nil || name != "20261019T030000Z" {
+	// A restore since the move does not vouch for an older backup...
+	moved.Backups = append([]*orchv1alpha1.VolumeBackupInfo{at("20261019T120000Z-before-restore")}, moved.Backups...)
+	if _, err := latestScheduledBackup(moved); err == nil {
+		t.Fatal("latestScheduledBackup() picked a backup from before the restore since the move")
+	}
+	// ...but backups taken after it are trusted.
+	moved.Backups = append([]*orchv1alpha1.VolumeBackupInfo{at("20261020T030000Z")}, moved.Backups...)
+	if name, err := latestScheduledBackup(moved); err != nil || name != "20261020T030000Z" {
 		t.Fatalf("latestScheduledBackup() after a restore since the move = %q, %v", name, err)
 	}
 	moved.BucketError = "timeout"
@@ -76,7 +82,7 @@ func TestLatestScheduledBackupAsksAfterAMove(t *testing.T) {
 		t.Fatal("latestScheduledBackup() guessed without the bucket's backups")
 	}
 	moved.BucketError = ""
-	moved.Backups = moved.Backups[2:3]
+	moved.Backups = moved.Backups[len(moved.Backups)-1:]
 	if name, err := latestScheduledBackup(moved); err != nil || name != "20261017T030000Z" {
 		t.Fatalf("latestScheduledBackup() with only older backups = %q, %v", name, err)
 	}
