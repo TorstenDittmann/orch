@@ -78,7 +78,11 @@ orch target import production ./orch-production-admin-2027/context.json --replac
 ```
 
 SSH targets reach the controller's local socket and need no change after a
-renewal. Old administrator certificates stay valid until they expire. After renewing,
+renewal. Once the controller restarts, it refuses every administrator
+certificate issued before the renewal, so renewing is also how you lock out a
+lost laptop or a leaked context file. Import the new context everywhere you
+still use the old one. Access tokens keep working; revoke a leaked one with
+`orch token revoke`. After renewing,
 refresh the `pki` copy in your off-host backups. If a restore finds an expired
 controller certificate, it reports that and still restores the data. Run the
 renewal against the restored data directory before starting the controller.

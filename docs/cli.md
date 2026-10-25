@@ -1064,7 +1064,8 @@ orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]
 
 Issues new controller and administrator certificates from the existing cluster
 CA. Restart the controller afterwards and import the new context with
-`orch target import NAME CONTEXT --replace`. See
+`orch target import NAME CONTEXT --replace`. After the restart, administrator
+certificates issued before the renewal are refused. See
 [certificate renewal](security.md#certificate-renewal).
 
 ## TUI and web dashboard

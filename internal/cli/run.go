@@ -847,6 +847,7 @@ func runClusterCertificatesRenew(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Cluster CA (unchanged):    valid until %s\n", result.CertificateAuthorityNotAfter.Format(time.RFC3339))
 	fmt.Fprintln(stdout, "Administrator context:", result.ContextPath)
 	fmt.Fprintln(stdout, "Restart the controller to serve the new certificate, then import the context with 'orch target import NAME CONTEXT --replace'.")
+	fmt.Fprintln(stdout, "After the restart, administrator contexts issued before now stop working.")
 	return ExitOK
 }
 

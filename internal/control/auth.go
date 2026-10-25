@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/TorstenDittmann/orch/internal/security"
@@ -101,7 +102,10 @@ func requireAgent(ctx context.Context) (string, error) {
 	return principal.nodeID, err
 }
 
-func authenticateAdministrator(clusterID string, next http.Handler) http.Handler {
+// authenticateAdministrator refuses administrator certificates that became
+// valid before notBefore, which orch cluster certificates renew moves forward
+// to retire every earlier context.
+func authenticateAdministrator(clusterID string, notBefore time.Time, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		principal := authenticatedPrincipal{}
 		switch {
@@ -121,6 +125,9 @@ func authenticateAdministrator(clusterID string, next http.Handler) http.Handler
 				} else {
 					principal.application, principal.readOnly = application, readOnly
 				}
+			} else if principal.certificate.NotBefore.Before(notBefore) {
+				principal.err = errors.New("administrator certificate was retired by orch cluster certificates renew; import the new context")
+				principal.code = connect.CodePermissionDenied
 			}
 		}
 		ctx := context.WithValue(request.Context(), principalKey{}, principal)

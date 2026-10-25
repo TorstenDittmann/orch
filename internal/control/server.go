@@ -101,6 +101,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return fail(fmt.Errorf("read controller cluster: %w", err), state, nil)
 	}
+	administratorNotBefore, err := state.AdministratorNotBefore(ctx)
+	if err != nil {
+		return fail(err, state, nil)
+	}
 	now := options.Now
 	if now == nil {
 		now = time.Now
@@ -167,17 +171,17 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithSendMaxBytes(maxHTTPBodyBytes),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(path, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
+	mux.Handle(path, authenticateAdministrator(cluster.ID, administratorNotBefore, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	// An image upload streams many messages, so only each message is bounded.
-	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, idleUploads(handler))))
+	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, administratorNotBefore, implementation.administrators.observe(now, idleUploads(handler))))
 	adminMux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateLocalAdministrator(idleUploads(handler)))
 	adminMux.HandleFunc("/healthz", healthHandler)
 	// /metrics needs the same credentials as the administrator API: an
 	// administrator certificate on the HTTPS port, or access to the socket.
 	metrics := implementation.metricsHandler(credentials.Certificate.Leaf.NotAfter)
-	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, metrics))
+	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, administratorNotBefore, metrics))
 	adminMux.Handle("/metrics", authenticateLocalAdministrator(metrics))
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
 		enrollmentImplementation,
