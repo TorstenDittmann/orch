@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -22,6 +23,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/objectstore"
 	"github.com/TorstenDittmann/orch/internal/objectstore/s3test"
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
@@ -64,8 +66,49 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 		t.Fatalf("SetBackupDestination() = %#v, %v", destination, err)
 	}
 
-	// The controller's own backup set is copied right away.
-	waitForBucketKey(t, bucket, "prod/controller/")
+	// The controller's own backup set is copied right away. Without a
+	// recovery key it is a plain archive.
+	controllerKey := waitForBucketKey(t, bucket, "prod/controller/")
+	if plain, _ := bucket.Object(controllerKey); security.IsEncryptedBackup(bufio.NewReader(bytes.NewReader(plain))) {
+		t.Fatal("copy encrypted although the destination has no recovery key")
+	}
+	// Adding a recovery key uploads the existing copy again, encrypted, and
+	// setting the destination again without one keeps it.
+	recoveryKey, recoveryPublicKey, err := security.NewRecoveryKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.RecoveryPublicKey = recoveryPublicKey
+	if destination, err := remote.SetBackupDestination(ctx, request); err != nil || !destination.GetEncrypted() {
+		t.Fatalf("SetBackupDestination(recovery key) = %#v, %v", destination, err)
+	}
+	request.RecoveryPublicKey = ""
+	if destination, err := remote.SetBackupDestination(ctx, request); err != nil || !destination.GetEncrypted() {
+		t.Fatalf("SetBackupDestination() again = %#v, %v; want the recovery key kept", destination, err)
+	}
+	var encrypted []byte
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		encrypted, _ = bucket.Object(controllerKey)
+		if security.IsEncryptedBackup(bufio.NewReader(bytes.NewReader(encrypted))) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the controller backup in the bucket was not encrypted to the new recovery key")
+		}
+	}
+	if bytes.Contains(encrypted, []byte("PRIVATE KEY")) {
+		t.Fatal("encrypted copy contains a private key in the clear")
+	}
+	plaintext, err := security.DecryptBackup(bufio.NewReader(bytes.NewReader(encrypted)), recoveryKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := clusterctl.ExtractBackupSet(plaintext, filepath.Join(root, "unpacked")); err != nil {
+		t.Fatalf("decrypted copy does not unpack: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "unpacked", clusterctl.SecretKeyFilename)); err != nil {
+		t.Fatalf("decrypted copy has no secret key: %v", err)
+	}
 
 	if _, err := remote.ConfigureNetwork(ctx, "10.96.0.0/16", "offsite-network-key"); err != nil {
 		t.Fatal(err)
@@ -297,7 +340,7 @@ func TestUploadBackupSetRetriesFailedParts(t *testing.T) {
 	client := objectstore.New(objectstore.Destination{Bucket: "backups", Endpoint: bucket.URL, AccessKeyID: "id", SecretAccessKey: "secret"}, nil)
 	// The first part fails twice and goes through on its last attempt.
 	bucket.FailNext(2)
-	if err := uploadBackupSet(context.Background(), client, set, "controller/20261017T030000Z.tar.gz"); err != nil {
+	if err := uploadBackupSet(context.Background(), client, set, "controller/20261017T030000Z.tar.gz", ""); err != nil {
 		t.Fatal(err)
 	}
 	archive, ok := bucket.Object("controller/20261017T030000Z.tar.gz")
@@ -316,7 +359,7 @@ func TestUploadBackupSetRetriesFailedParts(t *testing.T) {
 
 	// A part that keeps failing aborts the upload and leaves nothing behind.
 	bucket.FailNext(3)
-	if err := uploadBackupSet(context.Background(), client, set, "controller/20261018T030000Z.tar.gz"); err == nil {
+	if err := uploadBackupSet(context.Background(), client, set, "controller/20261018T030000Z.tar.gz", ""); err == nil {
 		t.Fatal("uploadBackupSet succeeded although a part failed three times")
 	}
 	if _, ok := bucket.Object("controller/20261018T030000Z.tar.gz"); ok {

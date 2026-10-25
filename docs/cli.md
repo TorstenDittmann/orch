@@ -707,7 +707,7 @@ fetch a backup that only the bucket still has to the volume's node first.
 
 ```text
 orch backup destination [--target NAME] [--json]
-orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--target NAME] [--json]
+orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--new-recovery-key] [--target NAME] [--json]
 orch backup destination remove [--target NAME] [--json]
 ```
 
@@ -717,8 +717,13 @@ writable and claims the prefix for this cluster first. Any S3-compatible
 service works; leave out `--endpoint` for AWS. The region is detected when
 left out. The access key comes from `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`, or is asked for, and is stored encrypted on the
-controller. Without an argument, `destination` shows the bucket and whether
-the last copy succeeded. `remove` stops copying and leaves the bucket as it
+controller. The first `set` prints a recovery key that controller backups are
+encrypted to before they reach the bucket; store it in a password manager,
+because `orch cluster restore --from` needs it and the controller keeps only
+its public half. Setting the destination again keeps the key unless
+`--new-recovery-key` is passed. Without an argument, `destination` shows the
+bucket, whether controller backups are encrypted, and whether the last copy
+succeeded. `remove` stops copying and leaves the bucket as it
 is. See [off-host backups](operations.md#off-host-backups).
 
 ### orch db
@@ -1037,7 +1042,8 @@ same.
 `--from` downloads the newest controller backup from the cluster's
 [backup destination](#orch-backup) instead, or the one `--backup` names. It
 reads the access key from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
-asks for it.
+asks for it, and the recovery key of an encrypted backup from
+`ORCH_RECOVERY_KEY`, or asks for it.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |

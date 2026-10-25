@@ -29,15 +29,16 @@ func (s *Store) SetBackupDestination(ctx context.Context, box *security.SecretBo
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO backup_destination
-		(singleton, bucket, prefix, endpoint, region, access_key_id, algorithm, nonce, ciphertext, wrapped_key_nonce, wrapped_key, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(singleton, bucket, prefix, endpoint, region, access_key_id, algorithm, nonce, ciphertext, wrapped_key_nonce, wrapped_key,
+		recovery_public_key, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (singleton) DO UPDATE SET bucket = excluded.bucket, prefix = excluded.prefix, endpoint = excluded.endpoint,
 		region = excluded.region, access_key_id = excluded.access_key_id, algorithm = excluded.algorithm, nonce = excluded.nonce,
 		ciphertext = excluded.ciphertext, wrapped_key_nonce = excluded.wrapped_key_nonce, wrapped_key = excluded.wrapped_key,
-		updated_at = excluded.updated_at`,
+		recovery_public_key = excluded.recovery_public_key, updated_at = excluded.updated_at`,
 		destination.Bucket, destination.Prefix, destination.Endpoint, destination.Region, destination.AccessKeyID,
 		encrypted.Algorithm, encrypted.Nonce, encrypted.Ciphertext, encrypted.WrappedKeyNonce, encrypted.WrappedKey,
-		now.UTC().Format(time.RFC3339Nano)); err != nil {
+		destination.RecoveryPublicKey, now.UTC().Format(time.RFC3339Nano)); err != nil {
 		return fmt.Errorf("store backup destination: %w", err)
 	}
 	return nil
@@ -49,9 +50,9 @@ func (s *Store) BackupDestination(ctx context.Context, box *security.SecretBox) 
 	var destination objectstore.Destination
 	var encrypted security.EncryptedValue
 	err := s.db.QueryRowContext(ctx, `SELECT bucket, prefix, endpoint, region, access_key_id, algorithm, nonce, ciphertext,
-		wrapped_key_nonce, wrapped_key FROM backup_destination WHERE singleton = 1`).Scan(&destination.Bucket, &destination.Prefix,
-		&destination.Endpoint, &destination.Region, &destination.AccessKeyID, &encrypted.Algorithm, &encrypted.Nonce,
-		&encrypted.Ciphertext, &encrypted.WrappedKeyNonce, &encrypted.WrappedKey)
+		wrapped_key_nonce, wrapped_key, recovery_public_key FROM backup_destination WHERE singleton = 1`).Scan(&destination.Bucket,
+		&destination.Prefix, &destination.Endpoint, &destination.Region, &destination.AccessKeyID, &encrypted.Algorithm, &encrypted.Nonce,
+		&encrypted.Ciphertext, &encrypted.WrappedKeyNonce, &encrypted.WrappedKey, &destination.RecoveryPublicKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return objectstore.Destination{}, false, nil
 	}

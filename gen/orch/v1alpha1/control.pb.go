@@ -8842,9 +8842,12 @@ type BackupDestination struct {
 	// s3://bucket/prefix
 	Url string `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	// Empty for AWS S3.
-	Endpoint      string `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Region        string `protobuf:"bytes,3,opt,name=region,proto3" json:"region,omitempty"`
-	AccessKeyId   string `protobuf:"bytes,4,opt,name=access_key_id,json=accessKeyId,proto3" json:"access_key_id,omitempty"`
+	Endpoint    string `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Region      string `protobuf:"bytes,3,opt,name=region,proto3" json:"region,omitempty"`
+	AccessKeyId string `protobuf:"bytes,4,opt,name=access_key_id,json=accessKeyId,proto3" json:"access_key_id,omitempty"`
+	// Controller backups are encrypted to a recovery key before they are
+	// copied to the bucket.
+	Encrypted     bool `protobuf:"varint,5,opt,name=encrypted,proto3" json:"encrypted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8907,6 +8910,13 @@ func (x *BackupDestination) GetAccessKeyId() string {
 	return ""
 }
 
+func (x *BackupDestination) GetEncrypted() bool {
+	if x != nil {
+		return x.Encrypted
+	}
+	return false
+}
+
 type SetBackupDestinationRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Url      string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
@@ -8915,8 +8925,11 @@ type SetBackupDestinationRequest struct {
 	Region          string `protobuf:"bytes,3,opt,name=region,proto3" json:"region,omitempty"`
 	AccessKeyId     string `protobuf:"bytes,4,opt,name=access_key_id,json=accessKeyId,proto3" json:"access_key_id,omitempty"`
 	SecretAccessKey string `protobuf:"bytes,5,opt,name=secret_access_key,json=secretAccessKey,proto3" json:"secret_access_key,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The public half of a new recovery key that controller backups are
+	// encrypted to. Empty keeps the destination's current one.
+	RecoveryPublicKey string `protobuf:"bytes,6,opt,name=recovery_public_key,json=recoveryPublicKey,proto3" json:"recovery_public_key,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SetBackupDestinationRequest) Reset() {
@@ -8980,6 +8993,13 @@ func (x *SetBackupDestinationRequest) GetAccessKeyId() string {
 func (x *SetBackupDestinationRequest) GetSecretAccessKey() string {
 	if x != nil {
 		return x.SecretAccessKey
+	}
+	return ""
+}
+
+func (x *SetBackupDestinationRequest) GetRecoveryPublicKey() string {
+	if x != nil {
+		return x.RecoveryPublicKey
 	}
 	return ""
 }
@@ -9948,18 +9968,20 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x18DeleteAccessTokenRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"5\n" +
 	"\x19DeleteAccessTokenResponse\x12\x18\n" +
-	"\achanged\x18\x01 \x01(\bR\achanged\"}\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged\"\x9b\x01\n" +
 	"\x11BackupDestination\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06region\x18\x03 \x01(\tR\x06region\x12\"\n" +
-	"\raccess_key_id\x18\x04 \x01(\tR\vaccessKeyId\"\xb3\x01\n" +
+	"\raccess_key_id\x18\x04 \x01(\tR\vaccessKeyId\x12\x1c\n" +
+	"\tencrypted\x18\x05 \x01(\bR\tencrypted\"\xe3\x01\n" +
 	"\x1bSetBackupDestinationRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06region\x18\x03 \x01(\tR\x06region\x12\"\n" +
 	"\raccess_key_id\x18\x04 \x01(\tR\vaccessKeyId\x12*\n" +
-	"\x11secret_access_key\x18\x05 \x01(\tR\x0fsecretAccessKey\"b\n" +
+	"\x11secret_access_key\x18\x05 \x01(\tR\x0fsecretAccessKey\x12.\n" +
+	"\x13recovery_public_key\x18\x06 \x01(\tR\x11recoveryPublicKey\"b\n" +
 	"\x1cSetBackupDestinationResponse\x12B\n" +
 	"\vdestination\x18\x01 \x01(\v2 .orch.v1alpha1.BackupDestinationR\vdestination\"\x1d\n" +
 	"\x1bGetBackupDestinationRequest\"\x8c\x02\n" +

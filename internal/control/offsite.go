@@ -1,7 +1,9 @@
 package control
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 	"github.com/TorstenDittmann/orch/internal/objectstore"
+	"github.com/TorstenDittmann/orch/internal/security"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -71,6 +74,9 @@ type offsiteBackups struct {
 	// failing holds the volumes whose last upload failed, so a failure that
 	// repeats raises one event.
 	failing map[string]bool
+	// encrypted maps controller backup objects known to be encrypted to the
+	// recovery public key they are encrypted to.
+	encrypted map[string]string
 }
 
 type offsiteStatus struct {
@@ -267,16 +273,69 @@ func (o *offsiteBackups) syncController(ctx context.Context, client *objectstore
 	for _, set := range sets {
 		names = append(names, filepath.Base(set.Path))
 	}
+	recoveryKey := client.Destination().RecoveryPublicKey
+	if recoveryKey != "" {
+		// Copies made before the destination had a recovery key hold the
+		// CA and secret keys in the clear; upload those sets again.
+		for _, name := range names {
+			if remote[name] && !o.encryptedCopy(ctx, client, prefix+name+objectstore.ArchiveSuffix, recoveryKey) {
+				delete(remote, name)
+			}
+		}
+	}
 	for _, index := range missingNewest(names, remote, o.keep) {
 		name := names[index]
+		key := prefix + name + objectstore.ArchiveSuffix
 		if err := withTimeout(ctx, offsiteTransferLimit, func(ctx context.Context) error {
-			return uploadBackupSet(ctx, client, sets[index].Path, prefix+name+objectstore.ArchiveSuffix)
+			return uploadBackupSet(ctx, client, sets[index].Path, key, recoveryKey)
 		}); err != nil {
 			return fmt.Errorf("upload %s: %w", name, err)
 		}
 		remote[name] = true
+		o.markEncrypted(key, recoveryKey)
 	}
 	return pruneRemote(ctx, client, prefix, remote, o.keep, time.Time{})
+}
+
+// encryptedCopy reports whether the bucket's copy at key is encrypted. A
+// copy found encrypted is remembered, so each is read only once.
+func (o *offsiteBackups) encryptedCopy(ctx context.Context, client *objectstore.Client, key, recoveryKey string) bool {
+	o.mu.Lock()
+	known := o.encrypted[key] == recoveryKey
+	o.mu.Unlock()
+	if known {
+		return true
+	}
+	encrypted := false
+	err := withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		body, _, err := client.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		encrypted = security.IsEncryptedBackup(bufio.NewReader(body))
+		return nil
+	})
+	if err != nil {
+		// Leave the copy alone; the next sync checks it again.
+		return true
+	}
+	if encrypted {
+		o.markEncrypted(key, recoveryKey)
+	}
+	return encrypted
+}
+
+func (o *offsiteBackups) markEncrypted(key, recoveryKey string) {
+	if recoveryKey == "" {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.encrypted == nil {
+		o.encrypted = make(map[string]string)
+	}
+	o.encrypted[key] = recoveryKey
 }
 
 // missingNewest returns the indexes, oldest first, of the backups (named
@@ -303,16 +362,25 @@ func missingNewest(names []string, remote map[string]bool, keep int) []int {
 	return missing
 }
 
-// uploadBackupSet archives a controller backup set and uploads it: one PUT
-// up to 1 GiB, a multipart upload above.
-func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory, key string) error {
+// uploadBackupSet archives a controller backup set, encrypted to
+// recoveryKey when one is set, and uploads it: one PUT up to 1 GiB, a
+// multipart upload above.
+func uploadBackupSet(ctx context.Context, client *objectstore.Client, directory, key, recoveryKey string) error {
 	staged, err := os.CreateTemp(filepath.Dir(directory), ".upload-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(staged.Name())
 	defer staged.Close()
-	if err := clusterctl.ArchiveBackupSet(directory, contextWriter{ctx, staged}); err != nil {
+	if recoveryKey == "" {
+		err = clusterctl.ArchiveBackupSet(directory, contextWriter{ctx, staged})
+	} else {
+		reader, writer := io.Pipe()
+		go func() { writer.CloseWithError(clusterctl.ArchiveBackupSet(directory, writer)) }()
+		err = security.EncryptBackup(contextWriter{ctx, staged}, reader, recoveryKey, rand.Reader)
+		reader.CloseWithError(errors.New("upload stopped"))
+	}
+	if err != nil {
 		return err
 	}
 	size, err := staged.Seek(0, io.SeekCurrent)

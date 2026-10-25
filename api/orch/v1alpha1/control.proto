@@ -1040,6 +1040,9 @@ message BackupDestination {
   string endpoint = 2;
   string region = 3;
   string access_key_id = 4;
+  // Controller backups are encrypted to a recovery key before they are
+  // copied to the bucket.
+  bool encrypted = 5;
 }
 
 message SetBackupDestinationRequest {
@@ -1049,6 +1052,9 @@ message SetBackupDestinationRequest {
   string region = 3;
   string access_key_id = 4;
   string secret_access_key = 5;
+  // The public half of a new recovery key that controller backups are
+  // encrypted to. Empty keeps the destination's current one.
+  string recovery_public_key = 6;
 }
 
 message SetBackupDestinationResponse {

@@ -32,7 +32,7 @@ func TestBackupDestinationIsEncryptedAndReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := first
-	second.AccessKeyID, second.SecretAccessKey = "key-two", "secret-two"
+	second.AccessKeyID, second.SecretAccessKey, second.RecoveryPublicKey = "key-two", "secret-two", "orch-recovery-public-key"
 	if err := state.SetBackupDestination(ctx, box, second, testCreatedAt); err != nil {
 		t.Fatal(err)
 	}

@@ -34,7 +34,7 @@ func TestRecoveryMigratesOldInitializedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer state.Close()
-	if summary.SchemaVersion != 1 || summary.TargetSchemaVersion != 20 || summary.Cluster.ID != "cluster-old" || summary.SecretKeyRequired {
+	if summary.SchemaVersion != 1 || summary.TargetSchemaVersion != 21 || summary.Cluster.ID != "cluster-old" || summary.SecretKeyRequired {
 		t.Fatalf("legacy recovery: %+v", summary)
 	}
 	if jobs, err := state.Jobs(ctx, "", "", 100, false); err != nil || len(jobs) != 0 {

@@ -127,7 +127,8 @@ The controller writes a complete backup once a day into
 `pki` directory, and keeps the newest 7; see
 [backups](operations.md#backups). Copy that directory off the host on a
 schedule, or set a [backup destination](operations.md#off-host-backups) so
-the controller copies every backup to S3 itself. `orch init --recovery-dir DIR` and `orch cluster install` can also
+the controller copies every backup to S3 itself, encrypted to a recovery key
+that only you keep. `orch init --recovery-dir DIR` and `orch cluster install` can also
 write a day-zero recovery directory. For an extra copy at any time:
 
 ```console
