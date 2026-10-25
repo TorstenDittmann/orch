@@ -80,6 +80,17 @@ type HTTPDesired struct {
 	BasicAuth *HTTPBasicAuth `json:"basic_auth,omitempty"`
 	// Redirects maps a domain to one of Domains it permanently redirects to.
 	Redirects map[string]string `json:"redirects,omitempty"`
+	// DomainPorts maps a domain in Domains to the container port that serves
+	// it when that is not Port. Omitted when unset, like Redirects.
+	DomainPorts map[string]uint32 `json:"domain_ports,omitempty"`
+}
+
+// PortFor returns the container port that serves domain.
+func (h *HTTPDesired) PortFor(domain string) uint32 {
+	if port, ok := h.DomainPorts[domain]; ok {
+		return port
+	}
+	return h.Port
 }
 
 // HTTPBasicAuth is the account ingress checks before forwarding a request.
@@ -192,8 +203,9 @@ type ServiceEndpoint struct {
 	TCPPublicPort uint32   `json:"tcp_public_port,omitempty"`
 	// BasicAuth and Redirects carry the service's route policy so every
 	// ingress node enforces it, not only the replica's own node.
-	BasicAuth *HTTPBasicAuth    `json:"basic_auth,omitempty"`
-	Redirects map[string]string `json:"redirects,omitempty"`
+	BasicAuth   *HTTPBasicAuth    `json:"basic_auth,omitempty"`
+	Redirects   map[string]string `json:"redirects,omitempty"`
+	DomainPorts map[string]uint32 `json:"domain_ports,omitempty"`
 }
 
 func NetworkConfigEqual(left, right NetworkConfig) bool { return reflect.DeepEqual(left, right) }

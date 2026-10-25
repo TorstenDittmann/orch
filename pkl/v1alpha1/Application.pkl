@@ -63,7 +63,9 @@ class Service {
 
   resources: Resources = new {}
 
-  http: Http? = null
+  /// An HTTP endpoint, or a listing of them for a container that serves
+  /// several ports, each on its own domains. Readiness checks the first one.
+  http: (Http | Listing<Http>(length.isBetween(1, 20), sharesOneEndpoint(this)))? = null
 
   tcp: Tcp? = null
 
@@ -398,3 +400,44 @@ local function connectsToDatabases(
         )
     )
   )
+
+/// Whether the entries of an `http` listing can act as one endpoint: each on
+/// its own port, `public` and `healthPath` only on the first, the same
+/// `https`, `nodeLocal` and `basicAuth` on all, and each redirect on one entry.
+local const function sharesOneEndpoint(entries: Listing<Http>): Boolean =
+  let (list = entries.toList())
+    (list.map((entry) -> entry.port).isDistinct || throw("http: every entry needs its own port"))
+      && (
+        list.flatMap((entry) -> entry.redirects.keys.toList()).isDistinct
+          || throw("http: a domain can redirect from only one entry")
+      )
+      && IntSeq(1, list.length - 1)
+        .toList()
+        .every((index) ->
+          let (entry = list[index])
+            (
+              !entry.domains.isEmpty
+                || throw("http[\(index)].domains: must route at least one domain")
+            )
+              && (
+                !entry.public || throw("http[\(index)].public: only the first entry can be public")
+              )
+              && (
+                entry.healthPath.isEmpty
+                  || throw(
+                    "http[\(index)].healthPath: readiness checks the first entry, so only it takes a healthPath"
+                  )
+              )
+              && (
+                entry.https == list[0].https
+                  || throw("http[\(index)].https: must match the first entry")
+              )
+              && (
+                entry.nodeLocal == list[0].nodeLocal
+                  || throw("http[\(index)].nodeLocal: must match the first entry")
+              )
+              && (
+                entry.basicAuth == list[0].basicAuth
+                  || throw("http[\(index)].basicAuth: must match the first entry")
+              )
+        )

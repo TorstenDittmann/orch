@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -429,6 +430,12 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS, NodeLocal: service.HTTP.NodeLocal,
 					Redirects: cloneEnvironment(service.HTTP.Redirects),
 				}
+				for domain, port := range service.HTTP.DomainPorts {
+					if allocation.HTTP.DomainPorts == nil {
+						allocation.HTTP.DomainPorts = make(map[string]uint32, len(service.HTTP.DomainPorts))
+					}
+					allocation.HTTP.DomainPorts[domain] = uint32(port)
+				}
 				if auth := service.HTTP.BasicAuth; auth != nil {
 					allocation.HTTP.BasicAuth = &model.HTTPBasicAuth{User: auth.User, PasswordHash: basicAuthHash(resolved.secrets[auth.PasswordSecret])}
 				}
@@ -635,6 +642,7 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 		http := *input.HTTP
 		http.Domains = append([]string(nil), input.HTTP.Domains...)
 		http.Redirects = cloneEnvironment(input.HTTP.Redirects)
+		http.DomainPorts = maps.Clone(input.HTTP.DomainPorts)
 		if input.HTTP.BasicAuth != nil {
 			auth := *input.HTTP.BasicAuth
 			http.BasicAuth = &auth

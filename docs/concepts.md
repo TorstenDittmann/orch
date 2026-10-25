@@ -184,7 +184,8 @@ A service is a long-running container inside an application. It names an OCI
 image and, optionally, a command, environment, resources, restart policy,
 dependencies, placement constraints, mounts, and at most one network endpoint:
 
-- `http` for HTTP services, optionally with domains, HTTPS, and a health path;
+- `http` for HTTP services, optionally with domains, HTTPS, and a health path,
+  or a listing of them for a container that serves several HTTP ports;
 - `tcp` for other TCP services, optionally published on ingress nodes
   (`publicPort`) or on the node that runs each replica (`nodePort`);
 - `udp`, together with `http` or `tcp`, for node-local UDP ports.

@@ -356,3 +356,14 @@ func TestControlMessagesBypassSaturatedOperationQueue(t *testing.T) {
 	cancel()
 	<-producerDone
 }
+
+func TestHTTPDesiredModelKeepsDomainPorts(t *testing.T) {
+	desired := httpDesiredModel(&orchv1alpha1.HTTPDesired{Port: 9000, Domains: []string{"console.example.com", "s3.example.com"},
+		DomainPorts: map[string]uint32{"console.example.com": 9001}})
+	if desired.PortFor("console.example.com") != 9001 || desired.PortFor("s3.example.com") != 9000 {
+		t.Fatalf("HTTP intent = %#v", desired)
+	}
+	if plain := httpDesiredModel(&orchv1alpha1.HTTPDesired{Port: 8080}); plain.DomainPorts != nil {
+		t.Fatalf("single-port intent gained domain ports: %#v", plain.DomainPorts)
+	}
+}

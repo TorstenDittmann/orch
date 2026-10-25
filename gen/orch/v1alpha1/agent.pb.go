@@ -700,7 +700,9 @@ type HTTPDesired struct {
 	NodeLocal  bool                   `protobuf:"varint,6,opt,name=node_local,json=nodeLocal,proto3" json:"node_local,omitempty"`
 	BasicAuth  *HTTPBasicAuth         `protobuf:"bytes,7,opt,name=basic_auth,json=basicAuth,proto3" json:"basic_auth,omitempty"`
 	// Domains that permanently redirect to one of domains.
-	Redirects     map[string]string `protobuf:"bytes,8,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Redirects map[string]string `protobuf:"bytes,8,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Container ports of domains not served by port.
+	DomainPorts   map[string]uint32 `protobuf:"bytes,9,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -787,6 +789,13 @@ func (x *HTTPDesired) GetBasicAuth() *HTTPBasicAuth {
 func (x *HTTPDesired) GetRedirects() map[string]string {
 	if x != nil {
 		return x.Redirects
+	}
+	return nil
+}
+
+func (x *HTTPDesired) GetDomainPorts() map[string]uint32 {
+	if x != nil {
+		return x.DomainPorts
 	}
 	return nil
 }
@@ -1631,6 +1640,7 @@ type ServiceEndpoint struct {
 	HttpNodeLocal bool                   `protobuf:"varint,11,opt,name=http_node_local,json=httpNodeLocal,proto3" json:"http_node_local,omitempty"`
 	BasicAuth     *HTTPBasicAuth         `protobuf:"bytes,12,opt,name=basic_auth,json=basicAuth,proto3" json:"basic_auth,omitempty"`
 	Redirects     map[string]string      `protobuf:"bytes,13,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	DomainPorts   map[string]uint32      `protobuf:"bytes,14,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1752,6 +1762,13 @@ func (x *ServiceEndpoint) GetBasicAuth() *HTTPBasicAuth {
 func (x *ServiceEndpoint) GetRedirects() map[string]string {
 	if x != nil {
 		return x.Redirects
+	}
+	return nil
+}
+
+func (x *ServiceEndpoint) GetDomainPorts() map[string]uint32 {
+	if x != nil {
+		return x.DomainPorts
 	}
 	return nil
 }
@@ -5548,7 +5565,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vVolumeMount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xed\x02\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xfd\x03\n" +
 	"\vHTTPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x1f\n" +
@@ -5560,10 +5577,14 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"node_local\x18\x06 \x01(\bR\tnodeLocal\x12;\n" +
 	"\n" +
 	"basic_auth\x18\a \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12G\n" +
-	"\tredirects\x18\b \x03(\v2).orch.v1alpha1.HTTPDesired.RedirectsEntryR\tredirects\x1a<\n" +
+	"\tredirects\x18\b \x03(\v2).orch.v1alpha1.HTTPDesired.RedirectsEntryR\tredirects\x12N\n" +
+	"\fdomain_ports\x18\t \x03(\v2+.orch.v1alpha1.HTTPDesired.DomainPortsEntryR\vdomainPorts\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"H\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
+	"\x10DomainPortsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"H\n" +
 	"\rHTTPBasicAuth\x12\x12\n" +
 	"\x04user\x18\x01 \x01(\tR\x04user\x12#\n" +
 	"\rpassword_hash\x18\x02 \x01(\tR\fpasswordHash\"^\n" +
@@ -5655,7 +5676,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"public_key\x18\x02 \x01(\tR\tpublicKey\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12%\n" +
-	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xa2\x04\n" +
+	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xb6\x05\n" +
 	"\x0fServiceEndpoint\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5672,10 +5693,14 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0fhttp_node_local\x18\v \x01(\bR\rhttpNodeLocal\x12;\n" +
 	"\n" +
 	"basic_auth\x18\f \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12K\n" +
-	"\tredirects\x18\r \x03(\v2-.orch.v1alpha1.ServiceEndpoint.RedirectsEntryR\tredirects\x1a<\n" +
+	"\tredirects\x18\r \x03(\v2-.orch.v1alpha1.ServiceEndpoint.RedirectsEntryR\tredirects\x12R\n" +
+	"\fdomain_ports\x18\x0e \x03(\v2/.orch.v1alpha1.ServiceEndpoint.DomainPortsEntryR\vdomainPorts\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcf\f\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
+	"\x10DomainPortsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xcf\f\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -6150,7 +6175,7 @@ func file_orch_v1alpha1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_orch_v1alpha1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_orch_v1alpha1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 59)
+var file_orch_v1alpha1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_orch_v1alpha1_agent_proto_goTypes = []any{
 	(AllocationPhase)(0),                // 0: orch.v1alpha1.AllocationPhase
 	(HealthStatus)(0),                   // 1: orch.v1alpha1.HealthStatus
@@ -6211,123 +6236,127 @@ var file_orch_v1alpha1_agent_proto_goTypes = []any{
 	(*ConnectRequest)(nil),              // 56: orch.v1alpha1.ConnectRequest
 	(*ConnectResponse)(nil),             // 57: orch.v1alpha1.ConnectResponse
 	nil,                                 // 58: orch.v1alpha1.HTTPDesired.RedirectsEntry
-	nil,                                 // 59: orch.v1alpha1.RollbackSpec.EnvironmentEntry
-	nil,                                 // 60: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
-	nil,                                 // 61: orch.v1alpha1.ServiceEndpoint.RedirectsEntry
-	nil,                                 // 62: orch.v1alpha1.AllocationDesired.EnvironmentEntry
-	nil,                                 // 63: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
-	nil,                                 // 64: orch.v1alpha1.CronJobDesired.EnvironmentEntry
-	nil,                                 // 65: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
-	(*timestamppb.Timestamp)(nil),       // 66: google.protobuf.Timestamp
+	nil,                                 // 59: orch.v1alpha1.HTTPDesired.DomainPortsEntry
+	nil,                                 // 60: orch.v1alpha1.RollbackSpec.EnvironmentEntry
+	nil,                                 // 61: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
+	nil,                                 // 62: orch.v1alpha1.ServiceEndpoint.RedirectsEntry
+	nil,                                 // 63: orch.v1alpha1.ServiceEndpoint.DomainPortsEntry
+	nil,                                 // 64: orch.v1alpha1.AllocationDesired.EnvironmentEntry
+	nil,                                 // 65: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
+	nil,                                 // 66: orch.v1alpha1.CronJobDesired.EnvironmentEntry
+	nil,                                 // 67: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
+	(*timestamppb.Timestamp)(nil),       // 68: google.protobuf.Timestamp
 }
 var file_orch_v1alpha1_agent_proto_depIdxs = []int32{
-	66, // 0: orch.v1alpha1.RenewCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
-	13, // 1: orch.v1alpha1.HTTPDesired.basic_auth:type_name -> orch.v1alpha1.HTTPBasicAuth
-	58, // 2: orch.v1alpha1.HTTPDesired.redirects:type_name -> orch.v1alpha1.HTTPDesired.RedirectsEntry
-	16, // 3: orch.v1alpha1.SecretFileDesired.secret:type_name -> orch.v1alpha1.SecretReference
-	59, // 4: orch.v1alpha1.RollbackSpec.environment:type_name -> orch.v1alpha1.RollbackSpec.EnvironmentEntry
-	11, // 5: orch.v1alpha1.RollbackSpec.mounts:type_name -> orch.v1alpha1.VolumeMount
-	12, // 6: orch.v1alpha1.RollbackSpec.http:type_name -> orch.v1alpha1.HTTPDesired
-	14, // 7: orch.v1alpha1.RollbackSpec.tcp:type_name -> orch.v1alpha1.TCPDesired
-	60, // 8: orch.v1alpha1.RollbackSpec.secret_environment:type_name -> orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
-	17, // 9: orch.v1alpha1.RollbackSpec.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
-	18, // 10: orch.v1alpha1.RollbackSpec.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
-	15, // 11: orch.v1alpha1.RollbackSpec.udp:type_name -> orch.v1alpha1.UDPDesired
-	22, // 12: orch.v1alpha1.NetworkConfig.peers:type_name -> orch.v1alpha1.WireGuardPeer
-	23, // 13: orch.v1alpha1.NetworkConfig.endpoints:type_name -> orch.v1alpha1.ServiceEndpoint
-	13, // 14: orch.v1alpha1.ServiceEndpoint.basic_auth:type_name -> orch.v1alpha1.HTTPBasicAuth
-	61, // 15: orch.v1alpha1.ServiceEndpoint.redirects:type_name -> orch.v1alpha1.ServiceEndpoint.RedirectsEntry
-	62, // 16: orch.v1alpha1.AllocationDesired.environment:type_name -> orch.v1alpha1.AllocationDesired.EnvironmentEntry
-	11, // 17: orch.v1alpha1.AllocationDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
-	12, // 18: orch.v1alpha1.AllocationDesired.http:type_name -> orch.v1alpha1.HTTPDesired
-	20, // 19: orch.v1alpha1.AllocationDesired.rollback:type_name -> orch.v1alpha1.RollbackSpec
-	14, // 20: orch.v1alpha1.AllocationDesired.tcp:type_name -> orch.v1alpha1.TCPDesired
-	63, // 21: orch.v1alpha1.AllocationDesired.secret_environment:type_name -> orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
-	17, // 22: orch.v1alpha1.AllocationDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
-	18, // 23: orch.v1alpha1.AllocationDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
-	15, // 24: orch.v1alpha1.AllocationDesired.udp:type_name -> orch.v1alpha1.UDPDesired
-	25, // 25: orch.v1alpha1.AllocationDesired.volume_backups:type_name -> orch.v1alpha1.VolumeBackupDesired
-	64, // 26: orch.v1alpha1.CronJobDesired.environment:type_name -> orch.v1alpha1.CronJobDesired.EnvironmentEntry
-	65, // 27: orch.v1alpha1.CronJobDesired.secret_environment:type_name -> orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
-	17, // 28: orch.v1alpha1.CronJobDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
-	18, // 29: orch.v1alpha1.CronJobDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
-	66, // 30: orch.v1alpha1.CronJobDesired.run_at:type_name -> google.protobuf.Timestamp
-	11, // 31: orch.v1alpha1.CronJobDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
-	66, // 32: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
-	24, // 33: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
-	21, // 34: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
-	26, // 35: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
-	19, // 36: orch.v1alpha1.AssignmentSnapshot.secret_materials:type_name -> orch.v1alpha1.SecretMaterial
-	0,  // 37: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
-	66, // 38: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 39: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
-	66, // 40: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
-	3,  // 41: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	66, // 42: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 43: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
-	66, // 44: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 45: orch.v1alpha1.NodePortStatus.state:type_name -> orch.v1alpha1.RouteState
-	66, // 46: orch.v1alpha1.NodePortStatus.updated_at:type_name -> google.protobuf.Timestamp
-	66, // 47: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
-	5,  // 48: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
-	66, // 49: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
-	66, // 50: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
-	5,  // 51: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
-	66, // 52: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
-	66, // 53: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
-	66, // 54: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 55: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
-	28, // 56: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
-	29, // 57: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
-	34, // 58: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
-	30, // 59: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
-	32, // 60: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
-	33, // 61: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
-	31, // 62: orch.v1alpha1.AllocationReport.node_ports:type_name -> orch.v1alpha1.NodePortStatus
-	38, // 63: orch.v1alpha1.AllocationReport.volume_backup_failures:type_name -> orch.v1alpha1.VolumeBackupFailure
-	66, // 64: orch.v1alpha1.VolumeBackupFailure.failed_at:type_name -> google.protobuf.Timestamp
-	41, // 65: orch.v1alpha1.AgentHeartbeat.usage:type_name -> orch.v1alpha1.NodeResourceUsage
-	40, // 66: orch.v1alpha1.AgentHeartbeat.allocations:type_name -> orch.v1alpha1.AllocationResourceUsage
-	6,  // 67: orch.v1alpha1.VolumeCommand.action:type_name -> orch.v1alpha1.VolumeAction
-	66, // 68: orch.v1alpha1.VolumeBackupInfo.created_at:type_name -> google.protobuf.Timestamp
-	47, // 69: orch.v1alpha1.VolumeResponse.backups:type_name -> orch.v1alpha1.VolumeBackupInfo
-	47, // 70: orch.v1alpha1.VolumeResponse.backup:type_name -> orch.v1alpha1.VolumeBackupInfo
-	66, // 71: orch.v1alpha1.VolumeResponse.failed_at:type_name -> google.protobuf.Timestamp
-	66, // 72: orch.v1alpha1.RestartResponse.stopped_at:type_name -> google.protobuf.Timestamp
-	4,  // 73: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
-	4,  // 74: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
-	52, // 75: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
-	53, // 76: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
-	54, // 77: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
-	48, // 78: orch.v1alpha1.AgentOperationResult.volume:type_name -> orch.v1alpha1.VolumeResponse
-	51, // 79: orch.v1alpha1.AgentOperationResult.restart:type_name -> orch.v1alpha1.RestartResponse
-	35, // 80: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
-	36, // 81: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
-	37, // 82: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
-	39, // 83: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
-	55, // 84: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
-	27, // 85: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
-	42, // 86: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
-	44, // 87: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
-	45, // 88: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
-	43, // 89: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
-	46, // 90: orch.v1alpha1.ConnectResponse.volume:type_name -> orch.v1alpha1.VolumeCommand
-	49, // 91: orch.v1alpha1.ConnectResponse.restart:type_name -> orch.v1alpha1.RestartCommand
-	50, // 92: orch.v1alpha1.ConnectResponse.upgrade:type_name -> orch.v1alpha1.UpgradeCommand
-	16, // 93: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	16, // 94: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	16, // 95: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
-	56, // 96: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
-	9,  // 97: orch.v1alpha1.AgentService.RenewCertificate:input_type -> orch.v1alpha1.RenewCertificateRequest
-	7,  // 98: orch.v1alpha1.AgentService.DownloadBinary:input_type -> orch.v1alpha1.DownloadBinaryRequest
-	57, // 99: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
-	10, // 100: orch.v1alpha1.AgentService.RenewCertificate:output_type -> orch.v1alpha1.RenewCertificateResponse
-	8,  // 101: orch.v1alpha1.AgentService.DownloadBinary:output_type -> orch.v1alpha1.DownloadBinaryResponse
-	99, // [99:102] is the sub-list for method output_type
-	96, // [96:99] is the sub-list for method input_type
-	96, // [96:96] is the sub-list for extension type_name
-	96, // [96:96] is the sub-list for extension extendee
-	0,  // [0:96] is the sub-list for field type_name
+	68,  // 0: orch.v1alpha1.RenewCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
+	13,  // 1: orch.v1alpha1.HTTPDesired.basic_auth:type_name -> orch.v1alpha1.HTTPBasicAuth
+	58,  // 2: orch.v1alpha1.HTTPDesired.redirects:type_name -> orch.v1alpha1.HTTPDesired.RedirectsEntry
+	59,  // 3: orch.v1alpha1.HTTPDesired.domain_ports:type_name -> orch.v1alpha1.HTTPDesired.DomainPortsEntry
+	16,  // 4: orch.v1alpha1.SecretFileDesired.secret:type_name -> orch.v1alpha1.SecretReference
+	60,  // 5: orch.v1alpha1.RollbackSpec.environment:type_name -> orch.v1alpha1.RollbackSpec.EnvironmentEntry
+	11,  // 6: orch.v1alpha1.RollbackSpec.mounts:type_name -> orch.v1alpha1.VolumeMount
+	12,  // 7: orch.v1alpha1.RollbackSpec.http:type_name -> orch.v1alpha1.HTTPDesired
+	14,  // 8: orch.v1alpha1.RollbackSpec.tcp:type_name -> orch.v1alpha1.TCPDesired
+	61,  // 9: orch.v1alpha1.RollbackSpec.secret_environment:type_name -> orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry
+	17,  // 10: orch.v1alpha1.RollbackSpec.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	18,  // 11: orch.v1alpha1.RollbackSpec.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	15,  // 12: orch.v1alpha1.RollbackSpec.udp:type_name -> orch.v1alpha1.UDPDesired
+	22,  // 13: orch.v1alpha1.NetworkConfig.peers:type_name -> orch.v1alpha1.WireGuardPeer
+	23,  // 14: orch.v1alpha1.NetworkConfig.endpoints:type_name -> orch.v1alpha1.ServiceEndpoint
+	13,  // 15: orch.v1alpha1.ServiceEndpoint.basic_auth:type_name -> orch.v1alpha1.HTTPBasicAuth
+	62,  // 16: orch.v1alpha1.ServiceEndpoint.redirects:type_name -> orch.v1alpha1.ServiceEndpoint.RedirectsEntry
+	63,  // 17: orch.v1alpha1.ServiceEndpoint.domain_ports:type_name -> orch.v1alpha1.ServiceEndpoint.DomainPortsEntry
+	64,  // 18: orch.v1alpha1.AllocationDesired.environment:type_name -> orch.v1alpha1.AllocationDesired.EnvironmentEntry
+	11,  // 19: orch.v1alpha1.AllocationDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
+	12,  // 20: orch.v1alpha1.AllocationDesired.http:type_name -> orch.v1alpha1.HTTPDesired
+	20,  // 21: orch.v1alpha1.AllocationDesired.rollback:type_name -> orch.v1alpha1.RollbackSpec
+	14,  // 22: orch.v1alpha1.AllocationDesired.tcp:type_name -> orch.v1alpha1.TCPDesired
+	65,  // 23: orch.v1alpha1.AllocationDesired.secret_environment:type_name -> orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry
+	17,  // 24: orch.v1alpha1.AllocationDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	18,  // 25: orch.v1alpha1.AllocationDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	15,  // 26: orch.v1alpha1.AllocationDesired.udp:type_name -> orch.v1alpha1.UDPDesired
+	25,  // 27: orch.v1alpha1.AllocationDesired.volume_backups:type_name -> orch.v1alpha1.VolumeBackupDesired
+	66,  // 28: orch.v1alpha1.CronJobDesired.environment:type_name -> orch.v1alpha1.CronJobDesired.EnvironmentEntry
+	67,  // 29: orch.v1alpha1.CronJobDesired.secret_environment:type_name -> orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry
+	17,  // 30: orch.v1alpha1.CronJobDesired.secret_files:type_name -> orch.v1alpha1.SecretFileDesired
+	18,  // 31: orch.v1alpha1.CronJobDesired.registry_credential:type_name -> orch.v1alpha1.RegistryCredentialReference
+	68,  // 32: orch.v1alpha1.CronJobDesired.run_at:type_name -> google.protobuf.Timestamp
+	11,  // 33: orch.v1alpha1.CronJobDesired.mounts:type_name -> orch.v1alpha1.VolumeMount
+	68,  // 34: orch.v1alpha1.AssignmentSnapshot.created_at:type_name -> google.protobuf.Timestamp
+	24,  // 35: orch.v1alpha1.AssignmentSnapshot.allocations:type_name -> orch.v1alpha1.AllocationDesired
+	21,  // 36: orch.v1alpha1.AssignmentSnapshot.network:type_name -> orch.v1alpha1.NetworkConfig
+	26,  // 37: orch.v1alpha1.AssignmentSnapshot.cron_jobs:type_name -> orch.v1alpha1.CronJobDesired
+	19,  // 38: orch.v1alpha1.AssignmentSnapshot.secret_materials:type_name -> orch.v1alpha1.SecretMaterial
+	0,   // 39: orch.v1alpha1.AllocationStatus.phase:type_name -> orch.v1alpha1.AllocationPhase
+	68,  // 40: orch.v1alpha1.AllocationStatus.updated_at:type_name -> google.protobuf.Timestamp
+	1,   // 41: orch.v1alpha1.AllocationStatus.health_status:type_name -> orch.v1alpha1.HealthStatus
+	68,  // 42: orch.v1alpha1.AllocationStatus.ready_at:type_name -> google.protobuf.Timestamp
+	3,   // 43: orch.v1alpha1.RouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	68,  // 44: orch.v1alpha1.RouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	3,   // 45: orch.v1alpha1.TCPRouteStatus.state:type_name -> orch.v1alpha1.RouteState
+	68,  // 46: orch.v1alpha1.TCPRouteStatus.updated_at:type_name -> google.protobuf.Timestamp
+	3,   // 47: orch.v1alpha1.NodePortStatus.state:type_name -> orch.v1alpha1.RouteState
+	68,  // 48: orch.v1alpha1.NodePortStatus.updated_at:type_name -> google.protobuf.Timestamp
+	68,  // 49: orch.v1alpha1.CronJobStatus.next_run_at:type_name -> google.protobuf.Timestamp
+	5,   // 50: orch.v1alpha1.CronJobStatus.last_state:type_name -> orch.v1alpha1.JobRunState
+	68,  // 51: orch.v1alpha1.CronJobStatus.updated_at:type_name -> google.protobuf.Timestamp
+	68,  // 52: orch.v1alpha1.JobRunStatus.scheduled_at:type_name -> google.protobuf.Timestamp
+	5,   // 53: orch.v1alpha1.JobRunStatus.state:type_name -> orch.v1alpha1.JobRunState
+	68,  // 54: orch.v1alpha1.JobRunStatus.started_at:type_name -> google.protobuf.Timestamp
+	68,  // 55: orch.v1alpha1.JobRunStatus.finished_at:type_name -> google.protobuf.Timestamp
+	68,  // 56: orch.v1alpha1.JobRunStatus.updated_at:type_name -> google.protobuf.Timestamp
+	2,   // 57: orch.v1alpha1.NetworkStatus.state:type_name -> orch.v1alpha1.NetworkState
+	28,  // 58: orch.v1alpha1.AllocationReport.allocations:type_name -> orch.v1alpha1.AllocationStatus
+	29,  // 59: orch.v1alpha1.AllocationReport.routes:type_name -> orch.v1alpha1.RouteStatus
+	34,  // 60: orch.v1alpha1.AllocationReport.network:type_name -> orch.v1alpha1.NetworkStatus
+	30,  // 61: orch.v1alpha1.AllocationReport.tcp_routes:type_name -> orch.v1alpha1.TCPRouteStatus
+	32,  // 62: orch.v1alpha1.AllocationReport.cron_jobs:type_name -> orch.v1alpha1.CronJobStatus
+	33,  // 63: orch.v1alpha1.AllocationReport.job_runs:type_name -> orch.v1alpha1.JobRunStatus
+	31,  // 64: orch.v1alpha1.AllocationReport.node_ports:type_name -> orch.v1alpha1.NodePortStatus
+	38,  // 65: orch.v1alpha1.AllocationReport.volume_backup_failures:type_name -> orch.v1alpha1.VolumeBackupFailure
+	68,  // 66: orch.v1alpha1.VolumeBackupFailure.failed_at:type_name -> google.protobuf.Timestamp
+	41,  // 67: orch.v1alpha1.AgentHeartbeat.usage:type_name -> orch.v1alpha1.NodeResourceUsage
+	40,  // 68: orch.v1alpha1.AgentHeartbeat.allocations:type_name -> orch.v1alpha1.AllocationResourceUsage
+	6,   // 69: orch.v1alpha1.VolumeCommand.action:type_name -> orch.v1alpha1.VolumeAction
+	68,  // 70: orch.v1alpha1.VolumeBackupInfo.created_at:type_name -> google.protobuf.Timestamp
+	47,  // 71: orch.v1alpha1.VolumeResponse.backups:type_name -> orch.v1alpha1.VolumeBackupInfo
+	47,  // 72: orch.v1alpha1.VolumeResponse.backup:type_name -> orch.v1alpha1.VolumeBackupInfo
+	68,  // 73: orch.v1alpha1.VolumeResponse.failed_at:type_name -> google.protobuf.Timestamp
+	68,  // 74: orch.v1alpha1.RestartResponse.stopped_at:type_name -> google.protobuf.Timestamp
+	4,   // 75: orch.v1alpha1.TailLogsResponse.stream:type_name -> orch.v1alpha1.LogStream
+	4,   // 76: orch.v1alpha1.ExecResponse.stream:type_name -> orch.v1alpha1.LogStream
+	52,  // 77: orch.v1alpha1.AgentOperationResult.log:type_name -> orch.v1alpha1.TailLogsResponse
+	53,  // 78: orch.v1alpha1.AgentOperationResult.exec:type_name -> orch.v1alpha1.ExecResponse
+	54,  // 79: orch.v1alpha1.AgentOperationResult.error:type_name -> orch.v1alpha1.OperationError
+	48,  // 80: orch.v1alpha1.AgentOperationResult.volume:type_name -> orch.v1alpha1.VolumeResponse
+	51,  // 81: orch.v1alpha1.AgentOperationResult.restart:type_name -> orch.v1alpha1.RestartResponse
+	35,  // 82: orch.v1alpha1.ConnectRequest.hello:type_name -> orch.v1alpha1.AgentHello
+	36,  // 83: orch.v1alpha1.ConnectRequest.assignment_ack:type_name -> orch.v1alpha1.AssignmentAck
+	37,  // 84: orch.v1alpha1.ConnectRequest.allocation_report:type_name -> orch.v1alpha1.AllocationReport
+	39,  // 85: orch.v1alpha1.ConnectRequest.heartbeat:type_name -> orch.v1alpha1.AgentHeartbeat
+	55,  // 86: orch.v1alpha1.ConnectRequest.operation_result:type_name -> orch.v1alpha1.AgentOperationResult
+	27,  // 87: orch.v1alpha1.ConnectResponse.assignment:type_name -> orch.v1alpha1.AssignmentSnapshot
+	42,  // 88: orch.v1alpha1.ConnectResponse.tail_logs:type_name -> orch.v1alpha1.TailLogsCommand
+	44,  // 89: orch.v1alpha1.ConnectResponse.exec:type_name -> orch.v1alpha1.ExecCommand
+	45,  // 90: orch.v1alpha1.ConnectResponse.cancel_operation:type_name -> orch.v1alpha1.CancelOperation
+	43,  // 91: orch.v1alpha1.ConnectResponse.tail_cron_logs:type_name -> orch.v1alpha1.TailCronLogsCommand
+	46,  // 92: orch.v1alpha1.ConnectResponse.volume:type_name -> orch.v1alpha1.VolumeCommand
+	49,  // 93: orch.v1alpha1.ConnectResponse.restart:type_name -> orch.v1alpha1.RestartCommand
+	50,  // 94: orch.v1alpha1.ConnectResponse.upgrade:type_name -> orch.v1alpha1.UpgradeCommand
+	16,  // 95: orch.v1alpha1.RollbackSpec.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	16,  // 96: orch.v1alpha1.AllocationDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	16,  // 97: orch.v1alpha1.CronJobDesired.SecretEnvironmentEntry.value:type_name -> orch.v1alpha1.SecretReference
+	56,  // 98: orch.v1alpha1.AgentService.Connect:input_type -> orch.v1alpha1.ConnectRequest
+	9,   // 99: orch.v1alpha1.AgentService.RenewCertificate:input_type -> orch.v1alpha1.RenewCertificateRequest
+	7,   // 100: orch.v1alpha1.AgentService.DownloadBinary:input_type -> orch.v1alpha1.DownloadBinaryRequest
+	57,  // 101: orch.v1alpha1.AgentService.Connect:output_type -> orch.v1alpha1.ConnectResponse
+	10,  // 102: orch.v1alpha1.AgentService.RenewCertificate:output_type -> orch.v1alpha1.RenewCertificateResponse
+	8,   // 103: orch.v1alpha1.AgentService.DownloadBinary:output_type -> orch.v1alpha1.DownloadBinaryResponse
+	101, // [101:104] is the sub-list for method output_type
+	98,  // [98:101] is the sub-list for method input_type
+	98,  // [98:98] is the sub-list for extension type_name
+	98,  // [98:98] is the sub-list for extension extendee
+	0,   // [0:98] is the sub-list for field type_name
 }
 
 func init() { file_orch_v1alpha1_agent_proto_init() }
@@ -6365,7 +6394,7 @@ func file_orch_v1alpha1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orch_v1alpha1_agent_proto_rawDesc), len(file_orch_v1alpha1_agent_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   59,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

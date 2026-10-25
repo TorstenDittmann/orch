@@ -177,7 +177,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `replicas` | Int | `1` | 1 to 100; must be `1` when the service mounts a volume |
 | `restart` | String | `"always"` | `"always"`, `"on-failure"` or `"never"` |
 | `resources` | `Resources` | `100m`, `128Mi` | See [resources](#resources) |
-| `http` | `Http?` | `null` | See [Http](#http). Not together with `tcp`. |
+| `http` | `Http \| Listing<Http>` | `null` | See [Http](#http). Not together with `tcp`. |
 | `tcp` | `Tcp?` | `null` | See [Tcp](#tcp). Not together with `http`. |
 | `udp` | `Udp?` | `null` | See [Udp](#udp). Requires `http` or `tcp`. |
 | `dependsOn` | `Listing<DnsLabel>` | empty | At most 64 distinct services of this application |
@@ -485,6 +485,33 @@ http = new Http {
   redirects { ["www.example.com"] = "example.com" }
 }
 ```
+
+### Several ports
+
+A container that serves HTTP on more than one port, such as an API and a web
+console, takes a listing of `Http` entries, each with its own `port` and
+`domains`:
+
+```pkl
+http = new Listing {
+  new Http {
+    port = 9000
+    domains { "s3.example.com" }
+    healthPath = "/health"
+  }
+  new Http {
+    port = 9001
+    domains { "console.example.com" }
+  }
+}
+```
+
+The entries are one endpoint of the service. Readiness checks the first
+entry, so only it takes `healthPath` and `public`. Every entry needs its own
+port and at least one domain, may have its own `redirects`, and uses the same
+`https`, `nodeLocal` and `basicAuth` as the first. A single `Http`, as above,
+is the same as a listing with one entry. Under `orch dev`, each later entry is
+served on `SERVICE-PORT.APP.localhost`.
 
 ## Tcp
 

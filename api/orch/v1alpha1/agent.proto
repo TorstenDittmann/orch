@@ -89,6 +89,8 @@ message HTTPDesired {
   HTTPBasicAuth basic_auth = 7;
   // Domains that permanently redirect to one of domains.
   map<string, string> redirects = 8;
+  // Container ports of domains not served by port.
+  map<string, uint32> domain_ports = 9;
 }
 
 // HTTPBasicAuth carries an argon2id hash, never the password.
@@ -194,6 +196,7 @@ message ServiceEndpoint {
   bool http_node_local = 11;
   HTTPBasicAuth basic_auth = 12;
   map<string, string> redirects = 13;
+  map<string, uint32> domain_ports = 14;
 }
 
 message AllocationDesired {

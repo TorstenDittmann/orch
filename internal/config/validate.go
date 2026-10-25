@@ -216,6 +216,9 @@ func Validate(manifest *Manifest) error {
 			for index, domain := range service.HTTP.Domains {
 				normalized := strings.TrimSuffix(strings.ToLower(domain), ".")
 				field := fmt.Sprintf("%s.http.domains[%d]", base, index)
+				if _, extra := service.HTTP.DomainPorts[domain]; extra {
+					field = base + ".http.domain_ports[" + strconv.Quote(domain) + "]"
+				}
 				if domain != normalized || !validHostname(domain) {
 					add(field, "must be a normalized lowercase DNS hostname without a wildcard or trailing dot")
 				}
@@ -227,6 +230,21 @@ func Validate(manifest *Manifest) error {
 					add(field, fmt.Sprintf("is already routed by service %q", owner))
 				} else {
 					domainOwners[normalized] = serviceName
+				}
+			}
+			if len(service.HTTP.DomainPorts) > maxDomainsPerService {
+				add(base+".http.domain_ports", fmt.Sprintf("must not contain more than %d domains", maxDomainsPerService))
+			}
+			for _, domain := range sortedKeys(service.HTTP.DomainPorts) {
+				port := service.HTTP.DomainPorts[domain]
+				field := base + ".http.domain_ports[" + strconv.Quote(domain) + "]"
+				switch {
+				case port < 1 || port > 65535:
+					add(field, "must be between 1 and 65535")
+				case port == service.HTTP.Port:
+					add(field, "must not repeat http.port")
+				case !slices.Contains(service.HTTP.Domains, domain):
+					add(field, "names a domain the service does not serve")
 				}
 			}
 			if len(service.HTTP.Redirects) > maxDomainsPerService {

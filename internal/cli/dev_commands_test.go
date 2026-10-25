@@ -86,3 +86,19 @@ func TestReadDevEnvFile(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalizeDevManifestGivesEachHTTPPortALocalDomain(t *testing.T) {
+	manifest := &config.Manifest{Name: "storage", Services: map[string]config.Service{
+		"rustfs": {HTTP: &config.HTTP{Port: 9000, Domains: []string{"console.example.com", "s3.example.com"}, HTTPS: true,
+			DomainPorts: map[string]int{"console.example.com": 9001}}},
+	}}
+	urls, _ := localizeDevManifest(manifest, 8080)
+	if want := []string{"http://rustfs.storage.localhost:8080", "http://rustfs-9001.storage.localhost:8080"}; !reflect.DeepEqual(urls, want) {
+		t.Fatalf("urls = %v, want %v", urls, want)
+	}
+	http := manifest.Services["rustfs"].HTTP
+	if !reflect.DeepEqual(http.Domains, []string{"rustfs-9001.storage.localhost", "rustfs.storage.localhost"}) ||
+		!reflect.DeepEqual(http.DomainPorts, map[string]int{"rustfs-9001.storage.localhost": 9001}) {
+		t.Fatalf("http = %#v", http)
+	}
+}

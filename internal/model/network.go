@@ -261,6 +261,11 @@ func ValidateServiceEndpoints(configuration NetworkConfig) error {
 		if endpoint.HTTPPublic && endpoint.Port == 0 {
 			return fmt.Errorf("service endpoint %q public HTTP route has no port", endpoint.AllocationID)
 		}
+		for domain, port := range endpoint.DomainPorts {
+			if port == 0 || port > 65535 || !slices.Contains(endpoint.Domains, domain) {
+				return fmt.Errorf("service endpoint %q domain port is invalid", endpoint.AllocationID)
+			}
+		}
 		if _, exists := seen[endpoint.AllocationID]; exists {
 			return fmt.Errorf("service endpoint allocation %q is duplicated", endpoint.AllocationID)
 		}

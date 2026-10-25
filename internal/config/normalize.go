@@ -14,6 +14,7 @@ func normalize(manifest *Manifest) {
 				service.HTTP.Domains[index] = strings.TrimSuffix(strings.ToLower(service.HTTP.Domains[index]), ".")
 			}
 			sort.Strings(service.HTTP.Domains)
+			service.HTTP.DomainPorts = nilIfEmpty(service.HTTP.DomainPorts)
 		}
 		sort.Slice(service.SecretFiles, func(left, right int) bool {
 			return service.SecretFiles[left].Target < service.SecretFiles[right].Target
@@ -97,7 +98,7 @@ func cloneMap(input map[string]string) map[string]string {
 	return result
 }
 
-func nilIfEmpty(input map[string]string) map[string]string {
+func nilIfEmpty[V any](input map[string]V) map[string]V {
 	if len(input) == 0 {
 		return nil
 	}

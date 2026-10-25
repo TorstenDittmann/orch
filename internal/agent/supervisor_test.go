@@ -1828,3 +1828,31 @@ func TestRemoteEndpointKeepsBasicAuthAndRedirects(t *testing.T) {
 		t.Fatalf("app route = %#v", routes[1])
 	}
 }
+
+func TestDesiredRoutesSendEachDomainToItsPort(t *testing.T) {
+	t.Parallel()
+	local := supervisorHTTPAllocation(t, "alloc-local", "sha256:"+strings.Repeat("b", 64), 1)
+	local.HTTP = &model.HTTPDesired{Port: 9000, Domains: []string{"console.example.com", "s3.example.com"},
+		HealthPath: "/health", HTTPS: true, DomainPorts: map[string]uint32{"console.example.com": 9001}}
+	local.SpecDigest = mustAllocationDigest(t, local)
+	remote := model.ServiceEndpoint{AllocationID: "alloc-remote", Application: local.Application, Service: local.Service,
+		NodeID: "node-two", Address: "10.88.1.2", Port: 9000, Domains: local.HTTP.Domains, HTTPS: true,
+		DomainPorts: local.HTTP.DomainPorts}
+	assignment := model.Assignment{Allocations: []model.AllocationDesired{local},
+		Network: model.NetworkConfig{Generation: 1, Endpoints: []model.ServiceEndpoint{remote}}}
+	allocations, serving, specs := remoteServingView(assignment,
+		map[string]string{local.ID: "10.88.0.2"}, map[string]string{local.ID: local.SpecDigest})
+
+	routes, pending := desiredRoutes(allocations, nil, serving, specs, supervisorTestTime)
+	got := make(map[string][]string, len(routes))
+	for _, route := range routes {
+		got[route.Domain] = route.Upstreams
+	}
+	want := map[string][]string{
+		"console.example.com": {"10.88.0.2:9001", "10.88.1.2:9001"},
+		"s3.example.com":      {"10.88.0.2:9000", "10.88.1.2:9000"},
+	}
+	if len(pending) != 0 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("routes = %#v, pending = %#v", routes, pending)
+	}
+}
