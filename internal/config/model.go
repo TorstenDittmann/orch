@@ -28,6 +28,10 @@ type Manifest struct {
 	// canonical digest.
 	Notifications []Notification `json:"notifications,omitempty"`
 	Deploy        Deployment     `json:"deploy"`
+	// AllowPrivateNetwork lets the application's workloads reach private
+	// networks such as the node's VPC or LAN. It is omitted when false so
+	// existing manifests keep their canonical digest.
+	AllowPrivateNetwork bool `json:"allow_private_network,omitempty"`
 }
 
 // PrivilegedServices returns the sorted names of services that set

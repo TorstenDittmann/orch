@@ -224,7 +224,11 @@ Installation creates separate credentials for each role.
   service on the host are refused, even when the provider firewall only blocks
   them from the internet. Cloud metadata
   endpoints (`169.254.0.0/16`), which hand out instance credentials, are
-  refused too. See [networking](networking.md#what-workloads-can-reach).
+  refused too. So are hosts on private networks (`10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`) outside the cluster's
+  workload network, unless an administrator deploys the application with
+  `allowPrivateNetwork = true`. Workloads of different applications can still
+  reach each other. See [networking](networking.md#what-workloads-can-reach).
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 

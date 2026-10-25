@@ -162,6 +162,7 @@ message RollbackSpec {
   uint32 stop_grace_seconds = 23;
   bool privileged = 24;
   repeated string capabilities = 25;
+  bool private_network = 26;
 }
 
 message NetworkConfig {
@@ -234,6 +235,7 @@ message AllocationDesired {
   repeated VolumeBackupDesired volume_backups = 31;
   bool privileged = 32;
   repeated string capabilities = 33;
+  bool private_network = 34;
 }
 
 // VolumeBackupDesired archives one local volume the allocation owns.
@@ -268,6 +270,7 @@ message CronJobDesired {
   google.protobuf.Timestamp run_at = 21;
   bool cancel_requested = 22;
   repeated VolumeMount mounts = 23;
+  bool private_network = 24;
 }
 
 message AssignmentSnapshot {

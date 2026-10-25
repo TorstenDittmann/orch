@@ -11,6 +11,8 @@ type pklDocument struct {
 	Databases     map[string]pklDatabase `pkl:"databases"`
 	Notifications []pklNotification      `pkl:"notifications"`
 	Deploy        pklDeployment          `pkl:"deploy"`
+	// AllowPrivateNetwork lets workloads reach private networks.
+	AllowPrivateNetwork bool `pkl:"allowPrivateNetwork"`
 }
 
 type pklNotification struct {
@@ -310,6 +312,7 @@ func resolvePkl(doc pklDocument) *Manifest {
 		}
 		manifest.Volumes[name] = volume
 	}
+	manifest.AllowPrivateNetwork = doc.AllowPrivateNetwork
 	for _, input := range doc.Notifications {
 		on := append([]string(nil), input.On...)
 		if len(on) == 0 {

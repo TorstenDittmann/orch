@@ -104,6 +104,26 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: privileged, IdempotencyKey: "token-privileged-key-1"})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "privileged services (docker)") {
 		t.Fatalf("deployer deploying a privileged service = %v", err)
 	}
+	// Only an administrator may open private networks to the application;
+	// after that, the deployer may keep deploying with it on.
+	privateManifest := newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+	})
+	privateManifest.AllowPrivateNetwork = true
+	private := mustCanonicalConfig(t, privateManifest)
+	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: private, IdempotencyKey: "token-private-key-01"})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "allowPrivateNetwork") {
+		t.Fatalf("deployer turning on allowPrivateNetwork = %v", err)
+	}
+	if _, err := admin.ApplyApplication(ctx, private, "admin-private-key-01"); err != nil {
+		t.Fatalf("administrator turning on allowPrivateNetwork = %v", err)
+	}
+	privateManifest = newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web@sha256:2222222222222222222222222222222222222222222222222222222222222222"},
+	})
+	privateManifest.AllowPrivateNetwork = true
+	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: mustCanonicalConfig(t, privateManifest), IdempotencyKey: "token-private-key-02"})); err != nil {
+		t.Fatalf("deployer keeping allowPrivateNetwork = %v", err)
+	}
 	capable := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
 		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", Capabilities: []string{"CAP_SETUID"}},
 	}))

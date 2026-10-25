@@ -309,7 +309,7 @@ func (r *Reconciler) createOneOff(ctx context.Context, application, service, rev
 	}
 	now := r.now().UTC()
 	id := jobID(key)
-	template := model.CronJobDesired{Application: application, Job: "run-" + strings.TrimPrefix(id, "job_"), ApplicationGeneration: app.Generation, RevisionID: revision, RunID: id, RunAt: &now, Image: source.Image, Command: command, Args: args, Environment: cloneEnvironment(source.Env), DependsOn: append([]string(nil), source.DependsOn...), StartDeadlineSeconds: 60, TimeoutSeconds: timeout, NetworkGeneration: r.cluster.NetworkGeneration}
+	template := model.CronJobDesired{Application: application, Job: "run-" + strings.TrimPrefix(id, "job_"), ApplicationGeneration: app.Generation, RevisionID: revision, RunID: id, RunAt: &now, Image: source.Image, Command: command, Args: args, Environment: cloneEnvironment(source.Env), DependsOn: append([]string(nil), source.DependsOn...), StartDeadlineSeconds: 60, TimeoutSeconds: timeout, NetworkGeneration: r.cluster.NetworkGeneration, PrivateNetwork: manifest.AllowPrivateNetwork}
 	if frozen != nil {
 		template = *frozen
 		template.RunID = id

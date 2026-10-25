@@ -423,6 +423,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if err := requireServicePrivileges(ctx, manifest); err != nil {
 		return nil, err
 	}
+	if err := s.requirePrivateNetworkChange(ctx, manifest); err != nil {
+		return nil, err
+	}
 	source, err := deploymentSource(request.Msg.GetSource())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

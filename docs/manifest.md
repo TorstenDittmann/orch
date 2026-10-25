@@ -147,6 +147,7 @@ the cluster, use `orch app diff`; see [deployments](runtime.md#rollbacks).
 | `notifications` | `Listing<Notification>` | empty | At most 20; see [Notification](#notification) |
 | `databases` | `Mapping<DnsLabel, Database>` | empty | At most 20; see [Databases](databases.md) |
 | `deploy` | `Deployment` | defaults below | Rollout behavior and pre-deploy hook |
+| `allowPrivateNetwork` | `Boolean` | `false` | Let workloads reach hosts on private networks such as the node's VPC; administrator credentials only. See [what workloads can reach](networking.md#what-workloads-can-reach) |
 
 Across all services an application may request at most 200 replicas in total
 and route at most 1000 domains in total.

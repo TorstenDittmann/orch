@@ -40,6 +40,9 @@ type firewall struct {
 	// as SSH on a custom port. They are never published, so a workload cannot
 	// take one over while that service happens to be restarting.
 	hostOwned map[string]bool
+	// privateEgress maps the runtime objects of applications that set
+	// allowPrivateNetwork to their workload addresses.
+	privateEgress map[string]netip.Addr
 }
 
 type firewallOwner struct {
@@ -114,6 +117,9 @@ func (f *firewall) prepare(config model.NetworkConfig) error {
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{169, 254}},
 		rejectAdministratively(),
 	}})
+	if err := f.addPrivateEgressRules(connection, table, forward, netip.MustParsePrefix(config.ClusterCIDR)); err != nil {
+		return err
+	}
 	connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName},

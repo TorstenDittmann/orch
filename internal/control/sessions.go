@@ -433,7 +433,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			StartBeforeStop: allocation.StartBeforeStop, NetworkGeneration: allocation.NetworkGeneration,
 			MaxSurge: allocation.MaxSurge, MaxUnavailable: allocation.MaxUnavailable,
 			StopGraceSeconds: allocation.StopGraceSeconds, Privileged: allocation.Privileged,
-			Capabilities: append([]string(nil), allocation.Capabilities...),
+			Capabilities: append([]string(nil), allocation.Capabilities...), PrivateNetwork: allocation.PrivateNetwork,
 		}
 		item.Http = httpDesiredMessage(allocation.HTTP)
 		item.Tcp = tcpDesiredMessage(allocation.TCP)
@@ -460,7 +460,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			Command: append([]string(nil), job.Command...), Args: append([]string(nil), job.Args...),
 			Environment: cloneEnvironment(job.Environment), CpuMillis: job.CPUMillis, MemoryBytes: job.MemoryBytes,
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: job.StartDeadlineSeconds,
-			TimeoutSeconds: job.TimeoutSeconds, NetworkGeneration: job.NetworkGeneration,
+			TimeoutSeconds: job.TimeoutSeconds, NetworkGeneration: job.NetworkGeneration, PrivateNetwork: job.PrivateNetwork,
 		}
 		item.RunId, item.CancelRequested = job.RunID, job.CancelRequested
 		if job.RunAt != nil {
@@ -554,7 +554,7 @@ func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpe
 		Tcp: tcpDesiredMessage(rollback.TCP), Udp: udpDesiredMessage(rollback.UDP), DependsOn: append([]string(nil), rollback.DependsOn...),
 		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop, StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
-		Capabilities: append([]string(nil), rollback.Capabilities...),
+		Capabilities: append([]string(nil), rollback.Capabilities...), PrivateNetwork: rollback.PrivateNetwork,
 	}
 	message.SecretEnvironment = secretEnvironmentMessage(rollback.SecretEnvironment)
 	message.SecretFiles = secretFilesMessage(rollback.SecretFiles)

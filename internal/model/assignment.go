@@ -176,6 +176,7 @@ type RollbackSpec struct {
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 	Privileged            bool                         `json:"privileged,omitempty"`
 	Capabilities          []string                     `json:"capabilities,omitempty"`
+	PrivateNetwork        bool                         `json:"private_network,omitempty"`
 }
 
 type NetworkConfig struct {
@@ -244,8 +245,11 @@ type AllocationDesired struct {
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 	Privileged            bool                         `json:"privileged,omitempty"`
 	Capabilities          []string                     `json:"capabilities,omitempty"`
-	VolumeBackups         []VolumeBackupDesired        `json:"volume_backups,omitempty"`
-	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
+	// PrivateNetwork lets the workload reach private networks such as the
+	// node's VPC. It is omitted when false so existing digests are kept.
+	PrivateNetwork bool                  `json:"private_network,omitempty"`
+	VolumeBackups  []VolumeBackupDesired `json:"volume_backups,omitempty"`
+	Rollback       *RollbackSpec         `json:"rollback,omitempty"`
 	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
 	// the agent decrypts its cache and are never serialized into assignments.
 	RuntimeSecretValues    map[string][]byte `json:"-"`
@@ -286,6 +290,7 @@ type CronJobDesired struct {
 	TimeoutSeconds         uint32                       `json:"timeout_seconds"`
 	NetworkGeneration      uint64                       `json:"network_generation"`
 	Mounts                 []VolumeMount                `json:"mounts,omitempty"`
+	PrivateNetwork         bool                         `json:"private_network,omitempty"`
 	RuntimeSecretValues    map[string][]byte            `json:"-"`
 	RuntimeRegistrySecrets map[string][]byte            `json:"-"`
 }
@@ -501,11 +506,13 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		StopGraceSeconds     uint32                     `json:"stop_grace_seconds,omitempty"`
 		Privileged           bool                       `json:"privileged,omitempty"`
 		Capabilities         []string                   `json:"capabilities,omitempty"`
+		PrivateNetwork       bool                       `json:"private_network,omitempty"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
 		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
-		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds, allocation.Privileged, allocation.Capabilities}
+		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds, allocation.Privileged, allocation.Capabilities,
+		allocation.PrivateNetwork}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)
@@ -532,9 +539,10 @@ func CronJobSpecDigest(job CronJobDesired) (string, error) {
 		TimeoutSeconds       uint32                     `json:"timeout_seconds"`
 		NetworkGeneration    uint64                     `json:"network_generation"`
 		Mounts               []VolumeMount              `json:"mounts,omitempty"`
+		PrivateNetwork       bool                       `json:"private_network,omitempty"`
 	}{job.RunID, job.RunAt, job.Image, job.Schedule, job.Command, job.Args, job.Environment, job.CPUMillis,
 		job.MemoryBytes, job.DependsOn, job.SecretEnvironment, job.SecretFiles,
-		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration, job.Mounts}
+		job.StartDeadlineSeconds, job.TimeoutSeconds, job.NetworkGeneration, job.Mounts, job.PrivateNetwork}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode cron job runtime spec: %w", err)
@@ -587,7 +595,7 @@ func AllocationSpecDigestMatches(allocation AllocationDesired) (bool, error) {
 // digest and all fields added by the network slice remain unset.
 func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
 	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || allocation.UDP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
-		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 || allocation.StopGraceSeconds != 0 || allocation.Privileged || len(allocation.Capabilities) != 0 {
+		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 || allocation.StopGraceSeconds != 0 || allocation.Privileged || len(allocation.Capabilities) != 0 || allocation.PrivateNetwork {
 		return false, nil
 	}
 	current, err := AllocationSpecDigest(allocation)

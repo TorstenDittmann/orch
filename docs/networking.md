@@ -206,6 +206,21 @@ not its SSH, controller API, or other host services. Cloud metadata endpoints in
 `169.254.0.0/16`, which hand out instance credentials, are refused as well.
 Run anything that workloads need as an orch service instead.
 
+Hosts on private networks are refused too: `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16` and `100.64.0.0/10`, apart from the cluster's own workload
+network. That keeps a compromised application from reaching your VPC, other
+servers' SSH, or internal admin panels. An application that needs a host on
+such a network, for example a managed database in the same VPC, sets this at
+the top level of its manifest:
+
+```pkl
+allowPrivateNetwork = true
+```
+
+It applies to the application's services, jobs and cron jobs. Only
+administrator credentials may turn it on; deployer and access-token
+credentials may keep deploying the application with it once it is on.
+
 ## Troubleshooting
 
 Start with:

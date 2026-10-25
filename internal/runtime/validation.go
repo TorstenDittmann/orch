@@ -296,7 +296,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		DependsOn: rollback.DependsOn, SecretEnvironment: rollback.SecretEnvironment, SecretFiles: rollback.SecretFiles,
 		RegistryCredential: rollback.RegistryCredential, NetworkGeneration: rollback.NetworkGeneration,
 		StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
-		Capabilities: append([]string(nil), rollback.Capabilities...),
+		Capabilities: append([]string(nil), rollback.Capabilities...), PrivateNetwork: rollback.PrivateNetwork,
 	}
 }
 

@@ -212,3 +212,21 @@ func TestValidateRejectsBadDomainPorts(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowPrivateNetworkReachesTheCanonicalManifest(t *testing.T) {
+	manifest := loadManifest(t, routePolicyManifest+"\nallowPrivateNetwork = true\n")
+	if !manifest.AllowPrivateNetwork {
+		t.Fatal("allowPrivateNetwork was not evaluated")
+	}
+	canonical, err := CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseCanonicalJSON(canonical)
+	if err != nil || !parsed.AllowPrivateNetwork {
+		t.Fatalf("canonical round trip = %v, %v", parsed, err)
+	}
+	if plain := loadManifest(t, routePolicyManifest); plain.AllowPrivateNetwork {
+		t.Fatal("allowPrivateNetwork is on by default")
+	}
+}

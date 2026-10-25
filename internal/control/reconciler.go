@@ -423,6 +423,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				StopGraceSeconds:     uint32(stopGrace / time.Second),
 				Privileged:           service.Privileged,
 				Capabilities:         append([]string(nil), service.Capabilities...),
+				PrivateNetwork:       manifest.AllowPrivateNetwork,
 				VolumeBackups:        append([]model.VolumeBackupDesired(nil), backups...),
 			}
 			if service.HTTP != nil {
@@ -515,6 +516,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			Environment: cloneEnvironment(job.Env), CPUMillis: cpuMillis, MemoryBytes: memoryBytes,
 			DependsOn: append([]string(nil), job.DependsOn...), StartDeadlineSeconds: uint32(startDeadline / time.Second),
 			TimeoutSeconds: uint32(timeout / time.Second), NetworkGeneration: networkConfig.Generation,
+			PrivateNetwork: manifest.AllowPrivateNetwork,
 		}
 		for _, mount := range job.Mounts {
 			desired.Mounts = append(desired.Mounts, model.VolumeMount{Name: mount.Source, Target: mount.Target, ReadOnly: true})
@@ -627,7 +629,7 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		RegistryCredential: cloneRegistryCredential(allocation.RegistryCredential),
 		AutoRollback:       allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
 		StopGraceSeconds: allocation.StopGraceSeconds, Privileged: allocation.Privileged,
-		Capabilities: append([]string(nil), allocation.Capabilities...),
+		Capabilities: append([]string(nil), allocation.Capabilities...), PrivateNetwork: allocation.PrivateNetwork,
 	}
 }
 

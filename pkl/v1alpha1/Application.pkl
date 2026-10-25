@@ -28,6 +28,13 @@ databases: Mapping<DatabaseName, Database>(length <= 20) = new {}
 /// Rolling deployment behavior.
 deploy: Deployment = new {}
 
+/// Lets the application's services, jobs and cron jobs reach private
+/// networks: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and 100.64.0.0/10,
+/// such as a managed database in the node's VPC. Without it they reach the
+/// internet and other workloads in the cluster, but not hosts on those
+/// networks. Only administrator credentials may turn it on.
+allowPrivateNetwork: Boolean = false
+
 typealias RestartPolicy = "always" | "on-failure" | "never"
 
 typealias DnsLabel = String(length <= 63, matches(Regex(#"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"#)))

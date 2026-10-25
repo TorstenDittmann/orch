@@ -4,6 +4,7 @@ package network
 
 import (
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -81,8 +82,8 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 		})
 	}
 	attach("orchfwc", container, bridge, nil, []string{"10.199.0.2/24"}, "10.199.0.1")
-	attach("orchfwo", outside, nil, []string{"10.200.0.1/24", "169.254.0.1/16"},
-		[]string{"10.200.0.2/24", "169.254.169.254/16"}, "10.200.0.1")
+	attach("orchfwo", outside, nil, []string{"10.200.0.1/24", "169.254.0.1/16", "198.51.100.1/24"},
+		[]string{"10.200.0.2/24", "169.254.169.254/16", "198.51.100.2/24"}, "10.200.0.1")
 	// remote stands in for a workload on another node: its traffic arrives on
 	// the WireGuard interface from that node's subnet.
 	remote := newNamespace(t, host)
@@ -122,7 +123,8 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 	expect("10.199.0.1:80", true)
 	expect("10.199.0.1:22", false)
 	expect("10.199.0.1:5432", false)
-	expect("10.200.0.2:8080", true)
+	expect("198.51.100.2:8080", true)
+	expect("10.200.0.2:8080", false)
 	expect("169.254.169.254:8080", false)
 	// Workloads on other nodes reach this node's workloads but not its host.
 	inNamespace(t, container, host, func() { listen(t, "10.199.0.2:9000") })
@@ -135,6 +137,18 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 	expect("10.199.0.1:22", false)
 	must(f.allowIngress(nil))
 	expect("10.199.0.1:5432", false)
+
+	// An application that sets allowPrivateNetwork reaches private networks,
+	// also after the table is rebuilt, until its object is detached.
+	must(f.allowPrivateEgress("object-1", netip.MustParseAddr("10.199.0.2")))
+	expect("10.200.0.2:8080", true)
+	expect("10.199.0.1:22", false)
+	expect("169.254.169.254:8080", false)
+	must(f.prepare(model.NetworkConfig{ClusterCIDR: "10.199.0.0/16", NodeSubnet: "10.199.0.0/24", Gateway: "10.199.0.1"}))
+	expect("10.200.0.2:8080", true)
+	must(f.revokePrivateEgress("object-1"))
+	expect("10.200.0.2:8080", false)
+	expect("198.51.100.2:8080", true)
 }
 
 func mustAddr(t *testing.T, value string) *netlink.Addr {
