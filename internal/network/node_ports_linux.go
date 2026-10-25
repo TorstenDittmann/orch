@@ -91,10 +91,10 @@ func (f *firewall) publish(ports []NodePort) ([]error, error) {
 			continue
 		}
 		if err := hostPortFree(port); err != nil {
-			// Only a listener makes the port the host's; Go listens with
-			// SO_REUSEADDR, so a connection using it as its source port does
-			// not count, and other errors such as EMFILE are retried.
-			if errors.Is(err, syscall.EADDRINUSE) {
+			// Only a listener makes the port the host's. A port that is busy
+			// as some connection's source port, or fails for another reason
+			// such as EMFILE, is retried on the next publish.
+			if errors.Is(err, syscall.EADDRINUSE) && hostports.Listening(port.Protocol, port.Port) {
 				f.hostOwned[port.Key()] = true
 			}
 			results[index] = err

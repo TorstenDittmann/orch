@@ -165,33 +165,28 @@ func dialPublic(dial func(context.Context, string, string) (net.Conn, error)) fu
 	}
 }
 
-// proxyAddress reports whether address is the host and port of the HTTP or
-// HTTPS proxy from the environment, which the transport dials instead of
-// the registry.
+// proxyAddress reports whether address is the host and port of the HTTPS
+// proxy from the environment, which the transport dials instead of the
+// registry. Registry requests are HTTPS only, so HTTP_PROXY is never used.
 func proxyAddress(address string) bool {
-	config := httpproxy.FromEnvironment()
-	for _, raw := range []string{config.HTTPSProxy, config.HTTPProxy} {
-		if raw == "" {
-			continue
-		}
-		proxy, err := url.Parse(raw)
-		if err != nil || proxy.Host == "" {
-			if proxy, err = url.Parse("http://" + raw); err != nil {
-				continue
-			}
-		}
-		port := proxy.Port()
-		if port == "" {
-			port = map[string]string{"https": "443", "socks5": "1080"}[proxy.Scheme]
-			if port == "" {
-				port = "80"
-			}
-		}
-		if net.JoinHostPort(proxy.Hostname(), port) == address {
-			return true
+	raw := httpproxy.FromEnvironment().HTTPSProxy
+	if raw == "" {
+		return false
+	}
+	proxy, err := url.Parse(raw)
+	if err != nil || proxy.Host == "" {
+		if proxy, err = url.Parse("http://" + raw); err != nil {
+			return false
 		}
 	}
-	return false
+	port := proxy.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "socks5": "1080"}[proxy.Scheme]
+		if port == "" {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(proxy.Hostname(), port) == address
 }
 
 func sanitize(ctx context.Context, err error) error {

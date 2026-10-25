@@ -5,6 +5,7 @@ package hostports
 import (
 	"context"
 	"net"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -52,4 +53,40 @@ func parseSSH(config string) []uint16 {
 		}
 	}
 	return ports
+}
+
+// Listening reports whether a socket on the host listens on port: a TCP
+// socket in the LISTEN state, or a UDP socket bound without a peer. A port
+// that is only some connection's source port, or a socket lingering in
+// TIME_WAIT, does not count.
+func Listening(protocol string, port uint16) bool {
+	for _, family := range []string{"", "6"} {
+		table, err := os.ReadFile("/proc/net/" + protocol + family)
+		if err == nil && listening(string(table), protocol, port) {
+			return true
+		}
+	}
+	return false
+}
+
+// listening reads a /proc/net/tcp or /proc/net/udp table.
+func listening(table, protocol string, port uint16) bool {
+	for _, line := range strings.Split(table, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		_, local, ok := strings.Cut(fields[1], ":")
+		_, remote, _ := strings.Cut(fields[2], ":")
+		if !ok {
+			continue
+		}
+		if value, err := strconv.ParseUint(local, 16, 16); err != nil || uint16(value) != port {
+			continue
+		}
+		if protocol == "tcp" && fields[3] == "0A" || protocol == "udp" && remote == "0000" {
+			return true
+		}
+	}
+	return false
 }

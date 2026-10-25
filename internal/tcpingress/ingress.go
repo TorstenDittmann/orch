@@ -122,9 +122,10 @@ func (c *Controller) Apply(_ context.Context, routes []Route) []model.TCPRouteSt
 		}
 		networkListener, err := net.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(int(route.PublicPort))))
 		if err != nil {
-			// Only a listener makes the port the host's; other errors such as
-			// EMFILE are retried on the next sync.
-			if errors.Is(err, syscall.EADDRINUSE) {
+			// Only a listener makes the port the host's. A port that is busy
+			// as some connection's source port, or fails for another reason
+			// such as EMFILE, is retried on the next sync.
+			if errors.Is(err, syscall.EADDRINUSE) && hostports.Listening("tcp", uint16(route.PublicPort)) {
 				c.hostOwned[route.PublicPort] = true
 			}
 			status.State, status.Reason, status.Message = model.TCPRouteFailed, "listen_failed", err.Error()
