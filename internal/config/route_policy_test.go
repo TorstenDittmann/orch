@@ -73,6 +73,12 @@ func TestValidateRejectsBadRoutePolicy(t *testing.T) {
 			m.Services["web"].HTTP.Domains = nil
 			m.Services["web"].HTTP.Redirects = nil
 		}, "services.web.http.basic_auth"},
+		"auth over plain HTTP": {func(m *Manifest) {
+			m.Services["web"].HTTP.HTTPS = false
+		}, "services.web.http.basic_auth"},
+		"auth on the public listener": {func(m *Manifest) {
+			m.Services["web"].HTTP.Public = true
+		}, "services.web.http.basic_auth"},
 	}
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {

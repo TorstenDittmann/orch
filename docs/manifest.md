@@ -480,9 +480,11 @@ See [networking](networking.md#https) for DNS and firewall requirements.
 
 ### Basic auth
 
-`basicAuth` puts a username and password in front of every domain and the
-public listener of the service. Ingress answers `401` until the browser sends
-the right account, so the service never sees an unauthenticated request.
+`basicAuth` puts a username and password in front of every domain of the
+service. Ingress answers `401` until the browser sends the right account, so
+the service never sees an unauthenticated request. It needs `domains` served
+over HTTPS and no `public` listener, so the password is never sent in the
+clear.
 
 | Field | Type | Rules |
 | --- | --- | --- |

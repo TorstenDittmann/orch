@@ -282,8 +282,9 @@ func Validate(manifest *Manifest) error {
 					add(base+".http.basic_auth.user", "must be 1-64 letters, digits, dots, underscores or hyphens")
 				}
 				validateDNSLabel(base+".http.basic_auth.password_secret", auth.PasswordSecret, add)
-				if !service.HTTP.Public && len(service.HTTP.Domains) == 0 {
-					add(base+".http.basic_auth", "requires public HTTP ingress or domains")
+				// Over plain HTTP the password crosses the network in the clear.
+				if service.HTTP.Public || !service.HTTP.HTTPS || len(service.HTTP.Domains) == 0 {
+					add(base+".http.basic_auth", "requires domains served over HTTPS, without public HTTP ingress, so the password is never sent in the clear")
 				}
 			}
 			if service.HTTP.Public {
