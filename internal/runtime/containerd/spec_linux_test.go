@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 
@@ -145,6 +146,39 @@ func TestSpecOptionsPrivilegedLiftsConfinement(t *testing.T) {
 	}
 	if !hasWritableCgroupfs(spec) {
 		t.Fatalf("privileged mounts = %#v, want writable /sys/fs/cgroup", spec.Mounts)
+	}
+}
+
+func TestSpecOptionsCapabilitiesKeepConfinement(t *testing.T) {
+	t.Parallel()
+	client := &runtimeClient{}
+	want := []string{"CAP_CHOWN", "CAP_KILL", "CAP_SETGID", "CAP_SETUID"}
+	allocation := model.AllocationDesired{
+		Command: []string{"/app"}, CPUMillis: 500, MemoryBytes: 64 << 20, Capabilities: want,
+	}
+	opts := client.specOptions(nil, allocation, nil)[1:]
+	spec, err := oci.GenerateSpec(namespaces.WithNamespace(context.Background(), "test"), nil, &containers.Container{ID: "test"}, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := spec.Process.Capabilities
+	for _, actual := range [][]string{caps.Bounding, caps.Effective, caps.Permitted} {
+		if !slices.Equal(actual, want) {
+			t.Fatalf("capabilities = %v, want %v", actual, want)
+		}
+	}
+	if len(caps.Ambient) != 0 || len(caps.Inheritable) != 0 || !spec.Process.NoNewPrivileges || spec.Linux.Seccomp == nil {
+		t.Fatalf("capabilities disabled process confinement: %#v", spec.Process)
+	}
+	if len(spec.Linux.Devices) != 0 || len(spec.Linux.Resources.Devices) != 1 || spec.Linux.Resources.Devices[0].Allow || hasWritableCgroupfs(spec) {
+		t.Fatal("capabilities granted host devices or writable cgroups")
+	}
+	for _, rule := range spec.Linux.Seccomp.Syscalls {
+		for _, name := range rule.Names {
+			if (name == "mount" || name == "bpf") && rule.Action == specs.ActAllow {
+				t.Fatalf("limited capabilities allow %s", name)
+			}
+		}
 	}
 }
 

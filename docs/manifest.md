@@ -189,6 +189,7 @@ A long-running workload. Each entry under `services` is a `Service`.
 | `mounts` | `Listing<Mount>` | empty | At most 64 |
 | `stopGracePeriod` | `String?` | `null` (10s) | Whole seconds from `"1s"` to `"10m"` |
 | `privileged` | Boolean | `false` | See [privileged services](#privileged-services) |
+| `capabilities` | `Listing<String>` | empty | Up to 41 distinct canonical Linux `CAP_*` names; administrator-only; not with `privileged` |
 | `autoscale` | `Autoscale?` | `null` | See [autoscaling](#autoscaling). Leave `replicas` unset. |
 
 ### Image
@@ -217,7 +218,7 @@ Changing it replaces the replica, like any other change to the service.
 
 ### Privileged services
 
-Replicas normally run with no Linux capabilities, no new privileges, the
+Replicas default to no Linux capabilities, no new privileges, the
 default seccomp profile, and no access to the node's devices. A service that
 must start containers of its own, such as a Docker daemon that runs build or
 function sandboxes, can set `privileged = true` to lift all of that:
@@ -239,6 +240,42 @@ credentials may deploy an application that has one. Deploys with a deployer
 certificate, an access token, or from GitHub are refused. Give the service a
 local volume for its working state: a Docker daemon cannot run its overlay
 storage on the container's own root filesystem.
+
+### Linux capabilities
+
+When an image needs specific startup permissions, prefer an explicit
+`capabilities` list to privileged mode. For example, an init process that fixes
+volume ownership, switches UID/GID and later signals the child process can use:
+
+```pkl
+services {
+  ["media"] {
+    image = "ghcr.io/acme/media:1.4"
+    capabilities {
+      "CAP_CHOWN"
+      "CAP_KILL"
+      "CAP_SETGID"
+      "CAP_SETUID"
+    }
+  }
+}
+```
+
+Only the listed capabilities are placed in the OCI bounding, permitted and
+effective sets. No ambient or inheritable capabilities are added. The default
+seccomp profile, `no-new-privileges`, blocked host devices and other confinement
+remain in effect. An image may drop these permissions itself after startup.
+
+Use exact Linux names including `CAP_`; unknown names, duplicates and `ALL` are
+rejected. The list is sorted in canonical JSON, omitted when empty, and changing
+it replaces the replica. It cannot be combined with `privileged = true`.
+
+Some capabilities, such as `CAP_SYS_ADMIN`, can substantially weaken isolation
+despite the remaining confinement. Deploying or rolling back to an application
+with any capability grants requires administrator credentials, including when
+the application otherwise permits scoped deployer tokens or GitHub deployment.
+Upgrade the CLI, controller and all workers to a release supporting capabilities
+before deploying a manifest that uses them.
 
 ### Autoscaling
 

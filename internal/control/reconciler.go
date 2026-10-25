@@ -422,6 +422,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 				MaxUnavailable:       uint32(manifest.Deploy.MaxUnavailable),
 				StopGraceSeconds:     uint32(stopGrace / time.Second),
 				Privileged:           service.Privileged,
+				Capabilities:         append([]string(nil), service.Capabilities...),
 				VolumeBackups:        append([]model.VolumeBackupDesired(nil), backups...),
 			}
 			if service.HTTP != nil {
@@ -626,6 +627,7 @@ func rollbackSpec(allocation model.AllocationDesired) *model.RollbackSpec {
 		RegistryCredential: cloneRegistryCredential(allocation.RegistryCredential),
 		AutoRollback:       allocation.AutoRollback, StartBeforeStop: allocation.StartBeforeStop,
 		StopGraceSeconds: allocation.StopGraceSeconds, Privileged: allocation.Privileged,
+		Capabilities: append([]string(nil), allocation.Capabilities...),
 	}
 }
 
@@ -636,6 +638,7 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 	result := *input
 	result.Command = append([]string(nil), input.Command...)
 	result.Args = append([]string(nil), input.Args...)
+	result.Capabilities = append([]string(nil), input.Capabilities...)
 	result.Environment = cloneEnvironment(input.Environment)
 	result.Mounts = append([]model.VolumeMount(nil), input.Mounts...)
 	if input.HTTP != nil {

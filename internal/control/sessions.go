@@ -433,6 +433,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			StartBeforeStop: allocation.StartBeforeStop, NetworkGeneration: allocation.NetworkGeneration,
 			MaxSurge: allocation.MaxSurge, MaxUnavailable: allocation.MaxUnavailable,
 			StopGraceSeconds: allocation.StopGraceSeconds, Privileged: allocation.Privileged,
+			Capabilities: append([]string(nil), allocation.Capabilities...),
 		}
 		item.Http = httpDesiredMessage(allocation.HTTP)
 		item.Tcp = tcpDesiredMessage(allocation.TCP)
@@ -553,6 +554,7 @@ func rollbackSpecMessage(rollback *model.RollbackSpec) *orchv1alpha1.RollbackSpe
 		Tcp: tcpDesiredMessage(rollback.TCP), Udp: udpDesiredMessage(rollback.UDP), DependsOn: append([]string(nil), rollback.DependsOn...),
 		NetworkGeneration: rollback.NetworkGeneration, AutoRollback: rollback.AutoRollback,
 		StartBeforeStop: rollback.StartBeforeStop, StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
+		Capabilities: append([]string(nil), rollback.Capabilities...),
 	}
 	message.SecretEnvironment = secretEnvironmentMessage(rollback.SecretEnvironment)
 	message.SecretFiles = secretFilesMessage(rollback.SecretFiles)

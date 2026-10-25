@@ -9,6 +9,10 @@ func normalize(manifest *Manifest) {
 	manifest.Name = strings.ToLower(manifest.Name)
 	for name, service := range manifest.Services {
 		service.Resources.CPU = normalizeCPU(service.Resources.CPU)
+		sort.Strings(service.Capabilities)
+		if len(service.Capabilities) == 0 {
+			service.Capabilities = nil
+		}
 		if service.HTTP != nil {
 			for index := range service.HTTP.Domains {
 				service.HTTP.Domains[index] = strings.TrimSuffix(strings.ToLower(service.HTTP.Domains[index]), ".")

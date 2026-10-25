@@ -104,6 +104,21 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: privileged, IdempotencyKey: "token-privileged-key-1"})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "privileged services (docker)") {
 		t.Fatalf("deployer deploying a privileged service = %v", err)
 	}
+	capable := mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+		"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", Capabilities: []string{"CAP_SETUID"}},
+	}))
+	if _, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: capable, IdempotencyKey: "token-capabilities-key-1"})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "Linux capabilities (web)") {
+		t.Fatalf("deployer granting capabilities = %v", err)
+	}
+	adminRevision, err := admin.ApplyApplication(ctx, capable, "admin-capabilities-key-1")
+	if err != nil {
+		t.Fatalf("administrator granting capabilities = %v", err)
+	}
+	if _, err := deployer.RollbackApplication(ctx, connect.NewRequest(&orchv1alpha1.RollbackApplicationRequest{
+		Application: "hello", RevisionId: adminRevision.GetRevisionId(), ExpectedGeneration: adminRevision.GetGeneration(), IdempotencyKey: "token-capability-rollback",
+	})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("deployer rolling back to capabilities = %v", err)
+	}
 	if _, err := deployer.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "escalate", Application: "other"})); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("deployer creating a token = %v", err)
 	}

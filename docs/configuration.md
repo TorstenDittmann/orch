@@ -48,6 +48,7 @@ Each service requires an OCI image. The most commonly used settings are:
 | `env` | empty | Plain environment variables |
 | `dependsOn` | empty | Services that must be available before startup |
 | `constraints` | empty | Required node labels |
+| `capabilities` | empty | Explicit Linux `CAP_*` grants; administrator-only, without privileged mode |
 
 Use `http` for HTTP traffic and `tcp` for other TCP services. A service
 cannot define both.

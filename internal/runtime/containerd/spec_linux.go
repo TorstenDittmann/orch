@@ -46,7 +46,7 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 		withNoSwap,
 		oci.WithCPUCFS(quota, 100_000),
 		oci.WithNoNewPrivileges,
-		oci.WithCapabilities(nil),
+		oci.WithCapabilities(append([]string(nil), allocation.Capabilities...)),
 		// The default profile is derived from the process capabilities, so it
 		// must follow WithCapabilities.
 		seccomp.WithDefaultProfile(),

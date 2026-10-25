@@ -175,6 +175,7 @@ type RollbackSpec struct {
 	StartBeforeStop       bool                         `json:"start_before_stop"`
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 	Privileged            bool                         `json:"privileged,omitempty"`
+	Capabilities          []string                     `json:"capabilities,omitempty"`
 }
 
 type NetworkConfig struct {
@@ -242,6 +243,7 @@ type AllocationDesired struct {
 	MaxUnavailable        uint32                       `json:"max_unavailable"`
 	StopGraceSeconds      uint32                       `json:"stop_grace_seconds,omitempty"`
 	Privileged            bool                         `json:"privileged,omitempty"`
+	Capabilities          []string                     `json:"capabilities,omitempty"`
 	VolumeBackups         []VolumeBackupDesired        `json:"volume_backups,omitempty"`
 	Rollback              *RollbackSpec                `json:"rollback,omitempty"`
 	// RuntimeSecretValues and RuntimeRegistrySecrets are populated only after
@@ -498,11 +500,12 @@ func AllocationSpecDigest(allocation AllocationDesired) (string, error) {
 		UDP                  *UDPDesired                `json:"udp,omitempty"`
 		StopGraceSeconds     uint32                     `json:"stop_grace_seconds,omitempty"`
 		Privileged           bool                       `json:"privileged,omitempty"`
+		Capabilities         []string                   `json:"capabilities,omitempty"`
 	}{allocation.Image, allocation.Command, allocation.Args, allocation.Environment,
 		allocation.RestartPolicy, allocation.CPUMillis, allocation.MemoryBytes, allocation.Mounts,
 		allocation.StartDeadlineSeconds, allocation.AutoRollback, allocation.StartBeforeStop,
 		allocation.HTTP, allocation.TCP, allocation.DependsOn, allocation.SecretEnvironment,
-		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds, allocation.Privileged}
+		allocation.SecretFiles, allocation.NetworkGeneration, allocation.UDP, allocation.StopGraceSeconds, allocation.Privileged, allocation.Capabilities}
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("encode allocation runtime spec: %w", err)
@@ -584,7 +587,7 @@ func AllocationSpecDigestMatches(allocation AllocationDesired) (bool, error) {
 // digest and all fields added by the network slice remain unset.
 func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
 	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || allocation.UDP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
-		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 {
+		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 || allocation.StopGraceSeconds != 0 || allocation.Privileged || len(allocation.Capabilities) != 0 {
 		return false, nil
 	}
 	current, err := AllocationSpecDigest(allocation)

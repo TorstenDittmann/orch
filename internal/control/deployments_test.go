@@ -39,6 +39,9 @@ func TestDeploymentAPIHistoryComparisonRollbackAndUnknownFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondManifest := newTestManifest("hello", map[string]config.Service{"web": {Image: image2, Env: map[string]string{"TOKEN": "private-new"}, Args: []string{"private-command-new"}}, "extra": {Image: image1, Env: map[string]string{"TOKEN": "private-added"}}})
+	web := secondManifest.Services["web"]
+	web.Capabilities = []string{"CAP_CHOWN"}
+	secondManifest.Services["web"] = web
 	second, err := remote.ApplyApplication(ctx, mustCanonicalConfig(t, secondManifest), "idempotency-key-two")
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +61,7 @@ func TestDeploymentAPIHistoryComparisonRollbackAndUnknownFields(t *testing.T) {
 	if strings.Contains(string(encoded), "private-") {
 		t.Fatalf("comparison leaked sensitive fields: %s", encoded)
 	}
-	foundImage, foundEnv := false, false
+	foundImage, foundEnv, foundCapabilities := false, false, false
 	for _, c := range diff.GetChanges() {
 		if c.GetPath() == "services.web.image" && !c.GetRedacted() && strings.Contains(c.GetAfter(), image2) {
 			foundImage = true
@@ -66,8 +69,11 @@ func TestDeploymentAPIHistoryComparisonRollbackAndUnknownFields(t *testing.T) {
 		if c.GetPath() == "services.web.env.TOKEN" && c.GetRedacted() {
 			foundEnv = true
 		}
+		if c.GetPath() == "services.web.capabilities" && !c.GetRedacted() && strings.Contains(c.GetAfter(), "CAP_CHOWN") {
+			foundCapabilities = true
+		}
 	}
-	if !foundImage || !foundEnv {
+	if !foundImage || !foundEnv || !foundCapabilities {
 		t.Fatalf("missing image/env comparison: %s", encoded)
 	}
 	request := &orchv1alpha1.RollbackApplicationRequest{Application: "hello", RevisionId: first.GetRevisionId(), ExpectedGeneration: 2, IdempotencyKey: "idempotency-rollback"}
