@@ -225,8 +225,8 @@ func Validate(manifest *Manifest) error {
 				if _, extra := service.HTTP.DomainPorts[domain]; extra {
 					field = base + ".http.domain_ports[" + strconv.Quote(domain) + "]"
 				}
-				if domain != normalized || !validHostname(domain) {
-					add(field, "must be a normalized lowercase DNS hostname without a wildcard or trailing dot")
+				if domain != normalized || !validRouteHost(domain) {
+					add(field, "must be a normalized lowercase DNS hostname or *.wildcard without a trailing dot")
 				}
 				if _, exists := seenDomains[normalized]; exists {
 					add(field, "duplicates another domain on this service")
@@ -270,6 +270,8 @@ func Validate(manifest *Manifest) error {
 				}
 				if !slices.Contains(service.HTTP.Domains, to) {
 					add(field, "must redirect to one of this service's domains")
+				} else if IsWildcardDomain(to) {
+					add(field, "must redirect to a domain without a wildcard")
 				}
 				if owner, exists := domainOwners[from]; exists && owner != serviceName {
 					add(field, fmt.Sprintf("is already routed by service %q", owner))
@@ -566,14 +568,30 @@ func ValidateApplicationName(name string) error {
 	return &ValidationError{Problems: problems}
 }
 
-// ValidateDomain applies the exact-host ingress rule after parser
-// normalization. Wildcards, IP literals, private service names, and
-// single-label hosts are intentionally not routable.
+// ValidateDomain applies the ingress host rule after parser normalization.
+// A domain is an exact hostname or a single leading "*." label over one, such
+// as *.example.com. IP literals, private service names, and single-label
+// hosts are intentionally not routable.
 func ValidateDomain(domain string) error {
+	if !validRouteHost(domain) {
+		return fmt.Errorf("domain must be a normalized multi-label DNS hostname or *.wildcard over one")
+	}
+	return nil
+}
+
+// ValidateExactDomain is ValidateDomain without wildcards, for hosts that
+// must name one site, such as redirect sources.
+func ValidateExactDomain(domain string) error {
 	if !validHostname(domain) {
 		return fmt.Errorf("domain must be a normalized multi-label DNS hostname without a wildcard")
 	}
 	return nil
+}
+
+// IsWildcardDomain reports whether a validated domain matches every name one
+// label below its base, such as *.example.com for app.example.com.
+func IsWildcardDomain(domain string) bool {
+	return strings.HasPrefix(domain, "*.")
 }
 
 func validateDNSLabel(field, value string, add func(string, string)) {
@@ -659,6 +677,15 @@ func normalizeCPU(value string) string {
 		return value
 	}
 	return strconv.FormatUint(amount*1000, 10) + "m"
+}
+
+// validRouteHost accepts an exact hostname or *.<hostname>. The base needs two
+// labels so *.com, which no public CA would certify, stays invalid.
+func validRouteHost(value string) bool {
+	if base, wildcard := strings.CutPrefix(value, "*."); wildcard {
+		return strings.Contains(base, ".") && validHostname(base)
+	}
+	return validHostname(value)
 }
 
 func validHostname(value string) bool {

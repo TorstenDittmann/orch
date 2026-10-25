@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 )
 
@@ -902,6 +903,9 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ne
 		certificate := "disabled"
 		if route.HTTPS {
 			certificate = "managed"
+			if config.IsWildcardDomain(route.Domain) {
+				certificate = "on_demand"
+			}
 		}
 		if route.UpstreamCount == 0 || route.CertificateState != certificate {
 			return fmt.Errorf("active route %q has no upstream or valid certificate state", route.Domain)

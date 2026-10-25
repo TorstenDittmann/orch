@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -292,6 +293,137 @@ func TestCaddyRealHTTPSWithIsolatedPebble(t *testing.T) {
 	}
 	if !bytes.Equal(firstCertificate, restartedCertificate) {
 		t.Fatal("Caddy replaced the persisted certificate during process adoption")
+	}
+}
+
+func TestCaddyRealWildcardHTTPSWithOnDemandPebble(t *testing.T) {
+	if os.Getenv("ORCH_CADDY_E2E") != "1" {
+		t.Skip("use scripts/network-e2e.sh on a disposable Linux host")
+	}
+	if os.Geteuid() != 0 {
+		t.Fatal("the isolated ACME test requires root to launch the dedicated Caddy identity")
+	}
+	binary := requiredCaddyEnvironment(t, "ORCH_CADDY_BINARY")
+	pebbleBinary := requiredCaddyEnvironment(t, "ORCH_PEBBLE_BINARY")
+	userName := requiredCaddyEnvironment(t, "ORCH_CADDY_USER")
+	backendAddress := requiredCaddyEnvironment(t, "ORCH_CADDY_BACKEND_ADDRESS")
+	account, err := user.Lookup(userName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, uidErr := strconv.Atoi(account.Uid)
+	gid, gidErr := strconv.Atoi(account.Gid)
+	if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 {
+		t.Fatalf("Caddy identity %q must have non-root numeric UID/GID", userName)
+	}
+
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o711); err != nil {
+		t.Fatal(err)
+	}
+	pebble := startIsolatedPebble(t, pebbleBinary, root)
+	dataDir := filepath.Join(root, "caddy-data")
+	if err := os.Mkdir(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(dataDir, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	caddy, err := NewCaddy(CaddyOptions{
+		Binary: binary, DataDir: dataDir, StateDir: filepath.Join(root, "agent-state"), User: userName,
+		AdminSocket: filepath.Join(dataDir, "admin.sock"),
+		Probe: func(ctx context.Context, route Route) error {
+			if strings.HasPrefix(route.Domain, "*.") {
+				return probeRoute(ctx, route)
+			}
+			return trustedHTTPSProbe(pebble.issuanceRoots)(ctx, route)
+		},
+		testIssuer: &testACMEIssuer{directoryURL: pebble.directoryURL, trustedRootPEM: pebble.serverRootPEM},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := caddy.Preflight(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stopManagedCaddy(t, caddy) })
+
+	tenants, closeTenants := startPrivateBackend(t, backendAddress, "wildcard")
+	defer closeTenants()
+	api, closeAPI := startPrivateBackend(t, backendAddress, "exact")
+	defer closeAPI()
+	routes := []Route{
+		{Application: "e2e", Service: "tenants", Domain: "*.caddy-wild.example.com", HTTPS: true, Upstreams: []string{tenants}},
+		{Application: "e2e", Service: "api", Domain: "api.caddy-wild.example.com", HTTPS: true, Upstreams: []string{api}},
+	}
+	// The exact host's certificate is obtained up front, so the next
+	// reconciliation may be the one that sees it active.
+	var statuses []model.RouteStatus
+	for deadline := time.Now().Add(30 * time.Second); ; {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		statuses, err = caddy.Apply(ctx, routes, time.Now())
+		cancel()
+		if err != nil || len(statuses) != 2 {
+			t.Fatalf("apply routes = %#v, %v", statuses, err)
+		}
+		if statuses[0].State == model.RouteActive && statuses[1].State == model.RouteActive || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	for _, status := range statuses {
+		want := "managed"
+		if status.Domain == routes[0].Domain {
+			want = "on_demand"
+		}
+		if status.State != model.RouteActive || status.CertificateState != want {
+			log, _ := os.ReadFile(filepath.Join(dataDir, "caddy.log"))
+			t.Fatalf("route status = %#v, want active with %s certificate\n%s", status, want, log)
+		}
+	}
+	assertManagedHTTPSRedirect(t, "one.caddy-wild.example.com")
+	// Each subdomain gets its own certificate on its first handshake.
+	for host, want := range map[string]string{
+		"one.caddy-wild.example.com": "wildcard", "two.caddy-wild.example.com": "wildcard",
+		"api.caddy-wild.example.com": "exact",
+	} {
+		var body string
+		var certificate []byte
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			requestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			response, err := managedHTTPSRequest(requestCtx, host, pebble.issuanceRoots)
+			if err == nil {
+				payload, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+				_ = response.Body.Close()
+				body = string(payload)
+				if response.TLS != nil && len(response.TLS.PeerCertificates) != 0 {
+					certificate = response.TLS.PeerCertificates[0].Raw
+				}
+			}
+			cancel()
+			if err == nil || time.Now().After(deadline) {
+				if err != nil {
+					t.Fatalf("HTTPS %s: %v", host, err)
+				}
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		if body != want {
+			t.Fatalf("HTTPS %s body = %q, want %q", host, body, want)
+		}
+		parsed, err := x509.ParseCertificate(certificate)
+		if err != nil || parsed.VerifyHostname(host) != nil || slices.Contains(parsed.DNSNames, "*.caddy-wild.example.com") {
+			t.Fatalf("HTTPS %s certificate names = %v, err=%v", host, parsed.DNSNames, err)
+		}
+	}
+	// Names outside the wildcard's single label get no certificate.
+	requestCtx, cancelDeep := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelDeep()
+	if response, err := managedHTTPSRequest(requestCtx, "a.b.caddy-wild.example.com", pebble.issuanceRoots); err == nil {
+		_ = response.Body.Close()
+		t.Fatal("Caddy served a name two labels below the wildcard")
 	}
 }
 

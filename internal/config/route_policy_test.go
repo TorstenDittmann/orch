@@ -61,6 +61,19 @@ func TestValidateRejectsBadRoutePolicy(t *testing.T) {
 		"redirect from wildcard": {func(m *Manifest) {
 			m.Services["web"].HTTP.Redirects["*.example.com"] = "example.com"
 		}, `services.web.http.redirects["*.example.com"]`},
+		"redirect to wildcard": {func(m *Manifest) {
+			m.Services["web"].HTTP.Domains = []string{"*.example.com", "example.com"}
+			m.Services["web"].HTTP.Redirects["www.example.com"] = "*.example.com"
+		}, `services.web.http.redirects["www.example.com"]`},
+		"wildcard over a public suffix": {func(m *Manifest) {
+			m.Services["web"].HTTP.Domains = []string{"*.com", "example.com"}
+		}, "services.web.http.domains[0]"},
+		"nested wildcard": {func(m *Manifest) {
+			m.Services["web"].HTTP.Domains = []string{"*.*.example.com", "example.com"}
+		}, "services.web.http.domains[0]"},
+		"inner wildcard": {func(m *Manifest) {
+			m.Services["web"].HTTP.Domains = []string{"a.*.example.com", "example.com"}
+		}, "services.web.http.domains[0]"},
 		"redirect claimed by another service": {func(m *Manifest) {
 			other := m.Services["web"]
 			other.HTTP = &HTTP{Port: 8080, Domains: []string{"www.example.com"}, HealthPath: "/healthz"}
@@ -83,6 +96,26 @@ func TestValidateRejectsBadRoutePolicy(t *testing.T) {
 				t.Fatalf("Validate() = %v, want problem at %s", validation, test.path)
 			}
 		})
+	}
+}
+
+func TestValidateAcceptsWildcardDomains(t *testing.T) {
+	manifest := loadManifest(t, routePolicyManifest)
+	manifest.Services["web"].HTTP.Domains = []string{"*.example.com", "example.com"}
+	// An exact host may belong to another service; it wins over the wildcard.
+	api := manifest.Services["web"]
+	api.HTTP = &HTTP{Port: 8080, Domains: []string{"api.example.com"}, HealthPath: "/healthz"}
+	manifest.Services["api"] = api
+	if err := Validate(manifest); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	for _, domain := range []string{"*.example.com", "*.shop.example.co.uk"} {
+		if err := ValidateDomain(domain); err != nil {
+			t.Fatalf("ValidateDomain(%q) = %v", domain, err)
+		}
+		if err := ValidateExactDomain(domain); err == nil {
+			t.Fatalf("ValidateExactDomain(%q) accepted a wildcard", domain)
+		}
 	}
 }
 
