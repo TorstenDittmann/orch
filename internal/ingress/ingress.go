@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 )
 
@@ -55,13 +56,9 @@ func (f *Fake) Apply(_ context.Context, routes []Route, now time.Time) ([]model.
 	}
 	result := make([]model.RouteStatus, 0, len(routes))
 	for _, route := range routes {
-		certificate := "disabled"
-		if route.HTTPS {
-			certificate = "managed"
-		}
 		result = append(result, model.RouteStatus{
 			Application: route.Application, Service: route.Service, Domain: route.Domain,
-			HTTPS: route.HTTPS, State: model.RouteActive, CertificateState: certificate,
+			HTTPS: route.HTTPS, State: model.RouteActive, CertificateState: certificateState(route),
 			UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: now.UTC(),
 		})
 	}
@@ -69,6 +66,19 @@ func (f *Fake) Apply(_ context.Context, routes []Route, now time.Time) ([]model.
 }
 
 func (*Fake) Close() error { return nil }
+
+// certificateState names how a route's certificate is handled. Wildcard
+// routes get one certificate per subdomain on its first HTTPS request.
+func certificateState(route Route) string {
+	switch {
+	case !route.HTTPS:
+		return "disabled"
+	case config.IsWildcardDomain(route.Domain):
+		return "on_demand"
+	default:
+		return "managed"
+	}
+}
 
 func cloneRoutes(input []Route) []Route {
 	result := make([]Route, len(input))

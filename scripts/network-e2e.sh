@@ -67,4 +67,4 @@ ORCH_CADDY_USER="$caddy_user" \
 ORCH_CADDY_BACKEND_ADDRESS="$backend_address" \
 	ORCH_PEBBLE_BINARY="$pebble_binary" \
 	GOTOOLCHAIN=local mise exec -- go test -v -count=1 \
-	-run '^TestCaddyReal(HTTPReloadRollbackAndAdoption|HTTPSWithIsolatedPebble)$' ./internal/ingress
+	-run '^TestCaddyReal(HTTPReloadRollbackAndAdoption|HTTPSWithIsolatedPebble|WildcardHTTPSWithOnDemandPebble)$' ./internal/ingress

@@ -124,10 +124,10 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 			return fmt.Errorf("runtime HTTP intent contains too many redirects")
 		}
 		for from, to := range allocation.HTTP.Redirects {
-			if err := config.ValidateDomain(from); err != nil {
+			if err := config.ValidateExactDomain(from); err != nil {
 				return fmt.Errorf("runtime HTTP redirect is invalid: %w", err)
 			}
-			if _, found := slices.BinarySearch(allocation.HTTP.Domains, to); !found {
+			if _, found := slices.BinarySearch(allocation.HTTP.Domains, to); !found || config.IsWildcardDomain(to) {
 				return fmt.Errorf("runtime HTTP redirect must target a domain of the service")
 			}
 			totalBytes += len(from) + len(to)

@@ -131,6 +131,8 @@ class Http {
   /// Expose this service as the catch-all plaintext listener on ingress port 80.
   public: Boolean = false
 
+  /// Hostnames to route here. `*.example.com` matches any one label below
+  /// example.com; an exact domain elsewhere wins over it.
   domains: Listing<String>(length <= 100, isDistinct) = new {}
 
   healthPath: String(length <= 2048) = ""

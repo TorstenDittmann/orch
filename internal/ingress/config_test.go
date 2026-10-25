@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TorstenDittmann/orch/internal/model"
 )
@@ -66,7 +67,10 @@ func TestRenderPlacesNamedHostsBeforePublicIPCatchAll(t *testing.T) {
 func TestRenderRejectsUnsafeDomainsAndDuplicateUpstreams(t *testing.T) {
 	for _, test := range []Route{
 		{Domain: "svc.internal", Upstreams: []string{"10.88.0.3:80"}},
-		{Domain: "*.example.com", Upstreams: []string{"10.88.0.3:80"}},
+		{Domain: "*.com", Upstreams: []string{"10.88.0.3:80"}},
+		{Domain: "*.*.example.com", Upstreams: []string{"10.88.0.3:80"}},
+		{Domain: "a.*.example.com", Upstreams: []string{"10.88.0.3:80"}},
+		{Domain: "*.example.com", RedirectFrom: []string{"www.example.org"}, Upstreams: []string{"10.88.0.3:80"}},
 		{Domain: "example.com", Upstreams: []string{"10.88.0.3:80", "10.88.0.3:80"}},
 		{Domain: "example.com", Upstreams: []string{"203.0.113.3:80"}},
 		{Domain: "example.com", Upstreams: []string{"10.88.0.3:not-a-port"}},
@@ -125,6 +129,89 @@ func TestRenderIsolatedTestACMEIssuer(t *testing.T) {
 	} {
 		if _, _, err := render(nil, "/run/orch/caddy.sock", invalid); err == nil {
 			t.Fatalf("render accepted unsafe isolated issuer %#v", invalid)
+		}
+	}
+}
+
+func TestRenderWildcardUsesOnDemandCertificatesAfterExactHosts(t *testing.T) {
+	configuration, _, err := Render([]Route{
+		{Application: "app", Service: "tenants", Domain: "*.example.com", HTTPS: true, Upstreams: []string{"10.88.0.4:8080"}},
+		{Application: "app", Service: "api", Domain: "api.example.com", HTTPS: true, Upstreams: []string{"10.88.0.5:8080"}},
+		{Application: "app", Service: "public", Domain: model.PublicHTTPRoute, Upstreams: []string{"10.88.0.6:8080"}},
+	}, "/run/orch/caddy.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded caddyConfig
+	if err := json.Unmarshal(configuration, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	hosts := func(routes []caddyRoute) []string {
+		result := make([]string, 0, len(routes))
+		for _, route := range routes {
+			if len(route.Match) == 0 {
+				result = append(result, "")
+				continue
+			}
+			result = append(result, strings.Join(route.Match[0].Host, ","))
+		}
+		return result
+	}
+	if got := hosts(decoded.Apps.HTTP.Servers["https"].Routes); strings.Join(got, " ") != "api.example.com *.example.com" {
+		t.Fatalf("HTTPS route order = %q, want exact host before wildcard", got)
+	}
+	httpRoutes := decoded.Apps.HTTP.Servers["http"].Routes
+	if got := hosts(httpRoutes); strings.Join(got, " ") != "127.0.0.1 api.example.com *.example.com " {
+		t.Fatalf("HTTP route order = %q", got)
+	}
+	permission := httpRoutes[0].Match[0]
+	if permission.ClientIP == nil || len(permission.ClientIP.Ranges) != 1 || permission.ClientIP.Ranges[0] != "127.0.0.1/32" ||
+		len(permission.Path) != 1 || permission.Path[0] != onDemandPermissionPath {
+		t.Fatalf("permission route = %#v, want loopback-only path match", permission)
+	}
+	if !strings.Contains(string(configuration), `"Location":["https://{http.request.host}{http.request.uri}"]`) {
+		t.Fatalf("wildcard redirect does not keep the matched host: %s", configuration)
+	}
+	tls := decoded.Apps.TLS
+	if tls == nil || tls.Automation.OnDemand == nil ||
+		tls.Automation.OnDemand.Permission != (caddyPermission{Module: "http", Endpoint: "http://127.0.0.1" + onDemandPermissionPath}) {
+		t.Fatalf("TLS app = %#v, want on-demand permission", tls)
+	}
+	policies := tls.Automation.Policies
+	if len(policies) != 2 || policies[0].OnDemand || strings.Join(policies[0].Subjects, ",") != "api.example.com" ||
+		!policies[1].OnDemand || strings.Join(policies[1].Subjects, ",") != "*.example.com" ||
+		len(policies[0].Issuers)+len(policies[1].Issuers) != 0 {
+		t.Fatalf("automation policies = %#v, want the exact host first, then an on-demand wildcard, with default issuers", policies)
+	}
+	if tls.Certificates == nil || strings.Join(tls.Certificates.Automate, ",") != "api.example.com" {
+		t.Fatalf("certificates = %#v, want the exact host automated despite the wildcard", tls.Certificates)
+	}
+}
+
+func TestRenderPlainWildcardNeedsNoCertificates(t *testing.T) {
+	configuration, _, err := Render([]Route{
+		{Application: "app", Service: "tenants", Domain: "*.example.com", Upstreams: []string{"10.88.0.4:8080"}},
+	}, "/run/orch/caddy.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configuration), `"tls"`) || strings.Contains(string(configuration), onDemandPermissionPath) {
+		t.Fatalf("plain HTTP wildcard configured certificates: %s", configuration)
+	}
+}
+
+func TestFakeReportsOnDemandCertificateForWildcard(t *testing.T) {
+	statuses, err := (&Fake{}).Apply(t.Context(), []Route{
+		{Domain: "*.example.com", HTTPS: true, Upstreams: []string{"10.88.0.4:8080"}},
+		{Domain: "example.com", HTTPS: true, Upstreams: []string{"10.88.0.4:8080"}},
+		{Domain: "*.example.org", Upstreams: []string{"10.88.0.4:8080"}},
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, want := range []string{"on_demand", "managed", "disabled"} {
+		if statuses[index].CertificateState != want {
+			t.Fatalf("route %d certificate = %q, want %q", index, statuses[index].CertificateState, want)
 		}
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/model"
 )
 
@@ -599,6 +600,11 @@ func (e *routeStatusError) Error() string {
 }
 
 func probeRoute(ctx context.Context, route Route) error {
+	if config.IsWildcardDomain(route.Domain) {
+		// No single hostname stands for a wildcard, and an invented one
+		// would spend an on-demand certificate. Check the upstreams instead.
+		return probeUpstreams(ctx, route)
+	}
 	port := "80"
 	scheme := "http"
 	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
@@ -648,13 +654,9 @@ func probeUpstreams(ctx context.Context, route Route) error {
 func activeRoutes(routes []Route, now time.Time) []model.RouteStatus {
 	result := make([]model.RouteStatus, 0, len(routes))
 	for _, route := range routes {
-		certificate := "disabled"
-		if route.HTTPS {
-			certificate = "managed"
-		}
 		result = append(result, model.RouteStatus{Application: route.Application, Service: route.Service,
 			Domain: route.Domain, HTTPS: route.HTTPS, State: model.RouteActive,
-			CertificateState: certificate, UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: now.UTC()})
+			CertificateState: certificateState(route), UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: now.UTC()})
 	}
 	return result
 }

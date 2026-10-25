@@ -34,17 +34,39 @@ type caddyApps struct {
 }
 
 type caddyTLSApp struct {
-	Automation caddyTLSAutomation `json:"automation"`
+	Certificates *caddyCertificates `json:"certificates,omitempty"`
+	Automation   caddyTLSAutomation `json:"automation"`
+}
+
+type caddyCertificates struct {
+	Automate []string `json:"automate"`
 }
 
 type caddyTLSAutomation struct {
+	OnDemand *caddyOnDemand             `json:"on_demand,omitempty"`
 	Policies []caddyTLSAutomationPolicy `json:"policies"`
+}
+
+type caddyOnDemand struct {
+	Permission caddyPermission `json:"permission"`
+}
+
+type caddyPermission struct {
+	Module   string `json:"module"`
+	Endpoint string `json:"endpoint"`
 }
 
 type caddyTLSAutomationPolicy struct {
 	Subjects []string          `json:"subjects"`
-	Issuers  []caddyACMEIssuer `json:"issuers"`
+	Issuers  []caddyACMEIssuer `json:"issuers,omitempty"`
+	OnDemand bool              `json:"on_demand,omitempty"`
 }
+
+// onDemandPermissionPath answers Caddy's on-demand certificate question on the
+// plain HTTP listener, reachable only from the node itself. Caddy asks only
+// for names that match a wildcard policy's subjects, so those subjects are
+// what bound issuance; the endpoint just has to say yes.
+const onDemandPermissionPath = "/.well-known/orch/on-demand-tls"
 
 type caddyACMEIssuer struct {
 	Module               string   `json:"module"`
@@ -104,7 +126,13 @@ type caddyRoute struct {
 }
 
 type caddyMatcher struct {
-	Host []string `json:"host"`
+	Host     []string        `json:"host,omitempty"`
+	Path     []string        `json:"path,omitempty"`
+	ClientIP *caddyIPMatcher `json:"client_ip,omitempty"`
+}
+
+type caddyIPMatcher struct {
+	Ranges []string `json:"ranges"`
 }
 
 type reverseProxyHandler struct {
@@ -139,7 +167,7 @@ type basicAccount struct {
 type staticResponseHandler struct {
 	Handler    string              `json:"handler"`
 	StatusCode int                 `json:"status_code"`
-	Headers    map[string][]string `json:"headers"`
+	Headers    map[string][]string `json:"headers,omitempty"`
 }
 
 func Render(routes []Route, adminSocket string) ([]byte, string, error) {
@@ -155,10 +183,8 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 	}
 	routes = cloneRoutes(routes)
 	sort.Slice(routes, func(i, j int) bool {
-		leftPublic := routes[i].Domain == model.PublicHTTPRoute
-		rightPublic := routes[j].Domain == model.PublicHTTPRoute
-		if leftPublic != rightPublic {
-			return !leftPublic
+		if left, right := routeRank(routes[i].Domain), routeRank(routes[j].Domain); left != right {
+			return left < right
 		}
 		return routes[i].Domain < routes[j].Domain
 	})
@@ -166,7 +192,9 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 	httpRoutes := make([]caddyRoute, 0, len(routes))
 	httpsRoutes := make([]caddyRoute, 0, len(routes))
 	httpsSubjects := make([]string, 0, len(routes))
+	wildcardSubjects := make([]string, 0)
 	for _, route := range routes {
+		wildcard := config.IsWildcardDomain(route.Domain)
 		if route.Domain == model.PublicHTTPRoute {
 			if route.HTTPS {
 				return nil, "", fmt.Errorf("public IP ingress cannot enable HTTPS")
@@ -214,15 +242,25 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		if route.HTTPS {
 			scheme = "https://"
 			httpsRoutes = append(httpsRoutes, reverse)
-			httpsSubjects = append(httpsSubjects, route.Domain)
-			httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://"+route.Domain))
+			if wildcard {
+				// Each subdomain gets its own certificate on its first TLS
+				// handshake, so no DNS provider credentials are needed.
+				wildcardSubjects = append(wildcardSubjects, route.Domain)
+				httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://{http.request.host}"))
+			} else {
+				httpsSubjects = append(httpsSubjects, route.Domain)
+				httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://"+route.Domain))
+			}
 		} else {
 			httpRoutes = append(httpRoutes, reverse)
 		}
 		redirectFrom := append([]string(nil), route.RedirectFrom...)
 		sort.Strings(redirectFrom)
+		if wildcard && len(redirectFrom) != 0 {
+			return nil, "", fmt.Errorf("ingress route %q cannot be a redirect target", route.Domain)
+		}
 		for _, from := range redirectFrom {
-			if err := config.ValidateDomain(from); err != nil {
+			if err := config.ValidateExactDomain(from); err != nil {
 				return nil, "", fmt.Errorf("invalid ingress redirect domain %q: %w", from, err)
 			}
 			if _, exists := seen[from]; exists {
@@ -238,6 +276,14 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 			}
 		}
 	}
+	if len(wildcardSubjects) != 0 {
+		httpRoutes = append([]caddyRoute{onDemandPermissionRoute()}, httpRoutes...)
+	}
+	// Caddy tries routes in order, so an exact host such as api.example.com
+	// wins over *.example.com, and both win over the public catch-all.
+	for _, list := range [][]caddyRoute{httpRoutes, httpsRoutes} {
+		sort.SliceStable(list, func(i, j int) bool { return matchRank(list[i]) < matchRank(list[j]) })
+	}
 	servers := map[string]caddyServer{
 		"http": {
 			Listen: []string{":80"}, Routes: httpRoutes,
@@ -251,12 +297,33 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		}
 	}
 	apps := caddyApps{HTTP: caddyHTTPApp{Servers: servers}}
-	if testIssuer != nil && len(httpsSubjects) != 0 {
-		apps.TLS = &caddyTLSApp{Automation: caddyTLSAutomation{Policies: []caddyTLSAutomationPolicy{{
-			Subjects: httpsSubjects,
-			Issuers: []caddyACMEIssuer{{Module: "acme", CA: testIssuer.directoryURL,
-				TrustedRootsPEMFiles: []string{testIssuer.trustedRootPEM}}},
-		}}}}
+	var issuers []caddyACMEIssuer
+	if testIssuer != nil {
+		issuers = []caddyACMEIssuer{{Module: "acme", CA: testIssuer.directoryURL,
+			TrustedRootsPEMFiles: []string{testIssuer.trustedRootPEM}}}
+	}
+	var automation caddyTLSAutomation
+	var certificates *caddyCertificates
+	if len(httpsSubjects) != 0 && (testIssuer != nil || len(wildcardSubjects) != 0) {
+		// Caddy picks the first policy whose subjects match, so exact hosts
+		// come before wildcards and keep certificates obtained up front.
+		automation.Policies = append(automation.Policies, caddyTLSAutomationPolicy{Subjects: httpsSubjects, Issuers: issuers})
+	}
+	if len(wildcardSubjects) != 0 {
+		// Caddy otherwise skips exact hosts under a managed wildcard, expecting
+		// one wildcard certificate to cover them; on-demand never issues one.
+		if len(httpsSubjects) != 0 {
+			certificates = &caddyCertificates{Automate: httpsSubjects}
+		}
+		automation.OnDemand = &caddyOnDemand{Permission: caddyPermission{
+			Module: "http", Endpoint: "http://127.0.0.1" + onDemandPermissionPath,
+		}}
+		automation.Policies = append(automation.Policies, caddyTLSAutomationPolicy{
+			Subjects: wildcardSubjects, Issuers: issuers, OnDemand: true,
+		})
+	}
+	if len(automation.Policies) != 0 {
+		apps.TLS = &caddyTLSApp{Certificates: certificates, Automation: automation}
 	}
 	value := caddyConfig{
 		Admin: caddyAdmin{Listen: "unix//" + adminSocket},
@@ -292,6 +359,41 @@ func basicAuthHandler(auth model.HTTPBasicAuth) (authenticationHandler, error) {
 		Hash:     map[string]string{"algorithm": "argon2id"},
 		Accounts: []basicAccount{{Username: auth.User, Password: auth.PasswordHash}},
 	}}}, nil
+}
+
+// routeRank orders exact domains before wildcards and the public catch-all last.
+func routeRank(domain string) int {
+	switch {
+	case domain == model.PublicHTTPRoute:
+		return 2
+	case config.IsWildcardDomain(domain):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func matchRank(route caddyRoute) int {
+	if len(route.Match) == 0 {
+		return 2
+	}
+	for _, host := range route.Match[0].Host {
+		if config.IsWildcardDomain(host) {
+			return 1
+		}
+	}
+	return 0
+}
+
+func onDemandPermissionRoute() caddyRoute {
+	return caddyRoute{
+		Match: []caddyMatcher{{
+			Host: []string{"127.0.0.1"}, Path: []string{onDemandPermissionPath},
+			ClientIP: &caddyIPMatcher{Ranges: []string{"127.0.0.1/32"}},
+		}},
+		Handle:   []any{staticResponseHandler{Handler: "static_response", StatusCode: 200}},
+		Terminal: true,
+	}
 }
 
 func redirectRoute(from, target string) caddyRoute {
