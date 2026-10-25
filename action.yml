@@ -71,8 +71,26 @@ runs:
           macOS-ARM64) pkl_asset=pkl-macos-aarch64 ;;
           *) echo "orch: unsupported runner $RUNNER_OS $RUNNER_ARCH" >&2; exit 1 ;;
         esac
-        curl -fsSL --retry 3 -o "$ORCH_INSTALL_DIR/pkl" "https://github.com/apple/pkl/releases/download/$pkl_version/$pkl_asset"
-        chmod +x "$ORCH_INSTALL_DIR/pkl"
+        # The job can deploy, so Pkl only runs if it is the exact release
+        # orch was tested with.
+        case "$pkl_version/$pkl_asset" in
+          0.32.1/pkl-linux-amd64) pkl_sha256=3180b62da95c0cad1d904e9bb6c5f4a8f9032413c21e53194bb91ff1ee5f3211 ;;
+          0.32.1/pkl-linux-aarch64) pkl_sha256=a76d2dd47da435a8f911b0347373f47c7e59ea54fb75ff846d20b8df10dba058 ;;
+          0.32.1/pkl-macos-amd64) pkl_sha256=5b74b903234047960144f66f2cebdd12d267d9b98e8155ed91d2ae5ed27e2d1f ;;
+          0.32.1/pkl-macos-aarch64) pkl_sha256=563eb51c9a20b16a3625464ed745c675ed9750381f2126722696a0d7cac1d9d3 ;;
+          *) echo "orch: no known checksum for Pkl $pkl_version ($pkl_asset); use the action version that matches orch $version" >&2; exit 1 ;;
+        esac
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/pkl" "https://github.com/apple/pkl/releases/download/$pkl_version/$pkl_asset"
+        if command -v sha256sum >/dev/null; then
+          actual="$(sha256sum "$RUNNER_TEMP/pkl" | cut -d' ' -f1)"
+        else
+          actual="$(shasum -a 256 "$RUNNER_TEMP/pkl" | cut -d' ' -f1)"
+        fi
+        if [ "$actual" != "$pkl_sha256" ]; then
+          echo "orch: Pkl $pkl_version download does not match its checksum" >&2
+          exit 1
+        fi
+        install -m 0755 "$RUNNER_TEMP/pkl" "$ORCH_INSTALL_DIR/pkl"
     - name: Set up QEMU
       if: inputs.image != '' && inputs.platforms != ''
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
