@@ -52,8 +52,9 @@ revision".
 
 | Command | What the assistant gets |
 | --- | --- |
-| `orch mcp` | Every tool, against the selected target |
-| `orch mcp --target staging` | Every tool, always against `staging` |
+| `orch mcp` | Tools that read, deploy, roll back and back up, against the selected target |
+| `orch mcp --target staging` | The same tools, always against `staging` |
+| `orch mcp --allow-destructive` | Also the destructive tools, such as `exec`, `remove_app` and `set_secret` |
 | `orch mcp --read-only` | Only tools that read; nothing can be changed |
 
 Remote tools also accept an optional `target` argument, so one server can work
@@ -66,6 +67,11 @@ claude mcp add orch-prod -- orch mcp --target production --read-only
 
 Manifest paths are resolved from the directory the client starts `orch mcp`
 in, which for Claude Code and Cursor is your project.
+
+Destructive tools are off unless you pass `--allow-destructive`. Logs and job
+output are written by your applications, and the assistant reads them; text
+planted there should not be able to talk it into deleting an application or
+running a command in a replica.
 
 `--read-only` hides the tools that change things, but the assistant still runs
 with your credentials. For an access limit the controller enforces, give it an
@@ -108,7 +114,7 @@ workflow sign in with GitHub's own identity. See [deploy from GitHub](github.md)
 Every tool runs the matching CLI command, and most return the same JSON as
 `--json`. Tools that only read are marked read-only. Tools that delete or
 replace running workloads or data are marked destructive, so clients ask
-before running them.
+before running them, and they are only offered with `--allow-destructive`.
 
 | Area | Read-only | Changes the cluster |
 | --- | --- | --- |
@@ -120,7 +126,7 @@ before running them.
 | Volumes | `list_volumes`, `list_volume_backups` | `backup_volume`, `restore_volume`* |
 | Databases | `list_databases` | `backup_database`, `restore_database`* |
 
-\* marked destructive.
+\* destructive, offered only with `--allow-destructive`.
 
 Secret values and registry passwords are sent to orch the same way
 `--from-stdin` sends them, never on a command line, and orch never returns

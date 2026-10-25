@@ -1101,7 +1101,7 @@ See [targets and interfaces](targets.md) for both interfaces.
 ### orch mcp
 
 ```text
-orch mcp [--target NAME] [--read-only]
+orch mcp [--target NAME] [--read-only | --allow-destructive]
 ```
 
 Serves the cluster to AI assistants over the Model Context Protocol on stdin
@@ -1112,6 +1112,7 @@ and stdout. Clients such as Claude Code start it themselves; see
 | --- | --- | --- |
 | `--target` | selected target | Cluster that remote tools use when a call names none |
 | `--read-only` | `false` | Offer only tools that do not change the cluster |
+| `--allow-destructive` | `false` | Also offer tools that delete or replace workloads, secrets and data, or run commands in replicas |
 
 ## Services and internals
 

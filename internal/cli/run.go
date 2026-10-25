@@ -1176,7 +1176,7 @@ Usage:
   orch render [-f orch.pkl] [--root DIR]
   orch schema
   orch pkl reader
-  orch mcp [--target NAME] [--read-only]
+  orch mcp [--target NAME] [--read-only | --allow-destructive]
   orch version
 
 Exit codes:

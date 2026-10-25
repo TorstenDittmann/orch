@@ -67,7 +67,7 @@ func TestTokenLetsAnAgentUseOneApplicationWithoutATarget(t *testing.T) {
 
 	// orch mcp picks up the same token: reading works, deploying another app does not.
 	t.Setenv("ORCH_TOKEN", viewToken)
-	session := startMCPTestSession(t, newMCPServer("", false))
+	session := startMCPTestSession(t, newMCPServer("", mcpChanges))
 	session.request("initialize", map[string]any{"protocolVersion": mcpLatestProtocol})
 	if text, failed := session.call("app_status", map[string]any{"app": "hello"}); failed || !strings.Contains(text, `"name": "hello"`) {
 		t.Fatalf("app_status with read-only token failed=%t: %s", failed, text)
