@@ -1408,3 +1408,38 @@ func TestReconcilerHashesBasicAuthSecretAndRollsOnRotation(t *testing.T) {
 		t.Fatalf("rotated basic auth assignment = %#v, %v", second, err)
 	}
 }
+
+func TestReconcilerCarriesDomainPortsToAllocations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) {
+		service.HTTP = &config.HTTP{Port: 9000, Domains: []string{"console.example.com", "s3.example.com"}, HealthPath: "/health", HTTPS: true,
+			DomainPorts: map[string]int{"console.example.com": 9001}}
+	}), "revision-one", "application-key-one", reconcilerTestTime)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return reconcilerTestTime.Add(time.Minute) }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	freezeReconcilerNetwork(t, state, preflight)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := state.CurrentAssignment(ctx, "node-one")
+	if err != nil || len(assignment.Allocations) != 1 || assignment.Allocations[0].HTTP == nil {
+		t.Fatalf("assignment = %#v, %v", assignment, err)
+	}
+	http := assignment.Allocations[0].HTTP
+	if !reflect.DeepEqual(http.DomainPorts, map[string]uint32{"console.example.com": 9001}) || http.Port != 9000 {
+		t.Fatalf("HTTP intent = %#v", http)
+	}
+	message := httpDesiredMessage(http)
+	if !reflect.DeepEqual(message.GetDomainPorts(), map[string]uint32{"console.example.com": 9001}) {
+		t.Fatalf("HTTP message = %#v", message)
+	}
+}

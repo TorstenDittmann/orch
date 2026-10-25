@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/netip"
 	"sort"
 
@@ -63,6 +64,7 @@ func (s *Store) ReadyServiceEndpoints(ctx context.Context) ([]model.ServiceEndpo
 					endpoint.Redirects[from] = to
 				}
 			}
+			endpoint.DomainPorts = maps.Clone(http.DomainPorts)
 		}
 		if tcp != nil {
 			endpoint.TCPPublicPort = tcp.PublicPort

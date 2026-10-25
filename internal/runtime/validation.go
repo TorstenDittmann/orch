@@ -123,6 +123,18 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 			}
 			totalBytes += len(from) + len(to)
 		}
+		if len(allocation.HTTP.DomainPorts) > maxRuntimeDomains {
+			return fmt.Errorf("runtime HTTP intent contains too many domain ports")
+		}
+		for domain, port := range allocation.HTTP.DomainPorts {
+			if port == 0 || port > 65535 || port == allocation.HTTP.Port {
+				return fmt.Errorf("runtime HTTP domain port is invalid")
+			}
+			if _, found := slices.BinarySearch(allocation.HTTP.Domains, domain); !found {
+				return fmt.Errorf("runtime HTTP domain port must name a domain of the service")
+			}
+			totalBytes += len(domain)
+		}
 		if auth := allocation.HTTP.BasicAuth; auth != nil {
 			if auth.User == "" || auth.PasswordHash == "" {
 				return fmt.Errorf("runtime HTTP basic auth is incomplete")

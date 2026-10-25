@@ -64,7 +64,7 @@ else as written:
 
 | Manifest | Locally |
 | --- | --- |
-| `http.domains` | Replaced by `http://SERVICE.APP.localhost:8080` over plain HTTP. Browsers and `curl` resolve `*.localhost` to your machine without any `/etc/hosts` entries. |
+| `http.domains` | Replaced by `http://SERVICE.APP.localhost:8080` over plain HTTP, and each further entry of an `http` listing by `http://SERVICE-PORT.APP.localhost:8080`. Browsers and `curl` resolve `*.localhost` to your machine without any `/etc/hosts` entries. |
 | `http.public` | Also served at `http://localhost:8080` |
 | `tcp.publicPort`, `tcp.nodePort`, `udp.nodePort` | Published on `127.0.0.1` with the same port number |
 | `constraints` | Ignored, since there is only one node |

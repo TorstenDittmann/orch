@@ -16,6 +16,13 @@ local http = new app.Http {
   port = 8080
 }
 
+local multiPort = (service) {
+  http = new Listing {
+    new app.Http { port = 9000; domains { "s3.example.com" }; healthPath = "/health" }
+    new app.Http { port = 9001; domains { "console.example.com" } }
+  }
+}
+
 local cronJob = new app.CronJob {
   image = "example/backup:1"
   schedule = "*/2 * * * *"
@@ -51,6 +58,10 @@ facts {
     !http.nodeLocal
     http.domains.isEmpty
     http.https
+  }
+  ["HTTP listing"] {
+    (multiPort.http as Listing<app.Http>).length == 2
+    (multiPort.http as Listing<app.Http>)[1].https
   }
   ["cron defaults"] {
     cronJob.resources.cpu == "100m"

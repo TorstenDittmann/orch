@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/netip"
 	"sort"
@@ -2266,7 +2267,7 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 		if (endpoint.HTTPPublic || len(endpoint.Domains) != 0) &&
 			(!endpoint.HTTPNodeLocal || endpoint.NodeID == assignment.NodeID) {
 			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS,
-				BasicAuth: endpoint.BasicAuth, Redirects: cloneStringMap(endpoint.Redirects)}
+				BasicAuth: endpoint.BasicAuth, Redirects: cloneStringMap(endpoint.Redirects), DomainPorts: maps.Clone(endpoint.DomainPorts)}
 		}
 		if endpoint.TCPPublicPort != 0 {
 			allocation.TCP = &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort}
@@ -2490,15 +2491,20 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 		if contract == nil {
 			continue
 		}
-		upstreams := make([]string, 0, len(service.endpoints))
-		for _, endpoint := range service.endpoints {
-			if endpoint.http == nil {
-				continue
+		// Each replica's own contract picks the port, so a domain keeps
+		// reaching the right port while a rollout changes it.
+		upstreamsFor := func(domain string) []string {
+			upstreams := make([]string, 0, len(service.endpoints))
+			for _, endpoint := range service.endpoints {
+				if endpoint.http == nil {
+					continue
+				}
+				upstreams = append(upstreams, net.JoinHostPort(endpoint.address, fmt.Sprintf("%d", endpoint.http.PortFor(domain))))
 			}
-			upstreams = append(upstreams, net.JoinHostPort(endpoint.address, fmt.Sprintf("%d", endpoint.http.Port)))
+			sort.Strings(upstreams)
+			return compactStrings(upstreams)
 		}
-		sort.Strings(upstreams)
-		upstreams = compactStrings(upstreams)
+		upstreams := upstreamsFor(model.PublicHTTPRoute)
 		if len(upstreams) == 0 {
 			continue
 		}
@@ -2518,7 +2524,7 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 			sort.Strings(redirectFrom)
 			candidates[domain] = append(candidates[domain], routeCandidate{owner: key, route: ingress.Route{
 				Application: key.application, Service: key.service, Domain: domain,
-				HTTPS: contract.HTTPS, Upstreams: append([]string(nil), upstreams...),
+				HTTPS: contract.HTTPS, Upstreams: upstreamsFor(domain),
 				BasicAuth: contract.BasicAuth, RedirectFrom: redirectFrom,
 			}})
 		}

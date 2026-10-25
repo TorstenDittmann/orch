@@ -1,5 +1,7 @@
 package config
 
+import applepkl "github.com/apple/pkl-go/pkl"
+
 type pklDocument struct {
 	Schema        string                 `pkl:"schema"`
 	Name          string                 `pkl:"name"`
@@ -38,7 +40,7 @@ type pklService struct {
 	Replicas    int               `pkl:"replicas"`
 	Restart     string            `pkl:"restart"`
 	Resources   pklResources      `pkl:"resources"`
-	HTTP        *pklHTTP          `pkl:"http"`
+	HTTP        any               `pkl:"http"`
 	TCP         *pklTCP           `pkl:"tcp"`
 	UDP         *pklUDP           `pkl:"udp"`
 	DependsOn   []string          `pkl:"dependsOn"`
@@ -73,6 +75,28 @@ type pklHTTP struct {
 	NodeLocal  bool              `pkl:"nodeLocal"`
 	BasicAuth  *pklBasicAuth     `pkl:"basicAuth"`
 	Redirects  map[string]string `pkl:"redirects"`
+}
+
+// The schema types http as Http | Listing<Http>, so pklService.HTTP is an
+// any and its entries decode through this mapping into *pklHTTP.
+func init() { applepkl.RegisterMapping("orch.Application#Http", pklHTTP{}) }
+
+// pklHTTPEntries returns the entries of a service's http value, first the one
+// readiness checks.
+func pklHTTPEntries(value any) []*pklHTTP {
+	switch value := value.(type) {
+	case *pklHTTP:
+		return []*pklHTTP{value}
+	case []any:
+		entries := make([]*pklHTTP, 0, len(value))
+		for _, entry := range value {
+			if entry, ok := entry.(*pklHTTP); ok {
+				entries = append(entries, entry)
+			}
+		}
+		return entries
+	}
+	return nil
 }
 
 type pklBasicAuth struct {
@@ -166,18 +190,36 @@ func resolvePkl(doc pklDocument) *Manifest {
 	}
 	for name, input := range doc.Services {
 		var httpConfig *HTTP
-		if input.HTTP != nil {
+		if entries := pklHTTPEntries(input.HTTP); len(entries) != 0 {
+			first := entries[0]
 			httpConfig = &HTTP{
-				Port:       input.HTTP.Port,
-				Public:     input.HTTP.Public,
-				Domains:    append([]string(nil), input.HTTP.Domains...),
-				HealthPath: input.HTTP.HealthPath,
-				HTTPS:      input.HTTP.HTTPS,
-				NodeLocal:  input.HTTP.NodeLocal,
-				Redirects:  cloneMap(input.HTTP.Redirects),
+				Port:       first.Port,
+				Public:     first.Public,
+				Domains:    append([]string(nil), first.Domains...),
+				HealthPath: first.HealthPath,
+				HTTPS:      first.HTTPS,
+				NodeLocal:  first.NodeLocal,
+				Redirects:  cloneMap(first.Redirects),
 			}
-			if auth := input.HTTP.BasicAuth; auth != nil {
+			if auth := first.BasicAuth; auth != nil {
 				httpConfig.BasicAuth = &BasicAuth{User: auth.User, PasswordSecret: auth.PasswordSecret}
+			}
+			// Later entries share the first one's policy, which the schema
+			// checks, so they only add domains served on their own port.
+			for _, entry := range entries[1:] {
+				if httpConfig.DomainPorts == nil {
+					httpConfig.DomainPorts = make(map[string]int)
+				}
+				for _, domain := range entry.Domains {
+					httpConfig.Domains = append(httpConfig.Domains, domain)
+					httpConfig.DomainPorts[domain] = entry.Port
+				}
+				for from, to := range entry.Redirects {
+					if httpConfig.Redirects == nil {
+						httpConfig.Redirects = make(map[string]string)
+					}
+					httpConfig.Redirects[from] = to
+				}
 			}
 		}
 		var tcpConfig *TCP

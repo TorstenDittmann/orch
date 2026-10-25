@@ -78,3 +78,28 @@ func TestRollbackAllocationCarriesEveryRollbackField(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAllocationChecksDomainPorts(t *testing.T) {
+	for name, test := range map[string]struct {
+		ports map[string]uint32
+		valid bool
+	}{
+		"other port":     {map[string]uint32{"game.example.com": 9001}, true},
+		"main port":      {map[string]uint32{"game.example.com": 8080}, false},
+		"zero port":      {map[string]uint32{"game.example.com": 0}, false},
+		"unknown domain": {map[string]uint32{"other.example.com": 9001}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			allocation := validationAllocation(t, 1, "revision-one", "registry.example.com/game@sha256:"+strings.Repeat("1", 64))
+			allocation.HTTP.DomainPorts = test.ports
+			digest, err := model.AllocationSpecDigest(allocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			allocation.SpecDigest = digest
+			if err := ValidateAllocation(allocation); (err == nil) != test.valid {
+				t.Fatalf("ValidateAllocation() = %v, want valid %v", err, test.valid)
+			}
+		})
+	}
+}

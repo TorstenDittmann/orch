@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
@@ -983,6 +984,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				Domains: append([]string(nil), endpoint.GetDomains()...), HTTPS: endpoint.GetHttps(), HTTPPublic: endpoint.GetHttpPublic(),
 				TCPPublicPort: endpoint.GetTcpPublicPort(), HTTPNodeLocal: endpoint.GetHttpNodeLocal(),
 				BasicAuth: basicAuthModel(endpoint.GetBasicAuth()), Redirects: cloneStringMap(endpoint.GetRedirects()),
+				DomainPorts: maps.Clone(endpoint.GetDomainPorts()),
 			})
 		}
 		if err := model.ValidateNodeNetwork(assignment.Network); err != nil {
@@ -1298,7 +1300,8 @@ func httpDesiredModel(desired *orchv1alpha1.HTTPDesired) *model.HTTPDesired {
 	}
 	return &model.HTTPDesired{Port: desired.GetPort(), Public: desired.GetPublic(), Domains: append([]string(nil), desired.GetDomains()...),
 		HealthPath: desired.GetHealthPath(), HTTPS: desired.GetHttps(), NodeLocal: desired.GetNodeLocal(),
-		BasicAuth: basicAuthModel(desired.GetBasicAuth()), Redirects: cloneStringMap(desired.GetRedirects())}
+		BasicAuth: basicAuthModel(desired.GetBasicAuth()), Redirects: cloneStringMap(desired.GetRedirects()),
+		DomainPorts: maps.Clone(desired.GetDomainPorts())}
 }
 
 func basicAuthModel(auth *orchv1alpha1.HTTPBasicAuth) *model.HTTPBasicAuth {

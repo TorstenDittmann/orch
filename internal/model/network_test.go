@@ -203,6 +203,26 @@ func TestServiceEndpointsMustBelongToLocalOrNamedPeerSubnet(t *testing.T) {
 	}
 }
 
+func TestServiceEndpointDomainPortsMustNameItsDomains(t *testing.T) {
+	configuration, err := NodeNetwork(DefaultWorkloadCIDR, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration.Endpoints = []ServiceEndpoint{{
+		AllocationID: "alloc-local", Application: "storage", Service: "rustfs", Address: "10.88.0.2", Port: 9000, NodeID: "node-one",
+		Domains: []string{"console.example.com", "s3.example.com"}, DomainPorts: map[string]uint32{"console.example.com": 9001},
+	}}
+	if err := ValidateServiceEndpoints(configuration); err != nil {
+		t.Fatal(err)
+	}
+	for _, ports := range []map[string]uint32{{"other.example.com": 9001}, {"console.example.com": 0}, {"console.example.com": 70000}} {
+		configuration.Endpoints[0].DomainPorts = ports
+		if err := ValidateServiceEndpoints(configuration); err == nil || !strings.Contains(err.Error(), "domain port") {
+			t.Fatalf("domain ports %v error = %v", ports, err)
+		}
+	}
+}
+
 func TestParseWorkloadCIDRRejectsUnsafeOrNoncanonicalPrefixes(t *testing.T) {
 	for _, value := range []string{"", "10.88.1.0/16", "10.0.0.0/8", "10.0.0.0/20", "192.0.2.0/16", "fd00::/64", " 10.88.0.0/16"} {
 		if _, err := ParseWorkloadCIDR(value); err == nil {

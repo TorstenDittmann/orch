@@ -106,6 +106,9 @@ type HTTP struct {
 	BasicAuth *BasicAuth `json:"basic_auth,omitempty"`
 	// Redirects maps a domain to one of Domains it permanently redirects to.
 	Redirects map[string]string `json:"redirects,omitempty"`
+	// DomainPorts maps a domain in Domains to the container port that serves
+	// it when that is not Port. A manifest's extraPorts become these entries.
+	DomainPorts map[string]int `json:"domain_ports,omitempty"`
 }
 
 // BasicAuth asks for a username and the password held in an application

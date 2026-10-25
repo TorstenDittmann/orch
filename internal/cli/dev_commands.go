@@ -12,9 +12,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -248,13 +250,28 @@ func localizeDevManifest(manifest *config.Manifest, httpPort int) ([]string, []d
 				urls = append(urls, "http://localhost"+suffix+" ("+name+")")
 			}
 			domain := name + "." + manifest.Name + ".localhost"
+			// Each extra port gets its own local domain, such as
+			// name-9001.app.localhost.
+			var extra map[string]int
+			for _, port := range service.HTTP.DomainPorts {
+				if extra == nil {
+					extra = make(map[string]int)
+				}
+				extra[name+"-"+strconv.Itoa(port)+"."+manifest.Name+".localhost"] = port
+			}
 			service.HTTP.Domains = []string{domain}
+			service.HTTP.DomainPorts = extra
 			service.HTTP.HTTPS = false
 			// Redirects name production domains, and a local app needs no
 			// password prompt.
 			service.HTTP.Redirects = nil
 			service.HTTP.BasicAuth = nil
 			urls = append(urls, "http://"+domain+suffix)
+			for _, local := range slices.Sorted(maps.Keys(extra)) {
+				service.HTTP.Domains = append(service.HTTP.Domains, local)
+				urls = append(urls, "http://"+local+suffix)
+			}
+			sort.Strings(service.HTTP.Domains)
 		}
 		if service.TCP != nil && service.TCP.PublicPort != nil {
 			ports = append(ports, devPort{"tcp", *service.TCP.PublicPort, name})
