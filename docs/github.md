@@ -77,6 +77,11 @@ received expires within 15 minutes. `orch github trust acme/hello --app hello`
 trusts a repository without a local checkout and prints the workflow instead
 of writing it.
 
+The first deploy binds the trust to GitHub's IDs for the repository and its
+owner. If the repository or its owner is later renamed or deleted and someone
+else takes the name, their runs are refused. Run `orch github trust` again
+when you recreate or transfer the repository yourself.
+
 A repository may be trusted for several applications, for example in a
 monorepo. Run `orch github init -f apps/api/orch.pkl` for each and rename the
 written workflows so they do not replace each other.

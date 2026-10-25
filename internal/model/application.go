@@ -183,4 +183,8 @@ type GitHubTrust struct {
 	Branch      string
 	Environment string
 	CreatedAt   time.Time
+	// RepositoryID and RepositoryOwnerID are GitHub's IDs for the repository
+	// and its owner, bound on the first deploy. Empty until then.
+	RepositoryID      string
+	RepositoryOwnerID string
 }

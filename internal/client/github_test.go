@@ -63,7 +63,7 @@ func TestNewGitHubActionsDeploysOnlyTheTrustedApplication(t *testing.T) {
 		header, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": "k1"})
 		payload, _ := json.Marshal(map[string]any{
 			"iss": "https://token.actions.githubusercontent.com", "aud": r.URL.Query().Get("audience"),
-			"exp": time.Now().Add(5 * time.Minute).Unix(), "repository": "acme/hello", "ref": "refs/heads/main", "event_name": "push",
+			"exp": time.Now().Add(5 * time.Minute).Unix(), "repository": "acme/hello", "repository_id": "101", "repository_owner_id": "201", "ref": "refs/heads/main", "event_name": "push",
 		})
 		input := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
 		digest := sha256.Sum256([]byte(input))

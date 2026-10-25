@@ -120,6 +120,16 @@ func (s *credentialService) matchGitHubTrust(ctx context.Context, repository, ap
 	if trust.Environment != "" && claims.Environment != trust.Environment {
 		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s may deploy %s only from GitHub environment %s", repository, trust.Application, trust.Environment))
 	}
+	// Names can be taken over after a repository or its owner is renamed or
+	// deleted, so the rule is bound to GitHub's IDs on the first deploy.
+	if trust.RepositoryID == "" {
+		if trust, err = s.state.BindGitHubTrust(ctx, trust.Repository, trust.Application, claims.RepositoryID, claims.RepositoryOwnerID); err != nil {
+			return model.GitHubTrust{}, connect.NewError(connect.CodeInternal, errors.New("bind GitHub trust"))
+		}
+	}
+	if trust.RepositoryID != claims.RepositoryID || trust.RepositoryOwnerID != claims.RepositoryOwnerID {
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s is not the repository trusted to deploy %s; it was deleted or renamed and the name now belongs to another one. If this is intended, run orch github trust %s --app %s again", repository, trust.Application, repository, trust.Application))
+	}
 	return trust, nil
 }
 

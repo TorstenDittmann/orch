@@ -31,7 +31,9 @@ Anyone with this context can administer the cluster.
 GitHub Actions workflows need none of these. `orch github trust` lets a
 repository's runs exchange their GitHub OIDC token for a 15-minute deployer
 certificate that can deploy, roll back, and inspect one application and
-nothing else. See [deploy from GitHub](github.md).
+nothing else. The trust is bound to GitHub's repository and owner IDs on the
+first deploy, so a repository that later takes over the name cannot use it.
+See [deploy from GitHub](github.md).
 
 Agents and scripts elsewhere use the same limited credential through an access
 token: `orch token create --app APP [--read-only]` prints a value for

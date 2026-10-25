@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func (f *fakeGitHub) token(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	base := map[string]any{
 		"iss": githubActionsIssuer, "exp": time.Now().Add(5 * time.Minute).Unix(), "nbf": time.Now().Add(-time.Minute).Unix(),
-		"repository": "Acme/Hello", "ref": "refs/heads/main", "event_name": "push", "sha": "abc", "actor": "octocat", "run_id": "1",
+		"repository": "Acme/Hello", "repository_id": "101", "repository_owner_id": "201", "ref": "refs/heads/main", "event_name": "push", "sha": "abc", "actor": "octocat", "run_id": "1",
 	}
 	for key, value := range claims {
 		if value == nil {
@@ -85,12 +86,13 @@ func TestGitHubVerifierChecksSignatureIssuerAudienceAndExpiry(t *testing.T) {
 		t.Fatalf("audience list: %v", err)
 	}
 	for name, claims := range map[string]map[string]any{
-		"wrong audience": {"aud": "orch:two"},
-		"no audience":    {},
-		"wrong issuer":   {"aud": "orch:one", "iss": "https://example.com"},
-		"expired":        {"aud": "orch:one", "exp": time.Now().Add(-2 * time.Minute).Unix()},
-		"not yet valid":  {"aud": "orch:one", "nbf": time.Now().Add(5 * time.Minute).Unix()},
-		"no repository":  {"aud": "orch:one", "repository": nil},
+		"wrong audience":   {"aud": "orch:two"},
+		"no audience":      {},
+		"wrong issuer":     {"aud": "orch:one", "iss": "https://example.com"},
+		"expired":          {"aud": "orch:one", "exp": time.Now().Add(-2 * time.Minute).Unix()},
+		"not yet valid":    {"aud": "orch:one", "nbf": time.Now().Add(5 * time.Minute).Unix()},
+		"no repository":    {"aud": "orch:one", "repository": nil},
+		"no repository id": {"aud": "orch:one", "repository_id": nil},
 	} {
 		if _, err := verifier.verify(ctx, fake.token(t, claims), "orch:one"); err == nil {
 			t.Errorf("%s: token accepted", name)
@@ -171,6 +173,25 @@ func TestGitHubTrustIssuesCredentialsLimitedToOneApplication(t *testing.T) {
 	issued, keyPEM, err := issue(map[string]any{}, "")
 	if err != nil || issued.GetApplication() != "hello" || time.Until(issued.GetExpiresAt().AsTime()) > security.DeployerCertificateLifetime {
 		t.Fatalf("exchange = %+v, %v", issued, err)
+	}
+	// The first deploy bound the rule to the repository's IDs, so another
+	// repository that takes over the name is refused until trusted again.
+	for _, claims := range []map[string]any{{"repository_id": "102"}, {"repository_owner_id": "202"}} {
+		if _, _, err := issue(claims, ""); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "deleted or renamed") {
+			t.Fatalf("recreated repository %v = %v", claims, err)
+		}
+	}
+	if again, err := admin.SetGitHubTrust(ctx, "acme/hello", "hello", "main", ""); err != nil || !again.GetChanged() {
+		t.Fatalf("trust again = %+v, %v", again, err)
+	}
+	if _, _, err := issue(map[string]any{"repository_id": "102"}, ""); err != nil {
+		t.Fatalf("repository trusted again = %v", err)
+	}
+	if _, _, err := issue(map[string]any{}, ""); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("old repository after trusting the new one = %v", err)
+	}
+	if _, err := admin.SetGitHubTrust(ctx, "acme/hello", "hello", "main", ""); err != nil {
+		t.Fatal(err)
 	}
 	pair, err := tls.X509KeyPair(issued.GetCertificatePem(), keyPEM)
 	if err != nil {
