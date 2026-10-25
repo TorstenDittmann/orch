@@ -36,6 +36,10 @@ type firewall struct {
 	// ingressPorts are the host TCP ports of raw TCP routes, which workloads
 	// may reach on this node like any other client.
 	ingressPorts []uint16
+	// hostOwned holds node ports a host service was seen listening on, such
+	// as SSH on a custom port. They are never published, so a workload cannot
+	// take one over while that service happens to be restarting.
+	hostOwned map[string]bool
 }
 
 type firewallOwner struct {

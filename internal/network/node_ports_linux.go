@@ -8,7 +8,9 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"strings"
 
+	"github.com/TorstenDittmann/orch/internal/hostports"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -76,8 +78,19 @@ func (f *firewall) addNodePortRules(connection *nftables.Conn, table *nftables.T
 func (f *firewall) publish(ports []NodePort) ([]error, error) {
 	results := make([]error, len(ports))
 	accepted := make([]NodePort, 0, len(ports))
+	if f.hostOwned == nil {
+		f.hostOwned = map[string]bool{}
+		for _, port := range hostports.SSH() {
+			f.hostOwned["tcp/"+strconv.Itoa(int(port))] = true
+		}
+	}
 	for index, port := range ports {
+		if f.hostOwned[port.Key()] {
+			results[index] = fmt.Errorf("%s port %d belongs to a service on this node", strings.ToUpper(port.Protocol), port.Port)
+			continue
+		}
 		if err := hostPortFree(port); err != nil {
+			f.hostOwned[port.Key()] = true
 			results[index] = err
 			continue
 		}
