@@ -100,6 +100,11 @@ class Service {
   /// credentials may deploy an application that sets it.
   privileged: Boolean = false
 
+  /// Grant only these Linux capabilities, retaining seccomp, no-new-privileges
+  /// and blocked host devices. Use canonical CAP_* names. Administrator-only;
+  /// cannot be combined with privileged.
+  capabilities: Listing<String(!isBlank, length <= 64)>(length <= 41, isDistinct) = new {}
+
   /// Adds and removes replicas to keep average CPU use near a target. Leave
   /// `replicas` unset when this is set; `min` is the starting count.
   autoscale: Autoscale? = null

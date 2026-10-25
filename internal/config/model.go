@@ -65,6 +65,9 @@ type Service struct {
 	// Privileged replicas run without the default confinement. It is omitted
 	// when false so existing manifests keep their canonical digest.
 	Privileged bool `json:"privileged,omitempty"`
+	// Capabilities grants only the named Linux capabilities while retaining the
+	// remaining confinement. Empty preserves existing canonical digests.
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Autoscale lets the controller choose the replica count between Min
 	// and Max. Replicas then equals Min, the count a first deploy starts with.
 	Autoscale *Autoscale `json:"autoscale,omitempty"`

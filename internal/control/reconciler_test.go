@@ -1295,6 +1295,44 @@ func TestPlanApplicationCarriesPrivileged(t *testing.T) {
 	}
 }
 
+func TestPlanApplicationCarriesCapabilitiesThroughRollbackAndWire(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, _ := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	want := []string{"CAP_CHOWN", "CAP_SETGID", "CAP_SETUID"}
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) {
+		service.Capabilities = want
+	}), "revision-one", "application-key-one", reconcilerTestTime)
+	application, err := state.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	planned, blocked, err := planApplication("cluster-one", node, application)
+	if err != nil || blocked != nil || len(planned) != 1 || !reflect.DeepEqual(planned[0].Capabilities, want) {
+		t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+	}
+	rollback := rollbackSpec(planned[0])
+	cloned := cloneRollbackSpec(rollback)
+	cloned.Capabilities[0] = "CAP_KILL"
+	if !reflect.DeepEqual(rollback.Capabilities, want) {
+		t.Fatal("rollback capability slice was aliased")
+	}
+	planned[0].Rollback = rollback
+	message := assignmentSnapshotMessage(model.Assignment{Allocations: planned})
+	if !reflect.DeepEqual(message.Allocations[0].Capabilities, want) || !reflect.DeepEqual(message.Allocations[0].Rollback.Capabilities, want) {
+		t.Fatal("wire assignment lost capability grants")
+	}
+}
+
 func TestPlanApplicationCarriesVolumeBackupsOutsideTheSpecDigest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -222,6 +222,11 @@ func newRollbackFixture(t *testing.T) rollbackFixture {
 	root := t.TempDir()
 	f := rollbackFixture{journalPath: filepath.Join(root, "state", "upgrade.json"), agentDir: filepath.Join(root, "agent"), installed: filepath.Join(root, "bin", "orch")}
 	backup := filepath.Join(root, "state", "upgrades", "candidate", "agent-state")
+	for _, base := range []string{f.agentDir, backup} {
+		if err := os.MkdirAll(filepath.Join(base, "pki"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for path, content := range map[string]string{
 		filepath.Join(f.agentDir, "agent.db"): "candidate-state",
 		filepath.Join(backup, "agent.db"):     "previous-state",

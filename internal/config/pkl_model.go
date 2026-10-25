@@ -34,25 +34,26 @@ type pklDatabaseBackup struct {
 }
 
 type pklService struct {
-	Image       string            `pkl:"image"`
-	Command     []string          `pkl:"command"`
-	Args        []string          `pkl:"args"`
-	Replicas    int               `pkl:"replicas"`
-	Restart     string            `pkl:"restart"`
-	Resources   pklResources      `pkl:"resources"`
-	HTTP        any               `pkl:"http"`
-	TCP         *pklTCP           `pkl:"tcp"`
-	UDP         *pklUDP           `pkl:"udp"`
-	DependsOn   []string          `pkl:"dependsOn"`
-	Env         map[string]string `pkl:"env"`
-	SecretEnv   map[string]string `pkl:"secretEnv"`
-	Connect     map[string]string `pkl:"connect"`
-	SecretFiles []pklSecretFile   `pkl:"secretFiles"`
-	Constraints map[string]string `pkl:"constraints"`
-	Mounts      []pklMount        `pkl:"mounts"`
-	StopGrace   *string           `pkl:"stopGracePeriod"`
-	Privileged  bool              `pkl:"privileged"`
-	Autoscale   *pklAutoscale     `pkl:"autoscale"`
+	Image        string            `pkl:"image"`
+	Command      []string          `pkl:"command"`
+	Args         []string          `pkl:"args"`
+	Replicas     int               `pkl:"replicas"`
+	Restart      string            `pkl:"restart"`
+	Resources    pklResources      `pkl:"resources"`
+	HTTP         any               `pkl:"http"`
+	TCP          *pklTCP           `pkl:"tcp"`
+	UDP          *pklUDP           `pkl:"udp"`
+	DependsOn    []string          `pkl:"dependsOn"`
+	Env          map[string]string `pkl:"env"`
+	SecretEnv    map[string]string `pkl:"secretEnv"`
+	Connect      map[string]string `pkl:"connect"`
+	SecretFiles  []pklSecretFile   `pkl:"secretFiles"`
+	Constraints  map[string]string `pkl:"constraints"`
+	Mounts       []pklMount        `pkl:"mounts"`
+	StopGrace    *string           `pkl:"stopGracePeriod"`
+	Privileged   bool              `pkl:"privileged"`
+	Capabilities []string          `pkl:"capabilities"`
+	Autoscale    *pklAutoscale     `pkl:"autoscale"`
 }
 
 type pklAutoscale struct {
@@ -261,24 +262,25 @@ func resolvePkl(doc pklDocument) *Manifest {
 			}
 		}
 		manifest.Services[name] = Service{
-			Image:       input.Image,
-			Command:     append([]string(nil), input.Command...),
-			Args:        append([]string(nil), input.Args...),
-			Replicas:    replicas,
-			Restart:     input.Restart,
-			Resources:   Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
-			HTTP:        httpConfig,
-			TCP:         tcpConfig,
-			UDP:         udpConfig,
-			DependsOn:   append([]string(nil), input.DependsOn...),
-			Env:         cloneMap(input.Env),
-			SecretEnv:   cloneMap(input.SecretEnv),
-			SecretFiles: secretFiles,
-			Constraints: cloneMap(input.Constraints),
-			Mounts:      mounts,
-			StopGrace:   stopGrace,
-			Privileged:  input.Privileged,
-			Autoscale:   autoscale,
+			Image:        input.Image,
+			Command:      append([]string(nil), input.Command...),
+			Args:         append([]string(nil), input.Args...),
+			Replicas:     replicas,
+			Restart:      input.Restart,
+			Resources:    Resources{CPU: input.Resources.CPU, Memory: input.Resources.Memory},
+			HTTP:         httpConfig,
+			TCP:          tcpConfig,
+			UDP:          udpConfig,
+			DependsOn:    append([]string(nil), input.DependsOn...),
+			Env:          cloneMap(input.Env),
+			SecretEnv:    cloneMap(input.SecretEnv),
+			SecretFiles:  secretFiles,
+			Constraints:  cloneMap(input.Constraints),
+			Mounts:       mounts,
+			StopGrace:    stopGrace,
+			Privileged:   input.Privileged,
+			Capabilities: append([]string(nil), input.Capabilities...),
+			Autoscale:    autoscale,
 		}
 	}
 	for name, input := range doc.CronJobs {

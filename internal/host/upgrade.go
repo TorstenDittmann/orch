@@ -322,14 +322,14 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 		if err = os.RemoveAll(backup); err != nil {
 			return failPreparation(err)
 		}
-		if err = copyTreePrivate(AgentDir, backup); err != nil {
+		if err = snapshotAgentMetadata(AgentDir, backup); err != nil {
 			return failPreparation(err)
 		}
 		rehearsal := filepath.Join(StateDir, "upgrades", result.CandidateHash, "agent-rehearsal")
 		if err = os.RemoveAll(rehearsal); err != nil {
 			return failPreparation(err)
 		}
-		if err = copyTreePrivate(backup, rehearsal); err != nil {
+		if err = snapshotAgentMetadata(backup, rehearsal); err != nil {
 			return failPreparation(fmt.Errorf("stage agent migration rehearsal: %w", err))
 		}
 		credentials, loadErr := agentctl.Load(rehearsal, time.Now())
@@ -614,10 +614,7 @@ func rollbackNode(ctx context.Context, run Command, journalPath, agentDir string
 	if err := stopUnitConfirmed(ctx, run, "orch-agent.service"); err != nil {
 		return fmt.Errorf("candidate failed: %v; rollback was not attempted: %v; rerun the upgrade with the same candidate to resume; state backup: %s", cause, err, j.RecoveryPath)
 	}
-	restoreErr := os.RemoveAll(agentDir)
-	if err := copyTreePrivate(j.RecoveryPath, agentDir); restoreErr == nil {
-		restoreErr = err
-	}
+	restoreErr := restoreAgentMetadata(j.RecoveryPath, agentDir)
 	if err := replaceRegular(filepath.Join(filepath.Dir(journalPath), "upgrades", j.CandidateHash, "previous-orch"), j.PreviousPath, 0755); restoreErr == nil {
 		restoreErr = err
 	}

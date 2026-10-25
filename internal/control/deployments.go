@@ -180,12 +180,13 @@ func (s *service) CompareDeployments(ctx context.Context, req *connect.Request[o
 	}
 	for _, change := range changes {
 		item := &orchv1alpha1.DeploymentChange{Kind: string(change.Kind), Path: change.Path}
-		// Only scalar, operational fields are displayed. Added/removed objects and
+		// Only known operational fields are displayed. Capability names are
+		// validated against the Linux allowlist. Added/removed objects and
 		// arbitrary command, argument, environment and secret fields stay private.
 		parts := strings.Split(change.Path, ".")
 		safe := len(parts) == 2 && parts[0] == "deploy"
 		if len(parts) >= 3 && (parts[0] == "services" || parts[0] == "cron_jobs") {
-			safe = len(parts) == 3 && (parts[2] == "image" || parts[2] == "replicas" || parts[2] == "schedule") ||
+			safe = len(parts) == 3 && (parts[2] == "image" || parts[2] == "replicas" || parts[2] == "schedule" || parts[2] == "capabilities" || parts[2] == "privileged") ||
 				len(parts) == 4 && parts[2] == "resources"
 		}
 		if safe {
@@ -243,6 +244,9 @@ func (s *service) RollbackApplication(ctx context.Context, req *connect.Request[
 	manifest, err := config.ParseCanonicalJSON(source.CanonicalManifest)
 	if err != nil || manifest.Name != req.Msg.GetApplication() {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("stored revision is not supported by this controller"))
+	}
+	if err := requireServicePrivileges(ctx, manifest); err != nil {
+		return nil, err
 	}
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: source.Application, RevisionID: newRevisionID(s.cluster.ID, req.Msg.GetIdempotencyKey(), source.Digest),

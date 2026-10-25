@@ -39,6 +39,12 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 	default:
 		return fmt.Errorf("runtime restart policy is invalid")
 	}
+	if err := config.ValidateCapabilities(allocation.Capabilities); err != nil {
+		return fmt.Errorf("runtime capabilities are invalid: %w", err)
+	}
+	if !sort.StringsAreSorted(allocation.Capabilities) || allocation.Privileged && len(allocation.Capabilities) != 0 {
+		return fmt.Errorf("runtime capabilities must be canonical and cannot be combined with privileged")
+	}
 	if len(allocation.Image) > 1024 || strings.ContainsRune(allocation.Image, 0) {
 		return fmt.Errorf("runtime image reference is too large or contains a NUL byte")
 	}
@@ -54,6 +60,9 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 		return fmt.Errorf("runtime command or argument list is too large")
 	}
 	totalBytes := len(allocation.Image) + len(allocation.RevisionID)
+	for _, capability := range allocation.Capabilities {
+		totalBytes += len(capability)
+	}
 	for _, value := range append(append([]string(nil), allocation.Command...), allocation.Args...) {
 		if value == "" || len(value) > maxRuntimeStringBytes || strings.ContainsRune(value, 0) {
 			return fmt.Errorf("runtime command and arguments must be nonempty, bounded, and contain no NUL bytes")
@@ -287,6 +296,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		DependsOn: rollback.DependsOn, SecretEnvironment: rollback.SecretEnvironment, SecretFiles: rollback.SecretFiles,
 		RegistryCredential: rollback.RegistryCredential, NetworkGeneration: rollback.NetworkGeneration,
 		StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
+		Capabilities: append([]string(nil), rollback.Capabilities...),
 	}
 }
 

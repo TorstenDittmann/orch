@@ -1020,6 +1020,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 			StartDeadlineSeconds: item.GetStartDeadlineSeconds(), AutoRollback: item.GetAutoRollback(), StartBeforeStop: item.GetStartBeforeStop(),
 			NetworkGeneration: item.GetNetworkGeneration(), MaxSurge: item.GetMaxSurge(), MaxUnavailable: item.GetMaxUnavailable(),
 			DependsOn: append([]string(nil), item.GetDependsOn()...), StopGraceSeconds: item.GetStopGraceSeconds(), Privileged: item.GetPrivileged(),
+			Capabilities: append([]string(nil), item.GetCapabilities()...),
 		}
 		allocation.SecretEnvironment = secretEnvironmentModel(item.GetSecretEnvironment())
 		allocation.SecretFiles = secretFilesModel(item.GetSecretFiles())
@@ -1052,6 +1053,7 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 				StartDeadlineSeconds: rollback.GetStartDeadlineSeconds(), NetworkGeneration: rollback.GetNetworkGeneration(),
 				AutoRollback: rollback.GetAutoRollback(), StartBeforeStop: rollback.GetStartBeforeStop(),
 				DependsOn: append([]string(nil), rollback.GetDependsOn()...), StopGraceSeconds: rollback.GetStopGraceSeconds(), Privileged: rollback.GetPrivileged(),
+				Capabilities: append([]string(nil), rollback.GetCapabilities()...),
 			}
 			allocation.Rollback.SecretEnvironment = secretEnvironmentModel(rollback.GetSecretEnvironment())
 			allocation.Rollback.SecretFiles = secretFilesModel(rollback.GetSecretFiles())

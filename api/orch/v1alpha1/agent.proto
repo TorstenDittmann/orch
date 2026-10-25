@@ -161,6 +161,7 @@ message RollbackSpec {
   UDPDesired udp = 22;
   uint32 stop_grace_seconds = 23;
   bool privileged = 24;
+  repeated string capabilities = 25;
 }
 
 message NetworkConfig {
@@ -232,6 +233,7 @@ message AllocationDesired {
   uint32 stop_grace_seconds = 30;
   repeated VolumeBackupDesired volume_backups = 31;
   bool privileged = 32;
+  repeated string capabilities = 33;
 }
 
 // VolumeBackupDesired archives one local volume the allocation owns.

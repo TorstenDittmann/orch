@@ -402,9 +402,16 @@ by a version without controller-driven upgrades need that manual upgrade once.
 Keep the recovery path reported by the controller upgrade until normal traffic
 and a test deployment have succeeded.
 
+Worker upgrade recovery snapshots only agent configuration, PKI, the SQLite
+cache (including sidecars), and its secret-cache key. Migration rehearsals use
+empty log and volume directories. Recovery never copies or replaces application
+volumes, volume backups, logs, network state or runtime-secret mounts; their
+contents, ownership and permissions remain in place. This recovery set is not
+an application-data backup.
+
 Wait for every worker to report the new version before deploying a manifest
 that uses a field the old version did not have, such as `stopGracePeriod`,
-`autoscale`, `privileged` or a volume `backup`. An older worker cannot accept
+`autoscale`, `privileged`, `capabilities` or a volume `backup`. An older worker cannot accept
 such an assignment and keeps running its previous one. `orch volume` and
 `orch restart` also need upgraded workers.
 

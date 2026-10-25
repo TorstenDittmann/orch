@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +174,50 @@ func TestAssignmentModelPreservesNodeLocalHTTP(t *testing.T) {
 	}
 	if !decoded.Allocations[0].HTTP.NodeLocal || !decoded.Network.Endpoints[0].HTTPNodeLocal {
 		t.Fatalf("node-local scope lost decoding assignment: %#v", decoded)
+	}
+}
+
+func TestAssignmentModelPreservesCapabilitiesAndRollback(t *testing.T) {
+	t.Parallel()
+	wire := validWireAllocation(t, "alloc-capabilities", 1)
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt: timestamppb.New(supervisorTestTime), Allocations: []*orchv1alpha1.AllocationDesired{wire},
+	}
+	seed, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := seed.Allocations[0]
+	previous.Capabilities = []string{"CAP_CHOWN"}
+	previous.SpecDigest, err = model.AllocationSpecDigest(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := previous
+	current.ApplicationGeneration = 2
+	current.RevisionID = "revision-two"
+	current.Capabilities = []string{"CAP_CHOWN", "CAP_SETUID"}
+	wire.ApplicationGeneration, wire.RevisionId = current.ApplicationGeneration, current.RevisionID
+	wire.Capabilities = current.Capabilities
+	wire.SpecDigest, err = model.AllocationSpecDigest(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire.Rollback = &orchv1alpha1.RollbackSpec{
+		ApplicationGeneration: previous.ApplicationGeneration, RevisionId: previous.RevisionID,
+		SpecDigest: previous.SpecDigest, Image: previous.Image, Command: previous.Command, Args: previous.Args,
+		RestartPolicy: previous.RestartPolicy, CpuMillis: previous.CPUMillis, MemoryBytes: previous.MemoryBytes,
+		StartDeadlineSeconds: previous.StartDeadlineSeconds, AutoRollback: previous.AutoRollback,
+		StartBeforeStop: previous.StartBeforeStop, Capabilities: previous.Capabilities,
+	}
+	decoded, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocation := decoded.Allocations[0]
+	if !slices.Equal(allocation.Capabilities, current.Capabilities) || !slices.Equal(allocation.Rollback.Capabilities, previous.Capabilities) {
+		t.Fatal("capabilities were lost decoding assignment or rollback")
 	}
 }
 

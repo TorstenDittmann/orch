@@ -103,3 +103,31 @@ func TestValidateAllocationChecksDomainPorts(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAllocationCapabilities(t *testing.T) {
+	for name, test := range map[string]struct {
+		capabilities []string
+		privileged   bool
+		valid        bool
+	}{
+		"empty":      {valid: true},
+		"limited":    {capabilities: []string{"CAP_CHOWN", "CAP_SETUID"}, valid: true},
+		"unknown":    {capabilities: []string{"CAP_INVALID"}},
+		"duplicate":  {capabilities: []string{"CAP_CHOWN", "CAP_CHOWN"}},
+		"unsorted":   {capabilities: []string{"CAP_SETUID", "CAP_CHOWN"}},
+		"privileged": {capabilities: []string{"CAP_CHOWN"}, privileged: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			allocation := validationAllocation(t, 1, "revision-one", "registry.example.com/app@sha256:"+strings.Repeat("1", 64))
+			allocation.Capabilities, allocation.Privileged = test.capabilities, test.privileged
+			var err error
+			allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateAllocation(allocation); (err == nil) != test.valid {
+				t.Fatalf("ValidateAllocation = %v, want valid=%v", err, test.valid)
+			}
+		})
+	}
+}

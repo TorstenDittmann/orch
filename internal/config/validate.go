@@ -143,6 +143,12 @@ func Validate(manifest *Manifest) error {
 		base := "services." + serviceName
 		validateDNSLabel(base, serviceName, add)
 		validateDatabase(base, service, add)
+		if err := ValidateCapabilities(service.Capabilities); err != nil {
+			add(base+".capabilities", err.Error())
+		}
+		if service.Privileged && len(service.Capabilities) != 0 {
+			add(base+".capabilities", "cannot be set together with privileged")
+		}
 		if strings.TrimSpace(service.Image) == "" {
 			add(base+".image", "is required")
 		} else if len(service.Image) > 1024 || strings.ContainsRune(service.Image, 0) {
