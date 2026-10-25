@@ -97,6 +97,7 @@ func (v *volumeBackups) archiveDir(application, volume string) string {
 // run takes the scheduled backups of the cached assignment until ctx ends.
 // It checks every minute and whenever a new assignment arrives.
 func (v *volumeBackups) run(ctx context.Context) {
+	v.releaseStaleViews()
 	ticker := time.NewTicker(volumeBackupCheckEvery)
 	defer ticker.Stop()
 	for {
@@ -254,9 +255,17 @@ func (v *volumeBackups) archive(ctx context.Context, application, volume, source
 		return VolumeBackup{}, err
 	}
 	defer os.RemoveAll(scratch)
+	view, release, err := volumeBackupView(source, directory)
+	if err != nil {
+		return VolumeBackup{}, err
+	}
 	staged := filepath.Join(scratch, "archive"+volumeBackupExtension)
-	if err := archiveVolume(ctx, source, staged, scratch); err != nil {
-		return VolumeBackup{}, fmt.Errorf("archive volume: %w", err)
+	archiveErr := archiveVolume(ctx, view, staged, scratch)
+	if err := release(); err != nil {
+		return VolumeBackup{}, err
+	}
+	if archiveErr != nil {
+		return VolumeBackup{}, fmt.Errorf("archive volume: %w", archiveErr)
 	}
 	if err := os.Rename(staged, final); err != nil {
 		return VolumeBackup{}, err
@@ -266,6 +275,42 @@ func (v *volumeBackups) archive(ctx context.Context, application, volume, source
 		return VolumeBackup{}, err
 	}
 	return VolumeBackup{Name: name, CreatedAt: createdAt, Size: info.Size()}, nil
+}
+
+// volumeBackupView returns where to read source from for a backup: a
+// symlink-refusing bind mount of it when running as root, which release
+// unmounts again. The mountpoint is removed only once it is unmounted, and
+// never recursively, so a failed unmount cannot delete volume data.
+func volumeBackupView(source, directory string) (view string, release func() error, err error) {
+	if !canMountVolumes() {
+		return source, func() error { return nil }, nil
+	}
+	mountpoint, err := os.MkdirTemp(directory, ".view-")
+	if err != nil {
+		return "", nil, err
+	}
+	unmount, err := mountVolumeNoSymlinks(source, mountpoint)
+	if err != nil {
+		_ = os.Remove(mountpoint)
+		return "", nil, err
+	}
+	return mountpoint, func() error {
+		if err := unmount(); err != nil {
+			return err
+		}
+		return os.Remove(mountpoint)
+	}, nil
+}
+
+// releaseStaleViews unmounts backup views an agent crash left behind, so
+// nothing later deletes volume data through one.
+func (v *volumeBackups) releaseStaleViews() {
+	views, _ := filepath.Glob(filepath.Join(v.backupsDir, "*", "*", ".view-*"))
+	for _, view := range views {
+		if err := unmountVolumeView(view); err == nil {
+			_ = os.Remove(view)
+		}
+	}
 }
 
 // list returns a volume's archives, newest first.
