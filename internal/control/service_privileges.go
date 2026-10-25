@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/security"
 	"github.com/TorstenDittmann/orch/internal/store"
 )
 
@@ -48,4 +51,34 @@ func (s *service) requirePrivateNetworkChange(ctx context.Context, manifest *con
 		return nil
 	}
 	return connect.NewError(connect.CodePermissionDenied, errors.New("only administrator credentials may turn on allowPrivateNetwork"))
+}
+
+// requireRouteDomains holds a deployer whose token or GitHub trust names
+// domains to those domains and their subdomains. Such a deployer may not take
+// the public listener either, since it answers for every hostname.
+func requireRouteDomains(ctx context.Context, manifest *config.Manifest) error {
+	principal, _ := ctx.Value(principalKey{}).(authenticatedPrincipal)
+	if principal.application == "" || len(principal.domains) == 0 {
+		return nil
+	}
+	allowed := strings.Join(principal.domains, ", ")
+	for _, name := range slices.Sorted(maps.Keys(manifest.Services)) {
+		http := manifest.Services[name].HTTP
+		if http == nil {
+			continue
+		}
+		if http.Public {
+			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("services.%s.http: these credentials may only route %s, not the public listener", name, allowed))
+		}
+		domains := append([]string(nil), http.Domains...)
+		for from := range http.Redirects {
+			domains = append(domains, from)
+		}
+		for _, domain := range domains {
+			if !security.DomainAllowed(domain, principal.domains) {
+				return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("services.%s.http: these credentials may only route %s, not %s", name, allowed, domain))
+			}
+		}
+	}
+	return nil
 }

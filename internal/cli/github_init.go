@@ -97,9 +97,11 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&repository, "repo", "", "GitHub repository OWNER/REPO (default: from the origin remote)")
+	var domains stringList
+	flags.Var(&domains, "domain", "domain, with its subdomains, the workflow may route (repeatable; default any)")
 	flags.BoolVar(&force, "force", false, "replace an existing "+githubWorkflowPath)
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
-	valueFlags := map[string]bool{"--context": true, "-context": true, "--app": true, "--branch": true, "--environment": true, "--image": true, "--file": true, "-f": true, "--repo": true}
+	valueFlags := map[string]bool{"--context": true, "-context": true, "--app": true, "--branch": true, "--environment": true, "--image": true, "--file": true, "-f": true, "--repo": true, "--domain": true}
 	if err := flags.Parse(reorderInterspersed(args, valueFlags)); err != nil {
 		return ExitInvalid
 	}
@@ -163,7 +165,7 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	response, err := remote.SetGitHubTrust(ctx, repository, application, branch, environment)
+	response, err := remote.SetGitHubTrust(ctx, repository, application, branch, environment, domains...)
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime

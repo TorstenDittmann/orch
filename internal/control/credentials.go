@@ -69,7 +69,7 @@ func (s *credentialService) ExchangeGitHubToken(ctx context.Context, request *co
 		return nil, err
 	}
 	application = trust.Application
-	certificatePEM, notAfter, err := security.SignDeployerCertificate(s.caPEM, s.caKey, s.cluster.ID, application, csrDER, s.now(), s.random)
+	certificatePEM, notAfter, err := security.SignDeployerCertificate(s.caPEM, s.caKey, s.cluster.ID, application, csrDER, s.now(), s.random, trust.Domains...)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -148,8 +148,12 @@ func (s *service) SetGitHubTrust(ctx context.Context, request *connect.Request[o
 	if !validGitHubName(branch) || (environment != "" && !validGitHubName(environment)) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("branch is required, and branch and environment must be printable names of at most 255 bytes"))
 	}
+	domains, err := config.NormalizeDomainLimits(request.Msg.GetDomains())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	trust, changed, err := s.state.SetGitHubTrust(ctx, model.GitHubTrust{
-		Repository: repository, Application: application, Branch: branch, Environment: environment, CreatedAt: s.now(),
+		Repository: repository, Application: application, Branch: branch, Environment: environment, CreatedAt: s.now(), Domains: domains,
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("store GitHub trust"))
@@ -219,6 +223,6 @@ func validGitHubName(value string) bool {
 func githubTrustMessage(trust model.GitHubTrust) *orchv1alpha1.GitHubTrust {
 	return &orchv1alpha1.GitHubTrust{
 		Repository: trust.Repository, Application: trust.Application, Branch: trust.Branch,
-		Environment: trust.Environment, CreatedAt: timestamppb.New(trust.CreatedAt),
+		Environment: trust.Environment, CreatedAt: timestamppb.New(trust.CreatedAt), Domains: append([]string(nil), trust.Domains...),
 	}
 }

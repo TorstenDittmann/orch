@@ -139,6 +139,42 @@ func TestAccessTokensGiveLimitedAccessToOneApplication(t *testing.T) {
 	})); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("deployer rolling back to capabilities = %v", err)
 	}
+	// A token limited to domains routes only those domains and their
+	// subdomains, and never the public listener.
+	scopedToken, err := admin.CreateAccessToken(ctx, "hello-scoped", "hello", false, time.Hour, "Example.COM.", "example.com")
+	if err != nil || strings.Join(scopedToken.GetToken().GetDomains(), ",") != "example.com" {
+		t.Fatalf("CreateAccessToken(domains) = %+v, %v", scopedToken, err)
+	}
+	if _, err := admin.CreateAccessToken(ctx, "hello-scoped-view", "hello", true, time.Hour, "example.com"); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("read-only token with domains = %v", err)
+	}
+	if _, err := admin.CreateAccessToken(ctx, "hello-wild", "hello", false, time.Hour, "*.example.com"); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("wildcard domain limit = %v", err)
+	}
+	scoped, err := connectWith(scopedToken.GetValue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	routed := func(http config.HTTP) []byte {
+		return mustCanonicalConfig(t, newTestManifest("hello", map[string]config.Service{
+			"web": {Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", HTTP: &http},
+		}))
+	}
+	if _, err := scoped.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
+		CanonicalManifestJson: routed(config.HTTP{Port: 8080, Domains: []string{"app.example.com"}, HealthPath: "/health", HTTPS: true}), IdempotencyKey: "scoped-allowed-key-01",
+	})); err != nil {
+		t.Fatalf("scoped deploy of a subdomain = %v", err)
+	}
+	if _, err := scoped.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
+		CanonicalManifestJson: routed(config.HTTP{Port: 8080, Domains: []string{"app.example.org"}, HealthPath: "/health", HTTPS: true}), IdempotencyKey: "scoped-other-key-0001",
+	})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "app.example.org") {
+		t.Fatalf("scoped deploy of another domain = %v", err)
+	}
+	if _, err := scoped.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
+		CanonicalManifestJson: routed(config.HTTP{Port: 8080, Public: true, HealthPath: "/health"}), IdempotencyKey: "scoped-public-key-001",
+	})); connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "public listener") {
+		t.Fatalf("scoped deploy of the public listener = %v", err)
+	}
 	if _, err := deployer.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{Name: "escalate", Application: "other"})); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("deployer creating a token = %v", err)
 	}

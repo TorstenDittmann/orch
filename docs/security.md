@@ -229,6 +229,12 @@ Installation creates separate credentials for each role.
   workload network, unless an administrator deploys the application with
   `allowPrivateNetwork = true`. Workloads of different applications can still
   reach each other. See [networking](networking.md#what-workloads-can-reach).
+- Deployer credentials (access tokens and GitHub trust) may route any domain
+  unless they were created with `--domain`, which limits them to those domains
+  and their subdomains and refuses the public listener. The limit covers HTTP
+  routes; raw TCP routes and node ports still need administrator review.
+- Pkl manifests may import modules over HTTPS. Treat a remote module like any
+  other dependency and pin it to a version you trust.
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 

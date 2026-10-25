@@ -251,6 +251,9 @@ func (s *service) RollbackApplication(ctx context.Context, req *connect.Request[
 	if err := s.requirePrivateNetworkChange(ctx, manifest); err != nil {
 		return nil, err
 	}
+	if err := requireRouteDomains(ctx, manifest); err != nil {
+		return nil, err
+	}
 	result, err := s.state.ApplyApplication(ctx, model.ApplyApplication{
 		Name: source.Application, RevisionID: newRevisionID(s.cluster.ID, req.Msg.GetIdempotencyKey(), source.Digest),
 		Digest: source.Digest, CanonicalManifest: source.CanonicalManifest, RequestedManifest: source.RequestedManifest,

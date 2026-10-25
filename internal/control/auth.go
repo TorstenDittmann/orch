@@ -33,8 +33,10 @@ type authenticatedPrincipal struct {
 	application string
 	// readOnly is set for viewer certificates, which may only read it.
 	readOnly bool
-	err      error
-	code     connect.Code
+	// domains limits the domains a deployer may route; empty means any.
+	domains []string
+	err     error
+	code    connect.Code
 }
 
 func authenticateAgent(clusterID string, state *store.Store, next http.Handler) http.Handler {
@@ -124,6 +126,7 @@ func authenticateAdministrator(clusterID string, notBefore time.Time, next http.
 					principal.code = connect.CodePermissionDenied
 				} else {
 					principal.application, principal.readOnly = application, readOnly
+					principal.domains = security.ApplicationDomains(principal.certificate)
 				}
 			} else if principal.certificate.NotBefore.Before(notBefore) {
 				principal.err = errors.New("administrator certificate was retired by orch cluster certificates renew; import the new context")

@@ -7553,8 +7553,11 @@ type GitHubTrust struct {
 	Application string `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
 	Branch      string `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
 	// Optional GitHub environment the run must use.
-	Environment   string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Environment string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Domains the runs may route, each with its subdomains. Empty allows any
+	// domain not used by another application, and the public listener.
+	Domains       []string `protobuf:"bytes,6,rep,name=domains,proto3" json:"domains,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7624,12 +7627,20 @@ func (x *GitHubTrust) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GitHubTrust) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
 type SetGitHubTrustRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Repository    string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
 	Application   string                 `protobuf:"bytes,2,opt,name=application,proto3" json:"application,omitempty"`
 	Branch        string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
 	Environment   string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	Domains       []string               `protobuf:"bytes,5,rep,name=domains,proto3" json:"domains,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7690,6 +7701,13 @@ func (x *SetGitHubTrustRequest) GetEnvironment() string {
 		return x.Environment
 	}
 	return ""
+}
+
+func (x *SetGitHubTrustRequest) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
 }
 
 type SetGitHubTrustResponse struct {
@@ -8454,6 +8472,9 @@ type AccessToken struct {
 	// Set for tokens that grant full administrator access instead of one
 	// application; application is then empty.
 	Administrator bool `protobuf:"varint,7,opt,name=administrator,proto3" json:"administrator,omitempty"`
+	// Domains the token may route, each with its subdomains. Empty allows any
+	// domain not used by another application, and the public listener.
+	Domains       []string `protobuf:"bytes,8,rep,name=domains,proto3" json:"domains,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8537,6 +8558,13 @@ func (x *AccessToken) GetAdministrator() bool {
 	return false
 }
 
+func (x *AccessToken) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
 type CreateAccessTokenRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -8546,7 +8574,8 @@ type CreateAccessTokenRequest struct {
 	TtlSeconds  uint32 `protobuf:"varint,4,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	// Grant full administrator access, for tools such as orch panel that
 	// manage the whole cluster. Excludes application and read_only.
-	Administrator bool `protobuf:"varint,5,opt,name=administrator,proto3" json:"administrator,omitempty"`
+	Administrator bool     `protobuf:"varint,5,opt,name=administrator,proto3" json:"administrator,omitempty"`
+	Domains       []string `protobuf:"bytes,6,rep,name=domains,proto3" json:"domains,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8614,6 +8643,13 @@ func (x *CreateAccessTokenRequest) GetAdministrator() bool {
 		return x.Administrator
 	}
 	return false
+}
+
+func (x *CreateAccessTokenRequest) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
 }
 
 type CreateAccessTokenResponse struct {
@@ -9880,7 +9916,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x10RetryJobResponse\x12*\n" +
-	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\xc4\x01\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\xde\x01\n" +
 	"\vGitHubTrust\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
@@ -9889,14 +9925,16 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\x12 \n" +
 	"\venvironment\x18\x04 \x01(\tR\venvironment\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x93\x01\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x18\n" +
+	"\adomains\x18\x06 \x03(\tR\adomains\"\xad\x01\n" +
 	"\x15SetGitHubTrustRequest\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
 	"repository\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x16\n" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\x12 \n" +
-	"\venvironment\x18\x04 \x01(\tR\venvironment\"\xdb\x01\n" +
+	"\venvironment\x18\x04 \x01(\tR\venvironment\x12\x18\n" +
+	"\adomains\x18\x05 \x03(\tR\adomains\"\xdb\x01\n" +
 	"\x16SetGitHubTrustResponse\x120\n" +
 	"\x05trust\x18\x01 \x01(\v2\x1a.orch.v1alpha1.GitHubTrustR\x05trust\x12\x18\n" +
 	"\achanged\x18\x02 \x01(\bR\achanged\x12/\n" +
@@ -9940,7 +9978,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2%.orch.v1alpha1.TestNotificationResultR\aresults\"B\n" +
 	"\x16TestNotificationResult\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xba\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xd4\x02\n" +
 	"\vAccessToken\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x1b\n" +
@@ -9951,14 +9989,16 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12<\n" +
 	"\flast_used_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastUsedAt\x12$\n" +
-	"\radministrator\x18\a \x01(\bR\radministrator\"\xb4\x01\n" +
+	"\radministrator\x18\a \x01(\bR\radministrator\x12\x18\n" +
+	"\adomains\x18\b \x03(\tR\adomains\"\xce\x01\n" +
 	"\x18CreateAccessTokenRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x1b\n" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x1f\n" +
 	"\vttl_seconds\x18\x04 \x01(\rR\n" +
 	"ttlSeconds\x12$\n" +
-	"\radministrator\x18\x05 \x01(\bR\radministrator\"c\n" +
+	"\radministrator\x18\x05 \x01(\bR\radministrator\x12\x18\n" +
+	"\adomains\x18\x06 \x03(\tR\adomains\"c\n" +
 	"\x19CreateAccessTokenResponse\x120\n" +
 	"\x05token\x18\x01 \x01(\v2\x1a.orch.v1alpha1.AccessTokenR\x05token\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\x19\n" +

@@ -846,8 +846,8 @@ administrator has logged in to it.
 ### orch github
 
 ```text
-orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
-orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
+orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
+orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--target NAME] [--json]
 orch github list [--target NAME] [--json]
 orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
 ```
@@ -861,7 +861,8 @@ and its workloads use one image repository, the workflow builds and pushes that
 image before deploying; `--image` names the repository explicitly. `trust` does
 the same without touching the checkout and prints the workflow instead. When `ORCH_CLUSTER` is set and no target is given, remote
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
-application when the repository is trusted for several. See
+application when the repository is trusted for several. `--domain`, on
+`init` and `trust`, limits the domains its deploys may route. See
 [deploy from GitHub](github.md).
 
 ### orch notify
@@ -883,7 +884,7 @@ application. See [cluster notifications](notifications.md#cluster-notifications)
 ### orch token
 
 ```text
-orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+orch token create [NAME] --app APP [--read-only] [--domain DOMAIN]... [--ttl 720h] [--target NAME] [--json]
 orch token create [NAME] --admin [--ttl 720h] [--target NAME] [--json]
 orch token list [--target NAME] [--json]
 orch token revoke NAME [--target NAME] [--json]
@@ -906,6 +907,7 @@ orch app status shop
 | `--app` | required unless `--admin` | The one application the token may use |
 | `--admin` | `false` | Allow everything an administrator can do, for tools that manage the whole cluster; excludes `--app` and `--read-only` |
 | `--read-only` | `false` | Allow status, logs, history, and diffs, but no deploys or rollbacks |
+| `--domain` | any | Deploys may route only this domain and its subdomains, and not the public listener; repeat for more |
 | `--ttl` | `720h` | How long the token works, up to `8760h` |
 
 `NAME` defaults to `APP`, or `APP-read-only` with `--read-only`, or `admin`

@@ -902,6 +902,9 @@ message GitHubTrust {
   // Optional GitHub environment the run must use.
   string environment = 4;
   google.protobuf.Timestamp created_at = 5;
+  // Domains the runs may route, each with its subdomains. Empty allows any
+  // domain not used by another application, and the public listener.
+  repeated string domains = 6;
 }
 
 message SetGitHubTrustRequest {
@@ -909,6 +912,7 @@ message SetGitHubTrustRequest {
   string application = 2;
   string branch = 3;
   string environment = 4;
+  repeated string domains = 5;
 }
 
 message SetGitHubTrustResponse {
@@ -1000,6 +1004,9 @@ message AccessToken {
   // Set for tokens that grant full administrator access instead of one
   // application; application is then empty.
   bool administrator = 7;
+  // Domains the token may route, each with its subdomains. Empty allows any
+  // domain not used by another application, and the public listener.
+  repeated string domains = 8;
 }
 
 message CreateAccessTokenRequest {
@@ -1011,6 +1018,7 @@ message CreateAccessTokenRequest {
   // Grant full administrator access, for tools such as orch panel that
   // manage the whole cluster. Excludes application and read_only.
   bool administrator = 5;
+  repeated string domains = 6;
 }
 
 message CreateAccessTokenResponse {

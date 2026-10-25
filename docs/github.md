@@ -57,6 +57,7 @@ job request its OIDC token.
 | `--app` | the manifest's `name` | The one application the repository may deploy |
 | `--branch` | the remote's default branch | Only runs for this branch may deploy |
 | `--environment` | none | Only jobs that use this GitHub environment may deploy, so its required reviewers become an approval gate |
+| `--domain` | any | Deploys may route only this domain and its subdomains, and not the public listener; repeat for more |
 | `--image` | see below | Image repository to build and push before deploying |
 | `-f` | `orch.pkl` | Manifest to deploy, for a repository with several |
 | `--repo` | the `origin` remote | `OWNER/REPO` when the remote is not GitHub |
@@ -135,6 +136,12 @@ one application. It cannot read secrets, open a shell in containers, change
 nodes, registries or other applications, or trust more repositories. Deploying
 does run code you choose with that application's secrets, so protect the
 branch the way you would protect production.
+
+By default the application may route any domain the cluster serves. Trust
+the repository with `--domain example.com` to keep its deploys to
+`example.com` and its subdomains; a deploy that names another domain, or the
+public listener, is refused. Run `trust` or `init` again with the same
+`--domain` flags, since leaving them out removes the limit.
 
 Only runs started by `push`, `workflow_dispatch`, `schedule` or
 `repository_dispatch` can deploy. The controller refuses

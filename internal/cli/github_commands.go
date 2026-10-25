@@ -21,6 +21,7 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	flags.SetOutput(stderr)
 	var contextPath, application, branch, environment string
 	var jsonOutput bool
+	var domains stringList
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	valueFlags := map[string]bool{"--context": true, "-context": true}
@@ -30,7 +31,8 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		flags.StringVar(&application, "app", "", "application the repository may deploy")
 		flags.StringVar(&branch, "branch", "main", "branch whose runs may deploy")
 		flags.StringVar(&environment, "environment", "", "GitHub environment the run must use (optional)")
-		valueFlags["--app"], valueFlags["--branch"], valueFlags["--environment"] = true, true, true
+		flags.Var(&domains, "domain", "domain, with its subdomains, the runs may route (repeatable; default any)")
+		valueFlags["--app"], valueFlags["--branch"], valueFlags["--environment"], valueFlags["--domain"] = true, true, true, true
 		positional = 1
 	case "untrust":
 		flags.StringVar(&application, "app", "", "application to stop trusting the repository for")
@@ -60,7 +62,7 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	defer remote.CloseIdleConnections()
 	switch command {
 	case "trust":
-		response, err := remote.SetGitHubTrust(ctx, flags.Arg(0), application, branch, environment)
+		response, err := remote.SetGitHubTrust(ctx, flags.Arg(0), application, branch, environment, domains...)
 		if err != nil {
 			writeError(stderr, err, jsonOutput)
 			return ExitRuntime
@@ -69,13 +71,14 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		trust := response.GetTrust()
 		if jsonOutput {
 			return writeJSON(stdout, stderr, struct {
-				Repository  string `json:"repository"`
-				Application string `json:"application"`
-				Branch      string `json:"branch"`
-				Environment string `json:"environment,omitempty"`
-				Changed     bool   `json:"changed"`
-				Cluster     string `json:"cluster"`
-			}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), response.GetChanged(), address})
+				Repository  string   `json:"repository"`
+				Application string   `json:"application"`
+				Branch      string   `json:"branch"`
+				Environment string   `json:"environment,omitempty"`
+				Domains     []string `json:"domains,omitempty"`
+				Changed     bool     `json:"changed"`
+				Cluster     string   `json:"cluster"`
+			}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), trust.GetDomains(), response.GetChanged(), address})
 		}
 		fmt.Fprint(stdout, githubTrustInstructions(trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), address))
 	case "list":
@@ -96,6 +99,9 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			line := fmt.Sprintf("%s  app %s  branch %s", trust.GetRepository(), trust.GetApplication(), trust.GetBranch())
 			if trust.GetEnvironment() != "" {
 				line += "  environment " + trust.GetEnvironment()
+			}
+			if len(trust.GetDomains()) != 0 {
+				line += "  domains " + strings.Join(trust.GetDomains(), ",")
 			}
 			fmt.Fprintln(stdout, line)
 		}
@@ -134,13 +140,15 @@ func printGitHubHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch github lets GitHub Actions deploy without stored credentials.
 
 Usage:
-  orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [-f orch.pkl] [--force] [--json]
-  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--json]
+  orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [-f orch.pkl] [--force] [--json]
+  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--json]
   orch github list [--json]
   orch github untrust OWNER/REPO --app APP [--json]
 
 A trusted repository's workflow runs on that branch exchange their GitHub OIDC
 token for a 15-minute credential that can deploy, roll back and inspect only APP.
+--domain limits the domains those deploys may route to DOMAIN and its
+subdomains, and refuses public listeners. Repeat it for more domains.
 
 init, run inside the repository, trusts it and writes
 .github/workflows/deploy.yml, which builds the image when the manifest's

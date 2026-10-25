@@ -153,6 +153,9 @@ type AccessToken struct {
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	LastUsedAt  time.Time
+	// Domains limits which domains the token may route, each with its
+	// subdomains. Empty means no limit.
+	Domains []string
 }
 
 // Administrator reports whether the token grants administrator access
@@ -187,4 +190,6 @@ type GitHubTrust struct {
 	// and its owner, bound on the first deploy. Empty until then.
 	RepositoryID      string
 	RepositoryOwnerID string
+	// Domains limits which domains runs may route, as for access tokens.
+	Domains []string
 }
