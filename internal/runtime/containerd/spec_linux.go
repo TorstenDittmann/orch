@@ -26,6 +26,8 @@ import (
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
+const workloadPidsLimit = 16384
+
 func (c *runtimeClient) specOptions(image containerdclient.Image, allocation model.AllocationDesired, mounts []specs.Mount) []oci.SpecOpts {
 	opts := []oci.SpecOpts{oci.WithImageConfig(image)}
 	if len(allocation.Command) != 0 {
@@ -40,11 +42,16 @@ func (c *runtimeClient) specOptions(image containerdclient.Image, allocation mod
 	}
 	sort.Strings(environment)
 	quota := int64(allocation.CPUMillis * 100)
+	// A fork bomb in one workload must not use up the node's PID space and
+	// take the agent and every other workload with it. The limit is far
+	// above what thread-heavy runtimes need.
+	pids := int64(workloadPidsLimit)
 	opts = append(opts,
 		oci.WithEnv(environment),
 		oci.WithMemoryLimit(allocation.MemoryBytes),
 		withNoSwap,
 		oci.WithCPUCFS(quota, 100_000),
+		oci.WithPidsLimit(pids),
 		oci.WithNoNewPrivileges,
 		oci.WithCapabilities(append([]string(nil), allocation.Capabilities...)),
 		// The default profile is derived from the process capabilities, so it

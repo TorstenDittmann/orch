@@ -210,6 +210,8 @@ Installation creates separate credentials for each role.
   root on its worker, so only administrator credentials may deploy one; its image
   tag, and `autoUpdate` on
   it, is as trusted as the administrator who deployed it.
+- Every workload, privileged or not, can run at most 16384 processes and
+  threads, so a fork bomb cannot exhaust the PID space of its worker.
 - Workloads cannot reach the host of their own worker, or of any other worker
   through the mesh, except for cluster DNS, HTTP ingress on ports 80 and 443,
   and the ports of raw TCP routes. SSH, the controller API, and any other

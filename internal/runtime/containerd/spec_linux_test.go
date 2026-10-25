@@ -119,6 +119,9 @@ func TestSpecOptionsApplyDefaultSeccompProfile(t *testing.T) {
 	if !spec.Process.NoNewPrivileges || len(spec.Process.Capabilities.Bounding) != 0 {
 		t.Fatalf("process hardening = %#v", spec.Process)
 	}
+	if spec.Linux.Resources.Pids == nil || spec.Linux.Resources.Pids.Limit == nil || *spec.Linux.Resources.Pids.Limit != workloadPidsLimit {
+		t.Fatalf("pids = %#v, want limit %d", spec.Linux.Resources.Pids, workloadPidsLimit)
+	}
 }
 
 func TestSpecOptionsPrivilegedLiftsConfinement(t *testing.T) {
