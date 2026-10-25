@@ -259,7 +259,9 @@ them are retained.
 `/var/lib/orch-ingress` and a `nologin` shell. The agent runs Caddy as this
 account. Installation gives `/opt/orch/bin/caddy` exactly one file capability,
 `cap_net_bind_service=ep`, so Caddy can bind ports 80 and 443 without running
-as root. There is no separate Caddy systemd service.
+as root. The binary is owned by `root:orch-ingress` with mode `0750`, so
+other local users cannot run it to bind low ports. There is no separate Caddy
+systemd service.
 
 ### systemd units
 
