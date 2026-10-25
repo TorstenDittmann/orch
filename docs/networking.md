@@ -67,6 +67,33 @@ are requested automatically. Confirm that public DNS resolves to an ingress
 node and that ports 80 and 443 are reachable so certificate issuance can
 succeed.
 
+### Wildcard domains
+
+A domain may start with `*.` to route every name one label below it, for
+example per-tenant sites:
+
+```pkl
+http = new Http {
+  port = 8080
+  domains { "*.example.com" }
+  healthPath = "/healthz"
+}
+```
+
+Add a wildcard DNS record (`*.example.com`) pointing at your ingress nodes. No
+DNS provider credentials are needed: with `https = true`, each subdomain gets
+its own certificate the first time someone visits it over HTTPS, so that first
+request takes a few seconds longer. The service can read the requested name
+from the `Host` header.
+
+- `*.example.com` matches `shop.example.com` but not `example.com` or
+  `a.shop.example.com`. List `example.com` separately if you need it.
+- An exact domain such as `api.example.com` always wins over the wildcard, even
+  when another service owns it.
+- Let's Encrypt allows 50 new certificates per registered domain per week, so
+  a wildcard suits tens of subdomains a week, not thousands.
+- A wildcard can't be a redirect source or target.
+
 ### Hostnames on separate nodes
 
 By default every ingress node publishes every HTTP route. If a hostname points

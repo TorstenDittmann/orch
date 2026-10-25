@@ -449,8 +449,11 @@ An HTTP endpoint. Ingress nodes route the listed domains to ready replicas.
 
 Rules for `domains`:
 
-- Lowercase, fully qualified hostnames with at least one dot. No wildcards,
-  trailing dots, IP addresses, `localhost`, or names under `svc.internal`.
+- Lowercase, fully qualified hostnames with at least one dot. No trailing
+  dots, IP addresses, `localhost`, or names under `svc.internal`.
+- A domain may start with `*.` to match any one label, such as
+  `*.example.com` for `shop.example.com`. Exact domains win over wildcards.
+  See [wildcard domains](networking.md#wildcard-domains).
 - Internationalized names must be written in their ASCII (`xn--`) form.
 - A domain may be routed by only one service. Across applications, the
   application created first keeps the domain; a later one is blocked with
