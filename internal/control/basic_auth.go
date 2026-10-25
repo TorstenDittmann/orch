@@ -10,10 +10,14 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Caddy's argon2id defaults, so ingress verifies at the cost it would choose.
+// Ingress hashes the password of every request it has not seen before, in the
+// one Caddy process that serves every app on the node. Caddy's own default of
+// 46 MiB per hash let a few hundred requests with random passwords use
+// gigabytes, so the cost is kept small; basic auth secrets should be long
+// random values rather than something a cheap hash would let anyone guess.
 const (
-	basicAuthTime    = 1
-	basicAuthMemory  = 46 * 1024
+	basicAuthTime    = 2
+	basicAuthMemory  = 1024
 	basicAuthThreads = 1
 	basicAuthKeyLen  = 32
 )

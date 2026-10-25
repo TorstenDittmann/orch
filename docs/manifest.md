@@ -503,9 +503,11 @@ printf '%s' "$ADMIN_PASSWORD" | orch secret set APP admin-password --from-stdin
 ```
 
 The controller hashes the password with argon2id and only the hash reaches the
-nodes. Setting a new value for the secret rolls the service like any other
-secret change. Health checks go straight to the replica, so they don't need
-the password. `orch dev` leaves basic auth off.
+nodes. The hash is kept cheap so that requests with random passwords cannot
+wear down a node's ingress, so use a long random password, for example from
+`openssl rand -base64 24`, rather than a word someone could guess. Setting a
+new value for the secret rolls the service like any other secret change.
+Health checks go straight to the replica, so they don't need the password. `orch dev` leaves basic auth off.
 
 ### Redirects
 
