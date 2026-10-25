@@ -834,6 +834,11 @@ orch registry logout HOST [--idempotency-key KEY] [--target NAME] [--json]
 Stores, lists, and removes credentials for private image registries. The
 password or token is read from stdin and accepts 1 byte to 1 MiB.
 
+Deployer and access-token credentials can only use registries on public
+addresses, so an image reference cannot make the controller reach hosts on its
+own network. A registry on a private address works for them once an
+administrator has logged in to it.
+
 ### orch github
 
 ```text

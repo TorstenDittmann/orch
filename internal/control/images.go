@@ -101,6 +101,11 @@ func (s *service) resolveImage(ctx context.Context, path, image string) (string,
 		return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s: registry credentials are unavailable", path))
 	}
 	defer func() { clear(credential.Secret) }()
+	// A deployer's image reference must not make the controller probe hosts
+	// on its own network, unless an administrator logged in to that registry.
+	if credential.Username == "" && requireAdministrator(ctx) != nil {
+		ctx = images.WithPublicRegistriesOnly(ctx)
+	}
 	pinned, err := resolver.Resolve(ctx, normalized, credential.Username, credential.Secret)
 	if err != nil {
 		code, reason := connect.CodeUnavailable, images.ErrUnavailable
@@ -117,6 +122,8 @@ func (s *service) resolveImage(ctx context.Context, path, image string) (string,
 			code, reason = connect.CodeFailedPrecondition, images.ErrPlatform
 		case errors.Is(err, images.ErrInvalid):
 			code, reason = connect.CodeFailedPrecondition, images.ErrInvalid
+		case errors.Is(err, images.ErrPrivate):
+			code, reason = connect.CodePermissionDenied, images.ErrPrivate
 		}
 		return "", connect.NewError(code, fmt.Errorf("%s: %w", path, reason))
 	}

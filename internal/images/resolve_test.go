@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -128,5 +129,25 @@ func TestRejectPlainHTTP(t *testing.T) {
 	_, err := (httpsTransport{base: http.DefaultTransport}).RoundTrip(request)
 	if !errors.Is(err, ErrUnavailable) || requests.Load() != 0 {
 		t.Fatalf("plaintext request: %v", err)
+	}
+}
+
+func TestResolveRefusesPrivateRegistriesWhenAskedTo(t *testing.T) {
+	for _, name := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+		t.Setenv(name, "")
+	}
+	ctx := WithPublicRegistriesOnly(context.Background())
+	for _, image := range []string{"127.0.0.1:5000/test:latest", "10.1.2.3:5000/test:latest", "localhost:5000/test:latest", "169.254.169.254/test:latest"} {
+		if _, err := (Resolver{}).Resolve(ctx, image, "", nil); !errors.Is(err, ErrPrivate) {
+			t.Errorf("%s: err = %v, want ErrPrivate", image, err)
+		}
+	}
+	for _, address := range []string{"100.64.0.1", "192.168.1.1", "::1", "fd00::1", "0.0.0.0"} {
+		if publicAddress(netip.MustParseAddr(address)) {
+			t.Errorf("%s counted as public", address)
+		}
+	}
+	if !publicAddress(netip.MustParseAddr("140.82.112.3")) {
+		t.Error("a public address was refused")
 	}
 }

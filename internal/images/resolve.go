@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/remotes"
@@ -18,6 +20,7 @@ import (
 	"github.com/distribution/reference"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/net/http/httpproxy"
 )
 
 var (
@@ -26,6 +29,7 @@ var (
 	ErrUnavailable  = errors.New("registry could not resolve the image; check registry connectivity and TLS")
 	ErrPlatform     = errors.New("image has no supported Linux amd64 or arm64 platform")
 	ErrInvalid      = errors.New("registry returned invalid or oversized image metadata")
+	ErrPrivate      = errors.New("registry is on a private address; only an administrator can deploy from it, or log in to it with orch registry login")
 )
 
 // Resolver contacts HTTPS registries only. Client optionally supplies trusted TLS roots.
@@ -63,6 +67,9 @@ func (r Resolver) Resolve(ctx context.Context, image, username string, secret []
 	if transport == nil {
 		owned := docker.DefaultHTTPTransport(nil)
 		defer owned.CloseIdleConnections()
+		if publicOnly(ctx) {
+			owned.DialContext = dialPublic(owned.DialContext)
+		}
 		transport = owned
 	}
 	client.Transport = httpsTransport{base: transport}
@@ -109,6 +116,53 @@ func (r Resolver) Resolve(ctx context.Context, image, username string, secret []
 	return pinned.String(), nil
 }
 
+type publicOnlyKey struct{}
+
+// WithPublicRegistriesOnly makes Resolve refuse registries, token servers and
+// redirects that resolve to loopback, private, link-local or shared
+// addresses, so a deployer's image reference cannot make the controller probe
+// hosts on its own network. A proxy from the environment decides egress
+// itself and is used as is.
+func WithPublicRegistriesOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, publicOnlyKey{}, true)
+}
+
+func publicOnly(ctx context.Context) bool {
+	value, _ := ctx.Value(publicOnlyKey{}).(bool)
+	return value
+}
+
+var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+
+func publicAddress(address netip.Addr) bool {
+	address = address.Unmap()
+	return address.IsGlobalUnicast() && !address.IsPrivate() && !sharedAddressSpace.Contains(address)
+}
+
+func dialPublic(dial func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		if httpproxy.FromEnvironment().HTTPSProxy != "" {
+			return dial(ctx, network, address)
+		}
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+		for _, candidate := range addresses {
+			if publicAddress(candidate) {
+				// Dial the checked address, not the name, so a second lookup
+				// cannot return a different one.
+				return dial(ctx, network, net.JoinHostPort(candidate.Unmap().String(), port))
+			}
+		}
+		return nil, ErrPrivate
+	}
+}
+
 func sanitize(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -120,6 +174,8 @@ func sanitize(ctx context.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		return ErrInvalid
+	case errors.Is(err, ErrPrivate):
+		return ErrPrivate
 	case errors.Is(err, docker.ErrInvalidAuthorization), errdefs.IsPermissionDenied(err):
 		return ErrUnauthorized
 	case errdefs.IsNotFound(err):
