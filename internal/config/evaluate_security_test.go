@@ -309,12 +309,16 @@ func TestLoadHonorsEvaluationTimeout(t *testing.T) {
 
 func TestLoadHonorsCallerCancellation(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "pkl")
+	// pkl-go keeps the evaluator process of a cancelled Load and panics with
+	// "send on closed channel" when that process exits while the program
+	// still runs. The fake evaluator therefore outlives the test binary and
+	// lets go of its output, so go test does not wait for it.
 	writeExecutable(t, script, `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "Pkl 0.32.1"
   exit 0
 fi
-exec sleep 5
+exec sleep 120 >/dev/null 2>&1
 `)
 	filename := filepath.Join(t.TempDir(), "orch.pkl")
 	writePklFile(t, filename, validManifest)
