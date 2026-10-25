@@ -628,7 +628,7 @@ func runCronLogs(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
 			output = stderr
 		}
-		if _, err := output.Write(frame.GetData()); err != nil {
+		if _, err := writeWorkloadOutput(output, frame.GetData()); err != nil {
 			writeError(stderr, err, false)
 			return ExitRuntime
 		}
@@ -701,7 +701,7 @@ func runLogs(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
 			output = stderr
 		}
-		if _, err := output.Write(frame.GetData()); err != nil {
+		if _, err := writeWorkloadOutput(output, frame.GetData()); err != nil {
 			writeError(stderr, err, false)
 			return ExitRuntime
 		}
@@ -740,7 +740,7 @@ func followLogs(ctx context.Context, remote *controlclient.Client, application, 
 				if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
 					output = stderr
 				}
-				if _, err := output.Write(frame.GetData()); err != nil {
+				if _, err := writeWorkloadOutput(output, frame.GetData()); err != nil {
 					_ = stream.Close()
 					writeError(stderr, err, false)
 					return ExitRuntime
@@ -827,7 +827,7 @@ func runExec(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
 			output = stderr
 		}
-		if _, err := output.Write(frame.GetData()); err != nil {
+		if _, err := writeWorkloadOutput(output, frame.GetData()); err != nil {
 			writeError(stderr, err, false)
 			return ExitRuntime
 		}

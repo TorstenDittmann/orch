@@ -638,6 +638,10 @@ replaced instance's logs for 24 hours, up to 256 MiB per node with the oldest
 dropped first. They stay on the node that ran it, so they are not found once
 the replica has moved to another node.
 
+On a terminal, `logs`, `exec`, and the job and cron log commands drop control
+characters and escape sequences other than colors, so a workload cannot
+control your terminal. Piped or redirected output is passed through unchanged.
+
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--replica` | `1` | Replica ordinal |
