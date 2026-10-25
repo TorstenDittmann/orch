@@ -26,17 +26,18 @@ func SSH() []uint16 {
 	return parseSSH(string(output))
 }
 
-// parseSSH reads the ports of sshd -T output: the port lines, and the
-// ports of listenaddress lines such as "listenaddress 0.0.0.0:2222" or
-// "listenaddress [::]:2222 rdomain blue", which sshd listens on instead.
+// parseSSH reads the ports of sshd -T output. sshd listens on the ports of
+// its listenaddress lines, such as "listenaddress 0.0.0.0:2222" or
+// "listenaddress [::]:2222 rdomain blue", and ignores the port lines when
+// those name one, so port lines count only when no listenaddress does.
 func parseSSH(config string) []uint16 {
-	var ports []uint16
+	var ports, listened []uint16
 	for _, line := range strings.Split(config, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		value := fields[1]
+		value, list := fields[1], &ports
 		switch {
 		case fields[0] == "port" && len(fields) == 2:
 		case fields[0] == "listenaddress":
@@ -44,13 +45,16 @@ func parseSSH(config string) []uint16 {
 			if err != nil {
 				continue
 			}
-			value = port
+			value, list = port, &listened
 		default:
 			continue
 		}
-		if port, err := strconv.ParseUint(value, 10, 16); err == nil && port != 0 && !slices.Contains(ports, uint16(port)) {
-			ports = append(ports, uint16(port))
+		if port, err := strconv.ParseUint(value, 10, 16); err == nil && port != 0 && !slices.Contains(*list, uint16(port)) {
+			*list = append(*list, uint16(port))
 		}
+	}
+	if len(listened) > 0 {
+		return listened
 	}
 	return ports
 }
