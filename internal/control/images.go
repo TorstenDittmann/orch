@@ -103,7 +103,9 @@ func (s *service) resolveImage(ctx context.Context, path, image string) (string,
 	defer func() { clear(credential.Secret) }()
 	// A deployer's image reference must not make the controller probe hosts
 	// on its own network, unless an administrator logged in to that registry.
-	if credential.Username == "" && requireAdministrator(ctx) != nil {
+	// Administrators and the controller's own auto-update loop, which only
+	// follows images an earlier deploy accepted, resolve any registry.
+	if principal, _ := ctx.Value(principalKey{}).(authenticatedPrincipal); credential.Username == "" && principal.application != "" {
 		ctx = images.WithPublicRegistriesOnly(ctx)
 	}
 	pinned, err := resolver.Resolve(ctx, normalized, credential.Username, credential.Secret)

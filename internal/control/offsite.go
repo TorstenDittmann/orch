@@ -252,6 +252,8 @@ func (o *offsiteBackups) reset(url, identity string) {
 	}
 	o.url, o.identity, o.syncedAt, o.failedAt, o.failure = url, identity, time.Time{}, time.Time{}, ""
 	clear(o.failing)
+	// Another bucket may hold other copies under the same keys.
+	clear(o.encrypted)
 }
 
 // syncController uploads the newest keep controller backup sets the bucket
@@ -297,8 +299,10 @@ func (o *offsiteBackups) syncController(ctx context.Context, client *objectstore
 	return pruneRemote(ctx, client, prefix, remote, o.keep, time.Time{})
 }
 
-// encryptedCopy reports whether the bucket's copy at key is encrypted. A
-// copy found encrypted is remembered, so each is read only once.
+// encryptedCopy reports whether the bucket's copy at key is encrypted to
+// recoveryKey, so that copies made in the clear or for an earlier recovery
+// key are uploaded again. A current copy is remembered, so each is read only
+// once.
 func (o *offsiteBackups) encryptedCopy(ctx context.Context, client *objectstore.Client, key, recoveryKey string) bool {
 	o.mu.Lock()
 	known := o.encrypted[key] == recoveryKey
@@ -313,7 +317,8 @@ func (o *offsiteBackups) encryptedCopy(ctx context.Context, client *objectstore.
 			return err
 		}
 		defer body.Close()
-		encrypted = security.IsEncryptedBackup(bufio.NewReader(body))
+		recipient, ok := security.EncryptedBackupRecipient(bufio.NewReader(body))
+		encrypted = ok && recipient == recoveryKey
 		return nil
 	})
 	if err != nil {

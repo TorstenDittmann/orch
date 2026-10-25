@@ -70,7 +70,7 @@ func TestBackupDecryptionRefusesWrongKeysAndTampering(t *testing.T) {
 	if err := read(truncated, private); err == nil {
 		t.Fatal("truncated backup decrypted")
 	}
-	cut := len(encryptedBackupMagic) + 32 + recoveryChunkSize + 16
+	cut := len(encryptedBackupMagic) + 64 + recoveryChunkSize + 16
 	if err := read(encrypted.Bytes()[:cut], private); err == nil {
 		t.Fatal("backup cut at a chunk boundary decrypted")
 	}

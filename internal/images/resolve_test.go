@@ -151,3 +151,18 @@ func TestResolveRefusesPrivateRegistriesWhenAskedTo(t *testing.T) {
 		t.Error("a public address was refused")
 	}
 }
+
+func TestResolveChecksHostsTheProxySkips(t *testing.T) {
+	for _, name := range []string{"https_proxy", "HTTP_PROXY", "http_proxy", "no_proxy"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("HTTPS_PROXY", "http://proxy.example:3128")
+	t.Setenv("NO_PROXY", "10.0.0.0/8")
+	ctx := WithPublicRegistriesOnly(context.Background())
+	if _, err := (Resolver{}).Resolve(ctx, "10.1.2.3:5000/test:latest", "", nil); !errors.Is(err, ErrPrivate) {
+		t.Fatalf("registry dialed around the proxy: err = %v, want ErrPrivate", err)
+	}
+	if !proxyAddress("proxy.example:3128") || proxyAddress("10.1.2.3:5000") {
+		t.Fatal("proxyAddress does not tell the proxy from a registry")
+	}
+}

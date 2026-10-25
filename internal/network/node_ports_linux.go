@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/TorstenDittmann/orch/internal/hostports"
 	"github.com/google/nftables"
@@ -90,7 +91,12 @@ func (f *firewall) publish(ports []NodePort) ([]error, error) {
 			continue
 		}
 		if err := hostPortFree(port); err != nil {
-			f.hostOwned[port.Key()] = true
+			// Only a listener makes the port the host's; Go listens with
+			// SO_REUSEADDR, so a connection using it as its source port does
+			// not count, and other errors such as EMFILE are retried.
+			if errors.Is(err, syscall.EADDRINUSE) {
+				f.hostOwned[port.Key()] = true
+			}
 			results[index] = err
 			continue
 		}
@@ -162,18 +168,22 @@ func changedNodePorts(previous, current []NodePort) []NodePort {
 
 func hostPortFree(port NodePort) error {
 	address := net.JoinHostPort("0.0.0.0", strconv.Itoa(int(port.Port)))
+	var err error
 	if port.Protocol == "udp" {
-		listener, err := net.ListenPacket("udp4", address)
-		if err != nil {
-			return fmt.Errorf("UDP port %d is already bound on this node", port.Port)
+		var listener net.PacketConn
+		if listener, err = net.ListenPacket("udp4", address); err == nil {
+			return listener.Close()
 		}
-		return listener.Close()
+	} else {
+		var listener net.Listener
+		if listener, err = net.Listen("tcp4", address); err == nil {
+			return listener.Close()
+		}
 	}
-	listener, err := net.Listen("tcp4", address)
-	if err != nil {
-		return fmt.Errorf("TCP port %d is already bound on this node", port.Port)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("%s port %d is already bound on this node: %w", strings.ToUpper(port.Protocol), port.Port, syscall.EADDRINUSE)
 	}
-	return listener.Close()
+	return fmt.Errorf("check %s port %d on this node: %w", strings.ToUpper(port.Protocol), port.Port, err)
 }
 
 func flushConntrack(port NodePort) error {

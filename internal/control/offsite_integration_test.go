@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +109,31 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "unpacked", clusterctl.SecretKeyFilename)); err != nil {
 		t.Fatalf("decrypted copy has no secret key: %v", err)
+	}
+
+	// A new recovery key uploads the copies made for the old one again.
+	newRecoveryKey, newRecoveryPublicKey, err := security.NewRecoveryKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.RecoveryPublicKey = newRecoveryPublicKey
+	if _, err := remote.SetBackupDestination(ctx, request); err != nil {
+		t.Fatalf("SetBackupDestination(new recovery key) = %v", err)
+	}
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		encrypted, _ = bucket.Object(controllerKey)
+		if recipient, _ := security.EncryptedBackupRecipient(bufio.NewReader(bytes.NewReader(encrypted))); recipient == newRecoveryPublicKey {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the controller backup in the bucket was not encrypted to the rotated recovery key")
+		}
+	}
+	if _, err := security.DecryptBackup(bufio.NewReader(bytes.NewReader(encrypted)), newRecoveryKey); err != nil {
+		t.Fatalf("rotated copy does not open with the new key: %v", err)
+	}
+	if _, err := security.DecryptBackup(bufio.NewReader(bytes.NewReader(encrypted)), recoveryKey); !errors.Is(err, security.ErrRecoveryKey) {
+		t.Fatalf("rotated copy with the old key = %v, want ErrRecoveryKey", err)
 	}
 
 	if _, err := remote.ConfigureNetwork(ctx, "10.96.0.0/16", "offsite-network-key"); err != nil {

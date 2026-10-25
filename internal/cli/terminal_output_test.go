@@ -12,6 +12,10 @@ func TestSanitizeTerminalOutputKeepsTextAndColorsOnly(t *testing.T) {
 		"c1 \xc2\x9b31m csi, ü stays": "c1 31m csi, ü stays",
 		"trailing escape \x1b":        "trailing escape ",
 		"unterminated color \x1b[31":  "unterminated color [31",
+		// Halves of a C1 control in separate frames are dropped one by one.
+		"split c1 \xc2":  "split c1 ",
+		"\x9b31m second": "31m second",
+		"raw \x9d8bit":   "raw 8bit",
 	}
 	for input, want := range cases {
 		if got := string(sanitizeTerminalOutput([]byte(input))); got != want {

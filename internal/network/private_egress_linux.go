@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
 
@@ -37,7 +38,7 @@ func (f *firewall) addPrivateEgressRules(connection *nftables.Conn, table *nftab
 		connection.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: append(append([]expr.Any(nil), fromBridge...), exprs...)})
 	}
 	set := &nftables.Set{Table: table, Name: privateEgressSet, KeyType: nftables.TypeIPAddr}
-	if err := connection.AddSet(set, f.privateEgressElements()); err != nil {
+	if err := connection.AddSet(set, privateEgressElements(f.privateEgress)); err != nil {
 		return fmt.Errorf("add private egress set: %w", err)
 	}
 	// Replies, such as those to a LAN client of a node port, are not new
@@ -80,14 +81,15 @@ func (f *firewall) allowPrivateEgress(objectID string, address netip.Addr) error
 	if !address.Is4() {
 		return fmt.Errorf("private network access needs an IPv4 workload address")
 	}
-	if f.privateEgress == nil {
-		f.privateEgress = map[string]netip.Addr{}
-	}
 	if current, ok := f.privateEgress[objectID]; ok && current == address {
 		return nil
 	}
-	f.privateEgress[objectID] = address
-	return f.syncPrivateEgress()
+	next := maps.Clone(f.privateEgress)
+	if next == nil {
+		next = map[string]netip.Addr{}
+	}
+	next[objectID] = address
+	return f.syncPrivateEgress(next)
 }
 
 // revokePrivateEgress forgets objectID's private network access.
@@ -95,29 +97,31 @@ func (f *firewall) revokePrivateEgress(objectID string) error {
 	if _, ok := f.privateEgress[objectID]; !ok {
 		return nil
 	}
-	delete(f.privateEgress, objectID)
-	return f.syncPrivateEgress()
+	next := maps.Clone(f.privateEgress)
+	delete(next, objectID)
+	return f.syncPrivateEgress(next)
 }
 
 // retainPrivateEgress forgets every object not in live.
 func (f *firewall) retainPrivateEgress(live map[string]struct{}) error {
-	changed := false
-	for objectID := range f.privateEgress {
-		if _, ok := live[objectID]; !ok {
-			delete(f.privateEgress, objectID)
-			changed = true
-		}
-	}
-	if !changed {
+	next := maps.Clone(f.privateEgress)
+	maps.DeleteFunc(next, func(objectID string, _ netip.Addr) bool {
+		_, ok := live[objectID]
+		return !ok
+	})
+	if len(next) == len(f.privateEgress) {
 		return nil
 	}
-	return f.syncPrivateEgress()
+	return f.syncPrivateEgress(next)
 }
 
-// syncPrivateEgress replaces the set's contents with the current map. Before
-// the table exists, prepare fills the set instead.
-func (f *firewall) syncPrivateEgress() error {
+// syncPrivateEgress replaces the set's contents with next and records next
+// only once the kernel has it, so a failed update is retried by the next
+// attach, check or detach. Before the table exists, prepare fills the set
+// instead.
+func (f *firewall) syncPrivateEgress(next map[string]netip.Addr) error {
 	if !f.prepared {
+		f.privateEgress = next
 		return nil
 	}
 	connection, err := nftables.New()
@@ -127,7 +131,7 @@ func (f *firewall) syncPrivateEgress() error {
 	table := &nftables.Table{Name: f.tableName, Family: nftables.TableFamilyIPv4}
 	set := &nftables.Set{Table: table, Name: privateEgressSet, KeyType: nftables.TypeIPAddr}
 	connection.FlushSet(set)
-	if elements := f.privateEgressElements(); len(elements) != 0 {
+	if elements := privateEgressElements(next); len(elements) != 0 {
 		if err := connection.SetAddElements(set, elements); err != nil {
 			return fmt.Errorf("update private egress set: %w", err)
 		}
@@ -135,13 +139,14 @@ func (f *firewall) syncPrivateEgress() error {
 	if err := connection.Flush(); err != nil {
 		return fmt.Errorf("update private egress set: %w", err)
 	}
+	f.privateEgress = next
 	return nil
 }
 
-func (f *firewall) privateEgressElements() []nftables.SetElement {
-	elements := make([]nftables.SetElement, 0, len(f.privateEgress))
+func privateEgressElements(grants map[string]netip.Addr) []nftables.SetElement {
+	elements := make([]nftables.SetElement, 0, len(grants))
 	seen := map[netip.Addr]bool{}
-	for _, address := range f.privateEgress {
+	for _, address := range grants {
 		if seen[address] {
 			continue
 		}

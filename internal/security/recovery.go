@@ -77,8 +77,19 @@ func IsEncryptedBackup(reader *bufio.Reader) bool {
 	return string(header) == encryptedBackupMagic
 }
 
+// EncryptedBackupRecipient returns the recovery public key an encrypted
+// backup was encrypted to, without consuming it. ok is false for anything
+// else.
+func EncryptedBackupRecipient(reader *bufio.Reader) (publicKey string, ok bool) {
+	header, _ := reader.Peek(len(encryptedBackupMagic) + 32)
+	if len(header) != len(encryptedBackupMagic)+32 || string(header[:len(encryptedBackupMagic)]) != encryptedBackupMagic {
+		return "", false
+	}
+	return recoveryPublicKeyPrefix + base64.RawURLEncoding.EncodeToString(header[len(encryptedBackupMagic):]), true
+}
+
 // EncryptBackup writes plaintext encrypted to the recovery public key:
-// the header, an ephemeral X25519 key, then 64 KiB AES-256-GCM chunks whose
+// the header, the recovery public key, an ephemeral X25519 key, then 64 KiB AES-256-GCM chunks whose
 // nonce counts the chunk and marks the last one, so a truncated or
 // reordered stream fails to open.
 func EncryptBackup(destination io.Writer, plaintext io.Reader, publicKey string, random io.Reader) error {
@@ -95,6 +106,11 @@ func EncryptBackup(destination io.Writer, plaintext io.Reader, publicKey string,
 		return err
 	}
 	if _, err := io.WriteString(destination, encryptedBackupMagic); err != nil {
+		return err
+	}
+	// The recipient lets the controller tell copies made for an earlier
+	// recovery key from current ones.
+	if _, err := destination.Write(recipient.Bytes()); err != nil {
 		return err
 	}
 	if _, err := destination.Write(ephemeral.PublicKey().Bytes()); err != nil {
@@ -134,11 +150,14 @@ func DecryptBackup(source *bufio.Reader, recoveryKey string) (io.Reader, error) 
 	if err != nil {
 		return nil, err
 	}
-	header := make([]byte, len(encryptedBackupMagic)+32)
+	header := make([]byte, len(encryptedBackupMagic)+64)
 	if _, err := io.ReadFull(source, header); err != nil || string(header[:len(encryptedBackupMagic)]) != encryptedBackupMagic {
 		return nil, errors.New("not an encrypted orch backup")
 	}
-	ephemeral, err := ecdh.X25519().NewPublicKey(header[len(encryptedBackupMagic):])
+	if !bytes.Equal(header[len(encryptedBackupMagic):len(encryptedBackupMagic)+32], key.PublicKey().Bytes()) {
+		return nil, ErrRecoveryKey
+	}
+	ephemeral, err := ecdh.X25519().NewPublicKey(header[len(encryptedBackupMagic)+32:])
 	if err != nil {
 		return nil, errors.New("encrypted backup header is invalid")
 	}

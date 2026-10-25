@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 	"os"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/term"
 )
@@ -22,13 +23,18 @@ func writeWorkloadOutput(output io.Writer, data []byte) (int, error) {
 	return len(data), nil
 }
 
+// sanitizeTerminalOutput keeps one frame's printable text, newlines, tabs
+// and SGR color sequences. It works on each frame alone, so it also drops
+// invalid and truncated UTF-8: a C1 control split across two frames, such
+// as 0xc2 ending stdout and 0x9b starting stderr, is two invalid bytes and
+// never reaches the terminal as one character.
 func sanitizeTerminalOutput(data []byte) []byte {
 	clean := make([]byte, 0, len(data))
-	for index := 0; index < len(data); index++ {
-		value := data[index]
+	for index := 0; index < len(data); {
+		value, size := utf8.DecodeRune(data[index:])
 		switch {
 		case value == '\n' || value == '\t':
-			clean = append(clean, value)
+			clean = append(clean, data[index])
 		case value == 0x1b:
 			// Keep SGR color sequences: ESC [ digits and semicolons m.
 			end := index + 2
@@ -37,15 +43,15 @@ func sanitizeTerminalOutput(data []byte) []byte {
 			}
 			if index+1 < len(data) && data[index+1] == '[' && end < len(data) && data[end] == 'm' {
 				clean = append(clean, data[index:end+1]...)
-				index = end
+				size = end + 1 - index
 			}
-		case value < 0x20 || value == 0x7f:
-		case value == 0xc2 && index+1 < len(data) && data[index+1] >= 0x80 && data[index+1] <= 0x9f:
-			// C1 control characters, which some terminals act on in UTF-8.
-			index++
+		case value == utf8.RuneError && size == 1:
+		case value < 0x20 || (value >= 0x7f && value <= 0x9f):
+			// C0 and C1 control characters and DEL.
 		default:
-			clean = append(clean, value)
+			clean = append(clean, data[index:index+size]...)
 		}
+		index += size
 	}
 	return clean
 }

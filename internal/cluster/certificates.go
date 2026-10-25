@@ -134,16 +134,19 @@ func RenewCertificates(ctx context.Context, options RenewCertificatesOptions) (R
 	if err != nil {
 		return result, err
 	}
+	// Retire every earlier administrator certificate, so a lost laptop or a
+	// leaked context stops working once the controller restarts. This comes
+	// before the controller identity changes, so an interrupted renewal never
+	// leaves the new identity in place with the old contexts still valid; the
+	// new context is accepted either way.
+	if err := retireAdministratorCertificates(ctx, databasePath, administrator.CertificatePEM); err != nil {
+		return result, fmt.Errorf("%w; rerun with a different --admin-dir to retry", err)
+	}
 	if err := replaceControllerLeaf(pki, controller); err != nil {
 		return result, fmt.Errorf("replace controller identity: %w; the new administrator directory remains valid; rerun with a different --admin-dir to retry", err)
 	}
 	if _, err := LoadControllerCredentials(dataDir, stored, current); err != nil {
 		return result, err
-	}
-	// Retire every earlier administrator certificate, so a lost laptop or a
-	// leaked context stops working once the controller restarts.
-	if err := retireAdministratorCertificates(ctx, databasePath, administrator.CertificatePEM); err != nil {
-		return result, fmt.Errorf("%w; the new certificates are in place, rerun with a different --admin-dir to retire the old administrator certificates", err)
 	}
 	controllerNotAfter, _ := security.CertificateNotAfter(controller.CertificatePEM)
 	administratorNotAfter, _ := security.CertificateNotAfter(administrator.CertificatePEM)

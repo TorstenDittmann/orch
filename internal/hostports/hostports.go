@@ -4,7 +4,9 @@ package hostports
 
 import (
 	"context"
+	"net"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,14 +25,29 @@ func SSH() []uint16 {
 	return parseSSH(string(output))
 }
 
+// parseSSH reads the ports of sshd -T output: the port lines, and the
+// ports of listenaddress lines such as "listenaddress 0.0.0.0:2222" or
+// "listenaddress [::]:2222 rdomain blue", which sshd listens on instead.
 func parseSSH(config string) []uint16 {
 	var ports []uint16
 	for _, line := range strings.Split(config, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[0] != "port" {
+		if len(fields) < 2 {
 			continue
 		}
-		if port, err := strconv.ParseUint(fields[1], 10, 16); err == nil && port != 0 {
+		value := fields[1]
+		switch {
+		case fields[0] == "port" && len(fields) == 2:
+		case fields[0] == "listenaddress":
+			_, port, err := net.SplitHostPort(value)
+			if err != nil {
+				continue
+			}
+			value = port
+		default:
+			continue
+		}
+		if port, err := strconv.ParseUint(value, 10, 16); err == nil && port != 0 && !slices.Contains(ports, uint16(port)) {
 			ports = append(ports, uint16(port))
 		}
 	}

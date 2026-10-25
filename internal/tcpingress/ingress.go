@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TorstenDittmann/orch/internal/hostports"
@@ -121,7 +122,11 @@ func (c *Controller) Apply(_ context.Context, routes []Route) []model.TCPRouteSt
 		}
 		networkListener, err := net.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(int(route.PublicPort))))
 		if err != nil {
-			c.hostOwned[route.PublicPort] = true
+			// Only a listener makes the port the host's; other errors such as
+			// EMFILE are retried on the next sync.
+			if errors.Is(err, syscall.EADDRINUSE) {
+				c.hostOwned[route.PublicPort] = true
+			}
 			status.State, status.Reason, status.Message = model.TCPRouteFailed, "listen_failed", err.Error()
 			statuses = append(statuses, status)
 			continue

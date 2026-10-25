@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/remotes"
@@ -121,8 +122,9 @@ type publicOnlyKey struct{}
 // WithPublicRegistriesOnly makes Resolve refuse registries, token servers and
 // redirects that resolve to loopback, private, link-local or shared
 // addresses, so a deployer's image reference cannot make the controller probe
-// hosts on its own network. A proxy from the environment decides egress
-// itself and is used as is.
+// hosts on its own network. Connections to the proxy from the environment
+// are left alone, since it decides egress itself; hosts that NO_PROXY dials
+// directly are checked like any other.
 func WithPublicRegistriesOnly(ctx context.Context) context.Context {
 	return context.WithValue(ctx, publicOnlyKey{}, true)
 }
@@ -141,7 +143,7 @@ func publicAddress(address netip.Addr) bool {
 
 func dialPublic(dial func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		if httpproxy.FromEnvironment().HTTPSProxy != "" {
+		if proxyAddress(address) {
 			return dial(ctx, network, address)
 		}
 		host, port, err := net.SplitHostPort(address)
@@ -161,6 +163,35 @@ func dialPublic(dial func(context.Context, string, string) (net.Conn, error)) fu
 		}
 		return nil, ErrPrivate
 	}
+}
+
+// proxyAddress reports whether address is the host and port of the HTTP or
+// HTTPS proxy from the environment, which the transport dials instead of
+// the registry.
+func proxyAddress(address string) bool {
+	config := httpproxy.FromEnvironment()
+	for _, raw := range []string{config.HTTPSProxy, config.HTTPProxy} {
+		if raw == "" {
+			continue
+		}
+		proxy, err := url.Parse(raw)
+		if err != nil || proxy.Host == "" {
+			if proxy, err = url.Parse("http://" + raw); err != nil {
+				continue
+			}
+		}
+		port := proxy.Port()
+		if port == "" {
+			port = map[string]string{"https": "443", "socks5": "1080"}[proxy.Scheme]
+			if port == "" {
+				port = "80"
+			}
+		}
+		if net.JoinHostPort(proxy.Hostname(), port) == address {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitize(ctx context.Context, err error) error {
