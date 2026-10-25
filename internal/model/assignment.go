@@ -587,7 +587,7 @@ func AllocationSpecDigestMatches(allocation AllocationDesired) (bool, error) {
 // digest and all fields added by the network slice remain unset.
 func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
 	if allocation.NetworkGeneration != 0 || allocation.HTTP != nil || allocation.TCP != nil || allocation.UDP != nil || len(allocation.DependsOn) != 0 || allocation.Rollback != nil ||
-		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 || allocation.Privileged || len(allocation.Capabilities) != 0 {
+		allocation.MaxSurge != 0 || allocation.MaxUnavailable != 0 || allocation.StopGraceSeconds != 0 || allocation.Privileged || len(allocation.Capabilities) != 0 {
 		return false, nil
 	}
 	current, err := AllocationSpecDigest(allocation)

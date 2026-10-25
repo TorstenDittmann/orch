@@ -30,6 +30,11 @@ func TestCapabilitiesAffectDigestAndCannotUseLegacyAuthorization(t *testing.T) {
 		t.Fatalf("legacy digest authorized capabilities: %v, %v", matches, err)
 	}
 	base.Capabilities = nil
+	base.StopGraceSeconds = 600
+	if matches, err := AllocationSpecDigestMatches(base); err != nil || matches {
+		t.Fatalf("legacy digest authorized stop grace: %v, %v", matches, err)
+	}
+	base.StopGraceSeconds = 0
 	base.Privileged = true
 	if matches, err := AllocationSpecDigestMatches(base); err != nil || matches {
 		t.Fatalf("legacy digest authorized privileged mode: %v, %v", matches, err)
