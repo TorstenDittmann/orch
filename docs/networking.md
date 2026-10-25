@@ -200,7 +200,9 @@ connections to the internet. On the worker they run on, they reach only:
 - the `publicPort` of raw TCP routes on that worker.
 
 Every other port on the worker, such as SSH, the controller API, or a database
-installed on the host, is refused. Cloud metadata endpoints in
+installed on the host, is refused. Workloads on other workers get the same
+treatment through the WireGuard mesh: they reach this worker's workloads, but
+not its SSH, controller API, or other host services. Cloud metadata endpoints in
 `169.254.0.0/16`, which hand out instance credentials, are refused as well.
 Run anything that workloads need as an orch service instead.
 

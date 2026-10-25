@@ -83,6 +83,10 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 	attach("orchfwc", container, bridge, nil, []string{"10.199.0.2/24"}, "10.199.0.1")
 	attach("orchfwo", outside, nil, []string{"10.200.0.1/24", "169.254.0.1/16"},
 		[]string{"10.200.0.2/24", "169.254.169.254/16"}, "10.200.0.1")
+	// remote stands in for a workload on another node: its traffic arrives on
+	// the WireGuard interface from that node's subnet.
+	remote := newNamespace(t, host)
+	attach("orchfwwg", remote, nil, []string{"10.199.1.1/24"}, []string{"10.199.1.2/24"}, "10.199.1.1")
 
 	for _, port := range []int{22, 80, 5432} {
 		listen(t, "0.0.0.0:"+strconv.Itoa(port))
@@ -93,10 +97,10 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 	f := &firewall{stateDir: t.TempDir(), tableName: "orch_fwtest", bridge: bridge.Name, wireguard: "orchfwwg"}
 	must(f.prepare(model.NetworkConfig{ClusterCIDR: "10.199.0.0/16", NodeSubnet: "10.199.0.0/24", Gateway: "10.199.0.1"}))
 
-	expect := func(address string, open bool) {
+	expectFrom := func(source netns.NsHandle, address string, open bool) {
 		t.Helper()
 		var err error
-		inNamespace(t, container, host, func() {
+		inNamespace(t, source, host, func() {
 			var connection net.Conn
 			connection, err = net.DialTimeout("tcp", address, 2*time.Second)
 			if err == nil {
@@ -110,12 +114,21 @@ func TestWorkloadFirewallLimitsHostAndMetadataAccess(t *testing.T) {
 			t.Fatalf("%s from a workload is reachable, want blocked", address)
 		}
 	}
+	expect := func(address string, open bool) {
+		t.Helper()
+		expectFrom(container, address, open)
+	}
 	expect("10.199.0.1:53", true)
 	expect("10.199.0.1:80", true)
 	expect("10.199.0.1:22", false)
 	expect("10.199.0.1:5432", false)
 	expect("10.200.0.2:8080", true)
 	expect("169.254.169.254:8080", false)
+	// Workloads on other nodes reach this node's workloads but not its host.
+	inNamespace(t, container, host, func() { listen(t, "10.199.0.2:9000") })
+	expectFrom(remote, "10.199.0.2:9000", true)
+	expectFrom(remote, "10.199.0.1:22", false)
+	expectFrom(remote, "10.199.0.1:5432", false)
 
 	must(f.allowIngress([]uint16{5432}))
 	expect("10.199.0.1:5432", true)

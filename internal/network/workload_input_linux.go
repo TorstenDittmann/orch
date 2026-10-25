@@ -4,6 +4,7 @@ package network
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"slices"
 
@@ -24,6 +25,7 @@ const (
 // addWorkloadInputChains limits what workloads reach on the host itself:
 //
 //	input:          iifname BRIDGE jump workload_input
+//	                iifname WIREGUARD ip saddr CLUSTER jump workload_input
 //	workload_input: ct state established,related accept
 //	                meta l4proto icmp accept
 //	                ip daddr GATEWAY udp/tcp dport 53 accept
@@ -32,7 +34,9 @@ const (
 //	                reject with icmp admin-prohibited
 //
 // Without it a container could reach SSH, the controller API, and any host
-// service the provider firewall hides from the internet. HTTP and raw TCP
+// service the provider firewall hides from the internet. Workloads on other
+// nodes arrive over WireGuard and reach this node's gateway address the same
+// way, so they get the same limits. HTTP and raw TCP
 // ingress stay reachable so an application can call its own public domain.
 // The returned chain holds one accept per raw TCP route port.
 func (f *firewall) addWorkloadInputChains(connection *nftables.Conn, table *nftables.Table, config model.NetworkConfig) *nftables.Chain {
@@ -45,6 +49,17 @@ func (f *firewall) addWorkloadInputChains(connection *nftables.Conn, table *nfta
 	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: append([]byte(f.bridge), 0)},
+		&expr.Verdict{Kind: expr.VerdictJump, Chain: workload.Name},
+	}})
+	cluster := netip.MustParsePrefix(config.ClusterCIDR).Masked()
+	clusterAddress := cluster.Addr().As4()
+	clusterMask := net.CIDRMask(cluster.Bits(), 32)
+	connection.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: append([]byte(f.wireguard), 0)},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: clusterMask, Xor: []byte{0, 0, 0, 0}},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: clusterAddress[:]},
 		&expr.Verdict{Kind: expr.VerdictJump, Chain: workload.Name},
 	}})
 	states := expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED
