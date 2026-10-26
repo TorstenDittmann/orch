@@ -161,12 +161,8 @@ func (s *Store) CreateJob(ctx context.Context, job model.Job, key, hash string, 
 	if active >= 32 {
 		return model.Job{}, ErrJobLimit
 	}
-	var cpu, memory uint64
-	// Reserve rollback processes the same way as the scheduler and
-	// NodeAssignedResources: only a start-before-stop allocation can run its
-	// rollback process next to the current one. A stop-first rollback replaces
-	// the current process, so counting it would double the reservation.
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(json_extract(spec,'$.cpu_millis')+CASE WHEN json_extract(spec,'$.start_before_stop') THEN COALESCE(json_extract(spec,'$.rollback.cpu_millis'),0) ELSE 0 END),0), COALESCE(sum(json_extract(spec,'$.memory_bytes')+CASE WHEN json_extract(spec,'$.start_before_stop') THEN COALESCE(json_extract(spec,'$.rollback.memory_bytes'),0) ELSE 0 END),0) FROM desired_allocations WHERE node_id=?`, job.NodeID).Scan(&cpu, &memory); err != nil {
+	cpu, memory, err := allocationReservations(ctx, tx, job.NodeID)
+	if err != nil {
 		return model.Job{}, err
 	}
 	var cronCPU, cronMemory uint64

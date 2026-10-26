@@ -176,21 +176,41 @@ func TestDistributedReconcilerAdvancesRolloutFromStoredObservation(t *testing.T)
 
 func TestDistributedReservationIncludesAuthorizedSurge(t *testing.T) {
 	allocation := model.AllocationDesired{
+		ID: "alloc-web", RevisionID: "revision-two", SpecDigest: "sha256:new",
 		CPUMillis: 200, MemoryBytes: 128 << 20, StartBeforeStop: true,
-		Rollback: &model.RollbackSpec{CPUMillis: 100, MemoryBytes: 64 << 20},
+		Rollback: &model.RollbackSpec{RevisionID: "revision-one", SpecDigest: "sha256:old", CPUMillis: 100, MemoryBytes: 64 << 20},
 	}
-	reservation := allocationReservation(allocation)
+	// The agent still runs the previous revision: both processes may coexist.
+	rolling := model.ApplicationExecution{Allocations: []model.AllocationStatus{{
+		ID: "alloc-web", ActiveRevisionID: "revision-one", ActiveSpecDigest: "sha256:old",
+	}}}
+	reservation := allocationReservation(allocation, rolling)
 	if reservation.CPUMillis != 300 || reservation.MemoryBytes != 192<<20 {
 		t.Fatalf("allocationReservation() = %#v", reservation)
 	}
+	if unobserved := allocationReservation(allocation, model.ApplicationExecution{}); unobserved != reservation {
+		t.Fatalf("unobserved allocationReservation() = %#v", unobserved)
+	}
+	executions := map[string]model.ApplicationExecution{"": rolling}
 	preserved := assignmentResources([]model.AllocationDesired{allocation}, []model.CronJobDesired{{
 		CPUMillis: 50, MemoryBytes: 32 << 20,
-	}})
+	}}, executions)
 	if preserved.CPUMillis != 350 || preserved.MemoryBytes != 224<<20 {
 		t.Fatalf("assignmentResources() = %#v", preserved)
 	}
+
+	// Once the desired spec is active the previous process is gone, so the
+	// rollback no longer holds capacity.
+	settled := model.ApplicationExecution{Allocations: []model.AllocationStatus{{
+		ID: "alloc-web", ActiveRevisionID: "revision-two", ActiveSpecDigest: "sha256:new",
+	}}}
+	reservation = allocationReservation(allocation, settled)
+	if reservation.CPUMillis != 200 || reservation.MemoryBytes != 128<<20 {
+		t.Fatalf("settled allocationReservation() = %#v", reservation)
+	}
+
 	allocation.StartBeforeStop = false
-	reservation = allocationReservation(allocation)
+	reservation = allocationReservation(allocation, rolling)
 	if reservation.CPUMillis != 200 || reservation.MemoryBytes != 128<<20 {
 		t.Fatalf("stop-before-start allocationReservation() = %#v", reservation)
 	}
