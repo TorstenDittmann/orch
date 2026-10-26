@@ -1,0 +1,44 @@
+name: Website deploy
+
+# Prerenders the website and deploys it with orch as a static site. Needs the
+# ORCH_CLUSTER and ORCH_VERSION repository variables and an `orch github
+# trust` for this repository (see website/README.md).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - website/**
+      - docs/**
+      - pkl/**
+      - .github/workflows/website-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: orch-website-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v2
+      - name: Install pinned website dependencies
+        working-directory: website
+        run: mise exec -- bun install --frozen-lockfile
+      - name: Prerender website
+        working-directory: website
+        run: mise exec -- bun run check && mise exec -- bun run build:site
+      - uses: TorstenDittmann/orch@v0.1.15
+        with:
+          cluster: ${{ vars.ORCH_CLUSTER }}
+          version: ${{ vars.ORCH_VERSION }}
+          app: orch-website
+          file: website/orch.pkl
