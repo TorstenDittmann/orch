@@ -19,7 +19,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: orch-website-production
+  group: orch-production
   cancel-in-progress: false
 
 jobs:
@@ -40,5 +40,5 @@ jobs:
         with:
           cluster: ${{ vars.ORCH_CLUSTER }}
           version: ${{ vars.ORCH_VERSION }}
-          app: orch-website
+          app: orch
           file: website/orch.pkl
