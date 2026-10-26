@@ -40,8 +40,9 @@
 		return new Set([...newest.values()].map((runtime) => runtime.id));
 	});
 	const stoppedReasons = ['job_removed', 'job_replaced', 'cancelled'];
+	const oneOff = (runtime: Runtime) => runtime.resource === `run-${runtime.id.replace(/^job_/, '')}`;
 	const failedJob = (runtime: Runtime) =>
-		tone(runtime.jobRunState) === 'bad' && latestRuns.has(runtime.id) && !runtime.resource.startsWith('run-') && !stoppedReasons.includes(runtime.reason);
+		tone(runtime.jobRunState) === 'bad' && latestRuns.has(runtime.id) && !oneOff(runtime) && !stoppedReasons.includes(runtime.reason);
 
 	const sum = (key: 'assignedCpuMillis' | 'allocatableCpuMillis' | 'assignedMemoryBytes' | 'allocatableMemoryBytes') =>
 		nodes.reduce((total, node) => total + Number(node[key] || 0), 0);
