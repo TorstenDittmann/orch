@@ -80,3 +80,45 @@ func TestJobRequestsAreDurableAtomicAndImmutable(t *testing.T) {
 	}
 	tx.Rollback()
 }
+
+func TestJobCapacityCountsRollbackOnlyForStartBeforeStop(t *testing.T) {
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.EnrollAgent(ctx, testEnrollAgent("node-one", "node-1", strings.Repeat("a", 64), "enrollment-key-one", strings.Repeat("1", 64))); err != nil {
+		t.Fatal(err)
+	}
+	input := applicationInput(`{"name":"hello","services":{"web":{"image":"pinned"}}}`, "revision-one", "application-key-one", testCreatedAt)
+	if _, err := state.ApplyApplication(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	// A running allocation of 400 whose previous revision, kept for rollback,
+	// reserved 600. On a node of 1000 a job of 500 fits only when the rollback
+	// process cannot run next to the current one.
+	setAllocation := func(startBeforeStop bool) {
+		t.Helper()
+		spec := `{"id":"alloc-web","cpu_millis":400,"memory_bytes":400,"start_before_stop":` + map[bool]string{true: "true", false: "false"}[startBeforeStop] + `,"rollback":{"cpu_millis":600,"memory_bytes":600}}`
+		if _, err := state.db.ExecContext(ctx, `INSERT INTO desired_allocations (id, node_id, application_name, service_name, replica, application_generation, revision_id, spec_digest, spec, assignment_generation)
+			VALUES ('alloc-web', 'node-one', 'hello', 'web', 1, 1, 'revision-one', ?, ?, 1)
+			ON CONFLICT(id) DO UPDATE SET spec=excluded.spec`, "sha256:"+strings.Repeat("b", 64), spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	job := func(id string) model.Job {
+		at := testCreatedAt
+		template := model.CronJobDesired{Application: "hello", Job: "run-" + id, RunID: "job_" + id, RunAt: &at, ApplicationGeneration: 1, RevisionID: "revision-one", Image: "example/web@sha256:" + strings.Repeat("a", 64), CPUMillis: 500, MemoryBytes: 500, SpecDigest: "digest-" + id}
+		return model.Job{ID: template.RunID, NodeID: "node-one", Service: "web", Kind: "manual", Template: template, Status: model.JobRunStatus{ID: template.RunID, Application: "hello", Job: template.Job, SpecDigest: template.SpecDigest, ScheduledAt: at, State: model.JobRunWaiting, UpdatedAt: at}}
+	}
+
+	setAllocation(true)
+	if _, err := state.CreateJob(ctx, job("surge"), "job-request-surge", strings.Repeat("3", 64), 1000, 1000); !errors.Is(err, ErrJobLimit) {
+		t.Fatalf("start-before-stop rollback was not reserved: %v", err)
+	}
+
+	setAllocation(false)
+	if _, err := state.CreateJob(ctx, job("stop-first"), "job-request-stop-first", strings.Repeat("4", 64), 1000, 1000); err != nil {
+		t.Fatalf("stop-first rollback was reserved next to the current process: %v", err)
+	}
+}
