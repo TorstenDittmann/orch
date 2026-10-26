@@ -292,3 +292,19 @@ func TestRunCronJobStartsTheScheduledJobNowOnItsNode(t *testing.T) {
 		t.Fatalf("missing job = %v", err)
 	}
 }
+
+func TestActiveJobRunsDropsRemovedCronJobs(t *testing.T) {
+	application := model.Application{CanonicalManifest: json.RawMessage(`{"cron_jobs":{"nightly":{}}}`)}
+	application.Execution.JobRuns = []model.JobRunStatus{
+		{ID: "run_a", Job: "nightly", State: model.JobRunFailed},
+		{ID: "run_b", Job: "removed", State: model.JobRunFailed},
+		{ID: "job_c", Job: "run-c", State: model.JobRunFailed},
+	}
+	var kept []string
+	for _, run := range activeJobRuns(application) {
+		kept = append(kept, run.ID)
+	}
+	if strings.Join(kept, ",") != "run_a,job_c" {
+		t.Fatalf("kept runs = %v, want the declared cron job and the one-off run", kept)
+	}
+}

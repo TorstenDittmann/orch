@@ -40,6 +40,39 @@
 	const allocations = $derived([...(app?.allocations ?? [])].sort((a, b) => a.service.localeCompare(b.service) || a.replica - b.replica));
 	const services = $derived([...new Set(allocations.map((allocation) => allocation.service))]);
 	const manifest = $derived(app ? pretty(app.canonicalManifestJson) : '');
+
+	// Databases are services orch generates from the manifest's `databases`
+	// block; the canonical manifest marks them with their engine.
+	type ManifestJson = {
+		services?: Record<string, { database?: { engine: string; version: string }; tcp?: { port: number } }>;
+		volumes?: Record<string, { backup?: { schedule: string; keep: number } }>;
+	};
+	const databases = $derived.by(() => {
+		let parsed: ManifestJson = {};
+		try {
+			parsed = JSON.parse(app?.canonicalManifestJson || '{}');
+		} catch {
+			return [];
+		}
+		return Object.entries(parsed.services ?? {})
+			.filter(([, service]) => service.database)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([service, spec]) => {
+				const replicas = allocations.filter((allocation) => allocation.service === service);
+				const backup = parsed.volumes?.[`${service}-backup`]?.backup ?? parsed.volumes?.[`${service}-data`]?.backup;
+				return {
+					name: service,
+					engine: spec.database!.engine,
+					version: spec.database!.version,
+					host: `${service}.${name}.svc.internal${spec.tcp?.port ? `:${spec.tcp.port}` : ''}`,
+					urlSecret: `${service}-url`,
+					volume: parsed.volumes?.[`${service}-data`] ? `${service}-data` : '',
+					backup,
+					replica: replicas[0]
+				};
+			});
+	});
+	const engines = $derived(new Map(databases.map((database) => [database.name, database.engine])));
 	const tabs = $derived([
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'replicas', label: 'Replicas', count: allocations.length },
@@ -222,6 +255,34 @@
 				</section>
 			{/if}
 
+			{#if tab === 'overview' && databases.length}
+				<section class="panel spaced">
+					<div class="panel-head"><h2>Databases</h2><span class="hint">Services and cron jobs reach one with connect in orch.pkl</span></div>
+					<div class="table-wrap">
+						<table class="data">
+							<thead>
+								<tr><th>Database</th><th>Engine</th><th>Status</th><th>Health</th><th>Node</th><th>Internal address</th><th>URL secret</th><th>Volume</th><th>Backups</th></tr>
+							</thead>
+							<tbody>
+								{#each databases as database (database.name)}
+									<tr>
+										<td class="primary-cell">{database.name}</td>
+										<td>{database.engine} <span class="faint">{database.version}</span></td>
+										<td>{#if database.replica}<Status value={database.replica.phase} />{:else}<span class="faint">unplaced</span>{/if}</td>
+										<td>{#if database.replica}<Status value={database.replica.healthStatus} />{/if}</td>
+										<td>{#if database.replica?.nodeName}<a class="link" href={href('nodes', database.replica.nodeName)}>{database.replica.nodeName}</a>{:else}<span class="faint">—</span>{/if}</td>
+										<td class="mono"><button class="copy" title="Copy address" onclick={() => copy(database.host)}>{database.host} <Copy size={12} /></button></td>
+										<td class="mono">{database.urlSecret}</td>
+										<td class="mono faint">{database.volume || 'in memory'}</td>
+										<td>{#if database.backup}<span class="mono">{database.backup.schedule}</span> <span class="faint">· keep {database.backup.keep}</span>{:else}<span class="faint">off</span>{/if}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</section>
+			{/if}
+
 			<section class="panel spaced">
 				<div class="panel-head"><h2>Replicas</h2><span class="hint">{allocations.length} placed</span></div>
 				{#if allocations.length}
@@ -233,7 +294,7 @@
 							<tbody>
 								{#each allocations as allocation (allocation.id || allocation.service + allocation.replica)}
 									<tr>
-										<td class="primary-cell">{allocation.service}</td>
+										<td class="primary-cell">{allocation.service}{#if engines.has(allocation.service)} <span class="chip">{engines.get(allocation.service)}</span>{/if}</td>
 										<td class="mono">#{allocation.replica}</td>
 										<td><Status value={allocation.phase} /></td>
 										<td><Status value={allocation.healthStatus} /></td>
@@ -600,5 +661,19 @@
 	}
 	.pad {
 		padding: 0 16px 12px;
+	}
+	.copy {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+	}
+	.copy:hover {
+		color: var(--accent-text);
 	}
 </style>

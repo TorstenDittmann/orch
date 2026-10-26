@@ -6,6 +6,7 @@
 	import { ago, bytes, cores, label, ratio, tone } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live, openLogs } from '../lib/state.svelte';
+	import type { Runtime } from '../lib/types';
 
 	const snapshot = $derived(live.snapshot!);
 	const cluster = $derived(snapshot.cluster);
@@ -16,10 +17,32 @@
 	const backupStale = $derived(!!backup?.enabled && !!backup.latestAt && live.now - new Date(backup.latestAt).getTime() > 48 * 3600 * 1000);
 	const events = $derived([...(snapshot.events?.events ?? [])].reverse().slice(0, 12));
 
-	const runningApps = $derived(apps.filter((app) => label(app.executionStatus) === 'running').length);
+	// A settled application reports HEALTHY rather than RUNNING, so count every
+	// status in the ok tone.
+	const runningApps = $derived(apps.filter((app) => tone(app.executionStatus) === 'ok').length);
 	const connected = $derived(nodes.filter((node) => label(node.connectionStatus) === 'connected').length);
 	const services = $derived(runtimes.filter((runtime) => label(runtime.kind) === 'service'));
 	const healthy = $derived(services.filter((runtime) => tone(runtime.healthStatus) === 'ok' || label(runtime.allocationPhase) === 'running').length);
+
+	// Only the newest run of each cron job counts: a later run supersedes a
+	// failure, and a run stopped because its job was removed, replaced or
+	// cancelled is not something to fix. One-off runs (run-…) live on the Jobs
+	// page, and a failed pre-deploy job already fails its application.
+	const time = (value: string | null) => (value ? new Date(value).getTime() : 0);
+	const latestRuns = $derived.by(() => {
+		const newest = new Map<string, Runtime>();
+		for (const runtime of runtimes) {
+			if (label(runtime.kind) !== 'cron run') continue;
+			const key = `${runtime.application}\x00${runtime.resource}`;
+			const seen = newest.get(key);
+			if (!seen || time(runtime.scheduledAt) > time(seen.scheduledAt)) newest.set(key, runtime);
+		}
+		return new Set([...newest.values()].map((runtime) => runtime.id));
+	});
+	const stoppedReasons = ['job_removed', 'job_replaced', 'cancelled'];
+	const oneOff = (runtime: Runtime) => runtime.resource === `run-${runtime.id.replace(/^job_/, '')}`;
+	const failedJob = (runtime: Runtime) =>
+		tone(runtime.jobRunState) === 'bad' && latestRuns.has(runtime.id) && !oneOff(runtime) && !stoppedReasons.includes(runtime.reason);
 
 	const sum = (key: 'assignedCpuMillis' | 'allocatableCpuMillis' | 'assignedMemoryBytes' | 'allocatableMemoryBytes') =>
 		nodes.reduce((total, node) => total + Number(node[key] || 0), 0);
@@ -39,7 +62,7 @@
 			.filter((node) => tone(node.connectionStatus) === 'bad' || node.drainBlockers?.length)
 			.map((node) => ({ key: `n${node.name}`, href: href('nodes', node.name), title: node.name, kind: 'Node', status: node.connectionStatus, detail: node.drainBlockers?.join(', ') || `Last seen ${ago(node.lastSeenAt, live.now)}` })),
 		...runtimes
-			.filter((runtime) => tone(runtime.healthStatus) === 'bad' || tone(runtime.allocationPhase) === 'bad' || tone(runtime.jobRunState) === 'bad')
+			.filter((runtime) => (label(runtime.kind) === 'cron run' ? failedJob(runtime) : tone(runtime.healthStatus) === 'bad' || tone(runtime.allocationPhase) === 'bad'))
 			.slice(0, 8)
 			.map((runtime) => ({ key: `r${runtime.id}`, href: href('apps', runtime.application), title: `${runtime.application} / ${runtime.resource}`, kind: 'Runtime', status: runtime.jobRunState !== 'JOB_RUN_STATE_UNSPECIFIED' && runtime.jobRunState ? runtime.jobRunState : runtime.healthStatus, detail: runtime.message || runtime.reason }))
 	]);
