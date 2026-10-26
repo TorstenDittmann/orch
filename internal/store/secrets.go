@@ -62,15 +62,27 @@ func (s *Store) SecretKeyFingerprint(ctx context.Context) (string, error) {
 	return fingerprint, err
 }
 
+// HasEncryptedMaterial reports whether any table sealed with the secret key has
+// rows. A read-only store may be on an older schema, as a live controller is
+// when an upgrade backs it up, so tables it does not have yet count as empty.
 func (s *Store) HasEncryptedMaterial(ctx context.Context) (bool, error) {
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT
-		(SELECT count(*) FROM application_secret_versions) +
-		(SELECT count(*) FROM registry_credential_versions) +
-		(SELECT count(*) FROM backup_destination)`).Scan(&count); err != nil {
-		return false, fmt.Errorf("count encrypted material: %w", err)
+	for _, table := range []string{"application_secret_versions", "registry_credential_versions", "backup_destination"} {
+		var exists bool
+		if err := s.db.QueryRowContext(ctx, "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?", table).Scan(&exists); err != nil {
+			return false, fmt.Errorf("count encrypted material: %w", err)
+		}
+		if !exists {
+			continue
+		}
+		var found bool
+		if err := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM "+table+")").Scan(&found); err != nil {
+			return false, fmt.Errorf("count encrypted material: %w", err)
+		}
+		if found {
+			return true, nil
+		}
 	}
-	return count != 0, nil
+	return false, nil
 }
 
 func (s *Store) SetApplicationSecret(ctx context.Context, box *security.SecretBox, application, name, versionID string,

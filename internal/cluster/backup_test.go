@@ -143,3 +143,23 @@ func TestBackupDoesNotMigrateOrAcceptNewerLiveSchema(t *testing.T) {
 		t.Fatalf("refused backup left output behind: %v", err)
 	}
 }
+
+func TestBackupReadsLiveSchemaFromBeforeBackupDestinations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	initialized, err := Bootstrap(ctx, BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: filepath.Join(root, "state"),
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: func() time.Time { return bootstrapTestTime },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A controller from before migration 020 has no backup_destination table,
+	// and an upgrade backs it up before the new binary migrates it.
+	databasePath := filepath.Join(initialized.DataDir, DatabaseFilename)
+	mutateRecoveryDatabase(t, databasePath, "DROP TABLE backup_destination; DELETE FROM schema_migrations WHERE version >= 20")
+	if _, err := Backup(ctx, BackupOptions{DataDir: initialized.DataDir, Output: filepath.Join(root, "backups", "old.db")}); err != nil {
+		t.Fatal(err)
+	}
+}
