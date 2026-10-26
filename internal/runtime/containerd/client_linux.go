@@ -44,6 +44,7 @@ const (
 	labelNetworkGeneration = "io.orch.network-generation"
 	labelStartedAt         = "io.orch.started-at"
 	labelStopGrace         = "io.orch.stop-grace-seconds"
+	labelPrivateNetwork    = "io.orch.private-network"
 )
 
 type runtimeClient struct {
@@ -317,6 +318,9 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 	if allocation.StopGraceSeconds != 0 {
 		labels[labelStopGrace] = strconv.FormatUint(uint64(allocation.StopGraceSeconds), 10)
 	}
+	if allocation.PrivateNetwork {
+		labels[labelPrivateNetwork] = "true"
+	}
 	lease, err := c.ensureLease(ctx, id, labels)
 	if err != nil {
 		return orchruntime.Object{}, err
@@ -485,6 +489,7 @@ func (c *runtimeClient) startTask(ctx context.Context, container containerdclien
 		attachment, err = c.options.Network.Attach(ctx, network.AttachmentRequest{
 			AllocationID: allocation.ID, ObjectID: container.ID(), SpecDigest: allocation.SpecDigest,
 			NetworkGeneration: allocation.NetworkGeneration, NetNS: fmt.Sprintf("/proc/%d/ns/net", task.Pid()), IfName: "eth0",
+			PrivateNetwork: allocation.PrivateNetwork,
 		})
 		if err != nil {
 			_, _ = task.Delete(context.Background(), containerdclient.WithProcessKill)
@@ -907,7 +912,7 @@ func (c *runtimeClient) object(ctx context.Context, container containerdclient.C
 			}
 			if err := c.options.Network.Check(ctx, network.AttachmentRequest{
 				AllocationID: labels[labelAllocation], ObjectID: container.ID(), SpecDigest: labels[labelSpec],
-				NetworkGeneration: generation, NetNS: netNS, IfName: "eth0",
+				NetworkGeneration: generation, NetNS: netNS, IfName: "eth0", PrivateNetwork: labels[labelPrivateNetwork] == "true",
 			}); err != nil {
 				return orchruntime.Object{}, fmt.Errorf("check running task %q network attachment: %w", container.ID(), err)
 			}

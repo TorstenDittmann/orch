@@ -287,8 +287,9 @@ func Validate(manifest *Manifest) error {
 					add(base+".http.basic_auth.user", "must be 1-64 letters, digits, dots, underscores or hyphens")
 				}
 				validateDNSLabel(base+".http.basic_auth.password_secret", auth.PasswordSecret, add)
-				if !service.HTTP.Public && len(service.HTTP.Domains) == 0 {
-					add(base+".http.basic_auth", "requires public HTTP ingress or domains")
+				// Over plain HTTP the password crosses the network in the clear.
+				if service.HTTP.Public || !service.HTTP.HTTPS || len(service.HTTP.Domains) == 0 {
+					add(base+".http.basic_auth", "requires domains served over HTTPS, without public HTTP ingress, so the password is never sent in the clear")
 				}
 			}
 			if service.HTTP.Public {
@@ -773,6 +774,24 @@ func sortedKeys[V any](values map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// NormalizeDomainLimits checks the domains a token or GitHub trust may route
+// and returns them lowercased, sorted and without duplicates.
+func NormalizeDomainLimits(domains []string) ([]string, error) {
+	if len(domains) > 20 {
+		return nil, fmt.Errorf("at most 20 domains may be given")
+	}
+	normalized := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+		if !validHostname(domain) {
+			return nil, fmt.Errorf("domain %q must be a hostname such as example.com, without a wildcard", domain)
+		}
+		normalized = append(normalized, domain)
+	}
+	slices.Sort(normalized)
+	return slices.Compact(normalized), nil
 }
 
 // validateStatic checks a service that serves a folder with orch's web

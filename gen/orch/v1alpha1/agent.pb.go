@@ -1248,6 +1248,7 @@ type RollbackSpec struct {
 	StopGraceSeconds      uint32                       `protobuf:"varint,23,opt,name=stop_grace_seconds,json=stopGraceSeconds,proto3" json:"stop_grace_seconds,omitempty"`
 	Privileged            bool                         `protobuf:"varint,24,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	Capabilities          []string                     `protobuf:"bytes,25,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	PrivateNetwork        bool                         `protobuf:"varint,26,opt,name=private_network,json=privateNetwork,proto3" json:"private_network,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1455,6 +1456,13 @@ func (x *RollbackSpec) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *RollbackSpec) GetPrivateNetwork() bool {
+	if x != nil {
+		return x.PrivateNetwork
+	}
+	return false
 }
 
 type NetworkConfig struct {
@@ -1816,6 +1824,7 @@ type AllocationDesired struct {
 	VolumeBackups         []*VolumeBackupDesired       `protobuf:"bytes,31,rep,name=volume_backups,json=volumeBackups,proto3" json:"volume_backups,omitempty"`
 	Privileged            bool                         `protobuf:"varint,32,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	Capabilities          []string                     `protobuf:"bytes,33,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	PrivateNetwork        bool                         `protobuf:"varint,34,opt,name=private_network,json=privateNetwork,proto3" json:"private_network,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -2081,6 +2090,13 @@ func (x *AllocationDesired) GetCapabilities() []string {
 	return nil
 }
 
+func (x *AllocationDesired) GetPrivateNetwork() bool {
+	if x != nil {
+		return x.PrivateNetwork
+	}
+	return false
+}
+
 // VolumeBackupDesired archives one local volume the allocation owns.
 type VolumeBackupDesired struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2175,6 +2191,7 @@ type CronJobDesired struct {
 	RunAt                 *timestamppb.Timestamp       `protobuf:"bytes,21,opt,name=run_at,json=runAt,proto3" json:"run_at,omitempty"`
 	CancelRequested       bool                         `protobuf:"varint,22,opt,name=cancel_requested,json=cancelRequested,proto3" json:"cancel_requested,omitempty"`
 	Mounts                []*VolumeMount               `protobuf:"bytes,23,rep,name=mounts,proto3" json:"mounts,omitempty"`
+	PrivateNetwork        bool                         `protobuf:"varint,24,opt,name=private_network,json=privateNetwork,proto3" json:"private_network,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -2368,6 +2385,13 @@ func (x *CronJobDesired) GetMounts() []*VolumeMount {
 		return x.Mounts
 	}
 	return nil
+}
+
+func (x *CronJobDesired) GetPrivateNetwork() bool {
+	if x != nil {
+		return x.PrivateNetwork
+	}
+	return false
 }
 
 type AssignmentSnapshot struct {
@@ -5634,7 +5658,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x12\n" +
 	"\x04host\x18\x05 \x01(\tR\x04host\x12\x1a\n" +
 	"\busername\x18\x06 \x01(\tR\busername\x12\x14\n" +
-	"\x05value\x18\a \x01(\fR\x05value\"\xb4\n" +
+	"\x05value\x18\a \x01(\fR\x05value\"\xdd\n" +
 	"\n" +
 	"\fRollbackSpec\x125\n" +
 	"\x16application_generation\x18\x01 \x01(\x04R\x15applicationGeneration\x12\x1f\n" +
@@ -5668,7 +5692,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"privileged\x18\x18 \x01(\bR\n" +
 	"privileged\x12\"\n" +
-	"\fcapabilities\x18\x19 \x03(\tR\fcapabilities\x1a>\n" +
+	"\fcapabilities\x18\x19 \x03(\tR\fcapabilities\x12'\n" +
+	"\x0fprivate_network\x18\x1a \x01(\bR\x0eprivateNetwork\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
@@ -5717,7 +5742,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
 	"\x10DomainPortsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xf3\f\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x9c\r\n" +
 	"\x11AllocationDesired\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5758,7 +5783,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"privileged\x18  \x01(\bR\n" +
 	"privileged\x12\"\n" +
-	"\fcapabilities\x18! \x03(\tR\fcapabilities\x1a>\n" +
+	"\fcapabilities\x18! \x03(\tR\fcapabilities\x12'\n" +
+	"\x0fprivate_network\x18\" \x01(\bR\x0eprivateNetwork\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
@@ -5769,7 +5795,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x06volume\x18\x01 \x01(\tR\x06volume\x12\x1a\n" +
 	"\bschedule\x18\x02 \x01(\tR\bschedule\x12\x12\n" +
 	"\x04keep\x18\x03 \x01(\rR\x04keep\x12\x16\n" +
-	"\x06before\x18\x04 \x03(\tR\x06before\"\xb4\t\n" +
+	"\x06before\x18\x04 \x03(\tR\x06before\"\xdd\t\n" +
 	"\x0eCronJobDesired\x12 \n" +
 	"\vapplication\x18\x01 \x01(\tR\vapplication\x12\x10\n" +
 	"\x03job\x18\x02 \x01(\tR\x03job\x125\n" +
@@ -5798,7 +5824,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x06run_id\x18\x14 \x01(\tR\x05runId\x121\n" +
 	"\x06run_at\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x05runAt\x12)\n" +
 	"\x10cancel_requested\x18\x16 \x01(\bR\x0fcancelRequested\x122\n" +
-	"\x06mounts\x18\x17 \x03(\v2\x1a.orch.v1alpha1.VolumeMountR\x06mounts\x1a>\n" +
+	"\x06mounts\x18\x17 \x03(\v2\x1a.orch.v1alpha1.VolumeMountR\x06mounts\x12'\n" +
+	"\x0fprivate_network\x18\x18 \x01(\bR\x0eprivateNetwork\x1a>\n" +
 	"\x10EnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +

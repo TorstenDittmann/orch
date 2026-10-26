@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
+	"github.com/TorstenDittmann/orch/internal/security"
 	"github.com/charmbracelet/x/term"
 )
 
@@ -21,7 +23,7 @@ func printBackupHelp(output io.Writer) {
 
 Usage:
   orch backup destination [--target NAME] [--json]
-  orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--target NAME] [--json]
+  orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--new-recovery-key] [--target NAME] [--json]
   orch backup destination remove [--target NAME] [--json]
 
 Once a destination is set, volume and database backups and the controller's
@@ -33,7 +35,13 @@ Any S3-compatible service works. Leave out --endpoint for AWS; otherwise pass
 the service's endpoint, such as https://ACCOUNT.r2.cloudflarestorage.com.
 The access key comes from AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY when
 they are set, and is asked for otherwise. It is stored encrypted on the
-controller and never sent to workers.`)
+controller and never sent to workers.
+
+The first set prints a recovery key. Controller backups are encrypted to it
+before they leave the controller, because they hold the cluster CA and the
+secret key; orch cluster restore --from needs it. The controller keeps only
+its public half, so store the recovery key in a password manager. Setting the
+destination again keeps the key unless --new-recovery-key is passed.`)
 }
 
 func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -87,6 +95,8 @@ type backupDestinationOutput struct {
 	Endpoint       string     `json:"endpoint,omitempty"`
 	Region         string     `json:"region,omitempty"`
 	AccessKeyID    string     `json:"access_key_id,omitempty"`
+	Encrypted      bool       `json:"encrypted"`
+	RecoveryKey    string     `json:"recovery_key,omitempty"`
 	UploadedAt     *time.Time `json:"uploaded_at,omitempty"`
 	UploadFailedAt *time.Time `json:"upload_failed_at,omitempty"`
 	UploadFailure  string     `json:"upload_failure,omitempty"`
@@ -94,7 +104,7 @@ type backupDestinationOutput struct {
 
 func backupDestinationJSON(destination *orchv1alpha1.BackupDestination) backupDestinationOutput {
 	return backupDestinationOutput{URL: destination.GetUrl(), Endpoint: destination.GetEndpoint(), Region: destination.GetRegion(),
-		AccessKeyID: destination.GetAccessKeyId()}
+		AccessKeyID: destination.GetAccessKeyId(), Encrypted: destination.GetEncrypted()}
 }
 
 func runBackupDestinationShow(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -143,6 +153,11 @@ func runBackupDestinationShow(ctx context.Context, args []string, stdout, stderr
 		fmt.Fprintf(stdout, "Endpoint:    %s\n", destination.GetEndpoint())
 	}
 	fmt.Fprintf(stdout, "Region:      %s\nAccess key:  %s\n", destination.GetRegion(), destination.GetAccessKeyId())
+	if destination.GetEncrypted() {
+		fmt.Fprintln(stdout, "Encryption:  controller backups are encrypted to your recovery key")
+	} else {
+		fmt.Fprintln(stdout, "Encryption:  OFF; controller backups in the bucket hold the cluster CA and secret key in the clear.\n             Run orch backup destination set again to create a recovery key.")
+	}
 	switch {
 	case response.GetUploadFailure() != "":
 		fmt.Fprintf(stdout, "Last copy FAILED at %s: %s\n", response.GetUploadFailedAt().AsTime().UTC().Format(time.RFC3339), response.GetUploadFailure())
@@ -158,10 +173,11 @@ func runBackupDestinationSet(ctx context.Context, args []string, stdout, stderr 
 	flags := flag.NewFlagSet("backup destination set", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var contextPath, endpoint, region string
-	var jsonOutput bool
+	var jsonOutput, newRecoveryKey bool
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.StringVar(&endpoint, "endpoint", "", "S3 endpoint URL; leave out for AWS")
 	flags.StringVar(&region, "region", "", "signing region; detected when left out")
+	flags.BoolVar(&newRecoveryKey, "new-recovery-key", false, "replace the recovery key controller backups are encrypted to")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	valueFlags := map[string]bool{"-context": true, "--context": true, "-endpoint": true, "--endpoint": true, "-region": true, "--region": true}
 	if err := flags.Parse(reorderInterspersed(args, valueFlags)); err != nil {
@@ -185,18 +201,43 @@ func runBackupDestinationSet(ctx context.Context, args []string, stdout, stderr 
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
+	// The recovery key is made here, so only its public half reaches the
+	// controller. A destination that already has one keeps it.
+	recoveryKey, recoveryPublicKey := "", ""
+	if !newRecoveryKey {
+		current, err := remote.GetBackupDestination(ctx)
+		if err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+		newRecoveryKey = !current.GetDestination().GetEncrypted()
+	}
+	if newRecoveryKey {
+		if recoveryKey, recoveryPublicKey, err = security.NewRecoveryKey(rand.Reader); err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitRuntime
+		}
+	}
 	destination, err := remote.SetBackupDestination(ctx, &orchv1alpha1.SetBackupDestinationRequest{
 		Url: flags.Arg(0), Endpoint: endpoint, Region: region, AccessKeyId: accessKeyID, SecretAccessKey: secretAccessKey,
+		RecoveryPublicKey: recoveryPublicKey,
 	})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
 	}
 	if jsonOutput {
-		return writeJSON(stdout, stderr, backupDestinationJSON(destination))
+		result := backupDestinationJSON(destination)
+		result.RecoveryKey = recoveryKey
+		return writeJSON(stdout, stderr, result)
 	}
 	fmt.Fprintf(stdout, "Backups now copy to %s (region %s).\nExisting backups upload in the background; check with: orch backup destination\n",
 		destination.GetUrl(), destination.GetRegion())
+	if recoveryKey != "" {
+		fmt.Fprintf(stdout, "\nRecovery key (shown once; store it in a password manager):\n\n  %s\n\n"+
+			"Controller backups are encrypted to it before they reach the bucket. Restoring from the\n"+
+			"bucket needs it: orch cluster restore --from asks for it, or reads ORCH_RECOVERY_KEY.\n", recoveryKey)
+	}
 	return ExitOK
 }
 

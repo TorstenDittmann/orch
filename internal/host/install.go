@@ -479,6 +479,15 @@ func (i *installer) configure(ctx context.Context) error {
 	if _, err := i.run(ctx, "chown", "orch-ingress:orch-ingress", "/var/lib/orch-ingress"); err != nil {
 		return err
 	}
+	// Only the ingress account may run Caddy, since its file capability lets
+	// whoever runs it bind ports below 1024. chown clears file capabilities,
+	// so it goes first.
+	if _, err := i.run(ctx, "chown", "root:orch-ingress", Prefix+"/bin/caddy"); err != nil {
+		return err
+	}
+	if err := os.Chmod(Prefix+"/bin/caddy", 0o750); err != nil {
+		return err
+	}
 	if _, err := i.run(ctx, "setcap", "cap_net_bind_service=+ep", Prefix+"/bin/caddy"); err != nil {
 		return err
 	}

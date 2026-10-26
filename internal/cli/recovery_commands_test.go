@@ -40,6 +40,11 @@ func TestClusterRestoreFromBucketTakesTheNewestBackup(t *testing.T) {
 	}
 	bucket := s3test.New("backups")
 	defer bucket.Close()
+	// The newer backup was copied after the destination got a recovery key.
+	recoveryKey, recoveryPublicKey, err := security.NewRecoveryKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	older := time.Date(2026, 10, 16, 3, 0, 0, 0, time.UTC)
 	for _, created := range []time.Time{older, older.AddDate(0, 0, 1)} {
 		set, err := clusterctl.WriteBackupSet(ctx, state, initialized.DataDir, created)
@@ -50,7 +55,15 @@ func TestClusterRestoreFromBucketTakesTheNewestBackup(t *testing.T) {
 		if err := clusterctl.ArchiveBackupSet(set.Path, &archive); err != nil {
 			t.Fatal(err)
 		}
-		bucket.SetObject("prod/controller/"+filepath.Base(set.Path)+".tar.gz", archive.Bytes())
+		object := archive.Bytes()
+		if created.After(older) {
+			var encrypted bytes.Buffer
+			if err := security.EncryptBackup(&encrypted, &archive, recoveryPublicKey, rand.Reader); err != nil {
+				t.Fatal(err)
+			}
+			object = encrypted.Bytes()
+		}
+		bucket.SetObject("prod/controller/"+filepath.Base(set.Path)+".tar.gz", object)
 	}
 	// Objects that are not backups are passed over.
 	bucket.SetObject("prod/controller/notes.tar.gz", []byte("not an archive"))
@@ -67,6 +80,19 @@ func TestClusterRestoreFromBucketTakesTheNewestBackup(t *testing.T) {
 		}
 		return stderr.String() + stdout.String()
 	}
+	fail := func(want string, args ...string) {
+		t.Helper()
+		var stderr bytes.Buffer
+		args = append([]string{"--from", "s3://backups/prod", "--endpoint", bucket.URL, "--region", "us-east-1"}, args...)
+		if code := runClusterRecovery(withCommandInput(ctx, strings.NewReader("")), args, false, &bytes.Buffer{}, &stderr); code == ExitOK || !strings.Contains(stderr.String(), want) {
+			t.Fatalf("%v: code %d, stderr %s; want %q", args, code, stderr.String(), want)
+		}
+	}
+	fail("ORCH_RECOVERY_KEY")
+	other, _, _ := security.NewRecoveryKey(rand.Reader)
+	t.Setenv("ORCH_RECOVERY_KEY", other)
+	fail("recovery key does not open")
+	t.Setenv("ORCH_RECOVERY_KEY", recoveryKey)
 	recovered := filepath.Join(root, "recovered")
 	output := run(true, "--data-dir", recovered)
 	if !strings.Contains(output, "Downloaded controller backup 20261017T030000Z") || !strings.Contains(output, initialized.Cluster.ID) {

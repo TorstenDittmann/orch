@@ -101,6 +101,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return fail(fmt.Errorf("read controller cluster: %w", err), state, nil)
 	}
+	administratorNotBefore, err := state.AdministratorNotBefore(ctx)
+	if err != nil {
+		return fail(err, state, nil)
+	}
 	now := options.Now
 	if now == nil {
 		now = time.Now
@@ -167,24 +171,24 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithSendMaxBytes(maxHTTPBodyBytes),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(path, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
+	mux.Handle(path, authenticateAdministrator(cluster.ID, administratorNotBefore, implementation.administrators.observe(now, http.MaxBytesHandler(handler, maxHTTPBodyBytes))))
 	adminMux := http.NewServeMux()
 	adminMux.Handle(path, authenticateLocalAdministrator(http.MaxBytesHandler(handler, maxHTTPBodyBytes)))
 	// An image upload streams many messages, so only each message is bounded.
-	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, implementation.administrators.observe(now, idleUploads(handler))))
+	mux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateAdministrator(cluster.ID, administratorNotBefore, implementation.administrators.observe(now, idleUploads(handler))))
 	adminMux.Handle(orchv1alpha1connect.ControlServiceUploadImageProcedure, authenticateLocalAdministrator(idleUploads(handler)))
 	adminMux.HandleFunc("/healthz", healthHandler)
 	// /metrics needs the same credentials as the administrator API: an
 	// administrator certificate on the HTTPS port, or access to the socket.
 	metrics := implementation.metricsHandler(credentials.Certificate.Leaf.NotAfter)
-	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, metrics))
+	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, administratorNotBefore, metrics))
 	adminMux.Handle("/metrics", authenticateLocalAdministrator(metrics))
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
 		enrollmentImplementation,
 		connect.WithReadMaxBytes(64<<10),
 		connect.WithSendMaxBytes(64<<10),
 	)
-	mux.Handle(enrollmentPath, http.MaxBytesHandler(enrollmentHandler, 64<<10))
+	mux.Handle(enrollmentPath, unauthenticatedRequest(http.MaxBytesHandler(enrollmentHandler, 64<<10)))
 	credentialImplementation := newCredentialService(state, cluster, credentials.CACertificatePEM, credentials.CAPrivateKeyPEM, now)
 	if options.GitHubKeysURL != "" {
 		credentialImplementation.github.jwksURL = options.GitHubKeysURL
@@ -194,7 +198,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		connect.WithReadMaxBytes(64<<10),
 		connect.WithSendMaxBytes(64<<10),
 	)
-	mux.Handle(credentialPath, http.MaxBytesHandler(credentialHandler, 64<<10))
+	mux.Handle(credentialPath, unauthenticatedRequest(http.MaxBytesHandler(credentialHandler, 64<<10)))
 	agentPath, agentHandler := orchv1alpha1connect.NewAgentServiceHandler(
 		agentImplementation,
 		connect.WithReadMaxBytes(maxAgentMessageBytes),
@@ -429,4 +433,19 @@ func healthHandler(response http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodGet {
 		_, _ = response.Write([]byte("ok\n"))
 	}
+}
+
+// unauthenticatedReadTimeout bounds how long a client without a certificate
+// may take to send its request. The server has no read timeout because agent
+// sessions and image uploads stream, so without this a slow client could hold
+// enrollment and token exchange connections open indefinitely.
+var unauthenticatedReadTimeout = 15 * time.Second
+
+func unauthenticatedRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		_ = http.NewResponseController(response).SetReadDeadline(time.Now().Add(unauthenticatedReadTimeout))
+		ctx, cancel := context.WithTimeout(request.Context(), 2*unauthenticatedReadTimeout)
+		defer cancel()
+		next.ServeHTTP(response, request.WithContext(ctx))
+	})
 }

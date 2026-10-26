@@ -20,6 +20,8 @@ jobs:
             run: make generate-check fmt-check pkl-test
           - name: Run Go vet
             run: make vet
+          - name: Check for known vulnerabilities
+            run: mise exec -- go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
           - name: Run Go tests
             run: make test
           - name: Run Go race tests
@@ -47,12 +49,15 @@ jobs:
             run: |
               mise exec -- go test -c -o /tmp/orch-network.test ./internal/network
               sudo ORCH_FIREWALL_E2E=1 unshare -n /tmp/orch-network.test -test.run TestWorkloadFirewall -test.v
+              # The volume backup view needs root to bind-mount; run it in its own mount namespace.
+              mise exec -- go test -c -o /tmp/orch-agent.test ./internal/agent
+              sudo unshare -m /tmp/orch-agent.test -test.run TestVolumeBackupView -test.v
     env:
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install pinned toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
       - name: Download dependencies
         run: mise exec -- go mod download
       - name: ${{ matrix.check.name }}

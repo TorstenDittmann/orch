@@ -42,6 +42,13 @@ func (s *service) CreateAccessToken(ctx context.Context, request *connect.Reques
 	} else if err := config.ValidateApplicationName(request.Msg.GetApplication()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	domains, err := config.NormalizeDomainLimits(request.Msg.GetDomains())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if len(domains) != 0 && (request.Msg.GetAdministrator() || request.Msg.GetReadOnly()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("domains limit what a deploying token may route; administrator and read-only tokens cannot have them"))
+	}
 	lifetime := time.Duration(request.Msg.GetTtlSeconds()) * time.Second
 	if lifetime == 0 {
 		lifetime = defaultAccessTokenLifetime
@@ -60,7 +67,7 @@ func (s *service) CreateAccessToken(ctx context.Context, request *connect.Reques
 	now := s.now().UTC()
 	token := model.AccessToken{
 		ID: id, Name: request.Msg.GetName(), Application: request.Msg.GetApplication(), ReadOnly: request.Msg.GetReadOnly(),
-		SecretHash: secretHash, CreatedAt: now, ExpiresAt: now.Add(lifetime),
+		SecretHash: secretHash, CreatedAt: now, ExpiresAt: now.Add(lifetime), Domains: domains,
 	}
 	if err := s.state.CreateAccessToken(ctx, token); errors.Is(err, store.ErrAccessTokenExists) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("access token %s already exists; delete it first or pick another name", token.Name))
@@ -143,7 +150,7 @@ func (s *credentialService) ExchangeAccessToken(ctx context.Context, request *co
 	if token.Administrator() {
 		certificatePEM, notAfter, err = security.SignAdministratorCertificate(s.caPEM, s.caKey, s.cluster.ID, csrDER, now, s.random)
 	} else {
-		certificatePEM, notAfter, err = security.SignApplicationCertificate(s.caPEM, s.caKey, s.cluster.ID, token.Application, token.ReadOnly, csrDER, now, s.random)
+		certificatePEM, notAfter, err = security.SignApplicationCertificate(s.caPEM, s.caKey, s.cluster.ID, token.Application, token.ReadOnly, csrDER, now, s.random, token.Domains...)
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -159,6 +166,7 @@ func accessTokenMessage(token model.AccessToken) *orchv1alpha1.AccessToken {
 	message := &orchv1alpha1.AccessToken{
 		Name: token.Name, Application: token.Application, ReadOnly: token.ReadOnly, Administrator: token.Administrator(),
 		CreatedAt: timestamppb.New(token.CreatedAt), ExpiresAt: timestamppb.New(token.ExpiresAt),
+		Domains: append([]string(nil), token.Domains...),
 	}
 	if !token.LastUsedAt.IsZero() {
 		message.LastUsedAt = timestamppb.New(token.LastUsedAt)

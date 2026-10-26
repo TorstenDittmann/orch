@@ -3,6 +3,9 @@ package cluster
 import (
 	"context"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -131,6 +134,14 @@ func RenewCertificates(ctx context.Context, options RenewCertificatesOptions) (R
 	if err != nil {
 		return result, err
 	}
+	// Retire every earlier administrator certificate, so a lost laptop or a
+	// leaked context stops working once the controller restarts. This comes
+	// before the controller identity changes, so an interrupted renewal never
+	// leaves the new identity in place with the old contexts still valid; the
+	// new context is accepted either way.
+	if err := retireAdministratorCertificates(ctx, databasePath, administrator.CertificatePEM); err != nil {
+		return result, fmt.Errorf("%w; rerun with a different --admin-dir to retry", err)
+	}
 	if err := replaceControllerLeaf(pki, controller); err != nil {
 		return result, fmt.Errorf("replace controller identity: %w; the new administrator directory remains valid; rerun with a different --admin-dir to retry", err)
 	}
@@ -144,6 +155,26 @@ func RenewCertificates(ctx context.Context, options RenewCertificatesOptions) (R
 		ControllerNotAfter: controllerNotAfter, AdministratorNotAfter: administratorNotAfter,
 		CertificateAuthorityNotAfter: caNotAfter,
 	}, nil
+}
+
+func retireAdministratorCertificates(ctx context.Context, databasePath string, certificatePEM []byte) error {
+	block, _ := pem.Decode(certificatePEM)
+	if block == nil {
+		return errors.New("parse new administrator certificate")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("parse new administrator certificate: %w", err)
+	}
+	state, err := store.OpenInitialized(ctx, databasePath)
+	if err != nil {
+		return fmt.Errorf("open cluster state: %w", err)
+	}
+	if err := state.SetAdministratorNotBefore(ctx, certificate.NotBefore); err != nil {
+		_ = state.Close()
+		return err
+	}
+	return state.Close()
 }
 
 // publishAdministratorDirectory writes the same portable layout that

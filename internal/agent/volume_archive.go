@@ -125,7 +125,11 @@ func archiveVolume(ctx context.Context, source, destination, scratch string) (fi
 // writeArchiveFile writes exactly header.Size bytes. A file that shrank while
 // it was read is padded so the archive stays readable.
 func writeArchiveFile(archive *tar.Writer, header *tar.Header, name string) error {
-	file, err := os.Open(name)
+	file, err := openRegular(name)
+	if errors.Is(err, errNotRegular) || errors.Is(err, fs.ErrNotExist) {
+		// The workload replaced or removed the file after the walk saw it.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -143,6 +147,32 @@ func writeArchiveFile(archive *tar.Writer, header *tar.Header, name string) erro
 	return err
 }
 
+var errNotRegular = errors.New("not a regular file")
+
+// openRegular opens a file the walk saw as regular. The volume belongs to a
+// running workload, so the name may since have become a FIFO, a device or a
+// symlink: O_NONBLOCK keeps a FIFO from blocking the open, O_NOFOLLOW refuses
+// a final symlink, and the descriptor itself must still be a regular file.
+func openRegular(name string) (*os.File, error) {
+	file, err := os.OpenFile(name, os.O_RDONLY|archiveOpenFlags, 0)
+	if isSymlinkLoop(err) {
+		return nil, errNotRegular
+	}
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errNotRegular
+	}
+	return file, nil
+}
+
 type zeroReader struct{}
 
 func (zeroReader) Read(buffer []byte) (int, error) {
@@ -151,7 +181,7 @@ func (zeroReader) Read(buffer []byte) (int, error) {
 }
 
 func isSQLite(name string) bool {
-	file, err := os.Open(name)
+	file, err := openRegular(name)
 	if err != nil {
 		return false
 	}

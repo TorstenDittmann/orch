@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/TorstenDittmann/orch/internal/security"
@@ -32,8 +33,10 @@ type authenticatedPrincipal struct {
 	application string
 	// readOnly is set for viewer certificates, which may only read it.
 	readOnly bool
-	err      error
-	code     connect.Code
+	// domains limits the domains a deployer may route; empty means any.
+	domains []string
+	err     error
+	code    connect.Code
 }
 
 func authenticateAgent(clusterID string, state *store.Store, next http.Handler) http.Handler {
@@ -101,7 +104,10 @@ func requireAgent(ctx context.Context) (string, error) {
 	return principal.nodeID, err
 }
 
-func authenticateAdministrator(clusterID string, next http.Handler) http.Handler {
+// authenticateAdministrator refuses administrator certificates that became
+// valid before notBefore, which orch cluster certificates renew moves forward
+// to retire every earlier context.
+func authenticateAdministrator(clusterID string, notBefore time.Time, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		principal := authenticatedPrincipal{}
 		switch {
@@ -120,7 +126,11 @@ func authenticateAdministrator(clusterID string, next http.Handler) http.Handler
 					principal.code = connect.CodePermissionDenied
 				} else {
 					principal.application, principal.readOnly = application, readOnly
+					principal.domains = security.ApplicationDomains(principal.certificate)
 				}
+			} else if principal.certificate.NotBefore.Before(notBefore) {
+				principal.err = errors.New("administrator certificate was retired by orch cluster certificates renew; import the new context")
+				principal.code = connect.CodePermissionDenied
 			}
 		}
 		ctx := context.WithValue(request.Context(), principalKey{}, principal)

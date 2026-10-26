@@ -1501,3 +1501,39 @@ func TestReconcilerCarriesDomainPortsToAllocations(t *testing.T) {
 		t.Fatalf("HTTP message = %#v", message)
 	}
 }
+
+func TestPlanApplicationCarriesPrivateNetworkThroughRollbackAndWire(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state, _ := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	manifest := runtimeManifest(executableImage)
+	manifest.AllowPrivateNetwork = true
+	applyManifest(t, state, manifest, "revision-one", "application-key-one", reconcilerTestTime)
+	application, err := state.Application(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{
+		OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion:      ingress.RequiredCaddyVersion,
+		NetworkGeneration: 1, NodeSubnet: "10.88.0.0/24", NetworkState: model.NetworkReady,
+		DNSState: model.SubsystemReady, IngressState: model.SubsystemReady,
+	}
+	planned, blocked, err := planApplication("cluster-one", node, application)
+	if err != nil || blocked != nil || len(planned) != 1 || !planned[0].PrivateNetwork {
+		t.Fatalf("plan = %#v, %#v, %v", planned, blocked, err)
+	}
+	withoutFlag := planned[0]
+	withoutFlag.PrivateNetwork = false
+	if digest, _ := model.AllocationSpecDigest(withoutFlag); digest == planned[0].SpecDigest {
+		t.Fatal("allowPrivateNetwork does not change the spec digest")
+	}
+	planned[0].Rollback = rollbackSpec(planned[0])
+	message := assignmentSnapshotMessage(model.Assignment{Allocations: planned, CronJobs: []model.CronJobDesired{{Application: "hello", Job: "nightly", PrivateNetwork: true}}})
+	if !message.Allocations[0].GetPrivateNetwork() || !message.Allocations[0].GetRollback().GetPrivateNetwork() || !message.CronJobs[0].GetPrivateNetwork() {
+		t.Fatal("wire assignment lost allowPrivateNetwork")
+	}
+}

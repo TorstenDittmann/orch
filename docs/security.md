@@ -31,7 +31,9 @@ Anyone with this context can administer the cluster.
 GitHub Actions workflows need none of these. `orch github trust` lets a
 repository's runs exchange their GitHub OIDC token for a 15-minute deployer
 certificate that can deploy, roll back, and inspect one application and
-nothing else. See [deploy from GitHub](github.md).
+nothing else. The trust is bound to GitHub's repository and owner IDs on the
+first deploy, so a repository that later takes over the name cannot use it.
+See [deploy from GitHub](github.md).
 
 Agents and scripts elsewhere use the same limited credential through an access
 token: `orch token create --app APP [--read-only]` prints a value for
@@ -76,7 +78,13 @@ orch target import production ./orch-production-admin-2027/context.json --replac
 ```
 
 SSH targets reach the controller's local socket and need no change after a
-renewal. Old administrator certificates stay valid until they expire. After renewing,
+renewal. Once the controller restarts, it refuses every administrator
+certificate issued before the renewal, so renewing is also how you lock out a
+lost laptop or a leaked context file. It does not lock out SSH targets: the
+socket needs no certificate, so remove the laptop's SSH key from the
+controller host as well. Import the new context everywhere you
+still use the old one. Access tokens keep working; revoke a leaked one with
+`orch token revoke`. After renewing,
 refresh the `pki` copy in your off-host backups. If a restore finds an expired
 controller certificate, it reports that and still restores the data. Run the
 renewal against the restored data directory before starting the controller.
@@ -127,7 +135,8 @@ The controller writes a complete backup once a day into
 `pki` directory, and keeps the newest 7; see
 [backups](operations.md#backups). Copy that directory off the host on a
 schedule, or set a [backup destination](operations.md#off-host-backups) so
-the controller copies every backup to S3 itself. `orch init --recovery-dir DIR` and `orch cluster install` can also
+the controller copies every backup to S3 itself, encrypted to a recovery key
+that only you keep. `orch init --recovery-dir DIR` and `orch cluster install` can also
 write a day-zero recovery directory. For an extra copy at any time:
 
 ```console
@@ -209,12 +218,25 @@ Installation creates separate credentials for each role.
   root on its worker, so only administrator credentials may deploy one; its image
   tag, and `autoUpdate` on
   it, is as trusted as the administrator who deployed it.
-- Workloads cannot reach their own worker except for cluster DNS, HTTP
-  ingress on ports 80 and 443, and the ports of raw TCP routes. SSH, the
-  controller API, and any other service on the host are refused, even when the
-  provider firewall only blocks them from the internet. Cloud metadata
+- Every workload, privileged or not, can run at most 16384 processes and
+  threads, so a fork bomb cannot exhaust the PID space of its worker.
+- Workloads cannot reach the host of their own worker, or of any other worker
+  through the mesh, except for cluster DNS, HTTP ingress on ports 80 and 443,
+  and the ports of raw TCP routes. SSH, the controller API, and any other
+  service on the host are refused, even when the provider firewall only blocks
+  them from the internet. Cloud metadata
   endpoints (`169.254.0.0/16`), which hand out instance credentials, are
-  refused too. See [networking](networking.md#what-workloads-can-reach).
+  refused too. So are hosts on private networks (`10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`) outside the cluster's
+  workload network, unless an administrator deploys the application with
+  `allowPrivateNetwork = true`. Workloads of different applications can still
+  reach each other. See [networking](networking.md#what-workloads-can-reach).
+- Deployer credentials (access tokens and GitHub trust) may route any domain
+  unless they were created with `--domain`, which limits them to those domains
+  and their subdomains and refuses the public listener. The limit covers HTTP
+  routes; raw TCP routes and node ports still need administrator review.
+- Pkl manifests may import modules over HTTPS. Treat a remote module like any
+  other dependency and pin it to a version you trust.
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 

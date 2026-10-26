@@ -147,6 +147,7 @@ the cluster, use `orch app diff`; see [deployments](runtime.md#rollbacks).
 | `notifications` | `Listing<Notification>` | empty | At most 20; see [Notification](#notification) |
 | `databases` | `Mapping<DnsLabel, Database>` | empty | At most 20; see [Databases](databases.md) |
 | `deploy` | `Deployment` | defaults below | Rollout behavior and pre-deploy hook |
+| `allowPrivateNetwork` | `Boolean` | `false` | Let workloads reach hosts on private networks such as the node's VPC; administrator credentials only. See [what workloads can reach](networking.md#what-workloads-can-reach) |
 
 Across all services an application may request at most 200 replicas in total
 and route at most 1000 domains in total.
@@ -523,9 +524,11 @@ See [networking](networking.md#https) for DNS and firewall requirements.
 
 ### Basic auth
 
-`basicAuth` puts a username and password in front of every domain and the
-public listener of the service. Ingress answers `401` until the browser sends
-the right account, so the service never sees an unauthenticated request.
+`basicAuth` puts a username and password in front of every domain of the
+service. Ingress answers `401` until the browser sends the right account, so
+the service never sees an unauthenticated request. It needs `domains` served
+over HTTPS and no `public` listener, so the password is never sent in the
+clear.
 
 | Field | Type | Rules |
 | --- | --- | --- |
@@ -546,9 +549,11 @@ printf '%s' "$ADMIN_PASSWORD" | orch secret set APP admin-password --from-stdin
 ```
 
 The controller hashes the password with argon2id and only the hash reaches the
-nodes. Setting a new value for the secret rolls the service like any other
-secret change. Health checks go straight to the replica, so they don't need
-the password. `orch dev` leaves basic auth off.
+nodes. The hash is kept cheap so that requests with random passwords cannot
+wear down a node's ingress, so use a long random password, for example from
+`openssl rand -base64 24`, rather than a word someone could guess. Setting a
+new value for the secret rolls the service like any other secret change.
+Health checks go straight to the replica, so they don't need the password. `orch dev` leaves basic auth off.
 
 ### Redirects
 

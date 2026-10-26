@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/internal/objectstore"
+	"github.com/TorstenDittmann/orch/internal/security"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -43,8 +44,22 @@ func (s *service) SetBackupDestination(ctx context.Context, request *connect.Req
 	if region == "" {
 		region = objectstore.RegionFromEndpoint(endpoint)
 	}
+	recoveryKey := request.Msg.GetRecoveryPublicKey()
+	if recoveryKey != "" && !security.ValidRecoveryPublicKey(recoveryKey) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("recovery_public_key is not an orch recovery public key"))
+	}
+	if recoveryKey == "" {
+		// Changing the bucket or its credentials keeps the recovery key.
+		current, found, err := s.state.BackupDestination(ctx, s.secretBox)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("read backup destination"))
+		}
+		if found {
+			recoveryKey = current.RecoveryPublicKey
+		}
+	}
 	destination := objectstore.Destination{Bucket: bucket, Prefix: prefix, Endpoint: endpoint, Region: region,
-		AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey}
+		AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey, RecoveryPublicKey: recoveryKey}
 	client := objectstore.New(destination, nil)
 	if region == "" {
 		if _, err := client.DetectRegion(ctx); err != nil {
@@ -139,7 +154,7 @@ func (s *service) RemoveBackupDestination(ctx context.Context, request *connect.
 
 func backupDestinationMessage(destination objectstore.Destination) *orchv1alpha1.BackupDestination {
 	return &orchv1alpha1.BackupDestination{Url: destination.URL(), Endpoint: destination.Endpoint, Region: destination.Region,
-		AccessKeyId: destination.AccessKeyID}
+		AccessKeyId: destination.AccessKeyID, Encrypted: destination.RecoveryPublicKey != ""}
 }
 
 // describeOffsite adds the bucket copies' state to the controller backup

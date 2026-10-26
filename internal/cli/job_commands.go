@@ -133,7 +133,7 @@ func runJob(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			if frame.GetStream() == orchv1alpha1.LogStream_LOG_STREAM_STDERR {
 				out = stderr
 			}
-			if _, err := out.Write(frame.GetData()); err != nil {
+			if _, err := writeWorkloadOutput(out, frame.GetData()); err != nil {
 				writeError(stderr, err, false)
 				return ExitRuntime
 			}

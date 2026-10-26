@@ -84,7 +84,7 @@ func (s *mcpTestSession) call(name string, arguments map[string]any) (string, bo
 }
 
 func TestMCPHandshakeAndToolList(t *testing.T) {
-	session := startMCPTestSession(t, newMCPServer("", false))
+	session := startMCPTestSession(t, newMCPServer("", mcpDestructive))
 	initialized := session.request("initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "1"}})
 	result := initialized["result"].(map[string]any)
 	if result["protocolVersion"] != "2025-03-26" || result["serverInfo"].(map[string]any)["name"] != "orch" || result["instructions"] == "" {
@@ -131,7 +131,7 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 		t.Fatal("local tool offers a target")
 	}
 
-	readOnly := newMCPServer("", true)
+	readOnly := newMCPServer("", mcpReadOnly)
 	if readOnly.byName["status"].name == "" || readOnly.byName["deploy"].name != "" || readOnly.byName["remove_app"].name != "" {
 		t.Fatalf("read-only tools = %d", len(readOnly.tools))
 	}
@@ -140,10 +140,24 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 			t.Fatalf("read-only server offers %s", tool.name)
 		}
 	}
+
+	// By default the server can deploy but not delete or exec.
+	standard := newMCPServer("", mcpChanges)
+	if standard.byName["deploy"].name == "" || standard.byName["status"].name == "" {
+		t.Fatalf("default tools = %d", len(standard.tools))
+	}
+	for _, tool := range standard.tools {
+		if tool.destructive {
+			t.Fatalf("default server offers destructive %s", tool.name)
+		}
+	}
+	if standard.byName["exec"].name != "" || standard.byName["remove_app"].name != "" || standard.byName["set_secret"].name != "" {
+		t.Fatal("default server offers exec, remove_app or set_secret")
+	}
 }
 
 func TestMCPToolsBuildCommandLines(t *testing.T) {
-	server := newMCPServer("production", false)
+	server := newMCPServer("production", mcpDestructive)
 	var got []string
 	var input string
 	server.run = func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -216,7 +230,7 @@ func TestMCPDrivesARealCluster(t *testing.T) {
 	}
 	manifest := writeManifest(t, cliManifest)
 
-	session := startMCPTestSession(t, newMCPServer("", false))
+	session := startMCPTestSession(t, newMCPServer("", mcpDestructive))
 	session.request("initialize", map[string]any{"protocolVersion": mcpLatestProtocol})
 	if text, failed := session.call("status", nil); failed || !strings.Contains(text, `"name": "test"`) {
 		t.Fatalf("status failed=%t: %s", failed, text)

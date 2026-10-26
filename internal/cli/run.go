@@ -851,6 +851,7 @@ func runClusterCertificatesRenew(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Cluster CA (unchanged):    valid until %s\n", result.CertificateAuthorityNotAfter.Format(time.RFC3339))
 	fmt.Fprintln(stdout, "Administrator context:", result.ContextPath)
 	fmt.Fprintln(stdout, "Restart the controller to serve the new certificate, then import the context with 'orch target import NAME CONTEXT --replace'.")
+	fmt.Fprintln(stdout, "After the restart, administrator contexts issued before now stop working.")
 	return ExitOK
 }
 
@@ -1162,10 +1163,10 @@ Usage:
   orch registry login HOST --username USER --password-stdin [--target NAME] [--json]
   orch registry list [--target NAME] [--json]
   orch registry logout HOST [--target NAME] [--json]
-  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
+  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--target NAME] [--json]
   orch github list [--target NAME] [--json]
   orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
-  orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+  orch token create [NAME] --app APP [--read-only] [--domain DOMAIN]... [--ttl 720h] [--target NAME] [--json]
   orch token list|revoke [NAME] [--target NAME] [--json]
   orch notify add slack|discord|webhook [URL] [--name NAME] [--on EVENT,...] [--target NAME] [--json]
   orch notify list|test|remove [NAME] [--target NAME] [--json]
@@ -1180,7 +1181,7 @@ Usage:
   orch render [-f orch.pkl] [--root DIR]
   orch schema
   orch pkl reader
-  orch mcp [--target NAME] [--read-only]
+  orch mcp [--target NAME] [--read-only | --allow-destructive]
   orch version
 
 Exit codes:

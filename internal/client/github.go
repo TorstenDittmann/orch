@@ -188,9 +188,11 @@ func githubActionsToken(ctx context.Context, getenv func(string) string, audienc
 	return body.Value, nil
 }
 
-func (client *Client) CreateAccessToken(ctx context.Context, name, application string, readOnly bool, lifetime time.Duration) (*orchv1alpha1.CreateAccessTokenResponse, error) {
+// CreateAccessToken creates a token for one application. Domains, when
+// given, limit the domains its deploys may route.
+func (client *Client) CreateAccessToken(ctx context.Context, name, application string, readOnly bool, lifetime time.Duration, domains ...string) (*orchv1alpha1.CreateAccessTokenResponse, error) {
 	response, err := client.service.CreateAccessToken(ctx, connect.NewRequest(&orchv1alpha1.CreateAccessTokenRequest{
-		Name: name, Application: application, ReadOnly: readOnly, TtlSeconds: uint32(lifetime / time.Second),
+		Name: name, Application: application, ReadOnly: readOnly, TtlSeconds: uint32(lifetime / time.Second), Domains: domains,
 	}))
 	if err != nil {
 		return nil, err
@@ -226,9 +228,11 @@ func (client *Client) DeleteAccessToken(ctx context.Context, name string) (bool,
 	return response.Msg.GetChanged(), nil
 }
 
-func (client *Client) SetGitHubTrust(ctx context.Context, repository, application, branch, environment string) (*orchv1alpha1.SetGitHubTrustResponse, error) {
+// SetGitHubTrust trusts a repository's runs to deploy one application.
+// Domains, when given, limit the domains those deploys may route.
+func (client *Client) SetGitHubTrust(ctx context.Context, repository, application, branch, environment string, domains ...string) (*orchv1alpha1.SetGitHubTrustResponse, error) {
 	response, err := client.service.SetGitHubTrust(ctx, connect.NewRequest(&orchv1alpha1.SetGitHubTrustRequest{
-		Repository: repository, Application: application, Branch: branch, Environment: environment,
+		Repository: repository, Application: application, Branch: branch, Environment: environment, Domains: domains,
 	}))
 	if err != nil {
 		return nil, err

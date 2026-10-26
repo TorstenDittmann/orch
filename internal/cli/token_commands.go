@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
@@ -23,6 +24,7 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	var contextPath, application string
 	var readOnly, administrator, jsonOutput bool
 	var lifetime time.Duration
+	var domains stringList
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	valueFlags := map[string]bool{"--context": true, "-context": true}
@@ -33,7 +35,9 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		flags.BoolVar(&readOnly, "read-only", false, "allow only reading the application, not deploying it")
 		flags.BoolVar(&administrator, "admin", false, "allow everything an administrator can do, on every application")
 		flags.DurationVar(&lifetime, "ttl", 30*24*time.Hour, "how long the token works, up to 8760h")
+		flags.Var(&domains, "domain", "domain, with its subdomains, the token's deploys may route (repeatable; default any)")
 		valueFlags["--app"], valueFlags["-app"], valueFlags["--ttl"], valueFlags["-ttl"] = true, true, true, true
+		valueFlags["--domain"], valueFlags["-domain"] = true, true
 		maxArgs = 1
 	case "revoke":
 		maxArgs = 1
@@ -53,6 +57,10 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	}
 	if administrator && readOnly {
 		writeError(stderr, errors.New("--admin and --read-only cannot be combined"), jsonOutput)
+		return ExitInvalid
+	}
+	if len(domains) != 0 && (administrator || readOnly) {
+		writeError(stderr, errors.New("--domain limits deploy tokens; it cannot be combined with --admin or --read-only"), jsonOutput)
 		return ExitInvalid
 	}
 	if command == "create" && (lifetime < time.Minute || lifetime > 365*24*time.Hour) {
@@ -81,7 +89,7 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if administrator {
 			response, err = remote.CreateAdministratorAccessToken(ctx, name, lifetime)
 		} else {
-			response, err = remote.CreateAccessToken(ctx, name, application, readOnly, lifetime)
+			response, err = remote.CreateAccessToken(ctx, name, application, readOnly, lifetime, domains...)
 		}
 		if err != nil {
 			writeError(stderr, err, jsonOutput)
@@ -94,15 +102,18 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 				Application   string    `json:"application"`
 				ReadOnly      bool      `json:"read_only"`
 				Administrator bool      `json:"administrator"`
+				Domains       []string  `json:"domains,omitempty"`
 				ExpiresAt     time.Time `json:"expires_at"`
 				Token         string    `json:"token"`
-			}{token.GetName(), token.GetApplication(), token.GetReadOnly(), token.GetAdministrator(), token.GetExpiresAt().AsTime(), response.GetValue()})
+			}{token.GetName(), token.GetApplication(), token.GetReadOnly(), token.GetAdministrator(), token.GetDomains(), token.GetExpiresAt().AsTime(), response.GetValue()})
 		}
 		access := "deploy, roll back and inspect " + token.GetApplication()
 		if token.GetAdministrator() {
 			access = "do everything an administrator can"
 		} else if token.GetReadOnly() {
 			access = "inspect " + token.GetApplication()
+		} else if len(token.GetDomains()) != 0 {
+			access += " on " + strings.Join(token.GetDomains(), ", ")
 		}
 		fmt.Fprintf(stderr, "Created token %s. It can %s until %s.\n", token.GetName(), access, token.GetExpiresAt().AsTime().Format("2006-01-02"))
 		fmt.Fprintf(stderr, "It is shown only once. Give it to an agent or script as ORCH_TOKEN, for example:\n\n")
@@ -130,6 +141,8 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 				scope, access = "all apps", "administrator"
 			} else if token.GetReadOnly() {
 				access = "read-only"
+			} else if len(token.GetDomains()) != 0 {
+				access = "deploy on " + strings.Join(token.GetDomains(), ",")
 			}
 			state := "expires " + token.GetExpiresAt().AsTime().Format("2006-01-02")
 			if !now.Before(token.GetExpiresAt().AsTime()) {
@@ -165,7 +178,7 @@ func printTokenHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch token gives agents and scripts limited access to one application.
 
 Usage:
-  orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--json]
+  orch token create [NAME] --app APP [--read-only] [--domain DOMAIN]... [--ttl 720h] [--json]
   orch token create [NAME] --admin [--ttl 720h] [--json]
   orch token list [--json]
   orch token revoke NAME [--json]
@@ -175,6 +188,9 @@ can deploy, roll back and inspect APP, or with --read-only only inspect it,
 and nothing else on the cluster. The token names the cluster and pins its
 CA, so it needs no target. NAME defaults to APP (APP-read-only with
 --read-only).
+
+--domain limits the domains the token's deploys may route to DOMAIN and its
+subdomains, and refuses public listeners. Repeat it for more domains.
 
 With --admin instead of --app, the token can do everything an
 administrator can, for tools such as a web panel that manage the whole

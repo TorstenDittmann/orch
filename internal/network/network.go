@@ -49,6 +49,9 @@ type AttachmentRequest struct {
 	NetworkGeneration uint64
 	NetNS             string
 	IfName            string
+	// PrivateNetwork lets the workload reach private networks, for an
+	// application that sets allowPrivateNetwork.
+	PrivateNetwork bool
 }
 
 type Attachment struct {

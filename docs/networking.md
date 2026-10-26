@@ -227,9 +227,26 @@ connections to the internet. On the worker they run on, they reach only:
 - the `publicPort` of raw TCP routes on that worker.
 
 Every other port on the worker, such as SSH, the controller API, or a database
-installed on the host, is refused. Cloud metadata endpoints in
+installed on the host, is refused. Workloads on other workers get the same
+treatment through the WireGuard mesh: they reach this worker's workloads, but
+not its SSH, controller API, or other host services. Cloud metadata endpoints in
 `169.254.0.0/16`, which hand out instance credentials, are refused as well.
 Run anything that workloads need as an orch service instead.
+
+Hosts on private networks are refused too: `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16` and `100.64.0.0/10`, apart from the cluster's own workload
+network. That keeps a compromised application from reaching your VPC, other
+servers' SSH, or internal admin panels. An application that needs a host on
+such a network, for example a managed database in the same VPC, sets this at
+the top level of its manifest:
+
+```pkl
+allowPrivateNetwork = true
+```
+
+It applies to the application's services, jobs and cron jobs. Only
+administrator credentials may turn it on; deployer and access-token
+credentials may keep deploying the application with it once it is on.
 
 ## Troubleshooting
 

@@ -32,13 +32,17 @@ func GitHubAudience(clusterID string) string {
 
 // githubClaims are the verified GitHub Actions token claims orch relies on.
 type githubClaims struct {
-	Repository  string `json:"repository"`
-	Ref         string `json:"ref"`
-	Environment string `json:"environment"`
-	SHA         string `json:"sha"`
-	Actor       string `json:"actor"`
-	RunID       string `json:"run_id"`
-	EventName   string `json:"event_name"`
+	Repository string `json:"repository"`
+	// RepositoryID and RepositoryOwnerID survive renames and are never
+	// reused, unlike the repository name.
+	RepositoryID      string `json:"repository_id"`
+	RepositoryOwnerID string `json:"repository_owner_id"`
+	Ref               string `json:"ref"`
+	Environment       string `json:"environment"`
+	SHA               string `json:"sha"`
+	Actor             string `json:"actor"`
+	RunID             string `json:"run_id"`
+	EventName         string `json:"event_name"`
 }
 
 // githubVerifier checks RS256 tokens issued by GitHub Actions against
@@ -105,8 +109,8 @@ func (v *githubVerifier) verify(ctx context.Context, token, audience string) (gi
 		return githubClaims{}, errors.New("token has expired")
 	case registered.NotBefore != 0 && now.Add(githubClockSkew).Before(time.Unix(registered.NotBefore, 0)):
 		return githubClaims{}, errors.New("token is not valid yet")
-	case claims.Repository == "" || claims.Ref == "":
-		return githubClaims{}, errors.New("token does not name a repository and ref")
+	case claims.Repository == "" || claims.Ref == "" || claims.RepositoryID == "" || claims.RepositoryOwnerID == "":
+		return githubClaims{}, errors.New("token does not name a repository, its IDs and a ref")
 	}
 	return claims, nil
 }

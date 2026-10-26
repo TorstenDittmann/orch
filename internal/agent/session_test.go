@@ -412,3 +412,46 @@ func TestHTTPDesiredModelKeepsDomainPorts(t *testing.T) {
 		t.Fatalf("single-port intent gained domain ports: %#v", plain.DomainPorts)
 	}
 }
+
+func TestAssignmentModelPreservesPrivateNetwork(t *testing.T) {
+	t.Parallel()
+	wire := validWireAllocation(t, "alloc-private", 1)
+	snapshot := &orchv1alpha1.AssignmentSnapshot{
+		NodeId: "node-one", Generation: 1, Digest: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt: timestamppb.New(supervisorTestTime), Allocations: []*orchv1alpha1.AllocationDesired{wire},
+	}
+	seed, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := seed.Allocations[0]
+	previous.PrivateNetwork = true
+	previous.SpecDigest, err = model.AllocationSpecDigest(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := previous
+	current.ApplicationGeneration = 2
+	current.RevisionID = "revision-two"
+	current.Args = []string{"7200"}
+	wire.ApplicationGeneration, wire.RevisionId, wire.Args = current.ApplicationGeneration, current.RevisionID, current.Args
+	wire.PrivateNetwork = true
+	wire.SpecDigest, err = model.AllocationSpecDigest(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire.Rollback = &orchv1alpha1.RollbackSpec{
+		ApplicationGeneration: previous.ApplicationGeneration, RevisionId: previous.RevisionID,
+		SpecDigest: previous.SpecDigest, Image: previous.Image, Command: previous.Command, Args: previous.Args,
+		RestartPolicy: previous.RestartPolicy, CpuMillis: previous.CPUMillis, MemoryBytes: previous.MemoryBytes,
+		StartDeadlineSeconds: previous.StartDeadlineSeconds, AutoRollback: previous.AutoRollback,
+		StartBeforeStop: previous.StartBeforeStop, PrivateNetwork: true,
+	}
+	decoded, err := assignmentModel(snapshot, "node-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Allocations[0].PrivateNetwork || !decoded.Allocations[0].Rollback.PrivateNetwork {
+		t.Fatal("allowPrivateNetwork was lost decoding the assignment")
+	}
+}

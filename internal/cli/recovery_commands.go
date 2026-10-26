@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -12,6 +13,8 @@ import (
 
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 	"github.com/TorstenDittmann/orch/internal/objectstore"
+	"github.com/TorstenDittmann/orch/internal/security"
+	"github.com/charmbracelet/x/term"
 )
 
 func runClusterRecovery(ctx context.Context, args []string, restore bool, stdout, stderr io.Writer) int {
@@ -168,8 +171,22 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name,
 		return "", nil, fmt.Errorf("download %s: %w", key, err)
 	}
 	defer body.Close()
+	archive := io.Reader(body)
+	if buffered := bufio.NewReader(body); security.IsEncryptedBackup(buffered) {
+		recoveryKey, err := readRecoveryKey(ctx, stderr)
+		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		if archive, err = security.DecryptBackup(buffered, recoveryKey); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	} else {
+		archive = buffered
+	}
 	directory := filepath.Join(stage, newest)
-	if err := clusterctl.ExtractBackupSet(body, directory); err != nil {
+	if err := clusterctl.ExtractBackupSet(archive, directory); err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("unpack %s: %w", key, err)
 	}
@@ -180,4 +197,25 @@ func downloadControllerBackup(ctx context.Context, from, endpoint, region, name,
 func isDirectory(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// readRecoveryKey returns the recovery key for an encrypted bucket backup,
+// from ORCH_RECOVERY_KEY or asked for.
+func readRecoveryKey(ctx context.Context, stderr io.Writer) (string, error) {
+	if value := strings.TrimSpace(os.Getenv("ORCH_RECOVERY_KEY")); value != "" {
+		return value, nil
+	}
+	missing := errors.New("this backup is encrypted; set ORCH_RECOVERY_KEY to the recovery key printed by orch backup destination set")
+	input := secretInput(ctx)
+	file, isFile := input.(*os.File)
+	if !isFile || !term.IsTerminal(file.Fd()) {
+		return "", missing
+	}
+	fmt.Fprint(stderr, "Recovery key: ")
+	value, err := term.ReadPassword(file.Fd())
+	fmt.Fprintln(stderr)
+	if err != nil || strings.TrimSpace(string(value)) == "" {
+		return "", missing
+	}
+	return strings.TrimSpace(string(value)), nil
 }

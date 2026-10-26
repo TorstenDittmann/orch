@@ -1160,7 +1160,7 @@ func rollbackAllocation(allocation model.AllocationDesired) model.AllocationDesi
 		SecretFiles: append([]model.SecretFileDesired(nil), rollback.SecretFiles...), RegistryCredential: cloneRegistryCredential(rollback.RegistryCredential),
 		RuntimeSecretValues: allocation.RuntimeSecretValues, RuntimeRegistrySecrets: allocation.RuntimeRegistrySecrets,
 		NetworkGeneration: rollback.NetworkGeneration, StopGraceSeconds: rollback.StopGraceSeconds, Privileged: rollback.Privileged,
-		Capabilities: append([]string(nil), rollback.Capabilities...),
+		Capabilities: append([]string(nil), rollback.Capabilities...), PrivateNetwork: rollback.PrivateNetwork,
 	}
 }
 
@@ -2099,7 +2099,8 @@ func cronRunAllocation(job model.CronJobDesired, runID string) (model.Allocation
 		SecretEnvironment: cloneSecretEnvironment(job.SecretEnvironment), SecretFiles: append([]model.SecretFileDesired(nil), job.SecretFiles...),
 		RegistryCredential: cloneRegistryCredential(job.RegistryCredential), RuntimeSecretValues: job.RuntimeSecretValues,
 		RuntimeRegistrySecrets: job.RuntimeRegistrySecrets, NetworkGeneration: job.NetworkGeneration,
-		Mounts: append([]model.VolumeMount(nil), job.Mounts...),
+		Mounts:         append([]model.VolumeMount(nil), job.Mounts...),
+		PrivateNetwork: job.PrivateNetwork,
 	}
 	var err error
 	allocation.SpecDigest, err = model.AllocationSpecDigest(allocation)

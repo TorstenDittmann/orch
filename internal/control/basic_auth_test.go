@@ -28,7 +28,7 @@ func TestBasicAuthHashIsStablePerSecretVersion(t *testing.T) {
 
 	// Verify the way Caddy's argon2id module does.
 	parts := strings.Split(first, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" || parts[3] != "m=47104,t=1,p=1" {
+	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" || parts[3] != "m=1024,t=2,p=1" {
 		t.Fatalf("hash = %q, want an argon2id PHC string", first)
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
@@ -39,10 +39,10 @@ func TestBasicAuthHashIsStablePerSecretVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if subtle.ConstantTimeCompare(argon2.IDKey([]byte("hunter2"), salt, 1, 47104, 1, uint32(len(stored))), stored) != 1 {
+	if subtle.ConstantTimeCompare(argon2.IDKey([]byte("hunter2"), salt, 2, 1024, 1, uint32(len(stored))), stored) != 1 {
 		t.Fatal("hash does not verify the password")
 	}
-	if subtle.ConstantTimeCompare(argon2.IDKey([]byte("wrong"), salt, 1, 47104, 1, uint32(len(stored))), stored) == 1 {
+	if subtle.ConstantTimeCompare(argon2.IDKey([]byte("wrong"), salt, 2, 1024, 1, uint32(len(stored))), stored) == 1 {
 		t.Fatal("hash verifies a wrong password")
 	}
 }

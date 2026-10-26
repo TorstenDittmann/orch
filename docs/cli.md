@@ -642,6 +642,10 @@ replaced instance's logs for 24 hours, up to 256 MiB per node with the oldest
 dropped first. They stay on the node that ran it, so they are not found once
 the replica has moved to another node.
 
+On a terminal, `logs`, `exec`, and the job and cron log commands drop control
+characters and escape sequences other than colors, so a workload cannot
+control your terminal. Piped or redirected output is passed through unchanged.
+
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--replica` | `1` | Replica ordinal |
@@ -711,7 +715,7 @@ fetch a backup that only the bucket still has to the volume's node first.
 
 ```text
 orch backup destination [--target NAME] [--json]
-orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--target NAME] [--json]
+orch backup destination set s3://BUCKET[/PREFIX] [--endpoint URL] [--region REGION] [--new-recovery-key] [--target NAME] [--json]
 orch backup destination remove [--target NAME] [--json]
 ```
 
@@ -721,8 +725,13 @@ writable and claims the prefix for this cluster first. Any S3-compatible
 service works; leave out `--endpoint` for AWS. The region is detected when
 left out. The access key comes from `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`, or is asked for, and is stored encrypted on the
-controller. Without an argument, `destination` shows the bucket and whether
-the last copy succeeded. `remove` stops copying and leaves the bucket as it
+controller. The first `set` prints a recovery key that controller backups are
+encrypted to before they reach the bucket; store it in a password manager,
+because `orch cluster restore --from` needs it and the controller keeps only
+its public half. Setting the destination again keeps the key unless
+`--new-recovery-key` is passed. Without an argument, `destination` shows the
+bucket, whether controller backups are encrypted, and whether the last copy
+succeeded. `remove` stops copying and leaves the bucket as it
 is. See [off-host backups](operations.md#off-host-backups).
 
 ### orch db
@@ -833,11 +842,16 @@ orch registry logout HOST [--idempotency-key KEY] [--target NAME] [--json]
 Stores, lists, and removes credentials for private image registries. The
 password or token is read from stdin and accepts 1 byte to 1 MiB.
 
+Deployer and access-token credentials can only use registries on public
+addresses, so an image reference cannot make the controller reach hosts on its
+own network. A registry on a private address works for them once an
+administrator has logged in to it.
+
 ### orch github
 
 ```text
-orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
-orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--target NAME] [--json]
+orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
+orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--target NAME] [--json]
 orch github list [--target NAME] [--json]
 orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
 ```
@@ -851,7 +865,8 @@ and its workloads use one image repository, the workflow builds and pushes that
 image before deploying; `--image` names the repository explicitly. `trust` does
 the same without touching the checkout and prints the workflow instead. When `ORCH_CLUSTER` is set and no target is given, remote
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
-application when the repository is trusted for several. See
+application when the repository is trusted for several. `--domain`, on
+`init` and `trust`, limits the domains its deploys may route. See
 [deploy from GitHub](github.md).
 
 ### orch notify
@@ -873,7 +888,7 @@ application. See [cluster notifications](notifications.md#cluster-notifications)
 ### orch token
 
 ```text
-orch token create [NAME] --app APP [--read-only] [--ttl 720h] [--target NAME] [--json]
+orch token create [NAME] --app APP [--read-only] [--domain DOMAIN]... [--ttl 720h] [--target NAME] [--json]
 orch token create [NAME] --admin [--ttl 720h] [--target NAME] [--json]
 orch token list [--target NAME] [--json]
 orch token revoke NAME [--target NAME] [--json]
@@ -896,6 +911,7 @@ orch app status shop
 | `--app` | required unless `--admin` | The one application the token may use |
 | `--admin` | `false` | Allow everything an administrator can do, for tools that manage the whole cluster; excludes `--app` and `--read-only` |
 | `--read-only` | `false` | Allow status, logs, history, and diffs, but no deploys or rollbacks |
+| `--domain` | any | Deploys may route only this domain and its subdomains, and not the public listener; repeat for more |
 | `--ttl` | `720h` | How long the token works, up to `8760h` |
 
 `NAME` defaults to `APP`, or `APP-read-only` with `--read-only`, or `admin`
@@ -1041,7 +1057,8 @@ same.
 `--from` downloads the newest controller backup from the cluster's
 [backup destination](#orch-backup) instead, or the one `--backup` names. It
 reads the access key from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
-asks for it.
+asks for it, and the recovery key of an encrypted backup from
+`ORCH_RECOVERY_KEY`, or asks for it.
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -1062,7 +1079,8 @@ orch cluster certificates renew --data-dir DIR --admin-dir NEW_DIR [--json]
 
 Issues new controller and administrator certificates from the existing cluster
 CA. Restart the controller afterwards and import the new context with
-`orch target import NAME CONTEXT --replace`. See
+`orch target import NAME CONTEXT --replace`. After the restart, administrator
+certificates issued before the renewal are refused. See
 [certificate renewal](security.md#certificate-renewal).
 
 ## TUI and web dashboard
@@ -1099,7 +1117,7 @@ See [targets and interfaces](targets.md) for both interfaces.
 ### orch mcp
 
 ```text
-orch mcp [--target NAME] [--read-only]
+orch mcp [--target NAME] [--read-only | --allow-destructive]
 ```
 
 Serves the cluster to AI assistants over the Model Context Protocol on stdin
@@ -1110,6 +1128,7 @@ and stdout. Clients such as Claude Code start it themselves; see
 | --- | --- | --- |
 | `--target` | selected target | Cluster that remote tools use when a call names none |
 | `--read-only` | `false` | Offer only tools that do not change the cluster |
+| `--allow-destructive` | `false` | Also offer tools that delete or replace workloads, secrets and data, or run commands in replicas |
 
 ## Services and internals
 

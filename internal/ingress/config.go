@@ -2,10 +2,12 @@ package ingress
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"path/filepath"
@@ -126,9 +128,20 @@ type caddyRoute struct {
 }
 
 type caddyMatcher struct {
-	Host     []string        `json:"host,omitempty"`
-	Path     []string        `json:"path,omitempty"`
-	ClientIP *caddyIPMatcher `json:"client_ip,omitempty"`
+	Host         []string               `json:"host,omitempty"`
+	Path         []string               `json:"path,omitempty"`
+	ClientIP     *caddyIPMatcher        `json:"client_ip,omitempty"`
+	HeaderRegexp map[string]caddyRegexp `json:"header_regexp,omitempty"`
+	Not          []caddyMatcher         `json:"not,omitempty"`
+}
+
+type caddyRegexp struct {
+	Pattern string `json:"pattern"`
+}
+
+type subrouteHandler struct {
+	Handler string       `json:"handler"`
+	Routes  []caddyRoute `json:"routes"`
 }
 
 type caddyIPMatcher struct {
@@ -229,7 +242,7 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 			if err != nil {
 				return nil, "", fmt.Errorf("ingress route %q: %w", route.Domain, err)
 			}
-			handlers = append(handlers, handler)
+			handlers = append(handlers, basicAuthUserGate(route.BasicAuth.User), handler)
 		}
 		handlers = append(handlers, reverseProxyHandler{Handler: "reverse_proxy", Upstreams: upstreams})
 		reverse := caddyRoute{Handle: handlers, Terminal: true}
@@ -359,6 +372,47 @@ func basicAuthHandler(auth model.HTTPBasicAuth) (authenticationHandler, error) {
 		Hash:     map[string]string{"algorithm": "argon2id"},
 		Accounts: []basicAccount{{Username: auth.User, Password: auth.PasswordHash}},
 	}}}, nil
+}
+
+// basicAuthUserGate answers 401 to requests that do not name user before
+// the authentication handler runs. Caddy checks an unknown username against
+// a fixed argon2id hash that takes 46 MiB, so without the gate any client
+// could make ingress allocate that much per request.
+func basicAuthUserGate(user string) subrouteHandler {
+	return subrouteHandler{Handler: "subroute", Routes: []caddyRoute{{
+		Match: []caddyMatcher{{Not: []caddyMatcher{{HeaderRegexp: map[string]caddyRegexp{
+			"Authorization": {Pattern: basicAuthUserPattern(user)},
+		}}}}},
+		Handle: []any{staticResponseHandler{Handler: "static_response", StatusCode: http.StatusUnauthorized,
+			Headers: map[string][]string{"Www-Authenticate": {`Basic realm="restricted"`}}}},
+		Terminal: true,
+	}}}
+}
+
+// basicAuthUserPattern matches a Basic Authorization header whose
+// credentials start with "user:", whatever the password. Base64 encodes
+// whole groups of three bytes, so the prefix's full groups are fixed text
+// and its last one or two bytes fix only some bits of the next character.
+func basicAuthUserPattern(user string) string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	prefix := []byte(user + ":")
+	full := len(prefix) / 3 * 3
+	pattern := "^(?i:basic) " + regexp.QuoteMeta(base64.StdEncoding.EncodeToString(prefix[:full]))
+	choices := func(base byte, count int) string {
+		set := ""
+		for offset := range count {
+			set += string(alphabet[int(base)+offset])
+		}
+		return "[" + regexp.QuoteMeta(set) + "]"
+	}
+	switch rest := prefix[full:]; len(rest) {
+	case 1:
+		pattern += regexp.QuoteMeta(string(alphabet[rest[0]>>2])) + choices((rest[0]&3)<<4, 16)
+	case 2:
+		pattern += regexp.QuoteMeta(string(alphabet[rest[0]>>2])) +
+			regexp.QuoteMeta(string(alphabet[(rest[0]&3)<<4|rest[1]>>4])) + choices((rest[1]&15)<<2, 4)
+	}
+	return pattern
 }
 
 // routeRank orders exact domains before wildcards and the public catch-all last.

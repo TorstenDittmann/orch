@@ -8,7 +8,10 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"strings"
+	"syscall"
 
+	"github.com/TorstenDittmann/orch/internal/hostports"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -76,8 +79,24 @@ func (f *firewall) addNodePortRules(connection *nftables.Conn, table *nftables.T
 func (f *firewall) publish(ports []NodePort) ([]error, error) {
 	results := make([]error, len(ports))
 	accepted := make([]NodePort, 0, len(ports))
+	if f.hostOwned == nil {
+		f.hostOwned = map[string]bool{}
+		for _, port := range hostports.SSH() {
+			f.hostOwned["tcp/"+strconv.Itoa(int(port))] = true
+		}
+	}
 	for index, port := range ports {
+		if f.hostOwned[port.Key()] {
+			results[index] = fmt.Errorf("%s port %d belongs to a service on this node", strings.ToUpper(port.Protocol), port.Port)
+			continue
+		}
 		if err := hostPortFree(port); err != nil {
+			// Only a listener makes the port the host's. A port that is busy
+			// as some connection's source port, or fails for another reason
+			// such as EMFILE, is retried on the next publish.
+			if errors.Is(err, syscall.EADDRINUSE) && hostports.Listening(port.Protocol, port.Port) {
+				f.hostOwned[port.Key()] = true
+			}
 			results[index] = err
 			continue
 		}
@@ -149,18 +168,22 @@ func changedNodePorts(previous, current []NodePort) []NodePort {
 
 func hostPortFree(port NodePort) error {
 	address := net.JoinHostPort("0.0.0.0", strconv.Itoa(int(port.Port)))
+	var err error
 	if port.Protocol == "udp" {
-		listener, err := net.ListenPacket("udp4", address)
-		if err != nil {
-			return fmt.Errorf("UDP port %d is already bound on this node", port.Port)
+		var listener net.PacketConn
+		if listener, err = net.ListenPacket("udp4", address); err == nil {
+			return listener.Close()
 		}
-		return listener.Close()
+	} else {
+		var listener net.Listener
+		if listener, err = net.Listen("tcp4", address); err == nil {
+			return listener.Close()
+		}
 	}
-	listener, err := net.Listen("tcp4", address)
-	if err != nil {
-		return fmt.Errorf("TCP port %d is already bound on this node", port.Port)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("%s port %d is already bound on this node: %w", strings.ToUpper(port.Protocol), port.Port, syscall.EADDRINUSE)
 	}
-	return listener.Close()
+	return fmt.Errorf("check %s port %d on this node: %w", strings.ToUpper(port.Protocol), port.Port, err)
 }
 
 func flushConntrack(port NodePort) error {

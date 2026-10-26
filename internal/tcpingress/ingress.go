@@ -11,8 +11,10 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/hostports"
 	"github.com/TorstenDittmann/orch/internal/model"
 )
 
@@ -47,6 +49,10 @@ type Controller struct {
 	listeners    map[uint32]*listener
 	drainTimeout time.Duration
 	now          func() time.Time
+	// hostOwned holds ports a host service was seen listening on, such as
+	// SSH on a custom port. A route never binds one, so it cannot take the
+	// port while that service happens to be restarting.
+	hostOwned map[uint32]bool
 }
 
 type listener struct {
@@ -63,6 +69,9 @@ type listener struct {
 	limit int64
 	idle  time.Duration
 }
+
+// sshPorts is replaced in tests.
+var sshPorts = hostports.SSH
 
 func New(drainTimeout time.Duration) *Controller {
 	if drainTimeout <= 0 {
@@ -100,8 +109,25 @@ func (c *Controller) Apply(_ context.Context, routes []Route) []model.TCPRouteSt
 			statuses = append(statuses, status)
 			continue
 		}
+		if c.hostOwned == nil {
+			c.hostOwned = map[uint32]bool{}
+			for _, port := range sshPorts() {
+				c.hostOwned[uint32(port)] = true
+			}
+		}
+		if c.hostOwned[route.PublicPort] {
+			status.State, status.Reason, status.Message = model.TCPRouteFailed, "listen_failed", fmt.Sprintf("port %d belongs to a service on this node", route.PublicPort)
+			statuses = append(statuses, status)
+			continue
+		}
 		networkListener, err := net.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(int(route.PublicPort))))
 		if err != nil {
+			// Only a listener makes the port the host's. A port that is busy
+			// as some connection's source port, or fails for another reason
+			// such as EMFILE, is retried on the next sync.
+			if errors.Is(err, syscall.EADDRINUSE) && hostports.Listening("tcp", uint16(route.PublicPort)) {
+				c.hostOwned[route.PublicPort] = true
+			}
 			status.State, status.Reason, status.Message = model.TCPRouteFailed, "listen_failed", err.Error()
 			statuses = append(statuses, status)
 			continue

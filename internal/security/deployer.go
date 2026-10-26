@@ -63,18 +63,19 @@ func GenerateDeployerCertificateRequest(random io.Reader) (csrDER, privateKeyPEM
 
 // SignDeployerCertificate signs only the validated CSR public key for one
 // application. Requested SANs and extensions are deliberately ignored.
-func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
-	return SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, application, false, csrDER, now, random)
+func SignDeployerCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, csrDER []byte, now time.Time, random io.Reader, domains ...string) ([]byte, time.Time, error) {
+	return SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, application, false, csrDER, now, random, domains...)
 }
 
 // SignApplicationCertificate signs a deployer certificate, or with readOnly a
-// viewer certificate that may only read the application.
-func SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, readOnly bool, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
+// viewer certificate that may only read the application. Domains, when given,
+// are the only domains the certificate may route; see ApplicationDomains.
+func SignApplicationCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, application string, readOnly bool, csrDER []byte, now time.Time, random io.Reader, domains ...string) ([]byte, time.Time, error) {
 	if application == "" || strings.Contains(application, "/") {
 		return nil, time.Time{}, fmt.Errorf("cluster, application, current time, and random source are required")
 	}
 	return signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM, clusterID, "orch-deployer-"+application,
-		applicationIdentityURI(clusterID, application, readOnly), csrDER, now, random)
+		applicationIdentityURI(clusterID, application, readOnly), csrDER, now, random, domains...)
 }
 
 // SignAdministratorCertificate signs a short-lived administrator certificate
@@ -88,7 +89,7 @@ func SignAdministratorCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clus
 
 // signShortLivedCertificate signs only the validated CSR public key with one
 // identity URI. Requested SANs and extensions are deliberately ignored.
-func signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, commonName string, identity *url.URL, csrDER []byte, now time.Time, random io.Reader) ([]byte, time.Time, error) {
+func signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM []byte, clusterID, commonName string, identity *url.URL, csrDER []byte, now time.Time, random io.Reader, domains ...string) ([]byte, time.Time, error) {
 	if clusterID == "" || now.IsZero() || random == nil {
 		return nil, time.Time{}, fmt.Errorf("cluster, application, current time, and random source are required")
 	}
@@ -127,6 +128,7 @@ func signShortLivedCertificate(caCertificatePEM, caPrivateKeyPEM []byte, cluster
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		URIs:                  []*url.URL{identity},
+		DNSNames:              append([]string(nil), domains...),
 		SubjectKeyId:          keyID,
 		AuthorityKeyId:        append([]byte(nil), ca.SubjectKeyId...),
 		BasicConstraintsValid: true,
@@ -179,4 +181,28 @@ func ApplicationCredential(certificate *x509.Certificate, clusterID string) (str
 		return application, readOnly, nil
 	}
 	return "", false, fmt.Errorf("deployer certificate does not contain an identity for this cluster")
+}
+
+// ApplicationDomains returns the domains an application certificate may
+// route, each with its subdomains, or nil when it may route any domain. The
+// controller writes them as DNS names when it signs the certificate.
+func ApplicationDomains(certificate *x509.Certificate) []string {
+	if certificate == nil || len(certificate.DNSNames) == 0 {
+		return nil
+	}
+	return append([]string(nil), certificate.DNSNames...)
+}
+
+// DomainAllowed reports whether domain is one of allowed or a subdomain of
+// one. An empty allowed list allows every domain.
+func DomainAllowed(domain string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, suffix := range allowed {
+		if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }

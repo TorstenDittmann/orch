@@ -1,6 +1,6 @@
 module github.com/TorstenDittmann/orch
 
-go 1.26.3
+go 1.26.10
 
 require (
 	charm.land/bubbles/v2 v2.1.0
@@ -12,10 +12,10 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/containerd/cgroups/v3 v3.1.3
 	github.com/containerd/containerd/api v1.11.1
-	github.com/containerd/containerd/v2 v2.3.4
+	github.com/containerd/containerd/v2 v2.3.6
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/log v0.1.0
-	github.com/containerd/platforms v1.0.0-rc.4
+	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/containernetworking/cni v1.3.0
 	github.com/distribution/reference v0.6.0
 	github.com/google/nftables v0.3.0
@@ -27,9 +27,9 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vishvananda/netns v0.0.5
-	golang.org/x/crypto v0.54.0
-	golang.org/x/net v0.57.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.60.0
+	golang.org/x/sys v0.48.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.45.0
@@ -71,7 +71,7 @@ require (
 	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/moby/sys/sequential v0.6.0 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
-	github.com/moby/sys/user v0.4.0 // indirect
+	github.com/moby/sys/user v0.4.1 // indirect
 	github.com/moby/sys/userns v0.1.0 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
@@ -84,15 +84,15 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
-	google.golang.org/grpc v1.80.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/grpc v1.83.1 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

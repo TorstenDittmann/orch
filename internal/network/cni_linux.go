@@ -244,12 +244,24 @@ func (m *linuxManager) Attach(ctx context.Context, request AttachmentRequest) (A
 		return Attachment{}, fmt.Errorf("attach CNI network: %w", err)
 	}
 	attachment, err := m.attachmentFromResult(request, result)
+	if err == nil {
+		err = m.updatePrivateEgress(request, attachment.Address)
+	}
 	if err != nil {
+		_ = m.firewall.revokePrivateEgress(request.ObjectID)
 		_ = m.cni.DelNetworkList(context.Background(), m.list, runtimeConfig)
 		_ = m.cni.DelNetwork(context.Background(), m.loopback, loopbackConfig)
 		return Attachment{}, err
 	}
 	return attachment, nil
+}
+
+// updatePrivateEgress records whether the object may reach private networks.
+func (m *linuxManager) updatePrivateEgress(request AttachmentRequest, address netip.Addr) error {
+	if !request.PrivateNetwork {
+		return m.firewall.revokePrivateEgress(request.ObjectID)
+	}
+	return m.firewall.allowPrivateEgress(request.ObjectID, address)
 }
 
 func (m *linuxManager) Inspect(_ context.Context, request AttachmentRequest) (Attachment, error) {
@@ -277,7 +289,17 @@ func (m *linuxManager) Check(ctx context.Context, request AttachmentRequest) err
 	if err := m.cni.CheckNetworkList(ctx, m.list, runtimeConf(request, request.IfName)); err != nil {
 		return fmt.Errorf("check CNI attachment: %w", err)
 	}
-	return nil
+	// A restarted agent learns the private network access of running
+	// workloads here.
+	result, err := m.cni.GetNetworkListCachedResult(m.list, runtimeConf(request, request.IfName))
+	if err != nil {
+		return fmt.Errorf("read CNI attachment: %w", err)
+	}
+	attachment, err := m.attachmentFromResult(request, result)
+	if err != nil {
+		return err
+	}
+	return m.updatePrivateEgress(request, attachment.Address)
 }
 
 func (m *linuxManager) GC(ctx context.Context, valid []AttachmentRequest) error {
@@ -303,13 +325,16 @@ func (m *linuxManager) GC(ctx context.Context, valid []AttachmentRequest) error 
 	if err := m.cni.GCNetworkList(ctx, m.list, &libcni.GCArgs{ValidAttachments: attachments}); err != nil {
 		return fmt.Errorf("garbage-collect owned CNI network: %w", err)
 	}
-	return nil
+	return m.firewall.retainPrivateEgress(seen)
 }
 
 func (m *linuxManager) Detach(ctx context.Context, request AttachmentRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.validateRequest(request, false); err != nil {
+		return err
+	}
+	if err := m.firewall.revokePrivateEgress(request.ObjectID); err != nil {
 		return err
 	}
 	if err := m.cni.DelNetworkList(ctx, m.list, runtimeConf(request, request.IfName)); err != nil {

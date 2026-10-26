@@ -60,7 +60,30 @@ func validateProcessOptions(options CaddyOptions) (processIdentity, error) {
 	if !ok || stateStat.Uid != 0 {
 		return processIdentity{}, fmt.Errorf("Caddy agent state directory must be owned by root")
 	}
+	if err := restrictCaddyBinary(options.Binary, binaryInfo, gid, capabilities[:count]); err != nil {
+		return processIdentity{}, err
+	}
 	return processIdentity{uid: uid, gid: gid}, nil
+}
+
+// restrictCaddyBinary limits a world-executable Caddy, as older installs
+// left it, to root and the ingress group: its file capability lets whoever
+// runs it bind ports below 1024. chown drops file capabilities, so they are
+// written back afterwards.
+func restrictCaddyBinary(path string, info os.FileInfo, gid int, capabilities []byte) error {
+	if info.Mode().Perm()&0o007 == 0 || os.Geteuid() != 0 {
+		return nil
+	}
+	if err := os.Chown(path, 0, gid); err != nil {
+		return fmt.Errorf("restrict Caddy binary: %w", err)
+	}
+	if err := os.Chmod(path, 0o750); err != nil {
+		return fmt.Errorf("restrict Caddy binary: %w", err)
+	}
+	if err := unix.Setxattr(path, "security.capability", capabilities, 0); err != nil {
+		return fmt.Errorf("restore Caddy file capability: %w", err)
+	}
+	return nil
 }
 
 func inspectRunningProcess(options CaddyOptions, identity processIdentity) (runningProcessIdentity, error) {

@@ -2,9 +2,11 @@ package ingress
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -52,9 +54,10 @@ func TestRenderBasicAuthAndRedirects(t *testing.T) {
 		return nil
 	}
 	served := handlers("https", "example.com")
-	if len(served) != 2 || !strings.Contains(served[0], `"handler":"authentication"`) ||
-		!strings.Contains(served[0], `"algorithm":"argon2id"`) || !strings.Contains(served[0], `"username":"admin"`) ||
-		!strings.Contains(served[0], `"hash_cache":{}`) || !strings.Contains(served[1], `"handler":"reverse_proxy"`) {
+	if len(served) != 3 || !strings.Contains(served[0], `"handler":"subroute"`) || !strings.Contains(served[0], `"status_code":401`) ||
+		!strings.Contains(served[1], `"handler":"authentication"`) ||
+		!strings.Contains(served[1], `"algorithm":"argon2id"`) || !strings.Contains(served[1], `"username":"admin"`) ||
+		!strings.Contains(served[1], `"hash_cache":{}`) || !strings.Contains(served[2], `"handler":"reverse_proxy"`) {
 		t.Fatalf("protected route handlers = %v", served)
 	}
 	for _, server := range []string{"http", "https"} {
@@ -129,5 +132,29 @@ func TestProbeUpstreamsSeesPastBasicAuth(t *testing.T) {
 	var status *routeStatusError
 	if err := probeUpstreams(context.Background(), route); !errors.As(err, &status) || status.status != 502 {
 		t.Fatalf("probeUpstreams() with no live upstream = %v, want 502", err)
+	}
+}
+
+func TestBasicAuthUserPatternMatchesOnlyTheUser(t *testing.T) {
+	users := []string{"admin", "ab", "abc", "a.b-c_d", "x"}
+	for _, user := range users {
+		pattern := regexp.MustCompile(basicAuthUserPattern(user))
+		for _, password := range []string{"", "p", "pa", "pas", "s3cr3t+/=", strings.Repeat("z", 40)} {
+			for _, scheme := range []string{"Basic ", "basic "} {
+				header := scheme + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
+				if !pattern.MatchString(header) {
+					t.Errorf("%s: %q not matched", user, header)
+				}
+			}
+			for _, other := range append([]string{user + "x", user[:len(user)-1], "Admin", "root"}, users...) {
+				if other == user {
+					continue
+				}
+				header := "Basic " + base64.StdEncoding.EncodeToString([]byte(other+":"+password))
+				if pattern.MatchString(header) {
+					t.Errorf("%s: other user %q matched", user, other)
+				}
+			}
+		}
 	}
 }

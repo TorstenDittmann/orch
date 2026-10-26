@@ -47,6 +47,9 @@ type Destination struct {
 	Region          string
 	AccessKeyID     string
 	SecretAccessKey string
+	// RecoveryPublicKey is what controller backups are encrypted to before
+	// they are uploaded; empty uploads them unencrypted.
+	RecoveryPublicKey string
 }
 
 // ParseURL splits s3://bucket/prefix into its bucket and its prefix without

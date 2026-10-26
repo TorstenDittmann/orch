@@ -86,6 +86,12 @@ func TestValidateRejectsBadRoutePolicy(t *testing.T) {
 			m.Services["web"].HTTP.Domains = nil
 			m.Services["web"].HTTP.Redirects = nil
 		}, "services.web.http.basic_auth"},
+		"auth over plain HTTP": {func(m *Manifest) {
+			m.Services["web"].HTTP.HTTPS = false
+		}, "services.web.http.basic_auth"},
+		"auth on the public listener": {func(m *Manifest) {
+			m.Services["web"].HTTP.Public = true
+		}, "services.web.http.basic_auth"},
 	}
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -237,5 +243,23 @@ func TestValidateRejectsBadDomainPorts(t *testing.T) {
 				t.Fatalf("Validate() = %v, want problem at %s", validation, test.path)
 			}
 		})
+	}
+}
+
+func TestAllowPrivateNetworkReachesTheCanonicalManifest(t *testing.T) {
+	manifest := loadManifest(t, routePolicyManifest+"\nallowPrivateNetwork = true\n")
+	if !manifest.AllowPrivateNetwork {
+		t.Fatal("allowPrivateNetwork was not evaluated")
+	}
+	canonical, err := CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseCanonicalJSON(canonical)
+	if err != nil || !parsed.AllowPrivateNetwork {
+		t.Fatalf("canonical round trip = %v, %v", parsed, err)
+	}
+	if plain := loadManifest(t, routePolicyManifest); plain.AllowPrivateNetwork {
+		t.Fatal("allowPrivateNetwork is on by default")
 	}
 }

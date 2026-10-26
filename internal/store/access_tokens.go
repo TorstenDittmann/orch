@@ -39,9 +39,9 @@ func (s *Store) CreateAccessToken(ctx context.Context, token model.AccessToken) 
 	if token.ReadOnly {
 		readOnly = 1
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO access_tokens (id, name, application_name, read_only, secret_hash, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, token.ID, token.Name, token.Application, readOnly, token.SecretHash,
-		token.CreatedAt.UTC().Format(time.RFC3339Nano), token.ExpiresAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO access_tokens (id, name, application_name, read_only, secret_hash, created_at, expires_at, domains)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, token.ID, token.Name, token.Application, readOnly, token.SecretHash,
+		token.CreatedAt.UTC().Format(time.RFC3339Nano), token.ExpiresAt.UTC().Format(time.RFC3339Nano), strings.Join(token.Domains, " ")); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return ErrAccessTokenExists
 		}
@@ -94,16 +94,18 @@ func (s *Store) DeleteAccessToken(ctx context.Context, name string) (bool, error
 	return rows > 0, err
 }
 
-const accessTokenSelect = `SELECT id, name, application_name, read_only, secret_hash, created_at, expires_at, last_used_at FROM access_tokens`
+const accessTokenSelect = `SELECT id, name, application_name, read_only, secret_hash, created_at, expires_at, last_used_at, domains FROM access_tokens`
 
 func scanAccessToken(row applicationScanner) (model.AccessToken, error) {
 	var token model.AccessToken
 	var readOnly int
 	var created, expires string
 	var used sql.NullString
-	if err := row.Scan(&token.ID, &token.Name, &token.Application, &readOnly, &token.SecretHash, &created, &expires, &used); err != nil {
+	var domains string
+	if err := row.Scan(&token.ID, &token.Name, &token.Application, &readOnly, &token.SecretHash, &created, &expires, &used, &domains); err != nil {
 		return token, err
 	}
+	token.Domains = strings.Fields(domains)
 	token.ReadOnly = readOnly == 1
 	var err error
 	if token.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {

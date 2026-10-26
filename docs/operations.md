@@ -325,6 +325,15 @@ hands them short-lived presigned URLs for each upload and download.
 this cluster with an `orch-cluster` file, so two clusters cannot share a
 prefix and prune each other's backups.
 
+The first `set` also prints a recovery key. Controller backups hold the
+cluster CA and the secret-encryption key, so the controller encrypts them to
+that key before they leave it, and keeps only the key's public half. Store the
+recovery key in a password manager: restoring the controller from the bucket
+needs it. Running `set` again keeps it; `set --new-recovery-key` replaces it,
+and the copies already in the bucket are uploaded again for the new key. A
+destination set before encryption existed shows `Encryption: OFF` in
+`orch backup destination` until you run `set` once more.
+
 From then on:
 
 - Volume and database backups, scheduled and manual, are copied to
@@ -367,9 +376,11 @@ sudo -E orch cluster restore --from s3://acme-backups/production \
   --data-dir /var/lib/orch-controller.restored
 ```
 
-The bucket holds the controller's secret-encryption key and every volume's
-data, so treat its access key like an administrator credential, and prefer a
-bucket with versioning or object lock so a leaked key cannot delete history.
+It asks for the recovery key, or reads it from `ORCH_RECOVERY_KEY`.
+
+Volume backups in the bucket are not encrypted, so the bucket still holds
+every volume's data. Treat its access key as sensitive, and prefer a bucket
+with versioning or object lock so a leaked key cannot delete history.
 `orch backup destination remove` stops copying; what is in the bucket stays.
 
 ## Upgrades
