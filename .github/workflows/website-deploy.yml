@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install pinned toolchain
         uses: jdx/mise-action@v2
       - name: Install pinned website dependencies
