@@ -171,7 +171,8 @@ A long-running workload. Each entry under `services` is a `Service`.
 
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
-| `image` | String | required | Valid OCI reference, at most 1024 bytes |
+| `image` | String | required | Valid OCI reference, at most 1024 bytes. Not with `static`. |
+| `static` | `Static?` | `null` | Serve a folder instead of an image; see [static sites](#static-sites) |
 | `command` | `Listing<String>` | image default | At most 256 entries, each nonblank |
 | `args` | `Listing<String>` | image default | At most 256 entries, each nonblank |
 | `replicas` | Int | `1` | 1 to 100; must be `1` when the service mounts a volume |
@@ -198,6 +199,45 @@ Tags are resolved to immutable digests by the controller when a deployment is
 accepted, so every replica of a revision runs the same image. A rollback reuses
 the recorded digests. Images from private registries need a registry
 credential; see [secrets and registry credentials](secrets.md).
+
+### Static sites
+
+A service with `static` serves a folder of files, such as a site generator's
+build output, without a Dockerfile or a container engine. `orch deploy` packs
+the folder into an image with a web server, uploads it to the controller, and
+deploys it like any other service, with its replicas, domains, HTTPS and
+rollbacks.
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `dir` | String | required | Folder to serve, relative to the manifest |
+| `spa` | Boolean | `false` | Answer unknown paths with `/index.html`, for client-side routing |
+
+```pkl
+services {
+  ["web"] {
+    static = new Static { dir = "dist" }
+    http { domains { "example.com" } }
+  }
+}
+```
+
+A static service gets an `http` endpoint on port 8080 with a health check, so
+`http { ... }` only adds domains or other settings to it. A different
+`healthPath` must be a file in the folder, such as `/` for its `index.html`. It
+can't also set `image`, `command` or `args`.
+
+Build the site before deploying; `orch deploy` serves whatever is in the
+folder. Files and folders whose names start with a dot, such as `.env` or
+`.git`, are left out, except `.well-known`. Links to files inside the folder
+are followed; links to folders, hidden files, or anything outside it stop the
+deploy. Without `spa`, unknown paths get
+the folder's `404.html` with status 404, if it has one. Responses are
+compressed, and an unchanged folder is not uploaded again.
+
+The web server is the Caddy release that ingress nodes run, without a shell
+or anything else, running as an unprivileged user. orch downloads it once
+into your user cache directory and checks its pinned checksum.
 
 ### Stopping
 

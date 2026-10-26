@@ -34,7 +34,8 @@ type pklDatabaseBackup struct {
 }
 
 type pklService struct {
-	Image        string            `pkl:"image"`
+	Image        *string           `pkl:"image"`
+	Static       *pklStatic        `pkl:"static"`
 	Command      []string          `pkl:"command"`
 	Args         []string          `pkl:"args"`
 	Replicas     int               `pkl:"replicas"`
@@ -54,6 +55,11 @@ type pklService struct {
 	Privileged   bool              `pkl:"privileged"`
 	Capabilities []string          `pkl:"capabilities"`
 	Autoscale    *pklAutoscale     `pkl:"autoscale"`
+}
+
+type pklStatic struct {
+	Dir string `pkl:"dir"`
+	SPA bool   `pkl:"spa"`
 }
 
 type pklAutoscale struct {
@@ -261,8 +267,20 @@ func resolvePkl(doc pklDocument) *Manifest {
 				replicas = autoscale.Min
 			}
 		}
+		image := ""
+		if input.Image != nil {
+			image = *input.Image
+		}
+		var static *Static
+		if input.Static != nil {
+			static = &Static{Dir: input.Static.Dir, SPA: input.Static.SPA}
+			if image == "" {
+				image = StaticImage(doc.Name, name)
+			}
+		}
 		manifest.Services[name] = Service{
-			Image:        input.Image,
+			Image:        image,
+			Static:       static,
 			Command:      append([]string(nil), input.Command...),
 			Args:         append([]string(nil), input.Args...),
 			Replicas:     replicas,

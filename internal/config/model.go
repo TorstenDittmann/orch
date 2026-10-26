@@ -73,6 +73,25 @@ type Service struct {
 	Autoscale *Autoscale `json:"autoscale,omitempty"`
 	// Database is set on the service orch runs for a `databases` entry.
 	Database *Database `json:"database,omitempty"`
+	// Static is set on a service that serves a folder of files. It never
+	// leaves this machine: orch deploy builds the site's image, uploads it,
+	// and pins Image to it before the manifest is sent.
+	Static *Static `json:"-"`
+}
+
+// Static is a folder of files a service serves with orch's built-in web
+// server.
+type Static struct {
+	// Dir is absolute once the manifest is loaded.
+	Dir string
+	// SPA answers unknown paths with /index.html instead of a 404.
+	SPA bool
+}
+
+// StaticImage is the image repository of a static service: its image is
+// named this until orch deploy pins it to the uploaded site.
+func StaticImage(application, service string) string {
+	return "orch.local/static/" + application + "/" + service
 }
 
 // Autoscale keeps a service's average CPU use near CPUPercent of its

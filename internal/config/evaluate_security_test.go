@@ -308,13 +308,15 @@ func TestLoadHonorsEvaluationTimeout(t *testing.T) {
 }
 
 func TestLoadHonorsCallerCancellation(t *testing.T) {
+	// Like real Pkl, the fake server runs until its stdin closes. A server
+	// that exits on its own while pkl-go is shutting down can panic pkl-go.
 	script := filepath.Join(t.TempDir(), "pkl")
 	writeExecutable(t, script, `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "Pkl 0.32.1"
   exit 0
 fi
-exec sleep 5
+exec cat >/dev/null
 `)
 	filename := filepath.Join(t.TempDir(), "orch.pkl")
 	writePklFile(t, filename, validManifest)

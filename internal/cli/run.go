@@ -513,6 +513,10 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
+	if err := uploadStaticSites(ctx, remote, manifest, stderr); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
 	if err := uploadLocalImages(ctx, remote, detectLocalEngine(), manifest, stderr); err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
