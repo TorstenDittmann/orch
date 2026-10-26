@@ -42,13 +42,23 @@ func ValidateCapabilities(capabilities []string) error {
 }
 
 // CapabilityServices returns sorted service names requiring explicit capability
-// grants. Like privileged services, only administrators may deploy them.
+// grants. Like privileged services, only administrators may deploy them. A
+// database service is exempt while it holds no more than databaseCapabilities,
+// which orch adds itself; the database marker comes from the client, so the
+// subset check keeps it from unlocking anything beyond Docker's defaults.
 func (m *Manifest) CapabilityServices() []string {
 	var names []string
 	for _, name := range sortedKeys(m.Services) {
-		if len(m.Services[name].Capabilities) != 0 {
-			names = append(names, name)
+		service := m.Services[name]
+		if len(service.Capabilities) == 0 {
+			continue
 		}
+		if service.Database != nil && !slices.ContainsFunc(service.Capabilities, func(capability string) bool {
+			return !slices.Contains(databaseCapabilities, capability)
+		}) {
+			continue
+		}
+		names = append(names, name)
 	}
 	return names
 }

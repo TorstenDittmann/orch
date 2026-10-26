@@ -80,7 +80,10 @@ A database named `main` in application `shop` becomes:
 
 - a service `main`, reachable at `main.shop.svc.internal` on the engine's port,
   with one replica and a one minute stop grace period;
-- a local volume `main-data` with its files (except for Garnet);
+- a local volume `main-data` with its files (except for Garnet). The service
+  gets `CAP_CHOWN`, `CAP_DAC_OVERRIDE`, `CAP_FOWNER`, `CAP_SETGID` and
+  `CAP_SETUID`, which the official image needs to hand that volume to its
+  database user. They do not make the application administrator-only;
 - for the dump engines (Postgres, MySQL, MariaDB, MongoDB, ClickHouse) with
   backups on, a local volume `main-backup` that holds the latest dump;
 - the secrets below, created on the first deploy that declares the database.
