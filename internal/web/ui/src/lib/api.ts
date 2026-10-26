@@ -1,4 +1,4 @@
-import type { Application, Comparison, Deployment, JobRun, LogBatch, LogSource, NodeUsageHistory, OneOffJob, Snapshot } from './types';
+import type { Application, Comparison, DatabaseBackups, Deployment, JobRun, LogBatch, LogSource, NodeUsageHistory, OneOffJob, Snapshot, VolumeBackup } from './types';
 
 export class ApiError extends Error {
 	constructor(message: string, readonly status: number) {
@@ -32,6 +32,11 @@ export const api = {
 	updateNode: (name: string, action: string) => post(`/api/nodes/${segment(name)}`, { action }),
 	rollback: (app: string, revisionId: string, expectedGeneration: string) =>
 		post(`/api/apps/${segment(app)}/rollback`, { revisionId, expectedGeneration }),
+	databaseBackups: (app: string, database: string) =>
+		request<DatabaseBackups>(`/api/apps/${segment(app)}/databases/${segment(database)}/backups`),
+	backupDatabase: (app: string, database: string) => post<VolumeBackup>(`/api/apps/${segment(app)}/databases/${segment(database)}/backup`),
+	restoreDatabase: (app: string, database: string, backup: string) =>
+		post<{ restored: string; previous: VolumeBackup | null }>(`/api/apps/${segment(app)}/databases/${segment(database)}/restore`, { backup }),
 	logs(source: LogSource, cursor: string, previous = false) {
 		const params = new URLSearchParams({ app: source.app, cursor });
 		if (source.kind === 'run') {

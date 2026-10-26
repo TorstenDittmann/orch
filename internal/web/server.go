@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/database"
 	"github.com/TorstenDittmann/orch/internal/tui"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -48,10 +50,35 @@ type Provider interface {
 	CancelJob(context.Context, string) (*orchv1alpha1.OneOffJob, error)
 	RetryJob(context.Context, string, string) (*orchv1alpha1.OneOffJob, error)
 	ListCronRuns(context.Context, string, string, uint32) ([]*orchv1alpha1.JobRunStatus, error)
+	FindDatabase(context.Context, string, string) (database.Database, error)
+	ListVolumes(context.Context, string, string) ([]*orchv1alpha1.VolumeSummary, error)
+	BackupVolume(context.Context, string, string) (*orchv1alpha1.VolumeBackupInfo, error)
+	GetBackupDestination(context.Context) (*orchv1alpha1.GetBackupDestinationResponse, error)
+	RestoreDatabase(context.Context, database.Database, string) (*orchv1alpha1.VolumeBackupInfo, error)
 }
 
 // ClientProvider adapts the administrator client used by the TUI.
 type ClientProvider struct{ tui.ClientProvider }
+
+func (p ClientProvider) FindDatabase(ctx context.Context, application, name string) (database.Database, error) {
+	return database.Find(ctx, p.Client, application, name)
+}
+
+func (p ClientProvider) ListVolumes(ctx context.Context, application, volume string) ([]*orchv1alpha1.VolumeSummary, error) {
+	return p.Client.ListVolumes(ctx, application, volume)
+}
+
+func (p ClientProvider) BackupVolume(ctx context.Context, application, volume string) (*orchv1alpha1.VolumeBackupInfo, error) {
+	return p.Client.BackupVolume(ctx, application, volume)
+}
+
+func (p ClientProvider) GetBackupDestination(ctx context.Context) (*orchv1alpha1.GetBackupDestinationResponse, error) {
+	return p.Client.GetBackupDestination(ctx)
+}
+
+func (p ClientProvider) RestoreDatabase(ctx context.Context, found database.Database, backup string) (*orchv1alpha1.VolumeBackupInfo, error) {
+	return database.Restore(ctx, p.Client, found, backup, io.Discard)
+}
 
 type Server struct {
 	provider  Provider
@@ -96,6 +123,9 @@ func New(provider Provider, target, transport, token string) (*Server, error) {
 	s.mux.HandleFunc("GET /api/nodes/{name}/usage", s.nodeUsage)
 	s.mux.HandleFunc("POST /api/nodes/{name}", s.updateNode)
 	s.mux.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
+	s.mux.HandleFunc("GET /api/apps/{name}/databases/{database}/backups", s.databaseBackups)
+	s.mux.HandleFunc("POST /api/apps/{name}/databases/{database}/backup", s.backupDatabase)
+	s.mux.HandleFunc("POST /api/apps/{name}/databases/{database}/restore", s.restoreDatabase)
 	s.mux.HandleFunc("GET /api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("unknown API route"))
 	})
@@ -431,6 +461,108 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, message(response))
+}
+
+// databaseBackups lists a database's backups with where they are kept. A
+// database without backups answers with no volume rather than an error.
+func (s *Server) databaseBackups(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	found, err := s.provider.FindDatabase(ctx, r.PathValue("name"), r.PathValue("database"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	response := map[string]any{"database": databaseJSON(found), "volume": nil, "destination": "", "destinationError": ""}
+	if found.BackupVolume == "" {
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	volumes, err := s.provider.ListVolumes(ctx, found.Application, found.BackupVolume)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if len(volumes) == 1 {
+		response["volume"] = message(volumes[0])
+	}
+	// Only the bucket's URL is shown; the destination's keys stay with the controller.
+	if destination, err := s.provider.GetBackupDestination(ctx); err != nil {
+		response["destinationError"] = err.Error()
+	} else {
+		response["destination"] = destination.GetDestination().GetUrl()
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) backupDatabase(w http.ResponseWriter, r *http.Request) {
+	var body struct{}
+	if !readBody(w, r, &body) {
+		return
+	}
+	// The controller bounds a backup itself; a large volume can take far
+	// longer than a read.
+	ctx := r.Context()
+	found, err := s.provider.FindDatabase(ctx, r.PathValue("name"), r.PathValue("database"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	volume, err := found.Volume()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	backup, err := s.provider.BackupVolume(ctx, found.Application, volume)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, message(backup))
+}
+
+func (s *Server) restoreDatabase(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Backup string `json:"backup"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	if body.Backup == "" {
+		writeError(w, http.StatusBadRequest, errors.New("backup is required"))
+		return
+	}
+	// A restore that stops halfway leaves the dump unloaded, so it runs to
+	// the end even when the browser tab closes. The controller bounds the
+	// swap, and waiting for and loading the dump have their own limits.
+	ctx := context.WithoutCancel(r.Context())
+	found, err := s.provider.FindDatabase(ctx, r.PathValue("name"), r.PathValue("database"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if _, err := found.Volume(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	previous, err := s.provider.RestoreDatabase(ctx, found, body.Backup)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	response := map[string]any{"restored": body.Backup, "previous": nil}
+	if previous.GetName() != "" {
+		response["previous"] = message(previous)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func databaseJSON(found database.Database) map[string]any {
+	return map[string]any{
+		"name": found.Database, "engine": found.Engine, "version": found.Version,
+		"backupVolume": found.BackupVolume, "backupSchedule": found.BackupSchedule, "backupKeep": found.BackupKeep,
+		"keepsPreviousData": found.KeepsPreviousData(),
+	}
 }
 
 func readBody(w http.ResponseWriter, r *http.Request, value any) bool {

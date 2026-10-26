@@ -2,11 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -14,12 +11,7 @@ import (
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
 	"github.com/TorstenDittmann/orch/internal/config"
-)
-
-const (
-	dbReadyTimeout = 5 * time.Minute
-	dbReadyEvery   = 2 * time.Second
-	dbLoadTimeout  = 300
+	"github.com/TorstenDittmann/orch/internal/database"
 )
 
 func printDBHelp(output io.Writer) {
@@ -62,73 +54,7 @@ func runDB(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-type dbOutput struct {
-	Application    string `json:"application"`
-	Database       string `json:"database"`
-	Engine         string `json:"engine"`
-	Version        string `json:"version"`
-	URLSecret      string `json:"url_secret"`
-	BackupVolume   string `json:"backup_volume,omitempty"`
-	BackupSchedule string `json:"backup_schedule,omitempty"`
-	BackupKeep     int    `json:"backup_keep,omitempty"`
-}
-
-// applicationDatabases reads the databases of an application's current
-// manifest, sorted by name.
-func applicationDatabases(ctx context.Context, remote *controlclient.Client, application string) ([]dbOutput, error) {
-	app, err := remote.GetApplication(ctx, application)
-	if err != nil {
-		return nil, err
-	}
-	var manifest config.Manifest
-	if err := json.Unmarshal([]byte(app.GetCanonicalManifestJson()), &manifest); err != nil {
-		return nil, fmt.Errorf("read the manifest of %s: %w", application, err)
-	}
-	var databases []dbOutput
-	for name, service := range manifest.Services {
-		if service.Database == nil {
-			continue
-		}
-		item := dbOutput{
-			Application: application, Database: name, Engine: service.Database.Engine, Version: service.Database.Version,
-			URLSecret: name + "-url",
-		}
-		volume := config.DatabaseBackupVolume(name, service.Database.Engine)
-		if backup := manifest.Volumes[volume].Backup; backup != nil {
-			item.BackupVolume, item.BackupSchedule, item.BackupKeep = volume, backup.Schedule, backup.Keep
-		}
-		databases = append(databases, item)
-	}
-	sort.Slice(databases, func(left, right int) bool { return databases[left].Database < databases[right].Database })
-	return databases, nil
-}
-
-// findDatabase returns one database of an application, or an error naming
-// the databases it has.
-func findDatabase(ctx context.Context, remote *controlclient.Client, application, name string) (dbOutput, error) {
-	databases, err := applicationDatabases(ctx, remote, application)
-	if err != nil {
-		return dbOutput{}, err
-	}
-	var names []string
-	for _, database := range databases {
-		if database.Database == name {
-			return database, nil
-		}
-		names = append(names, database.Database)
-	}
-	if len(names) == 0 {
-		return dbOutput{}, fmt.Errorf("application %s declares no databases", application)
-	}
-	return dbOutput{}, fmt.Errorf("application %s has no database %q (it has %s)", application, name, strings.Join(names, ", "))
-}
-
-func backupVolumeOf(database dbOutput) (string, error) {
-	if database.BackupVolume == "" {
-		return "", fmt.Errorf("backups are off for database %s; add `backup = new DatabaseBackup {}` to it in orch.pkl to turn them on", database.Database)
-	}
-	return database.BackupVolume, nil
-}
+type dbOutput = database.Database
 
 func validateApplicationDatabase(application, database string) error {
 	if err := config.ValidateApplicationName(application); err != nil {
@@ -174,7 +100,7 @@ func runDBList(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	databases := []dbOutput{}
 	for _, application := range applications {
-		found, err := applicationDatabases(ctx, remote, application)
+		found, err := database.List(ctx, remote, application)
 		if err != nil {
 			writeError(stderr, err, parsed.jsonOutput)
 			return ExitRuntime
@@ -227,12 +153,12 @@ func dbVolumeArgs(ctx context.Context, name string, args []string, stderr io.Wri
 		return nil, ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	database, err := findDatabase(ctx, remote, application, databaseName)
+	found, err := database.Find(ctx, remote, application, databaseName)
 	if err != nil {
 		writeError(stderr, err, parsed.jsonOutput)
 		return nil, ExitRuntime
 	}
-	volume, err := backupVolumeOf(database)
+	volume, err := found.Volume()
 	if err != nil {
 		writeError(stderr, err, parsed.jsonOutput)
 		return nil, ExitInvalid
@@ -280,12 +206,12 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	database, err := findDatabase(ctx, remote, application, name)
+	found, err := database.Find(ctx, remote, application, name)
 	if err != nil {
 		writeError(stderr, err, parsed.jsonOutput)
 		return ExitRuntime
 	}
-	volume, err := backupVolumeOf(database)
+	volume, err := found.Volume()
 	if err != nil {
 		writeError(stderr, err, parsed.jsonOutput)
 		return ExitInvalid
@@ -312,23 +238,10 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		progress = io.Discard
 	}
 	fmt.Fprintf(progress, "Restoring database %s/%s from %s; it restarts.\n", application, name, backupName)
-	previous, err := remote.RestoreVolume(ctx, application, volume, backupName)
+	previous, err := database.Restore(ctx, remote, found, backupName, progress)
 	if err != nil {
 		writeError(stderr, err, parsed.jsonOutput)
 		return ExitRuntime
-	}
-	if load := config.DatabaseLoadCommand(name, database.Engine); load != nil {
-		fmt.Fprintln(progress, "Waiting for the database to accept connections.")
-		if err := waitForDatabase(ctx, remote, application, name, config.DatabaseReadyCommand(name, database.Engine)); err != nil {
-			writeError(stderr, fmt.Errorf("the backup was swapped in, but the database did not come back: %w; load it later with: orch exec %s %s -- %s",
-				err, application, name, shellQuote(load)), parsed.jsonOutput)
-			return ExitRuntime
-		}
-		fmt.Fprintln(progress, "Loading the dump.")
-		if output, err := runDatabaseCommand(ctx, remote, application, name, load, dbLoadTimeout); err != nil {
-			writeError(stderr, fmt.Errorf("loading the dump failed: %w%s", err, commandOutput(output)), parsed.jsonOutput)
-			return ExitRuntime
-		}
 	}
 	if parsed.jsonOutput {
 		result := struct {
@@ -342,7 +255,7 @@ func runDBRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return writeJSON(stdout, stderr, result)
 	}
 	fmt.Fprintf(stdout, "Restored database %s/%s from %s.\n", application, name, backupName)
-	if previous.GetName() != "" && config.DatabaseLoadCommand(name, database.Engine) == nil {
+	if previous.GetName() != "" && found.KeepsPreviousData() {
 		fmt.Fprintf(stdout, "The previous data is kept as %s. Undo with: orch db restore %s %s %s\n", previous.GetName(), application, name, previous.GetName())
 	}
 	return ExitOK
@@ -392,79 +305,4 @@ func latestScheduledBackup(volume *orchv1alpha1.VolumeSummary) (string, error) {
 		}
 	}
 	return backups[0].GetName(), nil
-}
-
-func waitForDatabase(ctx context.Context, remote *controlclient.Client, application, name string, ready []string) error {
-	deadline := time.Now().Add(dbReadyTimeout)
-	var last error
-	for {
-		if ready == nil {
-			return nil
-		}
-		output, err := runDatabaseCommand(ctx, remote, application, name, ready, 30)
-		if err == nil {
-			return nil
-		}
-		last = fmt.Errorf("%w%s", err, commandOutput(output))
-		if time.Now().After(deadline) {
-			return last
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(dbReadyEvery):
-		}
-	}
-}
-
-// runDatabaseCommand runs a command in the database's replica and returns
-// its combined output.
-func runDatabaseCommand(ctx context.Context, remote *controlclient.Client, application, name string, command []string, timeout uint32) ([]byte, error) {
-	stream, err := remote.Exec(ctx, application, name, 1, command, timeout)
-	if err != nil {
-		return nil, err
-	}
-	defer stream.Close()
-	var output []byte
-	exited, exitCode := false, int32(0)
-	for stream.Receive() {
-		frame := stream.Msg()
-		output = append(output, frame.GetData()...)
-		if len(output) > 4096 {
-			output = output[len(output)-4096:]
-		}
-		if frame.GetExited() {
-			exited, exitCode = true, frame.GetExitCode()
-		}
-	}
-	if err := stream.Err(); err != nil {
-		return output, err
-	}
-	if !exited {
-		return output, errors.New("the command ended without an exit status")
-	}
-	if exitCode != 0 {
-		return output, fmt.Errorf("the command exited with status %d", exitCode)
-	}
-	return output, nil
-}
-
-func commandOutput(output []byte) string {
-	text := strings.TrimSpace(string(output))
-	if text == "" {
-		return ""
-	}
-	return ": " + text
-}
-
-func shellQuote(command []string) string {
-	quoted := make([]string, len(command))
-	for index, argument := range command {
-		if argument != "" && strings.Trim(argument, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=") == "" {
-			quoted[index] = argument
-			continue
-		}
-		quoted[index] = "'" + strings.ReplaceAll(argument, "'", `'\''`) + "'"
-	}
-	return strings.Join(quoted, " ")
 }

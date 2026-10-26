@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ArrowRight, ChevronRight, Copy, ExternalLink, GitCompare, History, RotateCcw, ScrollText } from '@lucide/svelte';
 	import { onDestroy } from 'svelte';
+	import DatabaseBackups from '../components/DatabaseBackups.svelte';
 	import Empty from '../components/Empty.svelte';
 	import Status from '../components/Status.svelte';
 	import { api } from '../lib/api';
@@ -72,6 +73,11 @@
 				};
 			});
 	});
+	let pickedDatabase = $state('');
+	// The backups panel follows the picked database, else the first one with backups.
+	const selectedDatabase = $derived(
+		databases.find((database) => database.name === pickedDatabase)?.name ?? (databases.find((database) => database.backup) ?? databases[0])?.name ?? ''
+	);
 	const engines = $derived(new Map(databases.map((database) => [database.name, database.engine])));
 	const tabs = $derived([
 		{ id: 'overview', label: 'Overview' },
@@ -257,7 +263,7 @@
 
 			{#if tab === 'overview' && databases.length}
 				<section class="panel spaced">
-					<div class="panel-head"><h2>Databases</h2><span class="hint">Services and cron jobs reach one with connect in orch.pkl</span></div>
+					<div class="panel-head"><h2>Databases</h2><span class="hint">Services and cron jobs reach one with connect in orch.pkl · select one for its backups</span></div>
 					<div class="table-wrap">
 						<table class="data">
 							<thead>
@@ -265,13 +271,13 @@
 							</thead>
 							<tbody>
 								{#each databases as database (database.name)}
-									<tr>
+									<tr class="clickable" class:selected={selectedDatabase === database.name} onclick={() => (pickedDatabase = database.name)}>
 										<td class="primary-cell">{database.name}</td>
 										<td>{database.engine} <span class="faint">{database.version}</span></td>
 										<td>{#if database.replica}<Status value={database.replica.phase} />{:else}<span class="faint">unplaced</span>{/if}</td>
 										<td>{#if database.replica}<Status value={database.replica.healthStatus} />{/if}</td>
 										<td>{#if database.replica?.nodeName}<a class="link" href={href('nodes', database.replica.nodeName)}>{database.replica.nodeName}</a>{:else}<span class="faint">—</span>{/if}</td>
-										<td class="mono"><button class="copy" title="Copy address" onclick={() => copy(database.host)}>{database.host} <Copy size={12} /></button></td>
+										<td class="mono"><button class="copy" title="Copy address" onclick={(event) => { event.stopPropagation(); copy(database.host); }}>{database.host} <Copy size={12} /></button></td>
 										<td class="mono">{database.urlSecret}</td>
 										<td class="mono faint">{database.volume || 'in memory'}</td>
 										<td>{#if database.backup}<span class="mono">{database.backup.schedule}</span> <span class="faint">· keep {database.backup.keep}</span>{:else}<span class="faint">off</span>{/if}</td>
@@ -281,6 +287,7 @@
 						</table>
 					</div>
 				</section>
+				{#if selectedDatabase}<DatabaseBackups app={name} database={selectedDatabase} />{/if}
 			{/if}
 
 			<section class="panel spaced">
