@@ -275,3 +275,12 @@ func TestBuildRefusesLinksToHiddenOrOutsideFiles(t *testing.T) {
 		t.Fatalf("home.html = %q", files["srv/home.html"])
 	}
 }
+
+func TestServesOnlyPublishedFiles(t *testing.T) {
+	site := config.Static{Dir: writeSiteFiles(t)}
+	for path, want := range map[string]bool{"/": true, "/index.html": true, "/assets": false, "/assets/app.js": true, "/.env": false, "/.well-known/security.txt": true, "/missing": false} {
+		if got := Serves(site, path); got != want {
+			t.Errorf("Serves(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

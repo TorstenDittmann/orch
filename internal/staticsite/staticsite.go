@@ -257,6 +257,11 @@ func checkLink(root, file, relative string) error {
 // Serves reports whether the folder answers path with a file, so a health
 // path other than HealthPath can become ready.
 func Serves(site config.Static, path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		if strings.HasPrefix(part, ".") && part != ".well-known" {
+			return false
+		}
+	}
 	name := filepath.Join(site.Dir, filepath.FromSlash(strings.TrimPrefix(path, "/")))
 	if info, err := os.Stat(name); err == nil && info.Mode().IsRegular() {
 		return true
