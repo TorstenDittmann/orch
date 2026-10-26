@@ -274,7 +274,10 @@ func buildableImage(manifest *config.Manifest, dir string) string {
 		}
 	}
 	for _, service := range manifest.Services {
-		add(service.Image)
+		// orch deploy builds a static service's image itself.
+		if service.Static == nil {
+			add(service.Image)
+		}
 	}
 	for _, job := range manifest.CronJobs {
 		add(job.Image)

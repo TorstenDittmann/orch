@@ -442,6 +442,10 @@ of each application's last 10 deployments, so rollbacks to them keep working.
 Uploaded images are not part of controller backups; after restoring a
 controller, run `orch deploy` again to upload them.
 
+A service with `static` needs no image at all: `orch deploy` packs its folder
+into an image and uploads it the same way, so a container engine isn't needed.
+See [static sites](manifest.md#static-sites).
+
 Inside GitHub Actions, the deployment also records the repository, commit,
 branch, actor and run link, shown by `orch app history`. See
 [deploy from GitHub](github.md).

@@ -116,6 +116,10 @@ func runDev(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		writeError(stderr, err, false)
 		return ExitRuntime
 	}
+	if err := uploadStaticSites(ctx, remote, manifest, stderr); err != nil {
+		writeError(stderr, err, false)
+		return ExitRuntime
+	}
 	if err := importDevImages(ctx, engine, manifest, clusterID, stderr); err != nil {
 		writeError(stderr, err, false)
 		return ExitRuntime
