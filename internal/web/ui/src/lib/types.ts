@@ -242,6 +242,7 @@ export interface Runtime {
 	memoryBytes: string;
 	reason: string;
 	message: string;
+	scheduledAt: Timestamp;
 	startedAt: Timestamp;
 	finishedAt: Timestamp;
 	updatedAt: Timestamp;

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -194,6 +195,25 @@ func (s *service) ListApplications(ctx context.Context, request *connect.Request
 	return connect.NewResponse(response), nil
 }
 
+// activeJobRuns drops the recorded runs of cron jobs the current manifest no
+// longer declares, so a removed job's last failure stops showing up. One-off
+// runs have no manifest entry and are always kept.
+func activeJobRuns(application model.Application) []model.JobRunStatus {
+	var manifest struct {
+		CronJobs map[string]json.RawMessage `json:"cron_jobs"`
+	}
+	if json.Unmarshal(application.CanonicalManifest, &manifest) != nil {
+		return application.Execution.JobRuns
+	}
+	runs := make([]model.JobRunStatus, 0, len(application.Execution.JobRuns))
+	for _, run := range application.Execution.JobRuns {
+		if _, declared := manifest.CronJobs[run.Job]; declared || run.Job == "run-"+strings.TrimPrefix(run.ID, "job_") {
+			runs = append(runs, run)
+		}
+	}
+	return runs
+}
+
 func (s *service) ListRuntimes(ctx context.Context, request *connect.Request[orchv1alpha1.ListRuntimesRequest]) (*connect.Response[orchv1alpha1.ListRuntimesResponse], error) {
 	if err := requireAdministrator(ctx); err != nil {
 		return nil, err
@@ -222,7 +242,7 @@ func (s *service) ListRuntimes(ctx context.Context, request *connect.Request[orc
 		for _, status := range application.Execution.Allocations {
 			observations[status.ID] = status
 		}
-		runs = append(runs, application.Execution.JobRuns...)
+		runs = append(runs, activeJobRuns(application)...)
 	}
 	placements, err := s.state.DesiredAllocationPlacements(ctx)
 	if err != nil {
