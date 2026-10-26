@@ -20,39 +20,35 @@ bun run dev
 the Sites worker. The build fails on links to missing pages or headings.
 Generated output is ignored and must not be edited.
 
-## Deploy to Dokploy
+## Deploy
 
-The Dockerfile uses Bun to build the site and serve `dist` on port **8080**
-with the small static server in `serve.ts`. No Nginx is needed.
+`orch.pkl` deploys the site with orch as a
+[static site](../docs/manifest.md#static-sites) serving `orch.torsten.work`.
+Every push to `main` that touches `website/`, `docs/` or `pkl/` runs
+`.github/workflows/website-deploy.yml`, which prerenders with
+`bun run build:site` and deploys `dist` with orch. `build.sh` is not used for
+the deploy: the Sites worker it adds would be served as a public file.
 
-Create a Dokploy application connected to this repository and configure:
+The workflow reads the `ORCH_CLUSTER` and `ORCH_VERSION` repository variables
+and needs orch to trust this repository once:
 
-| Setting | Value |
-| --- | --- |
-| Repository build path | `/` (repository root) |
-| Build type | Dockerfile |
-| Dockerfile path | `website/Dockerfile` |
-| Docker context path | `.` |
-| Domain container port | `8080` |
-| Domain path | `/` |
-
-Keep the context at the repository root: the site reads Markdown from `docs/`
-and schemas from `pkl/` as well as assets from `website/`.
-
-Under **Environment → Build Time Arguments**, set the site's public origin:
-
-```dotenv
-SITE_URL=https://docs.example.com
+```sh
+orch github trust TorstenDittmann/orch --app orch --branch main --environment production
 ```
 
-Replace the example with your actual domain. This controls canonical links,
-the sitemap, robots.txt, and generated documentation URLs. It is a **build-time**
-value; changing a runtime environment variable does not update the static files.
-Rebuild after changing it. Without an override, the existing Sites URL is used.
+To deploy by hand from this directory:
 
-Point the domain's DNS at the Dokploy server, add the domain in Dokploy with
-container port `8080`, and enable HTTPS with Let's Encrypt. Do not publish a
-host port: Dokploy's proxy handles public HTTP/HTTPS traffic. Then deploy.
+```sh
+bun run build:site
+orch deploy -f orch.pkl --wait
+```
+
+The site's public origin defaults to `https://orch.torsten.work`. Set
+`SITE_URL` while building to change it: it controls canonical links, the
+sitemap, robots.txt and generated documentation URLs.
+
+The Dockerfile still builds a self-contained image that serves `dist` on port
+**8080** with `serve.ts`; CI smoke-tests it.
 
 To test locally, run from the repository root:
 

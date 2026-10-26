@@ -66,6 +66,10 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		}
 		applications[index].Execution.Allocations = observations
 	}
+	executionByApplication := make(map[string]model.ApplicationExecution, len(applications))
+	for _, application := range applications {
+		executionByApplication[application.Name] = application.Execution
+	}
 	networks := make(map[string]model.NetworkConfig, len(nodes))
 	for _, node := range nodes {
 		configuration, err := model.NodeNetwork(cluster.WorkloadCIDR, node.Ordinal, cluster.NetworkGeneration)
@@ -388,7 +392,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			NetworkCompatible: networkCompatible, Labels: labels,
 			Ingress:           node.Ingress,
 			Capacity:          scheduler.Resources{CPUMillis: cpu, MemoryBytes: memory},
-			Reserved:          assignmentResources(preservedAllocations[node.ID], preservedCron[node.ID]),
+			Reserved:          assignmentResources(preservedAllocations[node.ID], preservedCron[node.ID], executionByApplication),
 			ServicePlacements: servicePlacementCounts(preservedAllocations[node.ID]),
 			UsedNodePorts:     usedNodePorts(preservedAllocations[node.ID]),
 		})
@@ -402,7 +406,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		workloads = append(workloads, scheduler.Workload{
 			ID: logical, Kind: scheduler.KindService, Application: item.allocation.Application,
 			Service: item.allocation.Service, Replica: item.allocation.Replica,
-			Resources:   allocationReservation(item.allocation),
+			Resources:   allocationReservation(item.allocation, executionByApplication[item.allocation.Application]),
 			Constraints: item.constraints, CurrentNodeID: currentNodeByLogical[logical], VolumeNodeID: item.volumeNodeID,
 			NodePorts:       item.nodePorts,
 			RequiresIngress: allocationRequiresIngress(item.allocation),
@@ -425,10 +429,6 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 	}
 	allocationsByNode := cloneAllocationMap(preservedAllocations)
 	cronByNode := cloneCronMap(preservedCron)
-	executionByApplication := make(map[string]model.ApplicationExecution, len(applications))
-	for _, application := range applications {
-		executionByApplication[application.Name] = application.Execution
-	}
 	surgesByApplication := make(map[string]uint32)
 	unavailableByApplication := make(map[string]uint32)
 	for logical, owners := range currentNodesByLogical {
@@ -594,13 +594,16 @@ func reachableEndpoints(configuration model.NetworkConfig, localNodeID string, e
 	return result
 }
 
-func allocationReservation(allocation model.AllocationDesired) scheduler.Resources {
-	result := scheduler.Resources{CPUMillis: allocation.CPUMillis, MemoryBytes: allocation.MemoryBytes}
-	if allocation.StartBeforeStop && allocation.Rollback != nil {
-		result.CPUMillis += allocation.Rollback.CPUMillis
-		result.MemoryBytes += allocation.Rollback.MemoryBytes
+func allocationReservation(allocation model.AllocationDesired, execution model.ApplicationExecution) scheduler.Resources {
+	var activeRevision, activeDigest string
+	for _, status := range execution.Allocations {
+		if status.ID == allocation.ID {
+			activeRevision, activeDigest = status.ActiveRevisionID, status.ActiveSpecDigest
+			break
+		}
 	}
-	return result
+	cpu, memory := model.AllocationReservation(allocation, activeRevision, activeDigest)
+	return scheduler.Resources{CPUMillis: cpu, MemoryBytes: memory}
 }
 
 func preferCurrentNode(nodes map[string]model.Node, selected, candidate string) bool {
@@ -693,10 +696,10 @@ func preserveDistributedApplication(application string, current map[string]model
 	}
 }
 
-func assignmentResources(allocations []model.AllocationDesired, jobs []model.CronJobDesired) scheduler.Resources {
+func assignmentResources(allocations []model.AllocationDesired, jobs []model.CronJobDesired, executions map[string]model.ApplicationExecution) scheduler.Resources {
 	var result scheduler.Resources
 	for _, allocation := range allocations {
-		reservation := allocationReservation(allocation)
+		reservation := allocationReservation(allocation, executions[allocation.Application])
 		result.CPUMillis += reservation.CPUMillis
 		result.MemoryBytes += reservation.MemoryBytes
 	}

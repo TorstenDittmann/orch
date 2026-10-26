@@ -90,6 +90,11 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 	}
 
 	manifest := resolvePkl(doc)
+	for _, service := range manifest.Services {
+		if service.Static != nil && service.Static.Dir != "" && !filepath.IsAbs(service.Static.Dir) {
+			service.Static.Dir = filepath.Join(filepath.Dir(entry), filepath.FromSlash(service.Static.Dir))
+		}
+	}
 	databases := resolvePklDatabases(doc)
 	if err := connectDatabases(manifest, resolvePklConnections(doc), databases); err != nil {
 		return nil, err

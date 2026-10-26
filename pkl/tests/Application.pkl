@@ -23,6 +23,11 @@ local multiPort = (service) {
   }
 }
 
+local site = new app.Service {
+  static = new app.Static { dir = "dist" }
+  http { domains { "example.com" } }
+}
+
 local cronJob = new app.CronJob {
   image = "example/backup:1"
   schedule = "*/2 * * * *"
@@ -62,6 +67,13 @@ facts {
   ["HTTP listing"] {
     (multiPort.http as Listing<app.Http>).length == 2
     (multiPort.http as Listing<app.Http>)[1].https
+  }
+  ["static site defaults"] {
+    site.image == null
+    !site.static.spa
+    (site.http as app.Http).port == 8080
+    (site.http as app.Http).healthPath == "/.orch/health"
+    (site.http as app.Http).domains.toList() == List("example.com")
   }
   ["cron defaults"] {
     cronJob.resources.cpu == "100m"

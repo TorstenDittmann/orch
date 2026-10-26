@@ -1,0 +1,15 @@
+amends "../../pkl/v1alpha1/Application.pkl"
+
+name = "static-demo"
+
+services {
+  ["web"] {
+    static = new Static {
+      dir = "public"
+    }
+    replicas = 2
+    http {
+      public = true
+    }
+  }
+}

@@ -129,6 +129,21 @@ If the image is private, give the cluster read access to it once:
 printf '%s' "$GHCR_READ_TOKEN" | orch registry login ghcr.io --username USER --password-stdin
 ```
 
+### Static sites
+
+A [static service](manifest.md#static-sites) needs no `image` input: the
+action's `orch deploy` packs and uploads the folder itself. If the folder is
+build output rather than committed files, build it in a step before the
+action:
+
+```yaml
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run build
+      - uses: TorstenDittmann/orch@v0.2.0
+        with:
+          cluster: ...
+```
+
 ## What the workflow can do
 
 The credential can deploy, roll back, and read the status and history of its

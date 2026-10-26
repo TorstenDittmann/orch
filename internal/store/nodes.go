@@ -230,31 +230,23 @@ func (s *Store) Nodes(ctx context.Context) ([]model.Node, error) {
 	return nodes, nil
 }
 
-// NodeAssignedResources sums the exact desired reservations on a node. During
-// an admitted start-before-stop transition, the authorized rollback process
-// is included because both processes may coexist.
+// NodeAssignedResources sums the exact desired reservations on a node. A
+// start-before-stop allocation also holds its rollback process until the
+// agent reports the desired spec active, because both may coexist until then.
 func (s *Store) NodeAssignedResources(ctx context.Context, nodeID string) (uint64, uint64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT spec FROM desired_allocations WHERE node_id = ?
-		UNION ALL SELECT spec FROM desired_cron_jobs WHERE node_id = ?`, nodeID, nodeID)
+	cpu, memory, err := allocationReservations(ctx, s.db, nodeID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read node resource reservations: %w", err)
+		return 0, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT spec FROM desired_cron_jobs WHERE node_id = ?`, nodeID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read node cron reservations: %w", err)
 	}
 	defer rows.Close()
-	var cpu, memory uint64
 	for rows.Next() {
 		var encoded string
 		if err := rows.Scan(&encoded); err != nil {
-			return 0, 0, fmt.Errorf("scan node resource reservation: %w", err)
-		}
-		var allocation model.AllocationDesired
-		if err := json.Unmarshal([]byte(encoded), &allocation); err == nil && allocation.ID != "" {
-			cpu += allocation.CPUMillis
-			memory += allocation.MemoryBytes
-			if allocation.StartBeforeStop && allocation.Rollback != nil {
-				cpu += allocation.Rollback.CPUMillis
-				memory += allocation.Rollback.MemoryBytes
-			}
-			continue
+			return 0, 0, fmt.Errorf("scan node cron reservation: %w", err)
 		}
 		var job model.CronJobDesired
 		if err := json.Unmarshal([]byte(encoded), &job); err != nil || job.Job == "" {
@@ -262,6 +254,40 @@ func (s *Store) NodeAssignedResources(ctx context.Context, nodeID string) (uint6
 		}
 		cpu += job.CPUMillis
 		memory += job.MemoryBytes
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("iterate node cron reservations: %w", err)
+	}
+	return cpu, memory, nil
+}
+
+type reservationQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+// allocationReservations sums the desired service allocations on a node with
+// model.AllocationReservation, using each allocation's reported active spec.
+func allocationReservations(ctx context.Context, q reservationQuerier, nodeID string) (uint64, uint64, error) {
+	rows, err := q.QueryContext(ctx, `SELECT d.spec, COALESCE(o.active_revision_id, ''), COALESCE(o.active_spec_digest, '')
+		FROM desired_allocations AS d LEFT JOIN allocation_observations AS o ON o.id = d.id
+		WHERE d.node_id = ?`, nodeID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read node resource reservations: %w", err)
+	}
+	defer rows.Close()
+	var cpu, memory uint64
+	for rows.Next() {
+		var encoded, activeRevision, activeDigest string
+		if err := rows.Scan(&encoded, &activeRevision, &activeDigest); err != nil {
+			return 0, 0, fmt.Errorf("scan node resource reservation: %w", err)
+		}
+		var allocation model.AllocationDesired
+		if err := json.Unmarshal([]byte(encoded), &allocation); err != nil || allocation.ID == "" {
+			return 0, 0, fmt.Errorf("decode node resource reservation")
+		}
+		allocationCPU, allocationMemory := model.AllocationReservation(allocation, activeRevision, activeDigest)
+		cpu += allocationCPU
+		memory += allocationMemory
 	}
 	if err := rows.Err(); err != nil {
 		return 0, 0, fmt.Errorf("iterate node resource reservations: %w", err)

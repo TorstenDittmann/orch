@@ -58,7 +58,12 @@ typealias ManifestString = String(length <= 4096)
 typealias Port = Int(isBetween(1, 65535))
 
 class Service {
-  image: String(!isBlank, length <= 1024)
+  /// The container image to run. Set either `image` or `static`.
+  image: String(!isBlank, length <= 1024)? = null
+
+  /// Serve a folder of files instead of running an image. `orch deploy` packs
+  /// the folder into an image with a built-in web server and uploads it.
+  static: Static? = null
 
   command: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
 
@@ -72,7 +77,9 @@ class Service {
 
   /// An HTTP endpoint, or a listing of them for a container that serves
   /// several ports, each on its own domains. Readiness checks the first one.
-  http: (Http | Listing<Http>(length.isBetween(1, 20), sharesOneEndpoint(this)))? = null
+  /// A `static` service gets one on port 8080 to amend, as in `http { domains { ... } }`.
+  http: (Http | Listing<Http>(length.isBetween(1, 20), sharesOneEndpoint(this)))? =
+    if (static != null) new Http { port = 8080; healthPath = "/.orch/health" } else null
 
   tcp: Tcp? = null
 
@@ -115,6 +122,15 @@ class Service {
   /// Adds and removes replicas to keep average CPU use near a target. Leave
   /// `replicas` unset when this is set; `min` is the starting count.
   autoscale: Autoscale? = null
+}
+
+class Static {
+  /// The folder to serve, relative to the manifest, such as a build's `dist`.
+  dir: String(!isBlank, length <= 4096)
+
+  /// Answer unknown paths with `/index.html`, for single-page apps with
+  /// client-side routing. Otherwise they get `/404.html` with status 404.
+  spa: Boolean = false
 }
 
 class Autoscale {

@@ -608,3 +608,27 @@ func IsPlan4Allocation(allocation AllocationDesired) (bool, error) {
 	}
 	return legacy == allocation.SpecDigest, nil
 }
+
+// ReservesRollback reports whether an allocation still needs capacity for its
+// rollback process next to the current one. Only a start-before-stop rollout
+// runs both, and only until the agent reports the desired spec active: after
+// that the previous process is gone, and a later rollback is a new rollout
+// that is admitted against capacity like any other. A stop-first rollback
+// replaces the current process and never needs extra capacity.
+func ReservesRollback(desired AllocationDesired, activeRevisionID, activeSpecDigest string) bool {
+	if !desired.StartBeforeStop || desired.Rollback == nil {
+		return false
+	}
+	return activeRevisionID != desired.RevisionID || activeSpecDigest != desired.SpecDigest
+}
+
+// AllocationReservation is the CPU and memory an allocation holds on its
+// node, including its rollback process while ReservesRollback says so.
+func AllocationReservation(desired AllocationDesired, activeRevisionID, activeSpecDigest string) (cpuMillis, memoryBytes uint64) {
+	cpuMillis, memoryBytes = desired.CPUMillis, desired.MemoryBytes
+	if ReservesRollback(desired, activeRevisionID, activeSpecDigest) {
+		cpuMillis += desired.Rollback.CPUMillis
+		memoryBytes += desired.Rollback.MemoryBytes
+	}
+	return cpuMillis, memoryBytes
+}

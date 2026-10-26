@@ -149,8 +149,11 @@ func Validate(manifest *Manifest) error {
 		if service.Privileged && len(service.Capabilities) != 0 {
 			add(base+".capabilities", "cannot be set together with privileged")
 		}
+		if service.Static != nil {
+			validateStatic(manifest.Name, serviceName, service, add)
+		}
 		if strings.TrimSpace(service.Image) == "" {
-			add(base+".image", "is required")
+			add(base+".image", "is required unless static is set")
 		} else if len(service.Image) > 1024 || strings.ContainsRune(service.Image, 0) {
 			add(base+".image", "must not exceed 1024 bytes or contain NUL bytes")
 		} else if _, err := reference.ParseNormalizedNamed(service.Image); err != nil {
@@ -789,4 +792,24 @@ func NormalizeDomainLimits(domains []string) ([]string, error) {
 	}
 	slices.Sort(normalized)
 	return slices.Compact(normalized), nil
+}
+
+// validateStatic checks a service that serves a folder with orch's web
+// server, which brings its own image and command.
+func validateStatic(application, serviceName string, service Service, add func(string, string)) {
+	base := "services." + serviceName
+	if named, err := reference.ParseNormalizedNamed(service.Image); err != nil || named.Name() != StaticImage(application, serviceName) {
+		add(base+".image", "cannot be set together with static")
+	}
+	if len(service.Command) != 0 || len(service.Args) != 0 {
+		add(base+".static", "cannot be set together with command or args")
+	}
+	if strings.TrimSpace(service.Static.Dir) == "" {
+		add(base+".static.dir", "is required")
+	}
+	if service.HTTP == nil {
+		add(base+".http", "is required for a static service")
+	} else if len(service.HTTP.DomainPorts) != 0 {
+		add(base+".http", "must be a single endpoint for a static service")
+	}
 }

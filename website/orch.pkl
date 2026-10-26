@@ -1,0 +1,16 @@
+amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+
+// orch.torsten.work, served by orch as a static site. Requires orch v0.1.14 or
+// newer. Build first with `bun run build:site`; the deploy workflow is
+// .github/workflows/website-deploy.yml.
+
+name = "orch"
+
+services {
+  ["web"] {
+    // The prerendered site. dist/server, the Sites worker, is only added by
+    // build.sh, so a build:site output never publishes it.
+    static = new Static { dir = "dist" }
+    http { domains { "orch.torsten.work" } }
+  }
+}
