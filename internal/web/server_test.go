@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/database"
 	"github.com/TorstenDittmann/orch/internal/tui"
 )
 
@@ -18,6 +19,8 @@ type fakeProvider struct {
 	updated    *orchv1alpha1.UpdateNodeRequest
 	rolledBack *orchv1alpha1.RollbackApplicationRequest
 	jobAction  string
+	backedUp   string
+	restored   string
 }
 
 func (f *fakeProvider) GetClusterStatus(context.Context) (*orchv1alpha1.Cluster, *orchv1alpha1.ControllerBackup, error) {
@@ -65,6 +68,29 @@ func (f *fakeProvider) ListCronRuns(_ context.Context, app, job string, _ uint32
 }
 func (f *fakeProvider) CompareDeployments(_ context.Context, app, from, to string) (*orchv1alpha1.CompareDeploymentsResponse, error) {
 	return &orchv1alpha1.CompareDeploymentsResponse{Changes: []*orchv1alpha1.DeploymentChange{{Path: app + ":" + from + ".." + to}}}, nil
+}
+
+func (f *fakeProvider) FindDatabase(_ context.Context, app, name string) (database.Database, error) {
+	found := database.Database{Application: app, Database: name, Engine: "postgres"}
+	if name == "main" {
+		found.BackupVolume, found.BackupSchedule, found.BackupKeep = "main-backup", "0 3 * * *", 7
+	}
+	return found, nil
+}
+func (f *fakeProvider) ListVolumes(_ context.Context, app, volume string) ([]*orchv1alpha1.VolumeSummary, error) {
+	return []*orchv1alpha1.VolumeSummary{{Application: app, Volume: volume, Node: "node-1", Reachable: true, BackupCount: 1,
+		Backups: []*orchv1alpha1.VolumeBackupInfo{{Name: "20261026T030000Z", SizeBytes: 2048, OnNode: true, InBucket: true}}}}, nil
+}
+func (f *fakeProvider) BackupVolume(_ context.Context, app, volume string) (*orchv1alpha1.VolumeBackupInfo, error) {
+	f.backedUp = app + "/" + volume
+	return &orchv1alpha1.VolumeBackupInfo{Name: "20261026T110000Z", SizeBytes: 4096}, nil
+}
+func (f *fakeProvider) GetBackupDestination(context.Context) (*orchv1alpha1.GetBackupDestinationResponse, error) {
+	return &orchv1alpha1.GetBackupDestinationResponse{Destination: &orchv1alpha1.BackupDestination{Url: "s3://backups/orch", AccessKeyId: "AKIASECRET"}}, nil
+}
+func (f *fakeProvider) RestoreDatabase(_ context.Context, found database.Database, backup string) (*orchv1alpha1.VolumeBackupInfo, error) {
+	f.restored = found.Application + "/" + found.Database + "@" + backup
+	return &orchv1alpha1.VolumeBackupInfo{Name: "20261026T111500Z-before-restore"}, nil
 }
 
 const (
@@ -238,5 +264,32 @@ func TestMutationsRequireSameOrigin(t *testing.T) {
 	}
 	if provider.rolledBack.GetApplication() != "web" || provider.rolledBack.GetRevisionId() != "rev1" || provider.rolledBack.GetExpectedGeneration() != 7 {
 		t.Fatalf("rollback = %v", provider.rolledBack)
+	}
+}
+
+func TestDatabaseBackups(t *testing.T) {
+	provider := &fakeProvider{}
+	list := serve(t, provider, request(http.MethodGet, "/api/apps/shop/databases/main/backups", "", nil))
+	body := list.Body.String()
+	if list.Code != http.StatusOK || !strings.Contains(body, `"destination":"s3://backups/orch"`) || !strings.Contains(body, `"sizeBytes":"2048"`) ||
+		!strings.Contains(body, `"backupVolume":"main-backup"`) || strings.Contains(body, "AKIASECRET") {
+		t.Fatalf("backups = %d: %s", list.Code, body)
+	}
+	off := serve(t, provider, request(http.MethodGet, "/api/apps/shop/databases/cache/backups", "", nil))
+	if off.Code != http.StatusOK || !strings.Contains(off.Body.String(), `"volume":null`) {
+		t.Fatalf("backups off = %d: %s", off.Code, off.Body)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/apps/shop/databases/main/backup", `{}`, nil)); response.Code != http.StatusOK || provider.backedUp != "shop/main-backup" {
+		t.Fatalf("backup = %d %q: %s", response.Code, provider.backedUp, response.Body)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/apps/shop/databases/cache/backup", `{}`, nil)); response.Code != http.StatusBadRequest {
+		t.Fatalf("backup with backups off = %d", response.Code)
+	}
+	if response := serve(t, provider, request(http.MethodPost, "/api/apps/shop/databases/main/restore", `{}`, nil)); response.Code != http.StatusBadRequest || provider.restored != "" {
+		t.Fatalf("restore without a backup = %d", response.Code)
+	}
+	restore := serve(t, provider, request(http.MethodPost, "/api/apps/shop/databases/main/restore", `{"backup":"20261026T030000Z"}`, nil))
+	if restore.Code != http.StatusOK || provider.restored != "shop/main@20261026T030000Z" || !strings.Contains(restore.Body.String(), "before-restore") {
+		t.Fatalf("restore = %d %q: %s", restore.Code, provider.restored, restore.Body)
 	}
 }

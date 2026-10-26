@@ -174,6 +174,11 @@ after you restore one by name are trusted again, so the next scheduled backup
 ends the question. A restore without a name also stops when the bucket's
 backups cannot be listed.
 
+`orch web` shows the same on an application's page: select a database to see
+its backups with their size, age, and whether they are on the node, in the
+bucket, or both, take one with **Back up now**, or restore one. The dashboard
+restores the backup you pick, the same way as `orch db restore` with a name.
+
 Loading a dump is limited to five minutes. For a larger database, download the
 dump and load it yourself with `orch exec`.
 

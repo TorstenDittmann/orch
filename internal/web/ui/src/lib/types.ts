@@ -282,6 +282,48 @@ export interface OneOffJob {
 	status: JobRun;
 }
 
+export interface VolumeBackup {
+	name: string;
+	createdAt: Timestamp;
+	sizeBytes: string;
+	onNode: boolean;
+	inBucket: boolean;
+}
+
+export interface VolumeSummary {
+	application: string;
+	volume: string;
+	service: string;
+	node: string;
+	backupSchedule: string;
+	backupKeep: number;
+	reachable: boolean;
+	// Newest first.
+	backups: VolumeBackup[];
+	backupFailedAt: Timestamp;
+	backupFailure: string;
+	backupCount: number;
+	bucketError: string;
+	claimedAt: Timestamp;
+}
+
+export interface DatabaseBackups {
+	database: {
+		name: string;
+		engine: string;
+		version: string;
+		backupVolume: string;
+		backupSchedule: string;
+		backupKeep: number;
+		// False for dump engines, whose restore keeps only the previous dump.
+		keepsPreviousData: boolean;
+	};
+	// Null when backups are off for the database.
+	volume: VolumeSummary | null;
+	// The off-host bucket, empty when backups stay on their nodes.
+	destination: string;
+}
+
 export interface Snapshot {
 	target: string;
 	transport: string;
