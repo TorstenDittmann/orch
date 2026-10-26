@@ -49,6 +49,11 @@ func uploadStaticSites(ctx context.Context, remote imageUploader, manifest *conf
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			return err
 		}
+		// A health path other than the server's own must be a page of the
+		// site, or no replica ever becomes ready.
+		if path := service.HTTP.HealthPath; path != "" && path != staticsite.HealthPath && !service.Static.SPA && !staticsite.Serves(*service.Static, path) {
+			return fmt.Errorf("static site %s: healthPath %s is not a file in %s; remove it to use the built-in %s", name, path, service.Static.Dir, staticsite.HealthPath)
+		}
 		built, err := buildStaticSite(ctx, *service.Static, service.HTTP.Port, architectures, dir)
 		if err != nil {
 			return fmt.Errorf("build static site %s: %w", name, err)

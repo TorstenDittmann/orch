@@ -233,3 +233,45 @@ func imageFiles(t *testing.T, archive string) map[string]string {
 	}
 	return files
 }
+
+func TestBuildRefusesLinksToHiddenOrOutsideFiles(t *testing.T) {
+	fakeCaddy(t)
+	for name, target := range map[string]string{"logo.png": "../.env", "secret.txt": "../../outside.txt"} {
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "dist")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range []string{filepath.Join(parent, ".env"), filepath.Join(filepath.Dir(parent), "outside.txt")} {
+				_ = os.WriteFile(file, []byte("SECRET=1"), 0o600)
+			}
+			if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Build(context.Background(), config.Static{Dir: dir}, 8080, []string{"amd64"}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "links outside the folder") {
+				t.Fatalf("Build() error = %v", err)
+			}
+		})
+	}
+	dir := writeSiteFiles(t)
+	if err := os.Symlink(".env", filepath.Join(dir, "env.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(context.Background(), config.Static{Dir: dir}, 8080, []string{"amd64"}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "hidden file") {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "env.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("index.html", filepath.Join(dir, "home.html")); err != nil {
+		t.Fatal(err)
+	}
+	built, err := Build(context.Background(), config.Static{Dir: dir}, 8080, []string{"amd64"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("a link to a visible file: %v", err)
+	}
+	if files := imageFiles(t, built.Path); files["srv/home.html"] != "<h1>home</h1>" {
+		t.Fatalf("home.html = %q", files["srv/home.html"])
+	}
+}

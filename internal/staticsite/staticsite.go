@@ -158,7 +158,11 @@ func writeSite(writer *tar.Writer, site config.Static, port int) error {
 	}
 	var entries []entry
 	var newest time.Time
-	err := filepath.WalkDir(site.Dir, func(file string, item fs.DirEntry, err error) error {
+	root, err := filepath.EvalSymlinks(site.Dir)
+	if err != nil {
+		return err
+	}
+	err = filepath.WalkDir(site.Dir, func(file string, item fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -180,8 +184,13 @@ func writeSite(writer *tar.Writer, site config.Static, port int) error {
 		if err != nil {
 			return err
 		}
-		if item.Type()&fs.ModeSymlink != 0 && info.IsDir() {
-			return fmt.Errorf("static folder: %s links to a folder, which is not supported", relative)
+		if item.Type()&fs.ModeSymlink != 0 {
+			if info.IsDir() {
+				return fmt.Errorf("static folder: %s links to a folder, which is not supported", relative)
+			}
+			if err := checkLink(root, file, relative); err != nil {
+				return err
+			}
 		}
 		if !info.IsDir() && !info.Mode().IsRegular() {
 			return fmt.Errorf("static folder: %s is not a regular file", relative)
@@ -224,6 +233,36 @@ func writeSite(writer *tar.Writer, site config.Static, port int) error {
 		}
 	}
 	return writer.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: "tmp/", Mode: 0o1777, ModTime: modified})
+}
+
+// checkLink allows a link to a file only when the file is a visible part of
+// the folder, so a link cannot publish a hidden file or one outside it.
+func checkLink(root, file, relative string) error {
+	target, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		return err
+	}
+	inside, err := filepath.Rel(root, target)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
+		return fmt.Errorf("static folder: %s links outside the folder, which is not supported", relative)
+	}
+	for _, part := range strings.Split(filepath.ToSlash(inside), "/") {
+		if strings.HasPrefix(part, ".") && part != ".well-known" {
+			return fmt.Errorf("static folder: %s links to a hidden file, which is not published", relative)
+		}
+	}
+	return nil
+}
+
+// Serves reports whether the folder answers path with a file, so a health
+// path other than HealthPath can become ready.
+func Serves(site config.Static, path string) bool {
+	name := filepath.Join(site.Dir, filepath.FromSlash(strings.TrimPrefix(path, "/")))
+	if info, err := os.Stat(name); err == nil && info.Mode().IsRegular() {
+		return true
+	}
+	info, err := os.Stat(filepath.Join(name, "index.html"))
+	return err == nil && info.Mode().IsRegular()
 }
 
 func copyFile(writer *tar.Writer, name, source string, modified time.Time) error {

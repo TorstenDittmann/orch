@@ -223,12 +223,15 @@ services {
 ```
 
 A static service gets an `http` endpoint on port 8080 with a health check, so
-`http { ... }` only adds domains or other settings to it. It can't also set
-`image`, `command` or `args`.
+`http { ... }` only adds domains or other settings to it. A different
+`healthPath` must be a file in the folder, such as `/` for its `index.html`. It
+can't also set `image`, `command` or `args`.
 
 Build the site before deploying; `orch deploy` serves whatever is in the
 folder. Files and folders whose names start with a dot, such as `.env` or
-`.git`, are left out, except `.well-known`. Without `spa`, unknown paths get
+`.git`, are left out, except `.well-known`. Links to files inside the folder
+are followed; links to folders, hidden files, or anything outside it stop the
+deploy. Without `spa`, unknown paths get
 the folder's `404.html` with status 404, if it has one. Responses are
 compressed, and an unchanged folder is not uploaded again.
 

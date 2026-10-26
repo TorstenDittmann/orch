@@ -72,8 +72,8 @@ func fakeStaticBuild(t *testing.T, built *[]string) {
 
 func staticManifest() *config.Manifest {
 	return &config.Manifest{Name: "docs", Services: map[string]config.Service{
-		"web":  {Image: config.StaticImage("docs", "web"), Static: &config.Static{Dir: "/src/a"}, HTTP: &config.HTTP{Port: 8080}},
-		"blog": {Image: config.StaticImage("docs", "blog"), Static: &config.Static{Dir: "/src/b"}, HTTP: &config.HTTP{Port: 8080}},
+		"web":  {Image: config.StaticImage("docs", "web"), Static: &config.Static{Dir: "/src/a"}, HTTP: &config.HTTP{Port: 8080, HealthPath: staticsite.HealthPath}},
+		"blog": {Image: config.StaticImage("docs", "blog"), Static: &config.Static{Dir: "/src/b"}, HTTP: &config.HTTP{Port: 8080, HealthPath: staticsite.HealthPath}},
 		"api":  {Image: "ghcr.io/acme/api:1"},
 	}}
 }
@@ -121,7 +121,7 @@ func TestUploadStaticSitesBuildsBothArchitecturesWithoutNodes(t *testing.T) {
 	var built []string
 	fakeStaticBuild(t, &built)
 	manifest := &config.Manifest{Name: "docs", Services: map[string]config.Service{
-		"web": {Image: config.StaticImage("docs", "web"), Static: &config.Static{Dir: "/src/a"}, HTTP: &config.HTTP{Port: 8080}},
+		"web": {Image: config.StaticImage("docs", "web"), Static: &config.Static{Dir: "/src/a"}, HTTP: &config.HTTP{Port: 8080, HealthPath: staticsite.HealthPath}},
 	}}
 	if err := uploadStaticSites(context.Background(), &siteUploader{stored: map[string]string{}}, manifest, io.Discard); err != nil {
 		t.Fatal(err)
@@ -136,6 +136,28 @@ func TestUploadStaticSitesNeedsUploads(t *testing.T) {
 	fakeStaticBuild(t, &built)
 	err := uploadStaticSites(context.Background(), &siteUploader{unsupported: true}, staticManifest(), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "upgrade it to deploy static sites") {
+		t.Fatalf("uploadStaticSites() error = %v", err)
+	}
+}
+
+func TestUploadStaticSitesChecksACustomHealthPath(t *testing.T) {
+	var built []string
+	fakeStaticBuild(t, &built)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	site := func(path string) *config.Manifest {
+		return &config.Manifest{Name: "docs", Services: map[string]config.Service{
+			"web": {Image: config.StaticImage("docs", "web"), Static: &config.Static{Dir: dir}, HTTP: &config.HTTP{Port: 8080, HealthPath: path}},
+		}}
+	}
+	remote := &siteUploader{stored: map[string]string{}}
+	if err := uploadStaticSites(context.Background(), remote, site("/"), io.Discard); err != nil {
+		t.Fatalf("healthPath / with an index.html: %v", err)
+	}
+	err := uploadStaticSites(context.Background(), remote, site("/healthz"), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "healthPath /healthz is not a file") {
 		t.Fatalf("uploadStaticSites() error = %v", err)
 	}
 }
