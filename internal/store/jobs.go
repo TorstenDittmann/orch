@@ -161,8 +161,8 @@ func (s *Store) CreateJob(ctx context.Context, job model.Job, key, hash string, 
 	if active >= 32 {
 		return model.Job{}, ErrJobLimit
 	}
-	var cpu, memory uint64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(json_extract(spec,'$.cpu_millis')+COALESCE(json_extract(spec,'$.rollback.cpu_millis'),0)),0), COALESCE(sum(json_extract(spec,'$.memory_bytes')+COALESCE(json_extract(spec,'$.rollback.memory_bytes'),0)),0) FROM desired_allocations WHERE node_id=?`, job.NodeID).Scan(&cpu, &memory); err != nil {
+	cpu, memory, err := allocationReservations(ctx, tx, job.NodeID)
+	if err != nil {
 		return model.Job{}, err
 	}
 	var cronCPU, cronMemory uint64
