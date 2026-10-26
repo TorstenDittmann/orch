@@ -63,6 +63,13 @@ type databaseEngine struct {
 	url         func(host, name string, secrets map[string]string) string
 }
 
+// databaseCapabilities lets the official images' entrypoints, which start as
+// root, hand the data directory to the database user and switch to it. orch
+// grants a workload no capabilities by default, so without them every engine
+// with a data volume fails with "chown: Operation not permitted". All five are
+// in Docker's default set.
+var databaseCapabilities = []string{"CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_SETGID", "CAP_SETUID"}
+
 var databaseEngines = map[string]databaseEngine{
 	EnginePostgres: {
 		image: "postgres", port: 5432, dataPath: "/var/lib/orch-postgres",
@@ -347,6 +354,7 @@ func expandDatabases(manifest *Manifest, databases map[string]DatabaseSpec) erro
 		}
 		if engine.dataPath != "" {
 			service.Mounts = append(service.Mounts, Mount{Source: data, Target: engine.dataPath})
+			service.Capabilities = append([]string(nil), databaseCapabilities...)
 		}
 		dataVolume := Volume{Driver: "local"}
 		if spec.Backup != nil {

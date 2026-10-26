@@ -296,3 +296,30 @@ func TestGenerateLibSQLSecrets(t *testing.T) {
 		t.Fatalf("a missing token did not replace the key pair: %v %v", partial, err)
 	}
 }
+
+func TestDatabaseServicesMayChangeOwnershipWithoutAdministrator(t *testing.T) {
+	manifest := &Manifest{Name: "shop", Services: map[string]Service{}, Volumes: map[string]Volume{}}
+	if err := expandDatabases(manifest, map[string]DatabaseSpec{
+		"main":  {Engine: EnginePostgres, Version: "17"},
+		"cache": {Engine: EngineGarnet, Version: "latest"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.Services["main"].Capabilities; !reflect.DeepEqual(got, databaseCapabilities) {
+		t.Fatalf("postgres capabilities = %v, want %v", got, databaseCapabilities)
+	}
+	if got := manifest.Services["cache"].Capabilities; len(got) != 0 {
+		t.Fatalf("garnet has no data volume to own, capabilities = %v", got)
+	}
+	if names := manifest.CapabilityServices(); len(names) != 0 {
+		t.Fatalf("database services required an administrator: %v", names)
+	}
+
+	widened := manifest.Services["main"]
+	widened.Capabilities = append(append([]string(nil), databaseCapabilities...), "CAP_SYS_ADMIN")
+	manifest.Services["main"] = widened
+	manifest.Services["web"] = Service{Image: "example/web", Capabilities: []string{"CAP_CHOWN"}}
+	if names := manifest.CapabilityServices(); !reflect.DeepEqual(names, []string{"main", "web"}) {
+		t.Fatalf("CapabilityServices() = %v, want the widened database and the ordinary service", names)
+	}
+}
