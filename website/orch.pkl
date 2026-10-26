@@ -4,7 +4,7 @@ amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 // newer. Build first with `bun run build:site`; the deploy workflow is
 // .github/workflows/website-deploy.yml.
 
-name = "orch-website"
+name = "orch"
 
 services {
   ["web"] {

@@ -33,7 +33,7 @@ The workflow reads the `ORCH_CLUSTER` and `ORCH_VERSION` repository variables
 and needs orch to trust this repository once:
 
 ```sh
-orch github trust TorstenDittmann/orch --app orch-website --branch main --environment production
+orch github trust TorstenDittmann/orch --app orch --branch main --environment production
 ```
 
 To deploy by hand from this directory:
