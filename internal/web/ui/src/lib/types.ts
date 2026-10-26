@@ -322,6 +322,8 @@ export interface DatabaseBackups {
 	volume: VolumeSummary | null;
 	// The off-host bucket, empty when backups stay on their nodes.
 	destination: string;
+	// Why the destination could not be read; it may still be set.
+	destinationError: string;
 }
 
 export interface Snapshot {

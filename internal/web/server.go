@@ -34,10 +34,7 @@ import (
 const (
 	cookieName     = "orch_web"
 	requestTimeout = 15 * time.Second
-	// Backups and restores copy a volume and, for dump engines, load the
-	// dump, so they get far longer than reads.
-	backupTimeout = 20 * time.Minute
-	maxBodyBytes  = 16 << 10
+	maxBodyBytes   = 16 << 10
 )
 
 // The dashboard is a Svelte single-page app in ui/, built into ui/dist with
@@ -476,7 +473,7 @@ func (s *Server) databaseBackups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	response := map[string]any{"database": databaseJSON(found), "volume": nil, "destination": ""}
+	response := map[string]any{"database": databaseJSON(found), "volume": nil, "destination": "", "destinationError": ""}
 	if found.BackupVolume == "" {
 		writeJSON(w, http.StatusOK, response)
 		return
@@ -490,7 +487,9 @@ func (s *Server) databaseBackups(w http.ResponseWriter, r *http.Request) {
 		response["volume"] = message(volumes[0])
 	}
 	// Only the bucket's URL is shown; the destination's keys stay with the controller.
-	if destination, err := s.provider.GetBackupDestination(ctx); err == nil {
+	if destination, err := s.provider.GetBackupDestination(ctx); err != nil {
+		response["destinationError"] = err.Error()
+	} else {
 		response["destination"] = destination.GetDestination().GetUrl()
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -501,8 +500,9 @@ func (s *Server) backupDatabase(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &body) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), backupTimeout)
-	defer cancel()
+	// The controller bounds a backup itself; a large volume can take far
+	// longer than a read.
+	ctx := r.Context()
 	found, err := s.provider.FindDatabase(ctx, r.PathValue("name"), r.PathValue("database"))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -533,9 +533,9 @@ func (s *Server) restoreDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A restore that stops halfway leaves the dump unloaded, so it runs to
-	// the end even when the browser tab closes.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), backupTimeout)
-	defer cancel()
+	// the end even when the browser tab closes. The controller bounds the
+	// swap, and waiting for and loading the dump have their own limits.
+	ctx := context.WithoutCancel(r.Context())
 	found, err := s.provider.FindDatabase(ctx, r.PathValue("name"), r.PathValue("database"))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)

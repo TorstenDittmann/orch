@@ -105,6 +105,8 @@
 				{#if volume?.node}on node {volume.node}{#if !volume.reachable} <span class="warn">(unreachable)</span>{/if}{:else}<span class="faint">not on a node yet</span>{/if}
 				{#if data.destination}
 					· off-host in <span class="mono">{data.destination}</span>
+				{:else if data.destinationError}
+					<span class="faint">· off-host destination unknown</span>
 				{:else}
 					<span class="faint">· no off-host copy; set one with <span class="mono">orch backup destination set</span></span>
 				{/if}
@@ -114,6 +116,9 @@
 		</dl>
 		{#if volume?.backupFailure}
 			<div class="alert">Last scheduled backup failed {ago(volume.backupFailedAt, live.now)}: {volume.backupFailure}</div>
+		{/if}
+		{#if data.destinationError}
+			<div class="alert">Could not read the off-host backup destination: {data.destinationError}</div>
 		{/if}
 		{#if volume?.bucketError}
 			<div class="alert">Could not list the copies in the bucket: {volume.bucketError}</div>
