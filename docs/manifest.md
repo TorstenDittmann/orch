@@ -211,7 +211,7 @@ rollbacks.
 
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
-| `dir` | String | required | Folder to serve, relative to the manifest |
+| `dir` | String | required | Folder to serve, relative to the manifest. It must be inside the evaluation root (the manifest's folder unless `--root` is given) |
 | `spa` | Boolean | `false` | Answer unknown paths with `/index.html`, for client-side routing |
 
 ```pkl

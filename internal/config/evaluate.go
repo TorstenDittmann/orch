@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -90,10 +92,24 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 	}
 
 	manifest := resolvePkl(doc)
-	for _, service := range manifest.Services {
-		if service.Static != nil && service.Static.Dir != "" && !filepath.IsAbs(service.Static.Dir) {
+	var outside []Problem
+	for _, name := range slices.Sorted(maps.Keys(manifest.Services)) {
+		service := manifest.Services[name]
+		if service.Static == nil || service.Static.Dir == "" {
+			continue
+		}
+		if !filepath.IsAbs(service.Static.Dir) {
 			service.Static.Dir = filepath.Join(filepath.Dir(entry), filepath.FromSlash(service.Static.Dir))
 		}
+		// A deploy publishes the folder, so like module imports it must stay
+		// inside the evaluation root; otherwise a manifest or a module it
+		// imports could publish any folder on the deploying machine.
+		if !insideRoot(root, service.Static.Dir) {
+			outside = append(outside, Problem{Path: "services." + name + ".static.dir", Message: "must be a folder inside the evaluation root " + root})
+		}
+	}
+	if len(outside) != 0 {
+		return nil, &ValidationError{Problems: outside}
 	}
 	databases := resolvePklDatabases(doc)
 	if err := connectDatabases(manifest, resolvePklConnections(doc), databases); err != nil {
@@ -165,6 +181,26 @@ func loadEntry(filename, configuredRoot string) (entry string, root string, cont
 		return "", "", nil, fmt.Errorf("manifest exceeds %d bytes", MaxManifestBytes)
 	}
 	return entry, root, contents, nil
+}
+
+// insideRoot reports whether path, after resolving symlinks in the part of
+// it that exists, is root or below it.
+func insideRoot(root, path string) bool {
+	resolved := filepath.Clean(path)
+	for missing := ""; ; {
+		if real, err := filepath.EvalSymlinks(resolved); err == nil {
+			resolved = filepath.Join(real, missing)
+			break
+		}
+		parent := filepath.Dir(resolved)
+		if parent == resolved {
+			return false
+		}
+		missing = filepath.Join(filepath.Base(resolved), missing)
+		resolved = parent
+	}
+	relative, err := filepath.Rel(root, resolved)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 func realPath(filename string) (string, error) {

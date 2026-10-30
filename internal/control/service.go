@@ -463,11 +463,14 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if found {
 		return connect.NewResponse(applyApplicationMessage(replayed)), nil
 	}
-	if err := s.ensureDatabaseSecrets(ctx, manifest); err != nil {
-		return nil, err
-	}
 	resolved, err := s.resolveImages(ctx, manifest)
 	if err != nil {
+		return nil, err
+	}
+	// Database secrets are created only once the images resolve, so a deploy
+	// that fails on its image leaves no secrets behind for an application
+	// that was never stored.
+	if err := s.ensureDatabaseSecrets(ctx, manifest); err != nil {
 		return nil, err
 	}
 	digest := config.DigestCanonicalJSON(resolved)
