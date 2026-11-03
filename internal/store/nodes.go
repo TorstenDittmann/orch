@@ -302,7 +302,13 @@ func (s *Store) NodeDrainBlockers(ctx context.Context, node model.Node) ([]strin
 	if node.Lifecycle != model.NodeLifecycleDraining {
 		return nil, nil
 	}
-	var localVolumes, cronJobs int
+	var localVolumes, cronJobs, movable int
+	// Replicas without a volume mount move to other nodes; those with one
+	// stay with their local volume.
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM desired_allocations
+		WHERE node_id = ? AND coalesce(json_array_length(spec, '$.mounts'), 0) = 0`, node.ID).Scan(&movable); err != nil {
+		return nil, fmt.Errorf("read node movable replicas: %w", err)
+	}
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM volume_claims v
 		JOIN applications a ON a.name = v.application_name
 		WHERE v.node_id = ? AND a.deleted_at IS NULL`, node.ID).Scan(&localVolumes); err != nil {
@@ -312,6 +318,9 @@ func (s *Store) NodeDrainBlockers(ctx context.Context, node model.Node) ([]strin
 		return nil, fmt.Errorf("read node cron blockers: %w", err)
 	}
 	var blockers []string
+	if movable != 0 {
+		blockers = append(blockers, "replicas_moving")
+	}
 	if localVolumes != 0 {
 		blockers = append(blockers, "local_volume_pinned")
 	}

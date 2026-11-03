@@ -85,6 +85,7 @@ stdin instead, which keeps it out of your shell history. `discord` and
 | --- | --- |
 | `node.lost` | A node has had no heartbeat for 3 minutes |
 | `node.disk_low` | A node's disk is 90% full; sent again only after it drops below 85% |
+| `node.reboot_required` | A node has installed updates, such as a new kernel, that take effect only after a reboot. [`orch node update`](operations.md#operating-system-updates) applies them |
 | `certificate.expiring` | The controller, cluster CA, a node's agent or a recently used administrator certificate expires within 30 days |
 | `backup.stale` | The newest automatic controller backup is more than 2 days old |
 

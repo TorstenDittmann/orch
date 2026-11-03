@@ -22,6 +22,7 @@ const (
 	// Cluster events go only to cluster notifications (orch notify add).
 	NotifyNodeLost            = "node.lost"
 	NotifyNodeDiskLow         = "node.disk_low"
+	NotifyNodeRebootRequired  = "node.reboot_required"
 	NotifyCertificateExpiring = "certificate.expiring"
 	NotifyBackupStale         = "backup.stale"
 
@@ -38,7 +39,7 @@ var notificationEvents = map[string]bool{
 
 // ClusterNotificationEvents are sent to a cluster notification that names
 // no events.
-var ClusterNotificationEvents = []string{NotifyBackupStale, NotifyCertificateExpiring, NotifyNodeDiskLow, NotifyNodeLost}
+var ClusterNotificationEvents = []string{NotifyBackupStale, NotifyCertificateExpiring, NotifyNodeDiskLow, NotifyNodeLost, NotifyNodeRebootRequired}
 
 // ValidateClusterNotificationEvents checks the events of a cluster
 // notification, which may also ask for any application event.

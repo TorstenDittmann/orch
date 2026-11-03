@@ -198,3 +198,49 @@ func mustNode(t *testing.T, s *service) model.Node {
 	}
 	return node
 }
+
+func TestClusterAlertsReportNodesWaitingForAReboot(t *testing.T) {
+	state, cluster := reconcilerStore(t)
+	enrollCompatibleNode(t, state)
+	ctx := context.Background()
+	now := reconcilerTestTime.Add(time.Hour)
+	sessions := newSessionManager(func() time.Time { return now })
+	session, err := sessions.register(ctx, "node-one", "boot-one", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newService(state, cluster, nil, nil, nil, sessions, func() time.Time { return now })
+	alerts := newClusterAlerts(s, now.Add(365*24*time.Hour))
+	alerts.startedAt = now
+	raised := func() bool {
+		t.Helper()
+		if err := alerts.check(ctx); err != nil {
+			t.Fatal(err)
+		}
+		keys, err := state.ClusterAlerts(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.Contains(keys, "node.reboot_required/node-one")
+	}
+	if raised() {
+		t.Fatal("alert raised before the node asked for a reboot")
+	}
+	session.mu.Lock()
+	session.rebootRequired = true
+	session.mu.Unlock()
+	if !raised() {
+		t.Fatal("alert not raised for a node waiting for a reboot")
+	}
+	// A rebooting node keeps the alert until it is back without the need.
+	sessions.unregister(session)
+	if !raised() {
+		t.Fatal("alert cleared while the node was away")
+	}
+	if _, err := sessions.register(ctx, "node-one", "boot-two", func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if raised() {
+		t.Fatal("alert kept after the node came back without a pending reboot")
+	}
+}

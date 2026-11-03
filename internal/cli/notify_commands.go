@@ -208,6 +208,8 @@ history. NAME defaults to the kind; adding the same name again replaces it.
 Cluster events, sent by default:
   node.lost             a node has had no heartbeat for 3 minutes
   node.disk_low         a node's disk is 90% full
+  node.reboot_required  a node has installed updates that need a reboot;
+                        orch node update NODE applies them
   certificate.expiring  a controller, CA, agent or administrator certificate
                         expires within 30 days
   backup.stale          the newest controller backup is older than 2 days
