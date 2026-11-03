@@ -55,6 +55,9 @@ type agentSession struct {
 	selfUpgrade  bool
 	// offsiteBackups is set when the agent accepts UPLOAD and RESTORE with urls.
 	offsiteBackups bool
+	// encryptedBackups is set when the agent encrypts uploads and decrypts
+	// restores from the bucket.
+	encryptedBackups bool
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -199,6 +202,18 @@ func (m *sessionManager) offsiteBackups(nodeID string) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return session.offsiteBackups
+}
+
+// encryptedBackups reports whether the node's agent encrypts the volume
+// backups it uploads. Older agents would upload them in the clear.
+func (m *sessionManager) encryptedBackups(nodeID string) bool {
+	session := m.session(nodeID)
+	if session == nil {
+		return false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.offsiteBackups && session.encryptedBackups
 }
 
 // session returns the node's current session, or nil when it is not connected.

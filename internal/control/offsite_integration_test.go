@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,7 +188,24 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 		t.Fatalf("BackupVolume() = %v, %v; want a backup on the node", manual, err)
 	}
 	key := waitForBucketKey(t, bucket, "prod/volumes/game/data/"+manual.GetName()+".tar.gz")
-	if archive, _ := bucket.Object(key); !bytes.Equal(archivedFile(t, archive, "world.dat"), world) {
+	// The bucket's copy is encrypted to the cluster's volume backup key.
+	box, err := security.LoadSecretBox(filepath.Join(controllerDir, clusterctl.SecretKeyFilename), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeKey, _, err := server.state.VolumeBackupKey(ctx, box, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, _ := bucket.Object(key)
+	if bytes.Contains(copied, world) || !security.IsEncryptedBackup(bufio.NewReader(bytes.NewReader(copied))) {
+		t.Fatal("the bucket's copy of the volume is not encrypted")
+	}
+	opened, err := security.DecryptBackup(bufio.NewReader(bytes.NewReader(copied)), volumeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive, _ := io.ReadAll(opened); !bytes.Equal(archivedFile(t, archive, "world.dat"), world) {
 		t.Fatal("the bucket's copy does not hold the volume's data")
 	}
 
@@ -266,8 +284,14 @@ func TestLoopbackBackupsCopyToBucketAndRestoreFromIt(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if stored, _ := bucket.Object("prod/volumes/game/logs/" + logs.GetName() + ".tar.gz"); !bytes.Equal(downloaded, stored) {
-		t.Fatal("download from the bucket differs from its copy")
+	// The download is the plaintext archive, like one from the node.
+	stored, _ := bucket.Object("prod/volumes/game/logs/" + logs.GetName() + ".tar.gz")
+	opened, err = security.DecryptBackup(bufio.NewReader(bytes.NewReader(stored)), volumeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, _ := io.ReadAll(opened); !bytes.Equal(downloaded, plain) || bytes.Equal(downloaded, stored) {
+		t.Fatal("download from the bucket differs from its decrypted copy")
 	}
 
 	status, err := remote.GetBackupDestination(ctx)
