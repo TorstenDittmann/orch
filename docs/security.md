@@ -241,8 +241,10 @@ Installation creates separate credentials for each role.
   applications run must be deployed by an administrator, which is also how
   two applications come to share one. A deployer may only run images uploaded
   with `orch deploy` for its own application.
-- Pkl manifests may import modules over HTTPS. Treat a remote module like any
-  other dependency and pin it to a version you trust.
+- Pkl manifests may import modules over HTTPS. Each one is pinned by SHA-256
+  in `orch.lock` on first use, and a changed module stops the evaluation.
+  Commit the lock file; a first deploy without it, such as in CI, trusts what
+  the server returns.
 - Host firewalls, operating-system updates, DNS, and off-host backup retention
   remain operator responsibilities.
 

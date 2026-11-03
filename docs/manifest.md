@@ -947,11 +947,17 @@ amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 import "https://modules.example.com/orch/v3/web.pkl"
 ```
 
-Pin these URLs to an immutable release or commit. The digest covers the
-resolved manifest, not the source or the URLs, so a module that changes
-between `orch plan` and `orch deploy` changes what is deployed. Imported
-modules are trusted code that runs on your workstation and can make requests
-to any HTTPS service it can reach.
+The first evaluation records each remote module's SHA-256 in `orch.lock`
+next to the manifest, the same way for `orch deploy`, `orch plan` and the
+other commands that read it. Commit that file. From then on a module whose
+contents change on its server stops the evaluation with an error that names
+it, so nobody who controls that server can change what you deploy. To accept
+a new version, delete its line from `orch.lock` and run the command again.
+The orch schema itself is built into orch and never pinned.
+
+Pointing the URLs at an immutable release or commit still helps: it keeps the
+lock file valid across machines. Imported modules are trusted code that runs
+on your workstation and can make requests to any HTTPS service it can reach.
 
 ### What evaluation may not do
 
