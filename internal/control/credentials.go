@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -88,11 +89,16 @@ var githubDeployEvents = map[string]bool{
 }
 
 // matchGitHubTrust finds the rule that admits this run. Without an explicit
-// application, the repository must be trusted for exactly one.
+// application, the repository must be trusted for exactly one. A
+// pull_request run is admitted only for the preview application of its own
+// pull request, and only by a rule with previews.
 func (s *credentialService) matchGitHubTrust(ctx context.Context, repository, application string, claims githubClaims) (model.GitHubTrust, error) {
 	trusts, err := s.state.GitHubTrusts(ctx)
 	if err != nil {
 		return model.GitHubTrust{}, connect.NewError(connect.CodeInternal, errors.New("read GitHub trust"))
+	}
+	if claims.EventName == "pull_request" {
+		return s.matchGitHubPreview(ctx, repository, application, claims, trusts)
 	}
 	var candidates []model.GitHubTrust
 	for _, trust := range trusts {
@@ -120,8 +126,61 @@ func (s *credentialService) matchGitHubTrust(ctx context.Context, repository, ap
 	if trust.Environment != "" && claims.Environment != trust.Environment {
 		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s may deploy %s only from GitHub environment %s", repository, trust.Application, trust.Environment))
 	}
-	// Names can be taken over after a repository or its owner is renamed or
-	// deleted, so the rule is bound to GitHub's IDs on the first deploy.
+	return s.bindGitHubTrust(ctx, repository, trust, claims)
+}
+
+// matchGitHubPreview admits a pull_request run to deploy APP-pr-N, where N
+// is the run's own pull request and APP is trusted with previews for the
+// branch the pull request targets. GitHub gives no OIDC token to runs for
+// pull requests from forks, so these runs come from the repository itself.
+// The returned rule names the preview application.
+func (s *credentialService) matchGitHubPreview(ctx context.Context, repository, application string, claims githubClaims, trusts []model.GitHubTrust) (model.GitHubTrust, error) {
+	match := githubPullRefPattern.FindStringSubmatch(claims.Ref)
+	if match == nil {
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pull_request run has unexpected ref %s", claims.Ref))
+	}
+	number, err := strconv.Atoi(match[1])
+	if err != nil || number <= 0 {
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pull_request run has unexpected ref %s", claims.Ref))
+	}
+	var candidates []model.GitHubTrust
+	for _, trust := range trusts {
+		if trust.Repository == repository && trust.Previews && (application == "" || model.PreviewApplication(trust.Application, number) == application) {
+			candidates = append(candidates, trust)
+		}
+	}
+	switch {
+	case len(candidates) == 0 && application == "":
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s is not trusted to deploy previews; run orch github init --previews", repository))
+	case len(candidates) == 0:
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pull request %d of %s may deploy only a preview APP-pr-%d of an application trusted with --previews, not %s", number, repository, number, application))
+	case len(candidates) > 1:
+		return model.GitHubTrust{}, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is trusted for several applications; set ORCH_APP to the preview to deploy", repository))
+	}
+	trust := candidates[0]
+	if claims.BaseRef != trust.Branch && claims.BaseRef != "refs/heads/"+trust.Branch {
+		return model.GitHubTrust{}, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("%s may deploy previews of %s only for pull requests into %s, not %s", repository, trust.Application, trust.Branch, claims.BaseRef))
+	}
+	preview := model.PreviewApplication(trust.Application, number)
+	if err := config.ValidateApplicationName(preview); err != nil {
+		return model.GitHubTrust{}, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("preview name %s is invalid: %w", preview, err))
+	}
+	trust, err = s.bindGitHubTrust(ctx, repository, trust, claims)
+	if err != nil {
+		return model.GitHubTrust{}, err
+	}
+	trust.Application = preview
+	return trust, nil
+}
+
+var githubPullRefPattern = regexp.MustCompile(`^refs/pull/([0-9]{1,9})/merge$`)
+
+// bindGitHubTrust checks that the run comes from the repository the rule was
+// first used by. Names can be taken over after a repository or its owner is
+// renamed or deleted, so the rule is bound to GitHub's IDs on the first
+// deploy.
+func (s *credentialService) bindGitHubTrust(ctx context.Context, repository string, trust model.GitHubTrust, claims githubClaims) (model.GitHubTrust, error) {
+	var err error
 	if trust.RepositoryID == "" {
 		if trust, err = s.state.BindGitHubTrust(ctx, trust.Repository, trust.Application, claims.RepositoryID, claims.RepositoryOwnerID); err != nil {
 			return model.GitHubTrust{}, connect.NewError(connect.CodeInternal, errors.New("bind GitHub trust"))
@@ -154,6 +213,7 @@ func (s *service) SetGitHubTrust(ctx context.Context, request *connect.Request[o
 	}
 	trust, changed, err := s.state.SetGitHubTrust(ctx, model.GitHubTrust{
 		Repository: repository, Application: application, Branch: branch, Environment: environment, CreatedAt: s.now(), Domains: domains,
+		Previews: request.Msg.GetPreviews(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("store GitHub trust"))
@@ -224,5 +284,6 @@ func githubTrustMessage(trust model.GitHubTrust) *orchv1alpha1.GitHubTrust {
 	return &orchv1alpha1.GitHubTrust{
 		Repository: trust.Repository, Application: trust.Application, Branch: trust.Branch,
 		Environment: trust.Environment, CreatedAt: timestamppb.New(trust.CreatedAt), Domains: append([]string(nil), trust.Domains...),
+		Previews: trust.Previews,
 	}
 }

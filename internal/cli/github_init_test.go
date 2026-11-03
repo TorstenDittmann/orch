@@ -151,7 +151,24 @@ func TestGitHubInitTrustsTheRepositoryAndWritesTheWorkflow(t *testing.T) {
 		t.Fatalf("forced workflow:\n%s", workflow)
 	}
 	var out, errOut bytes.Buffer
-	if code := Run([]string{"github", "list", "--context", contextPath}, &out, &errOut); code != ExitOK || !strings.Contains(out.String(), "acme/hello  app hello  branch release") {
+	if code := Run([]string{"github", "list", "--context", contextPath}, &out, &errOut); code != ExitOK || !strings.Contains(out.String(), "acme/hello  app hello  branch release") || strings.Contains(out.String(), "previews") {
 		t.Fatalf("list code=%d out=%s err=%s", code, out.String(), errOut.String())
+	}
+
+	initialize(ExitOK, "--force", "--previews")
+	preview, err := os.ReadFile(filepath.Join(checkout, ".github", "workflows", "preview.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pull_request:", "branches: [main]", "types: [opened, reopened, synchronize, closed]", "pull-requests: write", "id-token: write",
+		"group: preview-hello-${{ github.event.pull_request.number }}", "if: github.event.action != 'closed'", "app: hello", "file: deploy/orch.pkl"} {
+		if !bytes.Contains(preview, []byte(want)) {
+			t.Errorf("preview workflow lacks %q:\n%s", want, preview)
+		}
+	}
+	initialize(ExitInvalid, "--previews")
+	out.Reset()
+	if code := Run([]string{"github", "list", "--context", contextPath}, &out, &errOut); code != ExitOK || !strings.Contains(out.String(), "  previews") {
+		t.Fatalf("list with previews code=%d out=%s err=%s", code, out.String(), errOut.String())
 	}
 }

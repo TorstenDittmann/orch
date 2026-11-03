@@ -7557,7 +7557,10 @@ type GitHubTrust struct {
 	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Domains the runs may route, each with its subdomains. Empty allows any
 	// domain not used by another application, and the public listener.
-	Domains       []string `protobuf:"bytes,6,rep,name=domains,proto3" json:"domains,omitempty"`
+	Domains []string `protobuf:"bytes,6,rep,name=domains,proto3" json:"domains,omitempty"`
+	// Previews lets pull_request runs against the branch deploy APP-pr-N for
+	// pull request N, and remove it again.
+	Previews      bool `protobuf:"varint,7,opt,name=previews,proto3" json:"previews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7634,6 +7637,13 @@ func (x *GitHubTrust) GetDomains() []string {
 	return nil
 }
 
+func (x *GitHubTrust) GetPreviews() bool {
+	if x != nil {
+		return x.Previews
+	}
+	return false
+}
+
 type SetGitHubTrustRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Repository    string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
@@ -7641,6 +7651,7 @@ type SetGitHubTrustRequest struct {
 	Branch        string                 `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
 	Environment   string                 `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
 	Domains       []string               `protobuf:"bytes,5,rep,name=domains,proto3" json:"domains,omitempty"`
+	Previews      bool                   `protobuf:"varint,6,opt,name=previews,proto3" json:"previews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7708,6 +7719,13 @@ func (x *SetGitHubTrustRequest) GetDomains() []string {
 		return x.Domains
 	}
 	return nil
+}
+
+func (x *SetGitHubTrustRequest) GetPreviews() bool {
+	if x != nil {
+		return x.Previews
+	}
+	return false
 }
 
 type SetGitHubTrustResponse struct {
@@ -9916,7 +9934,7 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\">\n" +
 	"\x10RetryJobResponse\x12*\n" +
-	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\xde\x01\n" +
+	"\x03job\x18\x01 \x01(\v2\x18.orch.v1alpha1.OneOffJobR\x03job\"\xfa\x01\n" +
 	"\vGitHubTrust\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
@@ -9926,7 +9944,8 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\venvironment\x18\x04 \x01(\tR\venvironment\x129\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x18\n" +
-	"\adomains\x18\x06 \x03(\tR\adomains\"\xad\x01\n" +
+	"\adomains\x18\x06 \x03(\tR\adomains\x12\x1a\n" +
+	"\bpreviews\x18\a \x01(\bR\bpreviews\"\xc9\x01\n" +
 	"\x15SetGitHubTrustRequest\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
@@ -9934,7 +9953,8 @@ const file_orch_v1alpha1_control_proto_rawDesc = "" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x16\n" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\x12 \n" +
 	"\venvironment\x18\x04 \x01(\tR\venvironment\x12\x18\n" +
-	"\adomains\x18\x05 \x03(\tR\adomains\"\xdb\x01\n" +
+	"\adomains\x18\x05 \x03(\tR\adomains\x12\x1a\n" +
+	"\bpreviews\x18\x06 \x01(\bR\bpreviews\"\xdb\x01\n" +
 	"\x16SetGitHubTrustResponse\x120\n" +
 	"\x05trust\x18\x01 \x01(\v2\x1a.orch.v1alpha1.GitHubTrustR\x05trust\x12\x18\n" +
 	"\achanged\x18\x02 \x01(\bR\achanged\x12/\n" +

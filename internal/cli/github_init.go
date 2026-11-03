@@ -15,11 +15,16 @@ import (
 
 	"github.com/distribution/reference"
 
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
 	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
 )
 
-const githubWorkflowPath = ".github/workflows/deploy.yml"
+const (
+	githubWorkflowPath        = ".github/workflows/deploy.yml"
+	githubPreviewWorkflowPath = ".github/workflows/preview.yml"
+)
 
 // githubWorkflow is the deploy workflow orch github init writes and orch
 // github trust prints.
@@ -40,6 +45,29 @@ type githubWorkflow struct {
 	Platforms string
 }
 
+// renderPreview is the workflow that deploys APP-pr-N for each pull request
+// into the branch, comments its URL on the pull request, and removes it when
+// the pull request closes. The action does all three from the event.
+func (w githubWorkflow) renderPreview() string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "name: preview\non:\n  pull_request:\n    branches: [%s]\n    types: [opened, reopened, synchronize, closed]\n", w.Branch)
+	out.WriteString("permissions:\n  contents: read\n")
+	if strings.HasPrefix(strings.ToLower(w.Image), "ghcr.io/") {
+		out.WriteString("  packages: write\n")
+	}
+	out.WriteString("  id-token: write\n  pull-requests: write\n")
+	// A newer push, or closing the pull request, cancels a deploy in flight.
+	fmt.Fprintf(&out, "concurrency:\n  group: preview-%s-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n", w.Application)
+	runsOn := w.RunsOn
+	if runsOn == "" {
+		runsOn = "ubuntu-latest"
+	}
+	fmt.Fprintf(&out, "jobs:\n  preview:\n    # GitHub gives pull requests from forks no OIDC token.\n    if: github.event.pull_request.head.repo.full_name == github.repository\n    runs-on: %s\n", runsOn)
+	out.WriteString("    steps:\n      - uses: actions/checkout@v4\n        if: github.event.action != 'closed'\n")
+	w.renderAction(&out)
+	return out.String()
+}
+
 func (w githubWorkflow) render() string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "name: deploy\non:\n  push:\n    branches: [%s]\n  workflow_dispatch:\n", w.Branch)
@@ -58,21 +86,25 @@ func (w githubWorkflow) render() string {
 		fmt.Fprintf(&out, "    environment: %s\n", w.Environment)
 	}
 	out.WriteString("    steps:\n      - uses: actions/checkout@v4\n")
-	fmt.Fprintf(&out, "      - uses: TorstenDittmann/orch@%s\n        with:\n", githubActionRef(Version))
-	fmt.Fprintf(&out, "          cluster: %s\n          app: %s\n", w.Cluster, w.Application)
+	w.renderAction(&out)
+	return out.String()
+}
+
+func (w githubWorkflow) renderAction(out *strings.Builder) {
+	fmt.Fprintf(out, "      - uses: TorstenDittmann/orch@%s\n        with:\n", githubActionRef(Version))
+	fmt.Fprintf(out, "          cluster: %s\n          app: %s\n", w.Cluster, w.Application)
 	if w.Image != "" {
-		fmt.Fprintf(&out, "          image: %s\n", w.Image)
+		fmt.Fprintf(out, "          image: %s\n", w.Image)
 		if w.Context != "" && w.Context != "." {
-			fmt.Fprintf(&out, "          context: %s\n", w.Context)
+			fmt.Fprintf(out, "          context: %s\n", w.Context)
 		}
 		if w.Platforms != "" {
-			fmt.Fprintf(&out, "          platforms: %s\n", w.Platforms)
+			fmt.Fprintf(out, "          platforms: %s\n", w.Platforms)
 		}
 	}
 	if w.File != "" && w.File != "orch.pkl" {
-		fmt.Fprintf(&out, "          file: %s\n", w.File)
+		fmt.Fprintf(out, "          file: %s\n", w.File)
 	}
-	return out.String()
 }
 
 // githubActionRef pins the action to this CLI's release, so the workflow
@@ -88,7 +120,7 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 	flags := flag.NewFlagSet("github init", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var contextPath, application, branch, environment, image, file, repository string
-	var force, jsonOutput bool
+	var force, jsonOutput, previews bool
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.StringVar(&application, "app", "", "application to deploy (default: the manifest's name)")
 	flags.StringVar(&branch, "branch", "", "branch whose pushes deploy (default: the repository's default branch)")
@@ -99,7 +131,8 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 	flags.StringVar(&repository, "repo", "", "GitHub repository OWNER/REPO (default: from the origin remote)")
 	var domains stringList
 	flags.Var(&domains, "domain", "domain, with its subdomains, the workflow may route (repeatable; default any)")
-	flags.BoolVar(&force, "force", false, "replace an existing "+githubWorkflowPath)
+	flags.BoolVar(&previews, "previews", false, "also deploy a preview of every pull request, writing "+githubPreviewWorkflowPath)
+	flags.BoolVar(&force, "force", false, "replace existing workflows")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	valueFlags := map[string]bool{"--context": true, "-context": true, "--app": true, "--branch": true, "--environment": true, "--image": true, "--file": true, "-f": true, "--repo": true, "--domain": true}
 	if err := flags.Parse(reorderInterspersed(args, valueFlags)); err != nil {
@@ -158,6 +191,11 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if readErr == nil && !force {
 		return fail(fmt.Errorf("%s already exists; pass --force to replace it", githubWorkflowPath))
 	}
+	previewTarget := filepath.Join(root, filepath.FromSlash(githubPreviewWorkflowPath))
+	existingPreview, previewReadErr := os.ReadFile(previewTarget)
+	if previews && previewReadErr == nil && !force {
+		return fail(fmt.Errorf("%s already exists; pass --force to replace it", githubPreviewWorkflowPath))
+	}
 
 	remote, err := controlclient.New(contextPath)
 	if err != nil {
@@ -165,7 +203,9 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return ExitRuntime
 	}
 	defer remote.CloseIdleConnections()
-	response, err := remote.SetGitHubTrust(ctx, repository, application, branch, environment, domains...)
+	response, err := remote.SetGitHubTrustRule(ctx, &orchv1alpha1.SetGitHubTrustRequest{
+		Repository: repository, Application: application, Branch: branch, Environment: environment, Domains: domains, Previews: previews,
+	})
 	if err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitRuntime
@@ -180,16 +220,17 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 			workflow.RunsOn, workflow.Platforms = buildTarget(architectures)
 		}
 	}
-	content := []byte(workflow.render())
-	if readErr != nil || !bytes.Equal(existing, content) {
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := writeWorkflow(target, existing, readErr, []byte(workflow.render())); err != nil {
+		writeError(stderr, err, jsonOutput)
+		return ExitRuntime
+	}
+	previewWorkflow := ""
+	if previews {
+		if err := writeWorkflow(previewTarget, existingPreview, previewReadErr, []byte(workflow.renderPreview())); err != nil {
 			writeError(stderr, err, jsonOutput)
 			return ExitRuntime
 		}
-		if err := os.WriteFile(target, content, 0o644); err != nil {
-			writeError(stderr, err, jsonOutput)
-			return ExitRuntime
-		}
+		previewWorkflow = previewTarget
 	}
 
 	trust := response.GetTrust()
@@ -202,7 +243,8 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 			Image       string `json:"image,omitempty"`
 			Cluster     string `json:"cluster"`
 			Workflow    string `json:"workflow"`
-		}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), workflow.Image, workflow.Cluster, target})
+			Preview     string `json:"preview_workflow,omitempty"`
+		}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), workflow.Image, workflow.Cluster, target, previewWorkflow})
 	}
 	fmt.Fprintf(stdout, "Trusted %s to deploy %s from branch %s.\n", trust.GetRepository(), trust.GetApplication(), trust.GetBranch())
 	if workflow.Image != "" {
@@ -211,7 +253,14 @@ func runGitHubInit(ctx context.Context, args []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stdout, "Wrote %s: every push to %s deploys %s as written.\n", githubWorkflowPath, branch, workflow.File)
 		fmt.Fprintln(stdout, "Pass --image REPOSITORY to build and push an image first.")
 	}
-	fmt.Fprintln(stdout, "\nCommit and push it to deploy. No secrets are needed.")
+	if previews {
+		fmt.Fprintf(stdout, "Wrote %s: every pull request into %s deploys %s-pr-N on pr-N. subdomains,\n", githubPreviewWorkflowPath, branch, application)
+		fmt.Fprintln(stdout, "comments the URL on the pull request, and removes it when the pull request closes.")
+		fmt.Fprintf(stdout, "Previews get the secrets set for %[1]s: orch secret set %[1]s NAME --from-stdin\n", model.PreviewSecretsApplication(application))
+		fmt.Fprintln(stdout, "\nCommit and push them to deploy. No secrets are needed.")
+	} else {
+		fmt.Fprintln(stdout, "\nCommit and push it to deploy. No secrets are needed.")
+	}
 	if strings.HasPrefix(workflow.Image, "ghcr.io/") {
 		fmt.Fprintln(stdout, "If the package is private, let the cluster pull it once with:")
 		fmt.Fprintln(stdout, "  orch registry login ghcr.io --username USER --password-stdin")
@@ -308,4 +357,15 @@ func repositoryPath(root, path string) (string, error) {
 		return "", fmt.Errorf("%s is outside the repository", path)
 	}
 	return filepath.ToSlash(relative), nil
+}
+
+// writeWorkflow writes content to path unless it already holds exactly that.
+func writeWorkflow(path string, existing []byte, readErr error, content []byte) error {
+	if readErr == nil && bytes.Equal(existing, content) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, 0o644)
 }

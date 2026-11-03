@@ -463,6 +463,7 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	var jsonOutput, wait bool
 	var timeout time.Duration
 	var images stringList
+	var preview int
 	flags.StringVar(&file, "file", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&file, "f", "orch.pkl", "Pkl manifest path")
 	flags.StringVar(&root, "root", "", "Pkl evaluation root (defaults to the manifest directory)")
@@ -472,7 +473,12 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	flags.BoolVar(&wait, "wait", false, "wait for this revision to become ready")
 	flags.Var(&images, "image", "deploy this image instead of the manifest's: NAME=REF for one service or cron job, or REF for every workload using that repository (repeatable)")
 	flags.DurationVar(&timeout, "timeout", 10*time.Minute, "rollout wait deadline")
+	flags.IntVar(&preview, "preview", 0, "deploy the preview of this pull request number as APP-pr-N on pr-N. subdomains")
 	if err := flags.Parse(args); err != nil {
+		return ExitInvalid
+	}
+	if preview < 0 {
+		writeError(stderr, errors.New("preview must be a pull request number"), jsonOutput)
 		return ExitInvalid
 	}
 	if timeout <= 0 {
@@ -495,6 +501,13 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := config.OverrideImages(manifest, images); err != nil {
 		writeError(stderr, err, jsonOutput)
 		return ExitInvalid
+	}
+	var previewURLs []string
+	if preview > 0 {
+		if previewURLs, err = config.Preview(manifest, preview); err != nil {
+			writeError(stderr, err, jsonOutput)
+			return ExitInvalid
+		}
 	}
 	if idempotencyKey == "" {
 		idempotencyKey, err = newIdempotencyKey(rand.Reader)
@@ -546,6 +559,12 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		writeError(stderr, errors.New("controller returned an invalid application update time"), jsonOutput)
 		return ExitRuntime
 	}
+	if !jsonOutput {
+		// The GitHub action reads these lines to comment on the pull request.
+		for _, url := range previewURLs {
+			fmt.Fprintf(stdout, "Preview: %s\n", url)
+		}
+	}
 	if wait {
 		return waitForDeployment(ctx, remote, response.GetName(), response.GetGeneration(), response.GetRevisionId(), idempotencyKey, timeout, jsonOutput, stdout, stderr)
 	}
@@ -563,11 +582,12 @@ func runDeploy(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			CreatedAt      time.Time `json:"created_at"`
 			UpdatedAt      time.Time `json:"updated_at"`
 			Message        string    `json:"message"`
+			PreviewURLs    []string  `json:"preview_urls,omitempty"`
 		}{
 			Application: response.GetName(), Generation: response.GetGeneration(),
 			RevisionID: response.GetRevisionId(), Digest: response.GetDigest(), Changed: response.GetChanged(),
 			EventSequence: response.GetEventSequence(), Status: "PENDING", IdempotencyKey: idempotencyKey,
-			CreatedAt: createdAt, UpdatedAt: updatedAt, Message: message,
+			CreatedAt: createdAt, UpdatedAt: updatedAt, Message: message, PreviewURLs: previewURLs,
 		})
 	}
 	if response.GetChanged() {
@@ -1175,7 +1195,7 @@ Usage:
   orch events [--target NAME] [--after SEQUENCE] [--limit N] [--json]
   orch dev [-f orch.pkl] [--root DIR] [--env-file FILE] [--http-port 8080] [--timeout 10m]
   orch dev down [--volumes]
-  orch deploy [-f orch.pkl] [--root DIR] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
+  orch deploy [-f orch.pkl] [--root DIR] [--image [NAME=]REF]... [--preview N] [--wait] [--timeout 10m] [--target NAME] [--idempotency-key KEY] [--json]
   orch validate [-f orch.pkl] [--root DIR] [--json]
   orch plan [-f orch.pkl] [--root DIR] [--against previous.pkl] [--json]
   orch render [-f orch.pkl] [--root DIR]

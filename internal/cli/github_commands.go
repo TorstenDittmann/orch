@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
 )
 
@@ -20,7 +21,7 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	flags := flag.NewFlagSet("github "+command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var contextPath, application, branch, environment string
-	var jsonOutput bool
+	var jsonOutput, previews bool
 	var domains stringList
 	flags.StringVar(&contextPath, "context", "", "administrator context path")
 	flags.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
@@ -32,6 +33,7 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		flags.StringVar(&branch, "branch", "main", "branch whose runs may deploy")
 		flags.StringVar(&environment, "environment", "", "GitHub environment the run must use (optional)")
 		flags.Var(&domains, "domain", "domain, with its subdomains, the runs may route (repeatable; default any)")
+		flags.BoolVar(&previews, "previews", false, "let pull_request runs into the branch deploy and remove APP-pr-N")
 		valueFlags["--app"], valueFlags["--branch"], valueFlags["--environment"], valueFlags["--domain"] = true, true, true, true
 		positional = 1
 	case "untrust":
@@ -62,7 +64,9 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	defer remote.CloseIdleConnections()
 	switch command {
 	case "trust":
-		response, err := remote.SetGitHubTrust(ctx, flags.Arg(0), application, branch, environment, domains...)
+		response, err := remote.SetGitHubTrustRule(ctx, &orchv1alpha1.SetGitHubTrustRequest{
+			Repository: flags.Arg(0), Application: application, Branch: branch, Environment: environment, Domains: domains, Previews: previews,
+		})
 		if err != nil {
 			writeError(stderr, err, jsonOutput)
 			return ExitRuntime
@@ -76,11 +80,16 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 				Branch      string   `json:"branch"`
 				Environment string   `json:"environment,omitempty"`
 				Domains     []string `json:"domains,omitempty"`
+				Previews    bool     `json:"previews,omitempty"`
 				Changed     bool     `json:"changed"`
 				Cluster     string   `json:"cluster"`
-			}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), trust.GetDomains(), response.GetChanged(), address})
+			}{trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), trust.GetDomains(), trust.GetPreviews(), response.GetChanged(), address})
 		}
 		fmt.Fprint(stdout, githubTrustInstructions(trust.GetRepository(), trust.GetApplication(), trust.GetBranch(), trust.GetEnvironment(), address))
+		if trust.GetPreviews() {
+			fmt.Fprintf(stdout, "\nPull requests into %s may deploy previews; add .github/workflows/preview.yml:\n\n", trust.GetBranch())
+			fmt.Fprint(stdout, githubWorkflow{Application: trust.GetApplication(), Branch: trust.GetBranch(), Cluster: address}.renderPreview())
+		}
 	case "list":
 		trusts, err := remote.ListGitHubTrusts(ctx)
 		if err != nil {
@@ -102,6 +111,9 @@ func runGitHub(ctx context.Context, args []string, stdout, stderr io.Writer) int
 			}
 			if len(trust.GetDomains()) != 0 {
 				line += "  domains " + strings.Join(trust.GetDomains(), ",")
+			}
+			if trust.GetPreviews() {
+				line += "  previews"
 			}
 			fmt.Fprintln(stdout, line)
 		}
@@ -140,8 +152,8 @@ func printGitHubHelp(output io.Writer) {
 	fmt.Fprintln(output, `orch github lets GitHub Actions deploy without stored credentials.
 
 Usage:
-  orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [-f orch.pkl] [--force] [--json]
-  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--json]
+  orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [--previews] [-f orch.pkl] [--force] [--json]
+  orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--previews] [--json]
   orch github list [--json]
   orch github untrust OWNER/REPO --app APP [--json]
 
@@ -152,5 +164,10 @@ subdomains, and refuses public listeners. Repeat it for more domains.
 
 init, run inside the repository, trusts it and writes
 .github/workflows/deploy.yml, which builds the image when the manifest's
-directory has a Dockerfile and deploys on every push.`)
+directory has a Dockerfile and deploys on every push.
+
+--previews also lets pull requests into the branch deploy a preview APP-pr-N
+of their own, on pr-N. subdomains, and remove it again. init then writes
+.github/workflows/preview.yml, which comments the preview's URL on the pull
+request and removes the preview when it closes.`)
 }
