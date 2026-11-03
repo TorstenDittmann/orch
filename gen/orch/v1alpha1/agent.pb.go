@@ -702,7 +702,11 @@ type HTTPDesired struct {
 	// Domains that permanently redirect to one of domains.
 	Redirects map[string]string `protobuf:"bytes,8,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Container ports of domains not served by port.
-	DomainPorts   map[string]uint32 `protobuf:"bytes,9,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	DomainPorts map[string]uint32 `protobuf:"bytes,9,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// URL path prefixes served on domains; empty serves the whole domain.
+	Paths []string `protobuf:"bytes,10,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Remove the matched prefix before forwarding.
+	StripPrefix   bool `protobuf:"varint,11,opt,name=strip_prefix,json=stripPrefix,proto3" json:"strip_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -798,6 +802,20 @@ func (x *HTTPDesired) GetDomainPorts() map[string]uint32 {
 		return x.DomainPorts
 	}
 	return nil
+}
+
+func (x *HTTPDesired) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *HTTPDesired) GetStripPrefix() bool {
+	if x != nil {
+		return x.StripPrefix
+	}
+	return false
 }
 
 // HTTPBasicAuth carries an argon2id hash, never the password.
@@ -1657,6 +1675,8 @@ type ServiceEndpoint struct {
 	BasicAuth     *HTTPBasicAuth         `protobuf:"bytes,12,opt,name=basic_auth,json=basicAuth,proto3" json:"basic_auth,omitempty"`
 	Redirects     map[string]string      `protobuf:"bytes,13,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	DomainPorts   map[string]uint32      `protobuf:"bytes,14,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Paths         []string               `protobuf:"bytes,15,rep,name=paths,proto3" json:"paths,omitempty"`
+	StripPrefix   bool                   `protobuf:"varint,16,opt,name=strip_prefix,json=stripPrefix,proto3" json:"strip_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1787,6 +1807,20 @@ func (x *ServiceEndpoint) GetDomainPorts() map[string]uint32 {
 		return x.DomainPorts
 	}
 	return nil
+}
+
+func (x *ServiceEndpoint) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *ServiceEndpoint) GetStripPrefix() bool {
+	if x != nil {
+		return x.StripPrefix
+	}
+	return false
 }
 
 type AllocationDesired struct {
@@ -5605,7 +5639,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vVolumeMount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xfd\x03\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xb6\x04\n" +
 	"\vHTTPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x1f\n" +
@@ -5618,7 +5652,10 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"basic_auth\x18\a \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12G\n" +
 	"\tredirects\x18\b \x03(\v2).orch.v1alpha1.HTTPDesired.RedirectsEntryR\tredirects\x12N\n" +
-	"\fdomain_ports\x18\t \x03(\v2+.orch.v1alpha1.HTTPDesired.DomainPortsEntryR\vdomainPorts\x1a<\n" +
+	"\fdomain_ports\x18\t \x03(\v2+.orch.v1alpha1.HTTPDesired.DomainPortsEntryR\vdomainPorts\x12\x14\n" +
+	"\x05paths\x18\n" +
+	" \x03(\tR\x05paths\x12!\n" +
+	"\fstrip_prefix\x18\v \x01(\bR\vstripPrefix\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
@@ -5718,7 +5755,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"public_key\x18\x02 \x01(\tR\tpublicKey\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12%\n" +
-	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xb6\x05\n" +
+	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xef\x05\n" +
 	"\x0fServiceEndpoint\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5736,7 +5773,9 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"basic_auth\x18\f \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12K\n" +
 	"\tredirects\x18\r \x03(\v2-.orch.v1alpha1.ServiceEndpoint.RedirectsEntryR\tredirects\x12R\n" +
-	"\fdomain_ports\x18\x0e \x03(\v2/.orch.v1alpha1.ServiceEndpoint.DomainPortsEntryR\vdomainPorts\x1a<\n" +
+	"\fdomain_ports\x18\x0e \x03(\v2/.orch.v1alpha1.ServiceEndpoint.DomainPortsEntryR\vdomainPorts\x12\x14\n" +
+	"\x05paths\x18\x0f \x03(\tR\x05paths\x12!\n" +
+	"\fstrip_prefix\x18\x10 \x01(\bR\vstripPrefix\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +

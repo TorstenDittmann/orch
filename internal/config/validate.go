@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TorstenDittmann/orch/internal/model"
 	orchschedule "github.com/TorstenDittmann/orch/internal/schedule"
 	"github.com/distribution/reference"
 	"golang.org/x/net/idna"
@@ -130,7 +131,14 @@ func Validate(manifest *Manifest) error {
 		add("deploy.health_deadline", "must be a duration between 10s and 1h")
 	}
 
+	// domainOwners maps each route key (a domain, or a domain and a path)
+	// to the service that serves it.
 	domainOwners := make(map[string]string)
+	type domainHTTPSOwner struct {
+		service string
+		https   bool
+	}
+	domainHTTPS := make(map[string]domainHTTPSOwner)
 	publicPortOwners := make(map[int]string)
 	volumeOwners := make(map[string]string)
 	totalReplicas := 0
@@ -235,11 +243,50 @@ func Validate(manifest *Manifest) error {
 					add(field, "duplicates another domain on this service")
 				}
 				seenDomains[normalized] = struct{}{}
-				if owner, exists := domainOwners[normalized]; exists && owner != serviceName {
-					add(field, fmt.Sprintf("is already routed by service %q", owner))
-				} else {
-					domainOwners[normalized] = serviceName
+				for _, routePath := range model.RoutePaths(service.HTTP.Paths) {
+					key := model.RouteKey(normalized, routePath)
+					if owner, exists := domainOwners[key]; exists && owner != serviceName {
+						if routePath == "" {
+							add(field, fmt.Sprintf("is already routed by service %q; give one of them http.paths to share the domain", owner))
+						} else {
+							add(field, fmt.Sprintf("path %s is already routed by service %q", routePath, owner))
+						}
+					} else {
+						domainOwners[key] = serviceName
+					}
 				}
+				// Plain HTTP is redirected to HTTPS per domain, so every
+				// service sharing a domain has to agree on https.
+				if other, exists := domainHTTPS[normalized]; exists && other.https != service.HTTP.HTTPS {
+					add(field, fmt.Sprintf("must use the same https setting as service %q, which shares this domain", other.service))
+				} else if !exists {
+					domainHTTPS[normalized] = domainHTTPSOwner{service: serviceName, https: service.HTTP.HTTPS}
+				}
+			}
+			if len(service.HTTP.Paths) > maxPathsPerService {
+				add(base+".http.paths", fmt.Sprintf("must not contain more than %d paths", maxPathsPerService))
+			}
+			seenPaths := make(map[string]struct{}, len(service.HTTP.Paths))
+			for index, routePath := range service.HTTP.Paths {
+				field := fmt.Sprintf("%s.http.paths[%d]", base, index)
+				if err := ValidateRoutePath(routePath); err != nil {
+					add(field, err.Error())
+				}
+				if _, exists := seenPaths[routePath]; exists {
+					add(field, "duplicates another path on this service")
+				}
+				seenPaths[routePath] = struct{}{}
+			}
+			if len(service.HTTP.Paths) != 0 {
+				if len(service.HTTP.Domains) == 0 {
+					add(base+".http.paths", "requires domains to route the paths on")
+				}
+				if service.HTTP.Public {
+					add(base+".http.paths", "cannot be combined with public; the public listener serves every path")
+				}
+			}
+			if service.HTTP.StripPrefix && len(service.HTTP.Paths) == 0 {
+				add(base+".http.strip_prefix", "requires paths")
 			}
 			if len(service.HTTP.DomainPorts) > maxDomainsPerService {
 				add(base+".http.domain_ports", fmt.Sprintf("must not contain more than %d domains", maxDomainsPerService))

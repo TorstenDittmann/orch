@@ -418,6 +418,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 				TcpPublicPort: endpoint.TCPPublicPort, HttpNodeLocal: endpoint.HTTPNodeLocal,
 				BasicAuth: basicAuthMessage(endpoint.BasicAuth), Redirects: cloneEnvironment(endpoint.Redirects),
 				DomainPorts: maps.Clone(endpoint.DomainPorts),
+				Paths:       append([]string(nil), endpoint.Paths...), StripPrefix: endpoint.StripPrefix,
 			})
 		}
 	}
@@ -517,7 +518,8 @@ func httpDesiredMessage(http *model.HTTPDesired) *orchv1alpha1.HTTPDesired {
 		return nil
 	}
 	return &orchv1alpha1.HTTPDesired{Port: http.Port, Public: http.Public, Domains: append([]string(nil), http.Domains...), HealthPath: http.HealthPath, Https: http.HTTPS, NodeLocal: http.NodeLocal,
-		BasicAuth: basicAuthMessage(http.BasicAuth), Redirects: cloneEnvironment(http.Redirects), DomainPorts: maps.Clone(http.DomainPorts)}
+		BasicAuth: basicAuthMessage(http.BasicAuth), Redirects: cloneEnvironment(http.Redirects), DomainPorts: maps.Clone(http.DomainPorts),
+		Paths: append([]string(nil), http.Paths...), StripPrefix: http.StripPrefix}
 }
 
 func basicAuthMessage(auth *model.HTTPBasicAuth) *orchv1alpha1.HTTPBasicAuth {

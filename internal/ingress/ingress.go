@@ -23,7 +23,15 @@ type Route struct {
 	BasicAuth *model.HTTPBasicAuth
 	// RedirectFrom lists domains that permanently redirect to Domain.
 	RedirectFrom []string
+	// Path, when set, limits the route to this URL path prefix of Domain,
+	// so several services can share a domain. The longest prefix wins.
+	Path string
+	// StripPrefix removes Path from the request before it is forwarded.
+	StripPrefix bool
 }
+
+// Key names the route in statuses: its domain, followed by its path.
+func (r Route) Key() string { return model.RouteKey(r.Domain, r.Path) }
 
 type Controller interface {
 	Preflight(context.Context) (string, error)
@@ -57,7 +65,7 @@ func (f *Fake) Apply(_ context.Context, routes []Route, now time.Time) ([]model.
 	result := make([]model.RouteStatus, 0, len(routes))
 	for _, route := range routes {
 		result = append(result, model.RouteStatus{
-			Application: route.Application, Service: route.Service, Domain: route.Domain,
+			Application: route.Application, Service: route.Service, Domain: route.Key(),
 			HTTPS: route.HTTPS, State: model.RouteActive, CertificateState: certificateState(route),
 			UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: now.UTC(),
 		})

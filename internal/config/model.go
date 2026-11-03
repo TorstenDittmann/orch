@@ -135,6 +135,11 @@ type HTTP struct {
 	// DomainPorts maps a domain in Domains to the container port that serves
 	// it when that is not Port. A manifest's extraPorts become these entries.
 	DomainPorts map[string]int `json:"domain_ports,omitempty"`
+	// Paths limits Domains to these URL path prefixes so several services
+	// can share a domain. Empty serves the whole domain, as before.
+	Paths []string `json:"paths,omitempty"`
+	// StripPrefix removes the matched path prefix before forwarding.
+	StripPrefix bool `json:"strip_prefix,omitempty"`
 }
 
 // BasicAuth asks for a username and the password held in an application

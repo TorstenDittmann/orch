@@ -63,6 +63,8 @@ facts {
     !http.nodeLocal
     http.domains.isEmpty
     http.https
+    http.paths.isEmpty
+    !http.stripPrefix
   }
   ["HTTP listing"] {
     (multiPort.http as Listing<app.Http>).length == 2

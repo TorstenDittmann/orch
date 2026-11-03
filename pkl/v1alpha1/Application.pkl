@@ -172,6 +172,15 @@ class Http {
   /// Domains that permanently redirect to one of `domains`, such as
   /// `["www.example.com"] = "example.com"`. The path and query are kept.
   redirects: Mapping<String, String>(length <= 100) = new {}
+
+  /// URL path prefixes this service answers on its `domains`, such as `"/api"`,
+  /// so several services can share a domain. The longest matching prefix wins,
+  /// and a service without `paths` gets everything else.
+  paths: Listing<String>(length <= 20, isDistinct) = new {}
+
+  /// Remove the matched prefix before forwarding, so `/api/users` reaches the
+  /// service as `/users`.
+  stripPrefix: Boolean = false
 }
 
 class BasicAuth {
@@ -433,7 +442,8 @@ local function connectsToDatabases(
 
 /// Whether the entries of an `http` listing can act as one endpoint: each on
 /// its own port, `public` and `healthPath` only on the first, the same
-/// `https`, `nodeLocal` and `basicAuth` on all, and each redirect on one entry.
+/// `https`, `nodeLocal`, `basicAuth`, `paths` and `stripPrefix` on all, and
+/// each redirect on one entry.
 local const function sharesOneEndpoint(entries: Listing<Http>): Boolean =
   let (list = entries.toList())
     (list.map((entry) -> entry.port).isDistinct || throw("http: every entry needs its own port"))
@@ -469,5 +479,13 @@ local const function sharesOneEndpoint(entries: Listing<Http>): Boolean =
               && (
                 entry.basicAuth == list[0].basicAuth
                   || throw("http[\(index)].basicAuth: must match the first entry")
+              )
+              && (
+                entry.paths == list[0].paths
+                  || throw("http[\(index)].paths: must match the first entry")
+              )
+              && (
+                entry.stripPrefix == list[0].stripPrefix
+                  || throw("http[\(index)].stripPrefix: must match the first entry")
               )
         )
