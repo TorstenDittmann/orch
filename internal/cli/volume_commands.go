@@ -27,12 +27,19 @@ Usage:
   orch volume backup APP VOLUME [--target NAME] [--json]
   orch volume restore APP VOLUME BACKUP [--target NAME] [--json]
   orch volume download APP VOLUME BACKUP [--output FILE|-] [--target NAME]
+  orch volume move APP VOLUME NODE [--target NAME] [--json]
 
 Backups are archives kept on the node that holds the volume, and copied to
 the bucket when orch backup destination is set. Restoring stops the service
 that mounts the volume, swaps in the backup, and starts it again; the
 volume's previous contents are kept as a backup first. A backup that is only
-in the bucket is downloaded to the node first.`)
+in the bucket is downloaded to the node first.
+
+Moving stops the service that mounts the volume, takes a final backup of
+each volume the service mounts, copies it to NODE and restores it there,
+then starts the service on NODE. If a step fails, the service starts on its
+old node again with its data untouched. Use it before draining or removing
+the node that holds the volume.`)
 }
 
 func runVolume(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -51,6 +58,8 @@ func runVolume(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return runVolumeRestore(ctx, args[1:], stdout, stderr)
 	case "download":
 		return runVolumeDownload(ctx, args[1:], stdout, stderr)
+	case "move":
+		return runVolumeMove(ctx, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printVolumeHelp(stdout)
 		return ExitOK
@@ -477,6 +486,68 @@ func runVolumeDownload(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	absolute, _ := filepath.Abs(output)
 	fmt.Fprintf(stderr, "Wrote %s (%s).\n", absolute, formatSize(written))
+	return ExitOK
+}
+
+type movedVolumeOutput struct {
+	Volume string             `json:"volume"`
+	Backup volumeBackupOutput `json:"backup"`
+}
+
+type volumeMoveOutput struct {
+	Application string              `json:"application"`
+	Service     string              `json:"service"`
+	FromNode    string              `json:"from_node"`
+	ToNode      string              `json:"to_node"`
+	Volumes     []movedVolumeOutput `json:"volumes"`
+}
+
+func runVolumeMove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	parsed, ok := parseVolumeFlags("volume move", args, stderr, false)
+	if !ok {
+		return ExitInvalid
+	}
+	if parsed.flags.NArg() != 3 || parsed.contextPath == "" {
+		fmt.Fprintln(stderr, "volume move requires APP VOLUME NODE and --context")
+		return ExitInvalid
+	}
+	return moveVolume(ctx, parsed, parsed.flags.Arg(0), parsed.flags.Arg(1), parsed.flags.Arg(2), stdout, stderr)
+}
+
+// moveVolume moves a volume, with the rest of its service's volumes, and
+// reports what moved.
+func moveVolume(ctx context.Context, parsed *volumeFlags, application, name, node string, stdout, stderr io.Writer) int {
+	if err := validateApplicationVolume(application, name); err != nil {
+		writeError(stderr, err, parsed.jsonOutput)
+		return ExitInvalid
+	}
+	remote, err := controlclient.New(parsed.contextPath)
+	if err != nil {
+		writeError(stderr, err, parsed.jsonOutput)
+		return ExitRuntime
+	}
+	defer remote.CloseIdleConnections()
+	if !parsed.jsonOutput {
+		fmt.Fprintf(stderr, "Moving %s/%s to node %s; the service that mounts it stops until it runs there.\n", application, name, node)
+	}
+	moved, err := remote.MoveVolume(ctx, application, name, node)
+	if err != nil {
+		writeError(stderr, err, parsed.jsonOutput)
+		return ExitRuntime
+	}
+	result := volumeMoveOutput{Application: application, Service: moved.GetService(), FromNode: moved.GetFromNode(),
+		ToNode: moved.GetToNode(), Volumes: []movedVolumeOutput{}}
+	for _, volume := range moved.GetVolumes() {
+		result.Volumes = append(result.Volumes, movedVolumeOutput{Volume: volume.GetVolume(), Backup: volumeBackupJSON(volume.GetBackup())})
+	}
+	if parsed.jsonOutput {
+		return writeJSON(stdout, stderr, result)
+	}
+	for _, volume := range result.Volumes {
+		fmt.Fprintf(stdout, "Moved %s/%s from %s to %s (%s, kept as backup %s on both nodes).\n", application, volume.Volume,
+			result.FromNode, result.ToNode, formatSize(volume.Backup.SizeBytes), volume.Backup.Name)
+	}
+	fmt.Fprintf(stdout, "%s/%s is starting on %s. Follow it with: orch app status %s\n", application, result.Service, result.ToNode, application)
 	return ExitOK
 }
 

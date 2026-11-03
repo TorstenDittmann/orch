@@ -800,6 +800,14 @@ func mcpTools() []mcpTool {
 				b.positional("volume", true)
 				b.positional("backup", true)
 			})},
+		{name: "move_volume", title: "Move volume", remote: true, destructive: true, json: true,
+			description: "Move a local volume, with every other volume its service mounts, to another node. The service stops, a final backup is copied to the node and restored there, and the service starts on it. Use it before draining or removing the node that holds the volume.",
+			params:      []mcpParam{mcpApp, mcpVolume, {name: "node", kind: "string", description: "destination node name", required: true}},
+			build: mcpCommand([]string{"volume", "move"}, func(b *mcpBuilder) {
+				b.positional("app", true)
+				b.positional("volume", true)
+				b.positional("node", true)
+			})},
 
 		// Databases.
 		{name: "list_databases", title: "List databases", readOnly: true, idempotent: true, remote: true, json: true,
