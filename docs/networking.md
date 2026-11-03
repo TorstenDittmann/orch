@@ -91,7 +91,11 @@ from the `Host` header.
 - An exact domain such as `api.example.com` always wins over the wildcard, even
   when another service owns it.
 - Let's Encrypt allows 50 new certificates per registered domain per week, so
-  a wildcard suits tens of subdomains a week, not thousands.
+  a wildcard suits tens of subdomains a week, not thousands. To keep anyone
+  from spending that quota on random subdomains, each ingress node gives at
+  most 20 new names below a wildcard a certificate per 24 hours. Names that
+  already have one always keep it. List a name as an exact domain as well if
+  it must get its certificate up front.
 - A wildcard can't be a redirect source or target.
 
 ### Hostnames on separate nodes

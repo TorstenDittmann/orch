@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,10 @@ func TestRenderWildcardUsesOnDemandCertificatesAfterExactHosts(t *testing.T) {
 	if permission.ClientIP == nil || len(permission.ClientIP.Ranges) != 1 || permission.ClientIP.Ranges[0] != "127.0.0.1/32" ||
 		len(permission.Path) != 1 || permission.Path[0] != onDemandPermissionPath {
 		t.Fatalf("permission route = %#v, want loopback-only path match", permission)
+	}
+	if proxy, ok := httpRoutes[0].Handle[0].(map[string]any); !ok || proxy["handler"] != "reverse_proxy" ||
+		fmt.Sprint(proxy["upstreams"]) != "[map[dial:unix//run/orch/on-demand.sock]]" {
+		t.Fatalf("permission route handler = %#v, want a proxy to the agent's socket", httpRoutes[0].Handle)
 	}
 	if !strings.Contains(string(configuration), `"Location":["https://{http.request.host}{http.request.uri}"]`) {
 		t.Fatalf("wildcard redirect does not keep the matched host: %s", configuration)
