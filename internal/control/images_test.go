@@ -174,3 +174,65 @@ func TestImageCredentialScopeAndSanitizedFailure(t *testing.T) {
 		t.Fatal("resolution failure wrote application")
 	}
 }
+
+func TestDeployersCannotUseOtherApplicationsPrivateImages(t *testing.T) {
+	state, cluster := reconcilerStore(t)
+	box, err := security.NewSecretBox([]byte(strings.Repeat("k", 32)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := state.EnsureSecretKeyFingerprint(ctx, box.Fingerprint(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.SetRegistryCredential(ctx, box, "ghcr.io", "robot", "regv_test", []byte("token"), "registry-login-key", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	s := newService(state, cluster, nil, nil, box, nil, time.Now)
+	pinned := func(repository string) string { return repository + "@sha256:" + strings.Repeat("1", 64) }
+	s.imageResolver = imageResolverFunc(func(ctx context.Context, image, user string, _ []byte) (string, error) {
+		repository, _, _ := strings.Cut(strings.Split(image, "@")[0], ":latest")
+		if user == "" && repository != "ghcr.io/acme/public" {
+			// Anonymous lookups of private repositories fail.
+			return "", images.ErrUnauthorized
+		}
+		return pinned(repository), nil
+	})
+	administrator := context.WithValue(ctx, principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}})
+	deploy := func(ctx context.Context, application string, images map[string]string, key string) error {
+		services := make(map[string]config.Service)
+		for name, image := range images {
+			services[name] = config.Service{Image: image}
+		}
+		_, err := s.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
+			CanonicalManifestJson: mustCanonicalConfig(t, newTestManifest(application, services)), IdempotencyKey: "image-access-" + key,
+		}))
+		return err
+	}
+	if err := deploy(administrator, "billing", map[string]string{"api": "ghcr.io/acme/billing:latest", "web": "ghcr.io/acme/public:latest"}, "billing-one"); err != nil {
+		t.Fatal(err)
+	}
+	blog := context.WithValue(ctx, principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "blog"})
+	for name, image := range map[string]string{"tag": "ghcr.io/acme/billing:latest", "digest": pinned("ghcr.io/acme/billing")} {
+		err := deploy(blog, "blog", map[string]string{"web": image}, "blog-"+name)
+		if connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "application billing") {
+			t.Fatalf("%s: deployer used another application's private image: %v", name, err)
+		}
+	}
+	// Public images, and private ones nobody else runs, stay usable.
+	if err := deploy(blog, "blog", map[string]string{"web": "ghcr.io/acme/public:latest", "worker": "ghcr.io/acme/blog:latest"}, "blog-own"); err != nil {
+		t.Fatal(err)
+	}
+	// An administrator can share a private image, and the deployer keeps it.
+	if err := deploy(administrator, "blog", map[string]string{"web": "ghcr.io/acme/billing:latest"}, "blog-shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := deploy(blog, "blog", map[string]string{"web": "ghcr.io/acme/billing:latest"}, "blog-redeploy"); err != nil {
+		t.Fatalf("deployer lost an image an administrator shared: %v", err)
+	}
+	// The billing deployer was never blocked from its own image.
+	billing := context.WithValue(ctx, principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "billing"})
+	if err := deploy(billing, "billing", map[string]string{"api": "ghcr.io/acme/billing:latest"}, "billing-two"); err != nil {
+		t.Fatal(err)
+	}
+}

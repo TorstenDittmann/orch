@@ -236,6 +236,11 @@ Installation creates separate credentials for each role.
   unless they were created with `--domain`, which limits them to those domains
   and their subdomains and refuses the public listener. The limit covers HTTP
   routes; raw TCP routes and node ports still need administrator review.
+- Registry logins are per registry host, but a deployer can't use them to run
+  another application's private image: a private repository that only other
+  applications run must be deployed by an administrator, which is also how
+  two applications come to share one. A deployer may only run images uploaded
+  with `orch deploy` for its own application.
 - Pkl manifests may import modules over HTTPS. Treat a remote module like any
   other dependency and pin it to a version you trust.
 - Host firewalls, operating-system updates, DNS, and off-host backup retention

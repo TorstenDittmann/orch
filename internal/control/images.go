@@ -2,8 +2,11 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -137,4 +140,130 @@ func (s *service) resolveImage(ctx context.Context, path, image string) (string,
 		return "", connect.NewError(connect.CodeInternal, errors.New("resolver returned an unpinned image"))
 	}
 	return pinned, nil
+}
+
+// requireImageAccess keeps a deployer limited to one application from
+// running another application's private images. Registry credentials are
+// stored per registry host and nodes pull with them, so a deployer could
+// otherwise name any repository an administrator's login can read. A
+// repository counts as another application's when only other applications
+// deploy it right now; such an image must then be public. Images uploaded
+// with orch deploy must have been uploaded for this application.
+// Administrators deploy anything, which is also how two applications come
+// to share a private image.
+func (s *service) requireImageAccess(ctx context.Context, manifest *config.Manifest) error {
+	principal, _ := ctx.Value(principalKey{}).(authenticatedPrincipal)
+	if principal.application == "" {
+		return nil
+	}
+	var credentialHosts map[string]bool
+	var users map[string][]string
+	for _, item := range manifestImages(manifest) {
+		named, err := reference.ParseNormalizedNamed(item.image)
+		if err != nil {
+			// resolveImages reports it.
+			continue
+		}
+		if digested, ok := named.(reference.Digested); ok && s.uploads != nil && s.uploads.Has(ctx, digested.Digest().String()) {
+			owned, err := s.uploads.UploadedBy(principal.application, digested.Digest().String())
+			if err != nil {
+				return connect.NewError(connect.CodeInternal, errors.New("read the image store"))
+			}
+			if !owned {
+				return connect.NewError(connect.CodePermissionDenied,
+					fmt.Errorf("%s: this image was uploaded for another application; deploy it from your local engine so orch deploy uploads it for %s",
+						item.path, principal.application))
+			}
+			continue
+		}
+		if credentialHosts == nil {
+			if credentialHosts, err = s.registryCredentialHosts(ctx); err != nil {
+				return err
+			}
+		}
+		if !credentialHosts[reference.Domain(named)] {
+			// Nothing to borrow: without a login every pull is anonymous.
+			continue
+		}
+		if users == nil {
+			if users, err = s.repositoryUsers(ctx); err != nil {
+				return err
+			}
+		}
+		repository := reference.TrimNamed(named).String()
+		using := users[repository]
+		if len(using) == 0 || slices.Contains(using, principal.application) || s.publicImage(ctx, named) {
+			continue
+		}
+		return connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("%s: %s is a private image of application %s; ask an administrator to deploy it for %s",
+				item.path, repository, using[0], principal.application))
+	}
+	return nil
+}
+
+type manifestImage struct{ path, image string }
+
+func manifestImages(manifest *config.Manifest) []manifestImage {
+	var result []manifestImage
+	for _, name := range slices.Sorted(maps.Keys(manifest.Services)) {
+		result = append(result, manifestImage{"services." + name + ".image", manifest.Services[name].Image})
+	}
+	for _, name := range slices.Sorted(maps.Keys(manifest.CronJobs)) {
+		result = append(result, manifestImage{"cronJobs." + name + ".image", manifest.CronJobs[name].Image})
+	}
+	return result
+}
+
+func (s *service) registryCredentialHosts(ctx context.Context) (map[string]bool, error) {
+	credentials, err := s.state.RegistryCredentials(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read registry credentials"))
+	}
+	hosts := make(map[string]bool, len(credentials))
+	for _, credential := range credentials {
+		hosts[credential.Host] = true
+	}
+	return hosts, nil
+}
+
+// repositoryUsers maps each image repository to the applications whose
+// current revision runs it.
+func (s *service) repositoryUsers(ctx context.Context) (map[string][]string, error) {
+	applications, err := s.state.Applications(ctx, false)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("read application state"))
+	}
+	users := make(map[string][]string)
+	for _, application := range applications {
+		var manifest config.Manifest
+		if json.Unmarshal(application.CanonicalManifest, &manifest) != nil {
+			continue
+		}
+		for _, item := range manifestImages(&manifest) {
+			named, err := reference.ParseNormalizedNamed(item.image)
+			if err != nil {
+				continue
+			}
+			repository := reference.TrimNamed(named).String()
+			if !slices.Contains(users[repository], application.Name) {
+				users[repository] = append(users[repository], application.Name)
+			}
+		}
+	}
+	return users, nil
+}
+
+// publicImage reports whether the registry serves the image without
+// credentials, digest references included.
+func (s *service) publicImage(ctx context.Context, named reference.Named) bool {
+	resolver := s.imageResolver
+	if resolver == nil {
+		resolver = images.Resolver{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	ctx = images.WithDigestCheck(images.WithPublicRegistriesOnly(ctx))
+	_, err := resolver.Resolve(ctx, reference.TagNameOnly(named).String(), "", nil)
+	return err == nil
 }
