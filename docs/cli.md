@@ -729,7 +729,8 @@ left out. The access key comes from `AWS_ACCESS_KEY_ID` and
 controller. The first `set` prints a recovery key that controller backups are
 encrypted to before they reach the bucket; store it in a password manager,
 because `orch cluster restore --from` needs it and the controller keeps only
-its public half. Setting the destination again keeps the key unless
+its public half. Volume and database backups are always encrypted, to a key
+the controller keeps. Setting the destination again keeps the key unless
 `--new-recovery-key` is passed. Without an argument, `destination` shows the
 bucket, whether controller backups are encrypted, and whether the last copy
 succeeded. `remove` stops copying and leaves the bucket as it

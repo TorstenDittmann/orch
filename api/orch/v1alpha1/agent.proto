@@ -91,6 +91,10 @@ message HTTPDesired {
   map<string, string> redirects = 8;
   // Container ports of domains not served by port.
   map<string, uint32> domain_ports = 9;
+  // URL path prefixes served on domains; empty serves the whole domain.
+  repeated string paths = 10;
+  // Remove the matched prefix before forwarding.
+  bool strip_prefix = 11;
 }
 
 // HTTPBasicAuth carries an argon2id hash, never the password.
@@ -199,6 +203,8 @@ message ServiceEndpoint {
   HTTPBasicAuth basic_auth = 12;
   map<string, string> redirects = 13;
   map<string, uint32> domain_ports = 14;
+  repeated string paths = 15;
+  bool strip_prefix = 16;
 }
 
 message AllocationDesired {
@@ -437,6 +443,9 @@ message AgentHello {
   // Set by agents that upload volume backups to, and restore them from,
   // presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
   bool offsite_backups = 26;
+  // Set by agents that encrypt uploads to encrypt_to and decrypt restores
+  // with content_key (VolumeCommand).
+  bool encrypted_backups = 27;
 }
 
 message AssignmentAck {
@@ -532,6 +541,10 @@ enum VolumeAction {
 // backup to presigned URLs: one URL takes the whole archive, several take
 // consecutive parts of part_size bytes.
 // RESTORE with urls[0] downloads a backup the node does not have first.
+// UPLOAD with encrypt_to uploads the backup encrypted to that public key, so
+// the urls cover the encrypted size. RESTORE with content_key decrypts the
+// downloaded backup with the key of that one backup; the copy kept on the
+// node is plaintext like every other local backup.
 message VolumeCommand {
   string request_id = 1;
   VolumeAction action = 2;
@@ -541,6 +554,8 @@ message VolumeCommand {
   uint64 offset = 6;
   repeated string urls = 7;
   uint64 part_size = 8;
+  string encrypt_to = 9;
+  bytes content_key = 10;
 }
 
 message VolumeBackupInfo {

@@ -19,6 +19,10 @@ func normalize(manifest *Manifest) {
 			}
 			sort.Strings(service.HTTP.Domains)
 			service.HTTP.DomainPorts = nilIfEmpty(service.HTTP.DomainPorts)
+			sort.Strings(service.HTTP.Paths)
+			if len(service.HTTP.Paths) == 0 {
+				service.HTTP.Paths = nil
+			}
 		}
 		sort.Slice(service.SecretFiles, func(left, right int) bool {
 			return service.SecretFiles[left].Target < service.SecretFiles[right].Target

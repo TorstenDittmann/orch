@@ -144,6 +144,17 @@ func ValidateAllocation(allocation model.AllocationDesired) error {
 			}
 			totalBytes += len(domain)
 		}
+		if len(allocation.HTTP.Paths) > maxRuntimeDomains || !sort.StringsAreSorted(allocation.HTTP.Paths) ||
+			(allocation.HTTP.StripPrefix && len(allocation.HTTP.Paths) == 0) ||
+			(len(allocation.HTTP.Paths) != 0 && (allocation.HTTP.Public || len(allocation.HTTP.Domains) == 0)) {
+			return fmt.Errorf("runtime HTTP paths are invalid")
+		}
+		for index, routePath := range allocation.HTTP.Paths {
+			if err := config.ValidateRoutePath(routePath); err != nil || (index > 0 && routePath == allocation.HTTP.Paths[index-1]) {
+				return fmt.Errorf("runtime HTTP path is invalid")
+			}
+			totalBytes += len(routePath)
+		}
 		if auth := allocation.HTTP.BasicAuth; auth != nil {
 			if auth.User == "" || auth.PasswordHash == "" {
 				return fmt.Errorf("runtime HTTP basic auth is incomplete")

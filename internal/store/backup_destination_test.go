@@ -53,3 +53,38 @@ func TestBackupDestinationIsEncryptedAndReplaced(t *testing.T) {
 		t.Fatalf("BackupDestination() after delete = %t, %v", found, err)
 	}
 }
+
+func TestVolumeBackupKeyIsCreatedOnceAndSealed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	box, err := security.NewSecretBox(bytes.Repeat([]byte{7}, security.SecretKeySize), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.EnsureSecretKeyFingerprint(ctx, box.Fingerprint(), testCreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	private, public, err := state.VolumeBackupKey(ctx, box, testCreatedAt)
+	if err != nil || !security.ValidRecoveryPublicKey(public) || private == "" {
+		t.Fatalf("VolumeBackupKey() = %q, %q, %v", private, public, err)
+	}
+	again, againPublic, err := state.VolumeBackupKey(ctx, box, testCreatedAt)
+	if err != nil || again != private || againPublic != public {
+		t.Fatalf("VolumeBackupKey() changed: %q, %v", againPublic, err)
+	}
+	var stored []byte
+	if err := state.db.QueryRowContext(ctx, `SELECT ciphertext FROM volume_backup_key`).Scan(&stored); err != nil || bytes.Contains(stored, []byte(private)) {
+		t.Fatalf("volume backup key is stored in the clear: %v", err)
+	}
+	if err := state.VerifyRecoverySecrets(ctx, box); err != nil {
+		t.Fatalf("VerifyRecoverySecrets() = %v", err)
+	}
+	other, _ := security.NewSecretBox(bytes.Repeat([]byte{8}, security.SecretKeySize), nil)
+	if _, _, err := state.VolumeBackupKey(ctx, other, testCreatedAt); err == nil {
+		t.Fatal("VolumeBackupKey() opened the key with another secret key")
+	}
+}

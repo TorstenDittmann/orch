@@ -463,6 +463,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if found {
 		return connect.NewResponse(applyApplicationMessage(replayed)), nil
 	}
+	if err := s.requireImageAccess(ctx, manifest); err != nil {
+		return nil, err
+	}
 	resolved, err := s.resolveImages(ctx, manifest)
 	if err != nil {
 		return nil, err
