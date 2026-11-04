@@ -463,6 +463,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	if found {
 		return connect.NewResponse(applyApplicationMessage(replayed)), nil
 	}
+	if err := s.requireImageAccess(ctx, manifest); err != nil {
+		return nil, err
+	}
 	resolved, err := s.resolveImages(ctx, manifest)
 	if err != nil {
 		return nil, err
@@ -471,6 +474,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 	// that fails on its image leaves no secrets behind for an application
 	// that was never stored.
 	if err := s.ensureDatabaseSecrets(ctx, manifest); err != nil {
+		return nil, err
+	}
+	if err := s.ensurePreviewSecrets(ctx, manifest); err != nil {
 		return nil, err
 	}
 	digest := config.DigestCanonicalJSON(resolved)
@@ -831,7 +837,11 @@ func lifecycleModel(value orchv1alpha1.NodeLifecycle) string {
 }
 
 func (s *service) RemoveApplication(ctx context.Context, request *connect.Request[orchv1alpha1.RemoveApplicationRequest]) (*connect.Response[orchv1alpha1.RemoveApplicationResponse], error) {
-	if err := requireAdministrator(ctx); err != nil {
+	allowedApplication, err := requireDeployerOrAdministrator(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireChange(ctx); err != nil {
 		return nil, err
 	}
 	if err := rejectUnknownFields(request.Msg); err != nil {
@@ -840,6 +850,14 @@ func (s *service) RemoveApplication(ctx context.Context, request *connect.Reques
 	name := request.Msg.GetName()
 	if err := config.ValidateApplicationName(name); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// Deployers may remove only a preview of their own, so closing a pull
+	// request cleans up after itself while a production deployer still
+	// cannot delete its application and volumes.
+	if allowedApplication != "" {
+		if _, _, preview := model.PreviewBase(name); !preview || name != allowedApplication {
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("deployer credentials may remove only their own preview application"))
+		}
 	}
 	key := request.Msg.GetIdempotencyKey()
 	if !idempotencyKeyPattern.MatchString(key) {

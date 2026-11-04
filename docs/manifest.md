@@ -486,6 +486,8 @@ An HTTP endpoint. Ingress nodes route the listed domains to ready replicas.
 | `https` | Boolean | `true` | Obtain certificates and redirect HTTP to HTTPS |
 | `basicAuth` | `BasicAuth?` | `null` | Ask for a username and password first |
 | `redirects` | `Mapping<String, String>` | empty | Domains that redirect to one of `domains` |
+| `paths` | `Listing<String>` | empty | Serve only these path prefixes of `domains`, such as `"/api"` |
+| `stripPrefix` | Boolean | `false` | Remove the matched prefix before forwarding |
 
 Rules for `domains`:
 
@@ -495,8 +497,9 @@ Rules for `domains`:
   `*.example.com` for `shop.example.com`. Exact domains win over wildcards.
   See [wildcard domains](networking.md#wildcard-domains).
 - Internationalized names must be written in their ASCII (`xn--`) form.
-- A domain may be routed by only one service. Across applications, the
-  application created first keeps the domain; a later one is blocked with
+- A domain may be routed by only one service, unless the services split it
+  by [path](#paths). Across applications, the application created first
+  keeps the domain (or the path); a later one is blocked with
   `domain_conflict`.
 
 Rules for `healthPath`: it must start with `/`, be at most 2048 bytes, and
@@ -571,6 +574,52 @@ http = new Http {
 }
 ```
 
+### Paths
+
+`paths` lets several services share a domain, such as a frontend on `/` and
+an API on `/api`. A service with `paths` answers only requests under those
+prefixes on its `domains`; a service without `paths` answers everything
+else. When prefixes overlap, the longest one wins, so `/api/admin` can go to
+a third service.
+
+```pkl
+services {
+  ["web"] {
+    image = "ghcr.io/acme/web:1.0.0"
+    http = new Http {
+      port = 3000
+      domains { "example.com" }
+      healthPath = "/"
+    }
+  }
+  ["api"] {
+    image = "ghcr.io/acme/api:1.0.0"
+    http = new Http {
+      port = 8080
+      domains { "example.com" }
+      paths { "/api" }
+      stripPrefix = true
+      healthPath = "/healthz"
+    }
+  }
+}
+```
+
+A prefix matches itself and everything below it: `/api` serves `/api` and
+`/api/users`, but not `/apikeys`. With `stripPrefix = true` the service sees
+`/api/users` as `/users`; without it, the full path is forwarded. Paths
+start with `/`, use lowercase letters, digits, `.`, `_`, `~` or `-`, have no
+trailing slash, and a service has at most 20. Path routes work across
+applications too, so a frontend and a backend deployed from different
+repositories can share a domain.
+
+Services sharing a domain must agree on `https`. The domain gets one
+certificate. `paths` can't be combined with `public`, and `healthPath` is
+unaffected, because health checks go straight to the replica. Under
+`orch dev`, a service with `paths` shares the local domain of the service
+that serves the rest of the domain, so relative links such as `/api` keep
+working.
+
 ### Several ports
 
 A container that serves HTTP on more than one port, such as an API and a web
@@ -594,7 +643,7 @@ http = new Listing {
 The entries are one endpoint of the service. Readiness checks the first
 entry, so only it takes `healthPath` and `public`. Every entry needs its own
 port and at least one domain, may have its own `redirects`, and uses the same
-`https`, `nodeLocal` and `basicAuth` as the first. A single `Http`, as above,
+`https`, `nodeLocal`, `basicAuth`, `paths` and `stripPrefix` as the first. A single `Http`, as above,
 is the same as a listing with one entry. Under `orch dev`, each later entry is
 served on `SERVICE-PORT.APP.localhost`.
 
@@ -947,11 +996,17 @@ amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
 import "https://modules.example.com/orch/v3/web.pkl"
 ```
 
-Pin these URLs to an immutable release or commit. The digest covers the
-resolved manifest, not the source or the URLs, so a module that changes
-between `orch plan` and `orch deploy` changes what is deployed. Imported
-modules are trusted code that runs on your workstation and can make requests
-to any HTTPS service it can reach.
+The first evaluation records each remote module's SHA-256 in `orch.lock`
+next to the manifest, the same way for `orch deploy`, `orch plan` and the
+other commands that read it. Commit that file. From then on a module whose
+contents change on its server stops the evaluation with an error that names
+it, so nobody who controls that server can change what you deploy. To accept
+a new version, delete its line from `orch.lock` and run the command again.
+The orch schema itself is built into orch and never pinned.
+
+Pointing the URLs at an immutable release or commit still helps: it keeps the
+lock file valid across machines. Imported modules are trusted code that runs
+on your workstation and can make requests to any HTTPS service it can reach.
 
 ### What evaluation may not do
 

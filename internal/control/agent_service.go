@@ -100,6 +100,8 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	session.version, session.buildID = hello.GetAgentVersion(), hello.GetAgentBuildId()
 	session.architecture, session.selfUpgrade = hello.GetArchitecture(), hello.GetSelfUpgrade()
 	session.offsiteBackups = hello.GetOffsiteBackups()
+	session.encryptedBackups = hello.GetEncryptedBackups()
+	session.volumeMoves = hello.GetVolumeMoves()
 	session.osUpdates, session.controllerHost = hello.GetOsUpdates(), hello.GetControllerHost()
 	session.mu.Unlock()
 	s.upgrades.kick()

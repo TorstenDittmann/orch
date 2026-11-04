@@ -148,5 +148,43 @@ func runNode(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Updated node %s (lifecycle=%s ingress=%t changed=%t)\n",
 		response.GetNode().GetName(), response.GetNode().GetLifecycle(), response.GetNode().GetIngress(), response.GetChanged())
+	if command == "drain" {
+		printPinnedVolumeMoves(ctx, remote, response.GetNode().GetName(), stdout)
+	}
 	return ExitOK
+}
+
+// printPinnedVolumeMoves names the services whose local volumes keep them on
+// a draining node, with the command that moves each one away. It is a hint,
+// so a failed lookup prints nothing.
+func printPinnedVolumeMoves(ctx context.Context, remote *controlclient.Client, node string, stdout io.Writer) {
+	volumes, err := remote.ListVolumes(ctx, "", "")
+	if err != nil {
+		return
+	}
+	target := "NODE"
+	if nodes, err := remote.ListNodes(ctx); err == nil {
+		for _, candidate := range nodes {
+			if candidate.GetName() != node && candidate.GetLifecycle() == orchv1alpha1.NodeLifecycle_NODE_LIFECYCLE_ACTIVE &&
+				candidate.GetConnectionStatus() == orchv1alpha1.NodeConnectionStatus_NODE_CONNECTION_STATUS_CONNECTED {
+				target = candidate.GetName()
+				break
+			}
+		}
+	}
+	seen := make(map[string]bool)
+	var commands []string
+	for _, volume := range volumes {
+		key := volume.GetApplication() + "/" + volume.GetService()
+		if volume.GetNode() != node || volume.GetService() == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		commands = append(commands, fmt.Sprintf("  orch volume move %s %s %s", volume.GetApplication(), volume.GetVolume(), target))
+	}
+	if len(commands) == 0 {
+		return
+	}
+	fmt.Fprintf(stdout, "\nLocal volumes keep %d service(s) on %s until they move. Move them with:\n%s\n",
+		len(commands), node, strings.Join(commands, "\n"))
 }

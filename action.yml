@@ -1,5 +1,5 @@
 name: Deploy with orch
-description: Build and push an image, then deploy it to an orch cluster without stored credentials.
+description: Build and push an image, then deploy it to an orch cluster without stored credentials. On pull requests, deploys a preview per pull request.
 author: TorstenDittmann
 branding:
   icon: upload-cloud
@@ -37,16 +37,42 @@ inputs:
     required: false
     default: ""
   token:
-    description: Token used to push to ghcr.io.
+    description: Token used to push to ghcr.io and to comment preview URLs on pull requests.
     required: false
     default: ${{ github.token }}
 outputs:
   image:
     description: The pushed image by digest, when the action built one.
     value: ${{ steps.build.outputs.image }}
+  preview-url:
+    description: The first URL of the pull request's preview, when the action deployed one.
+    value: ${{ steps.deploy.outputs.preview-url }}
 runs:
   using: composite
   steps:
+    - name: Plan
+      id: plan
+      shell: bash
+      env:
+        INPUT_APP: ${{ inputs.app }}
+      run: |
+        # A pull_request run deploys the preview APP-pr-N of its pull request,
+        # and removes it when the pull request closes.
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          number="$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")"
+          action="$(jq -r .action "$GITHUB_EVENT_PATH")"
+          if [ -z "$INPUT_APP" ]; then
+            echo "orch: set the app input to deploy pull request previews" >&2
+            exit 1
+          fi
+          echo "preview=$number" >> "$GITHUB_OUTPUT"
+          echo "app=$INPUT_APP-pr-$number" >> "$GITHUB_OUTPUT"
+          if [ "$action" = closed ]; then
+            echo "remove=true" >> "$GITHUB_OUTPUT"
+          fi
+        else
+          echo "app=$INPUT_APP" >> "$GITHUB_OUTPUT"
+        fi
     - name: Install orch
       shell: bash
       env:
@@ -92,14 +118,14 @@ runs:
         fi
         install -m 0755 "$RUNNER_TEMP/pkl" "$ORCH_INSTALL_DIR/pkl"
     - name: Set up QEMU
-      if: inputs.image != '' && inputs.platforms != ''
+      if: inputs.image != '' && inputs.platforms != '' && steps.plan.outputs.remove != 'true'
       uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
     - name: Set up Docker Buildx
-      if: inputs.image != '' && inputs.platforms != ''
+      if: inputs.image != '' && inputs.platforms != '' && steps.plan.outputs.remove != 'true'
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
     - name: Build and push image
       id: build
-      if: inputs.image != ''
+      if: inputs.image != '' && steps.plan.outputs.remove != 'true'
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
@@ -128,15 +154,70 @@ runs:
         fi
         echo "image=$digest" >> "$GITHUB_OUTPUT"
     - name: Deploy
+      id: deploy
+      if: steps.plan.outputs.remove != 'true'
       shell: bash
       env:
         ORCH_CLUSTER: ${{ inputs.cluster }}
-        ORCH_APP: ${{ inputs.app }}
+        ORCH_APP: ${{ steps.plan.outputs.app }}
+        PREVIEW: ${{ steps.plan.outputs.preview }}
         MANIFEST: ${{ inputs.file }}
         BUILT_IMAGE: ${{ steps.build.outputs.image }}
       run: |
+        set -o pipefail
         args=(--wait --file "$MANIFEST")
         if [ -n "$BUILT_IMAGE" ]; then
           args+=(--image "$BUILT_IMAGE")
         fi
-        orch deploy "${args[@]}"
+        if [ -n "$PREVIEW" ]; then
+          args+=(--preview "$PREVIEW")
+        fi
+        log="$RUNNER_TEMP/orch-deploy.log"
+        orch deploy "${args[@]}" | tee "$log"
+        url="$(sed -n 's/^Preview: //p' "$log" | head -n 1)"
+        echo "preview-url=$url" >> "$GITHUB_OUTPUT"
+        sed -n 's/^Preview: //p' "$log" > "$RUNNER_TEMP/orch-preview-urls"
+    - name: Remove preview
+      if: steps.plan.outputs.remove == 'true'
+      shell: bash
+      env:
+        ORCH_CLUSTER: ${{ inputs.cluster }}
+        ORCH_APP: ${{ steps.plan.outputs.app }}
+      run: |
+        if ! output="$(orch remove "$ORCH_APP" 2>&1)"; then
+          case "$output" in
+            *"was not found"*) echo "$ORCH_APP was never deployed." ;;
+            *) echo "$output" >&2; exit 1 ;;
+          esac
+        else
+          echo "$output"
+        fi
+    - name: Comment on pull request
+      if: steps.plan.outputs.preview != '' && (steps.deploy.outcome == 'success' || steps.plan.outputs.remove == 'true')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PREVIEW: ${{ steps.plan.outputs.preview }}
+        PREVIEW_APP: ${{ steps.plan.outputs.app }}
+        REMOVED: ${{ steps.plan.outputs.remove }}
+      run: |
+        # One comment per preview, edited on every push, so the pull
+        # request does not fill up.
+        marker="<!-- orch-preview:$PREVIEW_APP -->"
+        sha="$(jq -r .pull_request.head.sha "$GITHUB_EVENT_PATH" | cut -c1-7)"
+        if [ "$REMOVED" = true ]; then
+          body="$marker"$'\n'"Preview \`$PREVIEW_APP\` was removed."
+        else
+          urls="$(sed 's/^/- /' "$RUNNER_TEMP/orch-preview-urls" 2>/dev/null)"
+          if [ -z "$urls" ]; then
+            urls="- (it routes no domains)"
+          fi
+          body="$marker"$'\n'"Preview \`$PREVIEW_APP\` is ready at commit $sha:"$'\n'"$urls"
+        fi
+        api="repos/$GITHUB_REPOSITORY/issues"
+        id="$(gh api "$api/$PREVIEW/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)" || true
+        if [ -n "$id" ]; then
+          gh api -X PATCH "$api/comments/$id" -f body="$body" >/dev/null || echo "::warning::could not update the preview comment; give the workflow pull-requests: write"
+        else
+          gh api "$api/$PREVIEW/comments" -f body="$body" >/dev/null || echo "::warning::could not comment the preview URL; give the workflow pull-requests: write"
+        fi

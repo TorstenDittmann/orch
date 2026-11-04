@@ -48,6 +48,11 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 		return nil, err
 	}
 
+	modules, err := newPinnedModules(evaluationContext, entry, options.caCertificates)
+	if err != nil {
+		return nil, err
+	}
+
 	mirror, err := pklschema.StartMirror()
 	if err != nil {
 		return nil, err
@@ -62,7 +67,9 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 			evaluatorOptions.Env = map[string]string{}
 			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1alpha1/Application\.pkl$`, mirror.AllowedModule()}
 			evaluatorOptions.AllowedResources = []string{`^$`}
-			evaluatorOptions.ModuleReaders = []applepkl.ModuleReader{pklschema.ModuleReader{}}
+			// Remote modules go through modules, which pins each one by
+			// hash in ModuleLockFile on first use.
+			evaluatorOptions.ModuleReaders = []applepkl.ModuleReader{pklschema.ModuleReader{}, modules}
 			evaluatorOptions.CacheDir = ""
 			evaluatorOptions.RootDir = root
 			evaluatorOptions.Logger = applepkl.NoopLogger
@@ -129,6 +136,7 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 	if len(canonical) > MaxManifestBytes {
 		return nil, fmt.Errorf("resolved manifest exceeds %d bytes", MaxManifestBytes)
 	}
+	modules.save()
 	return manifest, nil
 }
 

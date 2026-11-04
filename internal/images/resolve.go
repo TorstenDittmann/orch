@@ -50,7 +50,7 @@ func (r Resolver) Resolve(ctx context.Context, image, username string, secret []
 	if err != nil {
 		return "", ErrInvalid
 	}
-	if _, ok := named.(reference.Digested); ok {
+	if _, ok := named.(reference.Digested); ok && !checkDigests(ctx) {
 		return image, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -115,6 +115,20 @@ func (r Resolver) Resolve(ctx context.Context, image, username string, secret []
 		return "", ErrPlatform
 	}
 	return pinned.String(), nil
+}
+
+type checkDigestsKey struct{}
+
+// WithDigestCheck makes Resolve look up references pinned to a digest too,
+// instead of returning them as they are, so a caller can learn whether the
+// registry serves that digest with the given credentials.
+func WithDigestCheck(ctx context.Context) context.Context {
+	return context.WithValue(ctx, checkDigestsKey{}, true)
+}
+
+func checkDigests(ctx context.Context) bool {
+	value, _ := ctx.Value(checkDigestsKey{}).(bool)
+	return value
 }
 
 type publicOnlyKey struct{}

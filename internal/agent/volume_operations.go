@@ -63,6 +63,16 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_BACKUP:
 		allocation, before := r.volumeOwner(ctx, application, volume)
+		if command.GetAllocationId() != "" {
+			// A volume move: the service has left this node, so there is no
+			// container to run the before command in.
+			var err error
+			if allocation, err = r.stopForMove(ctx, application, command.GetAllocationId()); err != nil {
+				fail(err)
+				return
+			}
+			before = nil
+		}
 		backup, err := r.volumes.backup(ctx, allocation, volume, before, volumeBackupManual)
 		if err != nil {
 			fail(err)
@@ -77,7 +87,7 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		case 0:
 			previous, err = r.volumes.restore(ctx, application, volume, command.GetBackup(), owner.ID)
 		case 1:
-			previous, err = r.volumes.restoreFromBucket(ctx, application, volume, command.GetBackup(), command.GetUrls()[0], owner.ID)
+			previous, err = r.volumes.restoreFromBucket(ctx, application, volume, command.GetBackup(), command.GetUrls()[0], owner.ID, command.GetContentKey())
 		default:
 			err = errors.New("restore takes at most one URL")
 		}
@@ -90,10 +100,22 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 			response.Backup = volumeBackupMessage(previous)
 		}
 		send(response)
+	case orchv1alpha1.VolumeAction_VOLUME_ACTION_WRITE:
+		backup, err := r.volumes.receive(application, volume, command.GetBackup(), command.GetOffset(), command.GetData(),
+			command.GetSizeBytes(), command.GetComplete())
+		if err != nil {
+			fail(err)
+			return
+		}
+		response := &orchv1alpha1.VolumeResponse{Complete: true}
+		if command.GetComplete() {
+			response.Backup = volumeBackupMessage(backup)
+		}
+		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_READ:
 		r.readVolumeBackup(ctx, command, send, fail)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD:
-		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize())
+		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize(), command.GetEncryptTo())
 		if err != nil {
 			fail(err)
 			return

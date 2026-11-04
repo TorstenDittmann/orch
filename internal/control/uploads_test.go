@@ -222,3 +222,32 @@ func TestCollectUploadsKeepsImagesOfRecentDeployments(t *testing.T) {
 		t.Fatal("collection must keep deployed uploads and remove unused old ones")
 	}
 }
+
+func TestDeployersOnlyRunTheirOwnUploads(t *testing.T) {
+	state, cluster := reconcilerStore(t)
+	s := newService(state, cluster, nil, nil, nil, nil, time.Now)
+	uploads, err := images.OpenStore(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.uploads = uploads
+	archive, _ := imagetest.DockerArchive(t, "billing:latest", "amd64", "billing")
+	digest, _, err := uploads.Import(context.Background(), "billing", "billing:latest", strings.Repeat("3", 64), bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deploy := func(application, key string) error {
+		ctx := context.WithValue(context.Background(), principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: application})
+		manifest := newTestManifest(application, map[string]config.Service{"web": {Image: "docker.io/library/anything@" + digest}})
+		_, err := s.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{
+			CanonicalManifestJson: mustCanonicalConfig(t, manifest), IdempotencyKey: key,
+		}))
+		return err
+	}
+	if err := deploy("blog", "uploaded-image-other-app"); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("deployer ran another application's upload: %v", err)
+	}
+	if err := deploy("billing", "uploaded-image-own-app"); err != nil {
+		t.Fatalf("deployer could not run its own upload: %v", err)
+	}
+}

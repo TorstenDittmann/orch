@@ -130,6 +130,11 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err := state.EnsureSecretKeyFingerprint(ctx, secretBox.Fingerprint(), now()); err != nil {
 		return fail(fmt.Errorf("validate controller secret key: %w", err), state, nil)
 	}
+	// A volume move lives inside one request, so none survives a restart;
+	// the services it held start on their old nodes again.
+	if err := state.CancelVolumeMoves(ctx); err != nil {
+		return fail(err, state, nil)
+	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", options.Listen)
 	if err != nil {
 		return fail(fmt.Errorf("listen on %s: %w", options.Listen, err), state, nil)

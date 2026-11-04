@@ -111,6 +111,9 @@ const (
 	// ControlServiceDownloadVolumeBackupProcedure is the fully-qualified name of the ControlService's
 	// DownloadVolumeBackup RPC.
 	ControlServiceDownloadVolumeBackupProcedure = "/orch.v1alpha1.ControlService/DownloadVolumeBackup"
+	// ControlServiceMoveVolumeProcedure is the fully-qualified name of the ControlService's MoveVolume
+	// RPC.
+	ControlServiceMoveVolumeProcedure = "/orch.v1alpha1.ControlService/MoveVolume"
 	// ControlServiceConfigureNetworkProcedure is the fully-qualified name of the ControlService's
 	// ConfigureNetwork RPC.
 	ControlServiceConfigureNetworkProcedure = "/orch.v1alpha1.ControlService/ConfigureNetwork"
@@ -234,6 +237,7 @@ type ControlServiceClient interface {
 	BackupVolume(context.Context, *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error)
 	RestoreVolume(context.Context, *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error)
 	DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadVolumeBackupResponse], error)
+	MoveVolume(context.Context, *connect.Request[v1alpha1.MoveVolumeRequest]) (*connect.Response[v1alpha1.MoveVolumeResponse], error)
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest]) (*connect.ServerStreamForClient[v1alpha1.TailCronLogsResponse], error)
@@ -443,6 +447,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			httpClient,
 			baseURL+ControlServiceDownloadVolumeBackupProcedure,
 			connect.WithSchema(controlServiceMethods.ByName("DownloadVolumeBackup")),
+			connect.WithClientOptions(opts...),
+		),
+		moveVolume: connect.NewClient[v1alpha1.MoveVolumeRequest, v1alpha1.MoveVolumeResponse](
+			httpClient,
+			baseURL+ControlServiceMoveVolumeProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("MoveVolume")),
 			connect.WithClientOptions(opts...),
 		),
 		configureNetwork: connect.NewClient[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse](
@@ -658,6 +668,7 @@ type controlServiceClient struct {
 	backupVolume            *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
 	restoreVolume           *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
 	downloadVolumeBackup    *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
+	moveVolume              *connect.Client[v1alpha1.MoveVolumeRequest, v1alpha1.MoveVolumeResponse]
 	configureNetwork        *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
 	listCronRuns            *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
 	tailCronLogs            *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
@@ -830,6 +841,11 @@ func (c *controlServiceClient) RestoreVolume(ctx context.Context, req *connect.R
 // DownloadVolumeBackup calls orch.v1alpha1.ControlService.DownloadVolumeBackup.
 func (c *controlServiceClient) DownloadVolumeBackup(ctx context.Context, req *connect.Request[v1alpha1.DownloadVolumeBackupRequest]) (*connect.ServerStreamForClient[v1alpha1.DownloadVolumeBackupResponse], error) {
 	return c.downloadVolumeBackup.CallServerStream(ctx, req)
+}
+
+// MoveVolume calls orch.v1alpha1.ControlService.MoveVolume.
+func (c *controlServiceClient) MoveVolume(ctx context.Context, req *connect.Request[v1alpha1.MoveVolumeRequest]) (*connect.Response[v1alpha1.MoveVolumeResponse], error) {
+	return c.moveVolume.CallUnary(ctx, req)
 }
 
 // ConfigureNetwork calls orch.v1alpha1.ControlService.ConfigureNetwork.
@@ -1013,6 +1029,7 @@ type ControlServiceHandler interface {
 	BackupVolume(context.Context, *connect.Request[v1alpha1.BackupVolumeRequest]) (*connect.Response[v1alpha1.BackupVolumeResponse], error)
 	RestoreVolume(context.Context, *connect.Request[v1alpha1.RestoreVolumeRequest]) (*connect.Response[v1alpha1.RestoreVolumeResponse], error)
 	DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest], *connect.ServerStream[v1alpha1.DownloadVolumeBackupResponse]) error
+	MoveVolume(context.Context, *connect.Request[v1alpha1.MoveVolumeRequest]) (*connect.Response[v1alpha1.MoveVolumeResponse], error)
 	ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error)
 	ListCronRuns(context.Context, *connect.Request[v1alpha1.ListCronRunsRequest]) (*connect.Response[v1alpha1.ListCronRunsResponse], error)
 	TailCronLogs(context.Context, *connect.Request[v1alpha1.TailCronLogsRequest], *connect.ServerStream[v1alpha1.TailCronLogsResponse]) error
@@ -1218,6 +1235,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		ControlServiceDownloadVolumeBackupProcedure,
 		svc.DownloadVolumeBackup,
 		connect.WithSchema(controlServiceMethods.ByName("DownloadVolumeBackup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceMoveVolumeHandler := connect.NewUnaryHandler(
+		ControlServiceMoveVolumeProcedure,
+		svc.MoveVolume,
+		connect.WithSchema(controlServiceMethods.ByName("MoveVolume")),
 		connect.WithHandlerOptions(opts...),
 	)
 	controlServiceConfigureNetworkHandler := connect.NewUnaryHandler(
@@ -1458,6 +1481,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceRestoreVolumeHandler.ServeHTTP(w, r)
 		case ControlServiceDownloadVolumeBackupProcedure:
 			controlServiceDownloadVolumeBackupHandler.ServeHTTP(w, r)
+		case ControlServiceMoveVolumeProcedure:
+			controlServiceMoveVolumeHandler.ServeHTTP(w, r)
 		case ControlServiceConfigureNetworkProcedure:
 			controlServiceConfigureNetworkHandler.ServeHTTP(w, r)
 		case ControlServiceListCronRunsProcedure:
@@ -1637,6 +1662,10 @@ func (UnimplementedControlServiceHandler) RestoreVolume(context.Context, *connec
 
 func (UnimplementedControlServiceHandler) DownloadVolumeBackup(context.Context, *connect.Request[v1alpha1.DownloadVolumeBackupRequest], *connect.ServerStream[v1alpha1.DownloadVolumeBackupResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.DownloadVolumeBackup is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) MoveVolume(context.Context, *connect.Request[v1alpha1.MoveVolumeRequest]) (*connect.Response[v1alpha1.MoveVolumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.MoveVolume is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ConfigureNetwork(context.Context, *connect.Request[v1alpha1.ConfigureNetworkRequest]) (*connect.Response[v1alpha1.ConfigureNetworkResponse], error) {

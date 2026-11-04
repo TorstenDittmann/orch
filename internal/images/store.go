@@ -117,6 +117,24 @@ func (s *Store) Lookup(ctx context.Context, owner, localID string) (string, erro
 	return "", nil
 }
 
+// UploadedBy reports whether owner uploaded the image stored as digest.
+// Uploads are shared by digest, so this keeps a deployer from running an
+// image another application uploaded by naming its digest.
+func (s *Store) UploadedBy(owner, value string) (bool, error) {
+	s.index.Lock()
+	defer s.index.Unlock()
+	uploads, err := s.readIndex()
+	if err != nil {
+		return false, err
+	}
+	for _, item := range uploads {
+		if item.Owner == owner && item.Digest == value {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Has reports whether the store holds a manifest or index with this digest.
 func (s *Store) Has(ctx context.Context, value string) bool {
 	parsed, err := digest.Parse(value)

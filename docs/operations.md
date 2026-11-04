@@ -80,8 +80,14 @@ Drain movable workloads before maintenance:
 orch node drain worker-1
 ```
 
-Services with local volumes remain pinned and are reported instead of being
-moved. After maintenance:
+Services with local volumes stay on the node, and `drain` prints the command
+that moves each one, for example:
+
+```console
+orch volume move shop main-data worker-2
+```
+
+After maintenance:
 
 ```console
 orch node uncordon worker-1
@@ -327,6 +333,24 @@ orch volume restore game world 20261017T030000Z
 orch volume download game world 20261017T030000Z
 ```
 
+### Moving a volume
+
+A local volume stays on its node until you move it, for example to drain and
+retire that node:
+
+```console
+orch volume move game world worker-2
+orch db move shop main worker-2
+```
+
+The service that mounts the volume stops, and orch takes a final backup of
+each volume the service mounts on the old node, copies it to the new node over
+the controller's connection to both agents, restores it there, and starts the
+service on the new node. The final backup is labeled `-manual` and stays on
+both nodes. If any step fails, the service starts on its old node again with
+its volumes untouched. No bucket is needed, and the service is down for as long
+as the copy takes.
+
 `orch volume list` shows `LAST BACKUP FAILED` with the reason when the last
 scheduled backup failed. Restoring stops the service that mounts the volume,
 swaps in the backup, and starts the service again; the previous contents are
@@ -413,9 +437,18 @@ sudo -E orch cluster restore --from s3://acme-backups/production \
 
 It asks for the recovery key, or reads it from `ORCH_RECOVERY_KEY`.
 
-Volume backups in the bucket are not encrypted, so the bucket still holds
-every volume's data. Treat its access key as sensitive, and prefer a bucket
-with versioning or object lock so a leaked key cannot delete history.
+Volume and database backups are encrypted before they reach the bucket too,
+to a key the controller creates and keeps on its own, so nothing about them
+needs setting up. The node encrypts each copy as it uploads it; for a restore
+the controller hands the node the key of that one backup, and downloads are
+decrypted on the controller. The key is part of the controller's state, so a
+controller restored from the bucket with the recovery key opens the volume
+backups as before. Copies made before encryption existed are uploaded again,
+encrypted, while their node still has them. Agents too old to encrypt hold
+their copies back until they upgrade.
+
+Treat the bucket's access key as sensitive anyway, and prefer a bucket with
+versioning or object lock so a leaked key cannot delete history.
 `orch backup destination remove` stops copying; what is in the bucket stays.
 
 ## Upgrades

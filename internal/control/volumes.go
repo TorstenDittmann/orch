@@ -121,6 +121,8 @@ func (s *service) volumeOperation(ctx context.Context, target volumeTarget, comm
 		message := &orchv1alpha1.VolumeCommand{
 			RequestId: requestID, Action: command.GetAction(), Application: target.application, Volume: target.volume,
 			Backup: command.GetBackup(), Offset: command.GetOffset(), Urls: command.GetUrls(), PartSize: command.GetPartSize(),
+			EncryptTo: command.GetEncryptTo(), ContentKey: command.GetContentKey(),
+			AllocationId: command.GetAllocationId(), Data: command.GetData(), SizeBytes: command.GetSizeBytes(), Complete: command.GetComplete(),
 		}
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Volume{Volume: message}}
 	})
@@ -318,11 +320,11 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 		return nil, err
 	}
 	response := &orchv1alpha1.RestoreVolumeResponse{}
-	restore := func(urls []string, limit time.Duration) error {
+	restore := func(urls []string, contentKey []byte, limit time.Duration) error {
 		ctx, cancel := context.WithTimeout(ctx, limit)
 		defer cancel()
 		return s.volumeOperation(ctx, target, &orchv1alpha1.VolumeCommand{
-			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup(), Urls: urls,
+			Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_RESTORE, Backup: request.Msg.GetBackup(), Urls: urls, ContentKey: contentKey,
 		}, func(result *orchv1alpha1.VolumeResponse) error {
 			response.Previous = result.GetBackup()
 			if response.Previous != nil {
@@ -332,16 +334,17 @@ func (s *service) RestoreVolume(ctx context.Context, request *connect.Request[or
 			return nil
 		})
 	}
-	err = restore(nil, volumeOperationTimeout)
+	err = restore(nil, nil, volumeOperationTimeout)
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		// The node does not have it; the bucket may. The node downloads it
 		// and restores it in one step, with time for the download.
-		source, sourceErr := s.bucketSource(ctx, target, request.Msg.GetBackup())
+		source, contentKey, sourceErr := s.bucketSource(ctx, target, request.Msg.GetBackup())
 		if sourceErr != nil {
 			return nil, sourceErr
 		}
 		if source != "" {
-			err = restore([]string{source}, offsiteTransferLimit+volumeOperationTimeout)
+			err = restore([]string{source}, contentKey, offsiteTransferLimit+volumeOperationTimeout)
+			clear(contentKey)
 		}
 	}
 	if err != nil {

@@ -42,3 +42,11 @@ func (c *Client) RestartService(ctx context.Context, application, service string
 	}
 	return r.Msg.GetReplicas(), nil
 }
+
+func (c *Client) MoveVolume(ctx context.Context, application, volume, node string) (*orchv1alpha1.MoveVolumeResponse, error) {
+	r, err := c.service.MoveVolume(ctx, connect.NewRequest(&orchv1alpha1.MoveVolumeRequest{Application: application, Volume: volume, Node: node}))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}

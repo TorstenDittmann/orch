@@ -26,18 +26,18 @@ func (s *Store) SetGitHubTrust(ctx context.Context, trust model.GitHubTrust) (mo
 	}
 	defer tx.Rollback()
 	current, err := scanGitHubTrust(tx.QueryRowContext(ctx, githubTrustSelect+` WHERE repository = ? AND application_name = ?`, trust.Repository, trust.Application))
-	if err == nil && current.Branch == trust.Branch && current.Environment == trust.Environment && current.RepositoryID == "" && slices.Equal(current.Domains, trust.Domains) {
+	if err == nil && current.Branch == trust.Branch && current.Environment == trust.Environment && current.RepositoryID == "" && slices.Equal(current.Domains, trust.Domains) && current.Previews == trust.Previews {
 		return current, false, nil
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return model.GitHubTrust{}, false, err
 	}
 	trust.CreatedAt = trust.CreatedAt.UTC()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO github_trust (repository, application_name, branch, environment, created_at, domains)
-		VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (repository, application_name)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO github_trust (repository, application_name, branch, environment, created_at, domains, previews)
+		VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (repository, application_name)
 		DO UPDATE SET branch = excluded.branch, environment = excluded.environment, created_at = excluded.created_at,
-		repository_id = '', repository_owner_id = '', domains = excluded.domains`,
-		trust.Repository, trust.Application, trust.Branch, trust.Environment, trust.CreatedAt.Format(time.RFC3339Nano), strings.Join(trust.Domains, " ")); err != nil {
+		repository_id = '', repository_owner_id = '', domains = excluded.domains, previews = excluded.previews`,
+		trust.Repository, trust.Application, trust.Branch, trust.Environment, trust.CreatedAt.Format(time.RFC3339Nano), strings.Join(trust.Domains, " "), trust.Previews); err != nil {
 		return model.GitHubTrust{}, false, fmt.Errorf("store GitHub trust: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -99,12 +99,12 @@ func (s *Store) DeleteGitHubTrust(ctx context.Context, repository, application s
 	return rows > 0, err
 }
 
-const githubTrustSelect = `SELECT repository, application_name, branch, environment, created_at, repository_id, repository_owner_id, domains FROM github_trust`
+const githubTrustSelect = `SELECT repository, application_name, branch, environment, created_at, repository_id, repository_owner_id, domains, previews FROM github_trust`
 
 func scanGitHubTrust(row applicationScanner) (model.GitHubTrust, error) {
 	var trust model.GitHubTrust
 	var created, domains string
-	if err := row.Scan(&trust.Repository, &trust.Application, &trust.Branch, &trust.Environment, &created, &trust.RepositoryID, &trust.RepositoryOwnerID, &domains); err != nil {
+	if err := row.Scan(&trust.Repository, &trust.Application, &trust.Branch, &trust.Environment, &created, &trust.RepositoryID, &trust.RepositoryOwnerID, &domains, &trust.Previews); err != nil {
 		return trust, err
 	}
 	trust.Domains = strings.Fields(domains)
