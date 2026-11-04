@@ -705,7 +705,11 @@ type HTTPDesired struct {
 	// Domains that permanently redirect to one of domains.
 	Redirects map[string]string `protobuf:"bytes,8,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Container ports of domains not served by port.
-	DomainPorts   map[string]uint32 `protobuf:"bytes,9,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	DomainPorts map[string]uint32 `protobuf:"bytes,9,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// URL path prefixes served on domains; empty serves the whole domain.
+	Paths []string `protobuf:"bytes,10,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Remove the matched prefix before forwarding.
+	StripPrefix   bool `protobuf:"varint,11,opt,name=strip_prefix,json=stripPrefix,proto3" json:"strip_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -801,6 +805,20 @@ func (x *HTTPDesired) GetDomainPorts() map[string]uint32 {
 		return x.DomainPorts
 	}
 	return nil
+}
+
+func (x *HTTPDesired) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *HTTPDesired) GetStripPrefix() bool {
+	if x != nil {
+		return x.StripPrefix
+	}
+	return false
 }
 
 // HTTPBasicAuth carries an argon2id hash, never the password.
@@ -1660,6 +1678,8 @@ type ServiceEndpoint struct {
 	BasicAuth     *HTTPBasicAuth         `protobuf:"bytes,12,opt,name=basic_auth,json=basicAuth,proto3" json:"basic_auth,omitempty"`
 	Redirects     map[string]string      `protobuf:"bytes,13,rep,name=redirects,proto3" json:"redirects,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	DomainPorts   map[string]uint32      `protobuf:"bytes,14,rep,name=domain_ports,json=domainPorts,proto3" json:"domain_ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Paths         []string               `protobuf:"bytes,15,rep,name=paths,proto3" json:"paths,omitempty"`
+	StripPrefix   bool                   `protobuf:"varint,16,opt,name=strip_prefix,json=stripPrefix,proto3" json:"strip_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1790,6 +1810,20 @@ func (x *ServiceEndpoint) GetDomainPorts() map[string]uint32 {
 		return x.DomainPorts
 	}
 	return nil
+}
+
+func (x *ServiceEndpoint) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *ServiceEndpoint) GetStripPrefix() bool {
+	if x != nil {
+		return x.StripPrefix
+	}
+	return false
 }
 
 type AllocationDesired struct {
@@ -3509,9 +3543,12 @@ type AgentHello struct {
 	// Set by agents that upload volume backups to, and restore them from,
 	// presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
 	OffsiteBackups bool `protobuf:"varint,26,opt,name=offsite_backups,json=offsiteBackups,proto3" json:"offsite_backups,omitempty"`
+	// Set by agents that encrypt uploads to encrypt_to and decrypt restores
+	// with content_key (VolumeCommand).
+	EncryptedBackups bool `protobuf:"varint,27,opt,name=encrypted_backups,json=encryptedBackups,proto3" json:"encrypted_backups,omitempty"`
 	// Set by agents that take part in volume moves (VOLUME_ACTION_WRITE and
 	// BACKUP with allocation_id).
-	VolumeMoves   bool `protobuf:"varint,27,opt,name=volume_moves,json=volumeMoves,proto3" json:"volume_moves,omitempty"`
+	VolumeMoves   bool `protobuf:"varint,28,opt,name=volume_moves,json=volumeMoves,proto3" json:"volume_moves,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3724,6 +3761,13 @@ func (x *AgentHello) GetSelfUpgrade() bool {
 func (x *AgentHello) GetOffsiteBackups() bool {
 	if x != nil {
 		return x.OffsiteBackups
+	}
+	return false
+}
+
+func (x *AgentHello) GetEncryptedBackups() bool {
+	if x != nil {
+		return x.EncryptedBackups
 	}
 	return false
 }
@@ -4450,6 +4494,10 @@ func (x *CancelOperation) GetRequestId() string {
 // backup to presigned URLs: one URL takes the whole archive, several take
 // consecutive parts of part_size bytes.
 // RESTORE with urls[0] downloads a backup the node does not have first.
+// UPLOAD with encrypt_to uploads the backup encrypted to that public key, so
+// the urls cover the encrypted size. RESTORE with content_key decrypts the
+// downloaded backup with the key of that one backup; the copy kept on the
+// node is plaintext like every other local backup.
 // BACKUP with allocation_id stops that allocation first; a volume move uses
 // it once the allocation has left the node's assignment. WRITE stores data
 // at offset of a backup copied from another node; the frame with complete
@@ -4464,10 +4512,12 @@ type VolumeCommand struct {
 	Offset        uint64                 `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
 	Urls          []string               `protobuf:"bytes,7,rep,name=urls,proto3" json:"urls,omitempty"`
 	PartSize      uint64                 `protobuf:"varint,8,opt,name=part_size,json=partSize,proto3" json:"part_size,omitempty"`
-	AllocationId  string                 `protobuf:"bytes,9,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	Data          []byte                 `protobuf:"bytes,10,opt,name=data,proto3" json:"data,omitempty"`
-	SizeBytes     uint64                 `protobuf:"varint,11,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
-	Complete      bool                   `protobuf:"varint,12,opt,name=complete,proto3" json:"complete,omitempty"`
+	EncryptTo     string                 `protobuf:"bytes,9,opt,name=encrypt_to,json=encryptTo,proto3" json:"encrypt_to,omitempty"`
+	ContentKey    []byte                 `protobuf:"bytes,10,opt,name=content_key,json=contentKey,proto3" json:"content_key,omitempty"`
+	AllocationId  string                 `protobuf:"bytes,11,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,12,opt,name=data,proto3" json:"data,omitempty"`
+	SizeBytes     uint64                 `protobuf:"varint,13,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Complete      bool                   `protobuf:"varint,14,opt,name=complete,proto3" json:"complete,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4556,6 +4606,20 @@ func (x *VolumeCommand) GetPartSize() uint64 {
 		return x.PartSize
 	}
 	return 0
+}
+
+func (x *VolumeCommand) GetEncryptTo() string {
+	if x != nil {
+		return x.EncryptTo
+	}
+	return ""
+}
+
+func (x *VolumeCommand) GetContentKey() []byte {
+	if x != nil {
+		return x.ContentKey
+	}
+	return nil
 }
 
 func (x *VolumeCommand) GetAllocationId() string {
@@ -5654,7 +5718,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\vVolumeMount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xfd\x03\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xb6\x04\n" +
 	"\vHTTPDesired\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x1f\n" +
@@ -5667,7 +5731,10 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"basic_auth\x18\a \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12G\n" +
 	"\tredirects\x18\b \x03(\v2).orch.v1alpha1.HTTPDesired.RedirectsEntryR\tredirects\x12N\n" +
-	"\fdomain_ports\x18\t \x03(\v2+.orch.v1alpha1.HTTPDesired.DomainPortsEntryR\vdomainPorts\x1a<\n" +
+	"\fdomain_ports\x18\t \x03(\v2+.orch.v1alpha1.HTTPDesired.DomainPortsEntryR\vdomainPorts\x12\x14\n" +
+	"\x05paths\x18\n" +
+	" \x03(\tR\x05paths\x12!\n" +
+	"\fstrip_prefix\x18\v \x01(\bR\vstripPrefix\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
@@ -5767,7 +5834,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"public_key\x18\x02 \x01(\tR\tpublicKey\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12%\n" +
-	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xb6\x05\n" +
+	"\x0eallowed_subnet\x18\x04 \x01(\tR\rallowedSubnet\"\xef\x05\n" +
 	"\x0fServiceEndpoint\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12 \n" +
 	"\vapplication\x18\x02 \x01(\tR\vapplication\x12\x18\n" +
@@ -5785,7 +5852,9 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\n" +
 	"basic_auth\x18\f \x01(\v2\x1c.orch.v1alpha1.HTTPBasicAuthR\tbasicAuth\x12K\n" +
 	"\tredirects\x18\r \x03(\v2-.orch.v1alpha1.ServiceEndpoint.RedirectsEntryR\tredirects\x12R\n" +
-	"\fdomain_ports\x18\x0e \x03(\v2/.orch.v1alpha1.ServiceEndpoint.DomainPortsEntryR\vdomainPorts\x1a<\n" +
+	"\fdomain_ports\x18\x0e \x03(\v2/.orch.v1alpha1.ServiceEndpoint.DomainPortsEntryR\vdomainPorts\x12\x14\n" +
+	"\x05paths\x18\x0f \x03(\tR\x05paths\x12!\n" +
+	"\fstrip_prefix\x18\x10 \x01(\bR\vstripPrefix\x1a<\n" +
 	"\x0eRedirectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
@@ -6015,7 +6084,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\tdns_state\x18\b \x01(\tR\bdnsState\x12#\n" +
 	"\ringress_state\x18\t \x01(\tR\fingressState\x12)\n" +
 	"\x10draining_objects\x18\n" +
-	" \x01(\rR\x0fdrainingObjects\"\xea\b\n" +
+	" \x01(\rR\x0fdrainingObjects\"\x97\t\n" +
 	"\n" +
 	"AgentHello\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12\x17\n" +
@@ -6046,8 +6115,9 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\ragent_version\x18\x17 \x01(\tR\fagentVersion\x12$\n" +
 	"\x0eagent_build_id\x18\x18 \x01(\tR\fagentBuildId\x12!\n" +
 	"\fself_upgrade\x18\x19 \x01(\bR\vselfUpgrade\x12'\n" +
-	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\x12!\n" +
-	"\fvolume_moves\x18\x1b \x01(\bR\vvolumeMoves\"`\n" +
+	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\x12+\n" +
+	"\x11encrypted_backups\x18\x1b \x01(\bR\x10encryptedBackups\x12!\n" +
+	"\fvolume_moves\x18\x1c \x01(\bR\vvolumeMoves\"`\n" +
 	"\rAssignmentAck\x12\x17\n" +
 	"\aboot_id\x18\x01 \x01(\tR\x06bootId\x12\x1e\n" +
 	"\n" +
@@ -6111,7 +6181,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\rR\x0etimeoutSeconds\"0\n" +
 	"\x0fCancelOperation\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xf2\x02\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xb2\x03\n" +
 	"\rVolumeCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x123\n" +
@@ -6121,13 +6191,17 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x06backup\x18\x05 \x01(\tR\x06backup\x12\x16\n" +
 	"\x06offset\x18\x06 \x01(\x04R\x06offset\x12\x12\n" +
 	"\x04urls\x18\a \x03(\tR\x04urls\x12\x1b\n" +
-	"\tpart_size\x18\b \x01(\x04R\bpartSize\x12#\n" +
-	"\rallocation_id\x18\t \x01(\tR\fallocationId\x12\x12\n" +
-	"\x04data\x18\n" +
-	" \x01(\fR\x04data\x12\x1d\n" +
+	"\tpart_size\x18\b \x01(\x04R\bpartSize\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\v \x01(\x04R\tsizeBytes\x12\x1a\n" +
-	"\bcomplete\x18\f \x01(\bR\bcomplete\"\xb6\x01\n" +
+	"encrypt_to\x18\t \x01(\tR\tencryptTo\x12\x1f\n" +
+	"\vcontent_key\x18\n" +
+	" \x01(\fR\n" +
+	"contentKey\x12#\n" +
+	"\rallocation_id\x18\v \x01(\tR\fallocationId\x12\x12\n" +
+	"\x04data\x18\f \x01(\fR\x04data\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\r \x01(\x04R\tsizeBytes\x12\x1a\n" +
+	"\bcomplete\x18\x0e \x01(\bR\bcomplete\"\xb6\x01\n" +
 	"\x10VolumeBackupInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +

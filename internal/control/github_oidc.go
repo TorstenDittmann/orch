@@ -43,6 +43,8 @@ type githubClaims struct {
 	Actor             string `json:"actor"`
 	RunID             string `json:"run_id"`
 	EventName         string `json:"event_name"`
+	// BaseRef is the branch a pull request targets, set on pull_request runs.
+	BaseRef string `json:"base_ref"`
 }
 
 // githubVerifier checks RS256 tokens issued by GitHub Actions against

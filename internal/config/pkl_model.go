@@ -76,14 +76,16 @@ type pklResources struct {
 }
 
 type pklHTTP struct {
-	Port       int               `pkl:"port"`
-	Public     bool              `pkl:"public"`
-	Domains    []string          `pkl:"domains"`
-	HealthPath string            `pkl:"healthPath"`
-	HTTPS      bool              `pkl:"https"`
-	NodeLocal  bool              `pkl:"nodeLocal"`
-	BasicAuth  *pklBasicAuth     `pkl:"basicAuth"`
-	Redirects  map[string]string `pkl:"redirects"`
+	Port        int               `pkl:"port"`
+	Public      bool              `pkl:"public"`
+	Domains     []string          `pkl:"domains"`
+	HealthPath  string            `pkl:"healthPath"`
+	HTTPS       bool              `pkl:"https"`
+	NodeLocal   bool              `pkl:"nodeLocal"`
+	BasicAuth   *pklBasicAuth     `pkl:"basicAuth"`
+	Redirects   map[string]string `pkl:"redirects"`
+	Paths       []string          `pkl:"paths"`
+	StripPrefix bool              `pkl:"stripPrefix"`
 }
 
 // The schema types http as Http | Listing<Http>, so pklService.HTTP is an
@@ -202,13 +204,15 @@ func resolvePkl(doc pklDocument) *Manifest {
 		if entries := pklHTTPEntries(input.HTTP); len(entries) != 0 {
 			first := entries[0]
 			httpConfig = &HTTP{
-				Port:       first.Port,
-				Public:     first.Public,
-				Domains:    append([]string(nil), first.Domains...),
-				HealthPath: first.HealthPath,
-				HTTPS:      first.HTTPS,
-				NodeLocal:  first.NodeLocal,
-				Redirects:  cloneMap(first.Redirects),
+				Port:        first.Port,
+				Public:      first.Public,
+				Domains:     append([]string(nil), first.Domains...),
+				HealthPath:  first.HealthPath,
+				HTTPS:       first.HTTPS,
+				NodeLocal:   first.NodeLocal,
+				Redirects:   cloneMap(first.Redirects),
+				Paths:       append([]string(nil), first.Paths...),
+				StripPrefix: first.StripPrefix,
 			}
 			if auth := first.BasicAuth; auth != nil {
 				httpConfig.BasicAuth = &BasicAuth{User: auth.User, PasswordSecret: auth.PasswordSecret}

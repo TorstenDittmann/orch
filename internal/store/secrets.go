@@ -66,7 +66,7 @@ func (s *Store) SecretKeyFingerprint(ctx context.Context) (string, error) {
 // rows. A read-only store may be on an older schema, as a live controller is
 // when an upgrade backs it up, so tables it does not have yet count as empty.
 func (s *Store) HasEncryptedMaterial(ctx context.Context) (bool, error) {
-	for _, table := range []string{"application_secret_versions", "registry_credential_versions", "backup_destination"} {
+	for _, table := range []string{"application_secret_versions", "registry_credential_versions", "backup_destination", "volume_backup_key"} {
 		var exists bool
 		if err := s.db.QueryRowContext(ctx, "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?", table).Scan(&exists); err != nil {
 			return false, fmt.Errorf("count encrypted material: %w", err)

@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -192,4 +194,40 @@ type GitHubTrust struct {
 	RepositoryOwnerID string
 	// Domains limits which domains runs may route, as for access tokens.
 	Domains []string
+	// Previews lets pull_request runs against Branch deploy and remove
+	// PreviewApplication(Application, N) for pull request N.
+	Previews bool
+}
+
+// PreviewApplication names the preview of application for pull request
+// number, such as hello-pr-12.
+func PreviewApplication(application string, number int) string {
+	return fmt.Sprintf("%s-pr-%d", application, number)
+}
+
+// PreviewSecretsApplication names the application whose secrets every
+// preview of application gets, such as hello-preview. Previews never read
+// the production application's secrets.
+func PreviewSecretsApplication(application string) string {
+	return application + "-preview"
+}
+
+// PreviewBase returns the application a preview application belongs to and
+// its pull request number, or ok false for a name that is not a preview's.
+func PreviewBase(name string) (application string, number int, ok bool) {
+	index := strings.LastIndex(name, "-pr-")
+	if index <= 0 {
+		return "", 0, false
+	}
+	digits := name[index+len("-pr-"):]
+	if digits == "" || len(digits) > 9 || digits[0] == '0' {
+		return "", 0, false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", 0, false
+		}
+		number = number*10 + int(r-'0')
+	}
+	return name[:index], number, true
 }

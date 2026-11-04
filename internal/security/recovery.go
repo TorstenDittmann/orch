@@ -143,25 +143,81 @@ func EncryptBackup(destination io.Writer, plaintext io.Reader, publicKey string,
 	}
 }
 
+// EncryptedBackupHeaderSize is how many bytes come before the first chunk:
+// the magic line, the recipient and the ephemeral public key.
+const EncryptedBackupHeaderSize = len(encryptedBackupMagic) + 64
+
+// EncryptedBackupSize returns how large EncryptBackup's output is for size
+// bytes of plaintext: the header plus one GCM tag per chunk, and at least
+// one chunk.
+func EncryptedBackupSize(size uint64) uint64 {
+	chunks := max((size+recoveryChunkSize-1)/recoveryChunkSize, 1)
+	return uint64(EncryptedBackupHeaderSize) + size + chunks*16
+}
+
+// PlainBackupSize is the inverse of EncryptedBackupSize. ok is false for a
+// size no encrypted backup can have.
+func PlainBackupSize(size uint64) (plain uint64, ok bool) {
+	if size < uint64(EncryptedBackupHeaderSize)+16 {
+		return 0, false
+	}
+	body := size - uint64(EncryptedBackupHeaderSize)
+	chunks := (body + recoveryChunkSize + 16 - 1) / (recoveryChunkSize + 16)
+	plain = body - chunks*16
+	return plain, EncryptedBackupSize(plain) == size
+}
+
 // DecryptBackup returns a reader of the plaintext of an encrypted backup.
 // It fails on the first chunk that does not authenticate.
 func DecryptBackup(source *bufio.Reader, recoveryKey string) (io.Reader, error) {
+	header := make([]byte, EncryptedBackupHeaderSize)
+	if _, err := io.ReadFull(source, header); err != nil {
+		return nil, errors.New("not an encrypted orch backup")
+	}
+	key, err := BackupContentKey(header, recoveryKey)
+	if err != nil {
+		return nil, err
+	}
+	return decryptChunks(source, key)
+}
+
+// BackupContentKey returns the key that opens the chunks of the encrypted
+// backup whose header is given, so the holder of the private key can let
+// someone else decrypt that one backup without handing out the private key.
+func BackupContentKey(header []byte, recoveryKey string) ([]byte, error) {
 	key, err := parseRecoveryKey(recoveryKey)
 	if err != nil {
 		return nil, err
 	}
-	header := make([]byte, len(encryptedBackupMagic)+64)
-	if _, err := io.ReadFull(source, header); err != nil || string(header[:len(encryptedBackupMagic)]) != encryptedBackupMagic {
+	if len(header) < EncryptedBackupHeaderSize || string(header[:len(encryptedBackupMagic)]) != encryptedBackupMagic {
 		return nil, errors.New("not an encrypted orch backup")
 	}
 	if !bytes.Equal(header[len(encryptedBackupMagic):len(encryptedBackupMagic)+32], key.PublicKey().Bytes()) {
 		return nil, ErrRecoveryKey
 	}
-	ephemeral, err := ecdh.X25519().NewPublicKey(header[len(encryptedBackupMagic)+32:])
+	ephemeral, err := ecdh.X25519().NewPublicKey(header[len(encryptedBackupMagic)+32 : EncryptedBackupHeaderSize])
 	if err != nil {
 		return nil, errors.New("encrypted backup header is invalid")
 	}
-	aead, err := backupAEAD(key, ephemeral, ephemeral.Bytes(), key.PublicKey().Bytes())
+	content, err := backupKey(key, ephemeral, ephemeral.Bytes(), key.PublicKey().Bytes())
+	if err != nil {
+		return nil, ErrRecoveryKey
+	}
+	return content, nil
+}
+
+// DecryptBackupWithContentKey is DecryptBackup with the key
+// BackupContentKey returned for this backup.
+func DecryptBackupWithContentKey(source *bufio.Reader, contentKey []byte) (io.Reader, error) {
+	header := make([]byte, EncryptedBackupHeaderSize)
+	if _, err := io.ReadFull(source, header); err != nil || string(header[:len(encryptedBackupMagic)]) != encryptedBackupMagic {
+		return nil, errors.New("not an encrypted orch backup")
+	}
+	return decryptChunks(source, contentKey)
+}
+
+func decryptChunks(source *bufio.Reader, key []byte) (io.Reader, error) {
+	aead, err := contentAEAD(key)
 	if err != nil {
 		return nil, ErrRecoveryKey
 	}
@@ -169,13 +225,24 @@ func DecryptBackup(source *bufio.Reader, recoveryKey string) (io.Reader, error) 
 }
 
 func backupAEAD(private *ecdh.PrivateKey, public *ecdh.PublicKey, ephemeral, recipient []byte) (cipher.AEAD, error) {
+	key, err := backupKey(private, public, ephemeral, recipient)
+	if err != nil {
+		return nil, err
+	}
+	return contentAEAD(key)
+}
+
+func backupKey(private *ecdh.PrivateKey, public *ecdh.PublicKey, ephemeral, recipient []byte) ([]byte, error) {
 	shared, err := private.ECDH(public)
 	if err != nil {
 		return nil, err
 	}
-	key, err := hkdf.Key(sha256.New, shared, append(append([]byte(nil), ephemeral...), recipient...), recoveryInfo, 32)
-	if err != nil {
-		return nil, err
+	return hkdf.Key(sha256.New, shared, append(append([]byte(nil), ephemeral...), recipient...), recoveryInfo, 32)
+}
+
+func contentAEAD(key []byte) (cipher.AEAD, error) {
+	if len(key) != 32 {
+		return nil, errors.New("backup content key must be 32 bytes")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {

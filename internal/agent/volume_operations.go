@@ -87,7 +87,7 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		case 0:
 			previous, err = r.volumes.restore(ctx, application, volume, command.GetBackup(), owner.ID)
 		case 1:
-			previous, err = r.volumes.restoreFromBucket(ctx, application, volume, command.GetBackup(), command.GetUrls()[0], owner.ID)
+			previous, err = r.volumes.restoreFromBucket(ctx, application, volume, command.GetBackup(), command.GetUrls()[0], owner.ID, command.GetContentKey())
 		default:
 			err = errors.New("restore takes at most one URL")
 		}
@@ -115,7 +115,7 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_READ:
 		r.readVolumeBackup(ctx, command, send, fail)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD:
-		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize())
+		etags, err := r.volumes.upload(ctx, application, volume, command.GetBackup(), command.GetUrls(), command.GetPartSize(), command.GetEncryptTo())
 		if err != nil {
 			fail(err)
 			return

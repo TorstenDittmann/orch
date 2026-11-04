@@ -929,6 +929,9 @@ message GitHubTrust {
   // Domains the runs may route, each with its subdomains. Empty allows any
   // domain not used by another application, and the public listener.
   repeated string domains = 6;
+  // Previews lets pull_request runs against the branch deploy APP-pr-N for
+  // pull request N, and remove it again.
+  bool previews = 7;
 }
 
 message SetGitHubTrustRequest {
@@ -937,6 +940,7 @@ message SetGitHubTrustRequest {
   string branch = 3;
   string environment = 4;
   repeated string domains = 5;
+  bool previews = 6;
 }
 
 message SetGitHubTrustResponse {

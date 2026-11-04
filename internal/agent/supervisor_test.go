@@ -1856,3 +1856,47 @@ func TestDesiredRoutesSendEachDomainToItsPort(t *testing.T) {
 		t.Fatalf("routes = %#v, pending = %#v", routes, pending)
 	}
 }
+
+func TestDesiredRoutesSplitASharedDomainByPath(t *testing.T) {
+	t.Parallel()
+	web := supervisorHTTPAllocation(t, "alloc-web", "sha256:"+strings.Repeat("b", 64), 1)
+	web.HTTP.Redirects = map[string]string{"www.app.example.com": "app.example.com"}
+	web.SpecDigest = mustAllocationDigest(t, web)
+	api := supervisorHTTPAllocation(t, "alloc-api", "sha256:"+strings.Repeat("c", 64), 1)
+	api.Service = "api"
+	api.HTTP.Paths = []string{"/api", "/v2"}
+	api.HTTP.StripPrefix = true
+	api.HTTP.Redirects = map[string]string{"api.example.com": "app.example.com"}
+	api.SpecDigest = mustAllocationDigest(t, api)
+
+	routes, pending := desiredRoutes([]model.AllocationDesired{web, api}, nil,
+		map[string]string{web.ID: "10.88.0.2", api.ID: "10.88.0.3"},
+		map[string]string{web.ID: web.SpecDigest, api.ID: api.SpecDigest}, supervisorTestTime)
+	if len(pending) != 0 || len(routes) != 3 {
+		t.Fatalf("routes = %#v, pending = %#v", routes, pending)
+	}
+	byKey := make(map[string]ingress.Route, len(routes))
+	for _, route := range routes {
+		byKey[route.Key()] = route
+	}
+	root, first, second := byKey["app.example.com"], byKey["app.example.com/api"], byKey["app.example.com/v2"]
+	if root.Service != "web" || root.Path != "" || root.StripPrefix ||
+		!reflect.DeepEqual(root.RedirectFrom, []string{"www.app.example.com"}) {
+		t.Fatalf("root route = %#v", root)
+	}
+	if first.Service != "api" || !first.StripPrefix || !reflect.DeepEqual(first.Upstreams, []string{"10.88.0.3:8080"}) ||
+		!reflect.DeepEqual(first.RedirectFrom, []string{"api.example.com"}) {
+		t.Fatalf("/api route = %#v", first)
+	}
+	// Redirects ride on one route of the domain, so ingress adds them once.
+	if second.Service != "api" || !second.StripPrefix || len(second.RedirectFrom) != 0 {
+		t.Fatalf("/v2 route = %#v", second)
+	}
+
+	// Before the api is ready, its paths are pending under their own keys.
+	_, pending = desiredRoutes([]model.AllocationDesired{web, api}, nil,
+		map[string]string{web.ID: "10.88.0.2"}, map[string]string{web.ID: web.SpecDigest}, supervisorTestTime)
+	if len(pending) != 2 || pending[0].Domain != "app.example.com/api" || pending[1].Domain != "app.example.com/v2" {
+		t.Fatalf("pending = %#v", pending)
+	}
+}

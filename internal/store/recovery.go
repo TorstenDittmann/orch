@@ -109,7 +109,8 @@ func (s *Store) VerifyRecoverySecrets(ctx context.Context, box *security.SecretB
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT 'application_secret',application_name,name,id,algorithm,nonce,ciphertext,wrapped_key_nonce,wrapped_key FROM application_secret_versions
  UNION ALL SELECT 'registry_credential',host,id,'',algorithm,nonce,ciphertext,wrapped_key_nonce,wrapped_key FROM registry_credential_versions
- UNION ALL SELECT 'backup_destination',access_key_id,'','',algorithm,nonce,ciphertext,wrapped_key_nonce,wrapped_key FROM backup_destination`)
+ UNION ALL SELECT 'backup_destination',access_key_id,'','',algorithm,nonce,ciphertext,wrapped_key_nonce,wrapped_key FROM backup_destination
+ UNION ALL SELECT 'volume_backup_key',public_key,'','',algorithm,nonce,ciphertext,wrapped_key_nonce,wrapped_key FROM volume_backup_key`)
 	if err != nil {
 		return err
 	}

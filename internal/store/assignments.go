@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"time"
 
@@ -938,12 +939,9 @@ func validateRouteObservation(ctx context.Context, tx *sql.Tx, nodeID string, ne
 		if endpoint.HTTPS != route.HTTPS {
 			continue
 		}
-		for _, domain := range endpoint.Domains {
-			if domain == route.Domain {
-				allowed = true
-				activeContract = true
-				break
-			}
+		if slices.Contains(model.RouteKeys(endpoint.Domains, endpoint.Paths), route.Domain) {
+			allowed = true
+			activeContract = true
 		}
 	}
 	for rows.Next() {
@@ -998,12 +996,7 @@ func routeMatchesHTTPIntent(route model.RouteStatus, intent *model.HTTPDesired) 
 	if intent.HTTPS != route.HTTPS {
 		return false
 	}
-	for _, domain := range intent.Domains {
-		if domain == route.Domain {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(model.RouteKeys(intent.Domains, intent.Paths), route.Domain)
 }
 
 func deriveApplicationExecutions(ctx context.Context, tx *sql.Tx, network model.NetworkStatus, now time.Time) error {

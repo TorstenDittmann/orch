@@ -231,9 +231,15 @@ func (client *Client) DeleteAccessToken(ctx context.Context, name string) (bool,
 // SetGitHubTrust trusts a repository's runs to deploy one application.
 // Domains, when given, limit the domains those deploys may route.
 func (client *Client) SetGitHubTrust(ctx context.Context, repository, application, branch, environment string, domains ...string) (*orchv1alpha1.SetGitHubTrustResponse, error) {
-	response, err := client.service.SetGitHubTrust(ctx, connect.NewRequest(&orchv1alpha1.SetGitHubTrustRequest{
+	return client.SetGitHubTrustRule(ctx, &orchv1alpha1.SetGitHubTrustRequest{
 		Repository: repository, Application: application, Branch: branch, Environment: environment, Domains: domains,
-	}))
+	})
+}
+
+// SetGitHubTrustRule creates or replaces a trust rule with every option,
+// such as previews.
+func (client *Client) SetGitHubTrustRule(ctx context.Context, rule *orchv1alpha1.SetGitHubTrustRequest) (*orchv1alpha1.SetGitHubTrustResponse, error) {
+	response, err := client.service.SetGitHubTrust(ctx, connect.NewRequest(rule))
 	if err != nil {
 		return nil, err
 	}
