@@ -37,7 +37,7 @@ const (
 )
 
 // clusterAlerts watches the cluster itself and appends an event when a
-// problem starts: a lost node, a full disk, a certificate close to expiry or
+// problem starts: a lost node, a full disk, a node waiting for a reboot, a certificate close to expiry or
 // a stale controller backup. Each problem is recorded so it is reported once,
 // and forgotten when it clears so it is reported again if it comes back.
 type clusterAlerts struct {
@@ -109,6 +109,15 @@ func (a *clusterAlerts) check(ctx context.Context) error {
 			// A lost node is cleared only once it is back, not while the
 			// controller's startup grace hides it.
 			keep["node.lost/"+node.ID] = true
+		}
+		rebootKey := "node.reboot_required/" + node.ID
+		if a.connected(node) {
+			if _, _, required := s.sessions.host(node.ID); required {
+				active[rebootKey] = alert{config.NotifyNodeRebootRequired, model.ClusterAlert{Node: node.Name,
+					Message: fmt.Sprintf("node %s has installed updates that need a reboot; run orch node update %s", node.Name, node.Name)}}
+			}
+		} else {
+			keep[rebootKey] = true
 		}
 		diskKey := "node.disk_low/" + node.ID
 		if sample, ok := usage[node.ID]; ok && now.Sub(sample.ObservedAt) <= nodeUsageFresh && sample.DiskTotalBytes > 0 {

@@ -449,6 +449,10 @@ message AgentHello {
   // Set by agents that take part in volume moves (VOLUME_ACTION_WRITE and
   // BACKUP with allocation_id).
   bool volume_moves = 28;
+  // Set by agents that upgrade the host's packages on an OSUpdateCommand.
+  bool os_updates = 29;
+  // Set when the controller is installed on the same host.
+  bool controller_host = 30;
 }
 
 message AssignmentAck {
@@ -487,6 +491,9 @@ message AgentHeartbeat {
   NodeResourceUsage usage = 3;
   // Each running allocation's CPU use since the previous heartbeat.
   repeated AllocationResourceUsage allocations = 4;
+  // Set when installed updates, such as a new kernel, take effect only after
+  // the host reboots.
+  bool reboot_required = 5;
 }
 
 message AllocationResourceUsage {
@@ -609,6 +616,21 @@ message UpgradeCommand {
   uint64 size_bytes = 4;
 }
 
+// OSUpdateCommand asks the agent to upgrade the host's packages with its
+// package manager and, when the upgrade needs one, to reboot the host after
+// answering.
+message OSUpdateCommand {
+  string request_id = 1;
+}
+
+message OSUpdateResponse {
+  string request_id = 1;
+  // The host reboots in a few seconds.
+  bool rebooting = 2;
+  // The end of the package manager's output.
+  string output = 3;
+}
+
 message RestartResponse {
   string request_id = 1;
   // When the agent stopped the old process, by the agent's clock.
@@ -648,6 +670,7 @@ message AgentOperationResult {
     OperationError error = 3;
     VolumeResponse volume = 4;
     RestartResponse restart = 5;
+    OSUpdateResponse os_update = 6;
   }
 }
 
@@ -671,5 +694,6 @@ message ConnectResponse {
     VolumeCommand volume = 6;
     RestartCommand restart = 7;
     UpgradeCommand upgrade = 8;
+    OSUpdateCommand os_update = 9;
   }
 }

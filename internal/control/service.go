@@ -598,6 +598,7 @@ func (s *service) ListNodes(ctx context.Context, request *connect.Request[orchv1
 		message := nodeMessage(node)
 		if s.sessions != nil {
 			message.AgentVersion, _, _, _ = s.sessions.session(node.ID).agent()
+			message.OsUpdates, message.ControllerHost, message.RebootRequired = s.sessions.host(node.ID)
 		}
 		message.AgentUpgrade = s.upgrades.state(node.ID)
 		response.Nodes = append(response.Nodes, message)
@@ -1536,7 +1537,7 @@ func nodeMessage(node model.Node) *orchv1alpha1.Node {
 		WireguardListenPort: node.WireGuardListenPort,
 		DrainBlockers:       append([]string(nil), node.DrainBlockers...),
 		CertificateNotAfter: timestamppb.New(node.CertificateNotAfter), CertificateState: node.CertificateState,
-		CertificateReason: node.CertificateReason,
+		CertificateReason: node.CertificateReason, BootId: node.LastBootID,
 	}
 	if node.LastSeenAt != nil {
 		message.LastSeenAt = timestamppb.New(*node.LastSeenAt)

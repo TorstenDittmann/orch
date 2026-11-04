@@ -72,6 +72,11 @@ type sessionRunner struct {
 	selfUpgrade       bool
 	upgradeStagingDir string
 	upgrading         atomic.Bool
+	// osUpdates is set when the agent can upgrade the host's packages.
+	osUpdates      bool
+	osUpdating     atomic.Bool
+	controllerHost bool
+	reboot         *rebootCheck
 }
 
 type controllerMessage struct {
@@ -218,7 +223,7 @@ func (r *sessionRunner) heartbeatRequest(ctx context.Context) *orchv1alpha1.Conn
 	}
 	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
 		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration, Usage: r.usage.Sample(),
-		Allocations: r.allocationCPU.Sample(ctx),
+		Allocations: r.allocationCPU.Sample(ctx), RebootRequired: r.reboot.required(ctx, r.now()),
 	}}}
 }
 
@@ -324,6 +329,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		WireguardListenPort: r.capabilities.WireGuardListenPort,
 		AgentVersion:        buildinfo.Version, AgentBuildId: buildinfo.BuildID, SelfUpgrade: r.selfUpgrade,
 		OffsiteBackups: true, EncryptedBackups: true, VolumeMoves: true,
+		OsUpdates: r.osUpdates, ControllerHost: r.controllerHost,
 	}
 	if cachedErr == nil {
 		hello.CachedAssignmentGeneration = cached.Generation
@@ -591,6 +597,22 @@ func (r *sessionRunner) handleControllerMessage(ctx context.Context, response *o
 		}()
 	case *orchv1alpha1.ConnectResponse_Upgrade:
 		return r.handleUpgrade(ctx, message.Upgrade)
+	case *orchv1alpha1.ConnectResponse_OsUpdate:
+		command := message.OsUpdate
+		if command == nil || len(command.ProtoReflect().GetUnknown()) != 0 || command.GetRequestId() == "" ||
+			len(command.GetRequestId()) > 128 {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid OS update command"))
+		}
+		operationContext, cancel := context.WithCancel(ctx)
+		operation, added := operations.add(command.GetRequestId(), cancel)
+		if !added {
+			cancel()
+			return connect.NewError(connect.CodeAlreadyExists, errors.New("operation request id is already active"))
+		}
+		go func() {
+			defer operations.finish(command.GetRequestId(), operation)
+			r.runOSUpdate(operationContext, command, operationOutbound)
+		}()
 	case *orchv1alpha1.ConnectResponse_CancelOperation:
 		if message.CancelOperation == nil || len(message.CancelOperation.ProtoReflect().GetUnknown()) != 0 || message.CancelOperation.GetRequestId() == "" {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid operation cancellation"))
@@ -1203,6 +1225,8 @@ func operationResult(result any) *orchv1alpha1.ConnectRequest {
 	case *orchv1alpha1.AgentOperationResult_Volume:
 		operation.Result = value
 	case *orchv1alpha1.AgentOperationResult_Restart:
+		operation.Result = value
+	case *orchv1alpha1.AgentOperationResult_OsUpdate:
 		operation.Result = value
 	default:
 		panic("unsupported agent operation result")

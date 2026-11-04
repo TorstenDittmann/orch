@@ -52,6 +52,7 @@ service ControlService {
   rpc UploadImage(stream UploadImageRequest) returns (UploadImageResponse);
   rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc UpdateNodeOS(UpdateNodeOSRequest) returns (UpdateNodeOSResponse);
   rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse);
   rpc ListJoinTokens(ListJoinTokensRequest) returns (ListJoinTokensResponse);
   rpc RevokeJoinToken(RevokeJoinTokenRequest) returns (RevokeJoinTokenResponse);
@@ -199,6 +200,13 @@ message Node {
   // when one is in progress or failed.
   string agent_version = 42;
   string agent_upgrade = 43;
+  // Reported by the connected agent: installed updates wait for a reboot,
+  // the agent can run orch node update, and the controller runs on the host.
+  bool reboot_required = 44;
+  bool os_updates = 45;
+  bool controller_host = 46;
+  // Changes each time the node's agent starts, such as after a reboot.
+  string boot_id = 47;
 }
 
 message NodeUsage {
@@ -433,6 +441,22 @@ message RemoveNodeResponse {
   string name = 1;
   bool changed = 2;
   uint64 event_sequence = 3;
+}
+
+// UpdateNodeOSRequest upgrades the packages of a cordoned or draining node
+// and reboots it when the upgrade needs a reboot. The controller then sets
+// the node to restore_lifecycle: right away, or once its agent is back after
+// the reboot. UNSPECIFIED leaves the lifecycle as it is.
+message UpdateNodeOSRequest {
+  string name = 1;
+  NodeLifecycle restore_lifecycle = 2;
+}
+
+message UpdateNodeOSResponse {
+  // The node is rebooting; it was running the agent that started as boot_id.
+  bool rebooting = 1;
+  string boot_id = 2;
+  string output = 3;
 }
 
 message JoinTokenMetadata {

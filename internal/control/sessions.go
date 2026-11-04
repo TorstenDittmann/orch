@@ -61,6 +61,11 @@ type agentSession struct {
 	// volumeMoves is set when the agent accepts WRITE and BACKUP with an
 	// allocation.
 	volumeMoves bool
+	// From the Hello: the agent runs OS updates, and the controller shares
+	// its host. rebootRequired is from the latest heartbeat.
+	osUpdates      bool
+	controllerHost bool
+	rebootRequired bool
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -193,6 +198,19 @@ func (session *agentSession) agent() (version, buildID, architecture string, sel
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return session.version, session.buildID, session.architecture, session.selfUpgrade
+}
+
+// host reports what the node's agent said about its host: it can run OS
+// updates, the controller runs there, and updates wait for a reboot. A node
+// that is not connected reports nothing.
+func (m *sessionManager) host(nodeID string) (osUpdates, controllerHost, rebootRequired bool) {
+	session := m.session(nodeID)
+	if session == nil {
+		return false, false, false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.osUpdates, session.controllerHost, session.rebootRequired
 }
 
 // offsiteBackups reports whether the node's agent can upload and fetch
@@ -403,6 +421,11 @@ func operationMetadata(result *orchv1alpha1.AgentOperationResult) (requestID str
 			return "", false, 0, errors.New("restart result is required")
 		}
 		return value.Restart.GetRequestId(), true, 0, nil
+	case *orchv1alpha1.AgentOperationResult_OsUpdate:
+		if value.OsUpdate == nil || len(value.OsUpdate.ProtoReflect().GetUnknown()) != 0 || value.OsUpdate.GetRequestId() == "" {
+			return "", false, 0, errors.New("OS update result is required")
+		}
+		return value.OsUpdate.GetRequestId(), true, len(value.OsUpdate.GetOutput()), nil
 	case *orchv1alpha1.AgentOperationResult_Error:
 		if value.Error == nil || len(value.Error.ProtoReflect().GetUnknown()) != 0 || value.Error.GetRequestId() == "" {
 			return "", false, 0, errors.New("operation error is required")

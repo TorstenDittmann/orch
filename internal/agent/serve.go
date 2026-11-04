@@ -34,6 +34,9 @@ type ServeOptions struct {
 	// UpgradeStagingDir replaces where a self-upgrade stages its candidate;
 	// tests only.
 	UpgradeStagingDir string
+	// OSUpdater upgrades and reboots the host for orch node update; nil
+	// uses apt-get or dnf through systemd.
+	OSUpdater OSUpdater
 }
 
 func Serve(ctx context.Context, options ServeOptions) error {
@@ -125,12 +128,17 @@ func Serve(ctx context.Context, options ServeOptions) error {
 		return err
 	}
 	volumes := newVolumeBackups(dataDir, supervisor, cache, options.Now)
+	updater := options.OSUpdater
+	if updater == nil {
+		updater = HostOSUpdater{}
+	}
 	runner := sessionRunner{
 		credentials: credentials, cache: cache, supervisor: supervisor,
 		capabilities: capabilities, bootID: bootID, now: options.Now, random: randomSource, dataDir: dataDir,
 		volumes: volumes, usage: newUsageSampler(dataDir, capabilities.TotalCPUMillis),
 		allocationCPU: newAllocationSampler(options.Runtime),
 		selfUpgrade:   selfUpgradeAvailable(), upgradeStagingDir: options.UpgradeStagingDir,
+		osUpdates: updater.Available(), controllerHost: controllerOnHost(), reboot: &rebootCheck{updater: updater},
 	}
 	runner.registry = newControllerRegistry(credentials)
 	if configurable, ok := options.Runtime.(interface {

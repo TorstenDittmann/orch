@@ -93,6 +93,40 @@ After maintenance:
 orch node uncordon worker-1
 ```
 
+## Operating-system updates
+
+One command upgrades the packages on every node and reboots the nodes that
+need it, one node at a time:
+
+```console
+orch node update --all
+orch node update worker-1 worker-2   # only these nodes
+```
+
+For each node orch drains it, upgrades its packages with `apt-get` on Ubuntu
+or `dnf` on Fedora, reboots it when the upgrade needs a reboot (a new kernel,
+for example), waits until its agent is back and returns it to service. Only
+then does the next node start, and the run stops at the first node that
+fails. Workers go first, then ingress nodes, then the controller's host.
+
+Replicas with a local volume cannot move, so they stay on the node and
+restart with it. A node that no other node can take over from, such as the
+only node of a cluster, is cordoned instead of drained: its replicas keep
+running during the upgrade and stop only for the reboot. A node that was
+cordoned stays cordoned afterwards, and one that was already draining stays
+draining.
+
+The controller keeps track of each reboot and returns the node to service
+when its agent reconnects, so nothing stays drained if the command is
+interrupted or runs on the host that reboots. While the controller's host
+reboots, the command waits for the API to come back.
+
+Each node reports when installed updates wait for a reboot, for example
+after unattended upgrades put a new kernel in place. `orch nodes` shows it
+as `reboot-required=true`, and the `node.reboot_required`
+[notification](notifications.md#cluster-notifications) tells you when to run
+`orch node update`.
+
 ## One-off jobs
 
 Run a command from a service definition:

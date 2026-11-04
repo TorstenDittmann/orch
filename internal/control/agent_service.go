@@ -102,6 +102,7 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	session.offsiteBackups = hello.GetOffsiteBackups()
 	session.encryptedBackups = hello.GetEncryptedBackups()
 	session.volumeMoves = hello.GetVolumeMoves()
+	session.osUpdates, session.controllerHost = hello.GetOsUpdates(), hello.GetControllerHost()
 	session.mu.Unlock()
 	s.upgrades.kick()
 	if err := s.state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
@@ -118,6 +119,7 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, errors.New("record agent capabilities"))
 	}
+	s.restoreAfterOSUpdate(ctx, nodeID, hello.GetBootId())
 	// A failed reconcile must not end the session: the agent still receives
 	// its current assignment and the periodic reconcile retries.
 	if err := s.reconciler.Reconcile(ctx); err != nil {
@@ -287,6 +289,9 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 		if message.Heartbeat == nil || len(message.Heartbeat.ProtoReflect().GetUnknown()) != 0 || message.Heartbeat.GetBootId() != session.bootID {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("heartbeat has the wrong boot id"))
 		}
+		session.mu.Lock()
+		session.rebootRequired = message.Heartbeat.GetRebootRequired()
+		session.mu.Unlock()
 		seenAt := s.now().UTC()
 		if err := s.state.TouchAgent(ctx, session.nodeID, session.bootID, seenAt); err != nil {
 			return connect.NewError(connect.CodeFailedPrecondition, err)

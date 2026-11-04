@@ -386,6 +386,14 @@ func (client *Client) UpdateNode(ctx context.Context, request *orchv1alpha1.Upda
 	return response.Msg, nil
 }
 
+func (client *Client) UpdateNodeOS(ctx context.Context, request *orchv1alpha1.UpdateNodeOSRequest) (*orchv1alpha1.UpdateNodeOSResponse, error) {
+	response, err := client.service.UpdateNodeOS(ctx, connect.NewRequest(request))
+	if err != nil {
+		return nil, err
+	}
+	return response.Msg, nil
+}
+
 func (client *Client) RemoveNode(ctx context.Context, request *orchv1alpha1.RemoveNodeRequest) (*orchv1alpha1.RemoveNodeResponse, error) {
 	response, err := client.service.RemoveNode(ctx, connect.NewRequest(request))
 	if err != nil {

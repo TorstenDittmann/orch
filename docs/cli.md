@@ -963,6 +963,20 @@ away, and `uncordon` makes it active again. `drain` prints an
 See
 [node maintenance](operations.md#node-maintenance).
 
+### orch node update
+
+```text
+orch node update NODE...|--all [--drain-timeout 10m] [--reboot-timeout 15m] [--target NAME] [--json]
+```
+
+Upgrades the operating-system packages of the named nodes, or of every node
+with `--all`, one node at a time: drain, upgrade with `apt-get` or `dnf`,
+reboot when the upgrade needs it, wait for the agent, return the node to
+service. Workers go first, then ingress nodes, then the controller's host.
+When a drain takes longer than `--drain-timeout`, the update goes ahead
+anyway. Nodes that are not connected are skipped and reported. See
+[operating-system updates](operations.md#operating-system-updates).
+
 ### orch node ingress
 
 ```text

@@ -42,7 +42,8 @@ orch installs and manages its own services, but you remain responsible for:
 
 - host and provider firewall policy;
 - DNS and public routing;
-- operating-system security updates;
+- deciding when operating-system updates are applied (`orch node update --all`
+  applies them node by node);
 - access to the hosts;
 - a bucket for off-host backups, if you want them;
 - monitoring application behavior beyond declared health checks.

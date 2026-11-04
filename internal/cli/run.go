@@ -1154,6 +1154,7 @@ Usage:
   orch network configure --cidr CIDR [--target NAME] [--idempotency-key KEY] [--json]
   orch nodes [--target NAME] [--json]
   orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE [--target NAME]
+  orch node update NODE...|--all [--drain-timeout 10m] [--reboot-timeout 15m] [--target NAME] [--json]
   orch node join create NODE --ttl 15m --output FILE [--target NAME]
   orch node join list|revoke [--target NAME]
   orch node doctor --advertise-address IPV4 [--json]

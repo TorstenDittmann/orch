@@ -74,7 +74,7 @@ func TestNotifyAddsTestsListsAndRemovesClusterNotifications(t *testing.T) {
 	}
 	stdout.Reset()
 	if code := Run([]string{"notify", "list", "--context", contextPath}, &stdout, &stderr); code != ExitOK ||
-		stdout.String() != "broken  webhook  backup.stale,certificate.expiring,node.disk_low,node.lost\nslack  slack  deploy.failed,node.lost\n" {
+		stdout.String() != "broken  webhook  backup.stale,certificate.expiring,node.disk_low,node.lost,node.reboot_required\nslack  slack  deploy.failed,node.lost\n" {
 		t.Fatalf("notify list code=%d stdout=%q", code, stdout.String())
 	}
 	stdout.Reset()

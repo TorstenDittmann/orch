@@ -153,6 +153,9 @@ const (
 	// ControlServiceRemoveNodeProcedure is the fully-qualified name of the ControlService's RemoveNode
 	// RPC.
 	ControlServiceRemoveNodeProcedure = "/orch.v1alpha1.ControlService/RemoveNode"
+	// ControlServiceUpdateNodeOSProcedure is the fully-qualified name of the ControlService's
+	// UpdateNodeOS RPC.
+	ControlServiceUpdateNodeOSProcedure = "/orch.v1alpha1.ControlService/UpdateNodeOS"
 	// ControlServiceCreateJoinTokenProcedure is the fully-qualified name of the ControlService's
 	// CreateJoinToken RPC.
 	ControlServiceCreateJoinTokenProcedure = "/orch.v1alpha1.ControlService/CreateJoinToken"
@@ -248,6 +251,7 @@ type ControlServiceClient interface {
 	UploadImage(context.Context) *connect.ClientStreamForClient[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
+	UpdateNodeOS(context.Context, *connect.Request[v1alpha1.UpdateNodeOSRequest]) (*connect.Response[v1alpha1.UpdateNodeOSResponse], error)
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
 	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
 	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
@@ -529,6 +533,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
 			connect.WithClientOptions(opts...),
 		),
+		updateNodeOS: connect.NewClient[v1alpha1.UpdateNodeOSRequest, v1alpha1.UpdateNodeOSResponse](
+			httpClient,
+			baseURL+ControlServiceUpdateNodeOSProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("UpdateNodeOS")),
+			connect.WithClientOptions(opts...),
+		),
 		createJoinToken: connect.NewClient[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse](
 			httpClient,
 			baseURL+ControlServiceCreateJoinTokenProcedure,
@@ -672,6 +682,7 @@ type controlServiceClient struct {
 	uploadImage             *connect.Client[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
 	updateNode              *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
 	removeNode              *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	updateNodeOS            *connect.Client[v1alpha1.UpdateNodeOSRequest, v1alpha1.UpdateNodeOSResponse]
 	createJoinToken         *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
 	listJoinTokens          *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
 	revokeJoinToken         *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
@@ -902,6 +913,11 @@ func (c *controlServiceClient) RemoveNode(ctx context.Context, req *connect.Requ
 	return c.removeNode.CallUnary(ctx, req)
 }
 
+// UpdateNodeOS calls orch.v1alpha1.ControlService.UpdateNodeOS.
+func (c *controlServiceClient) UpdateNodeOS(ctx context.Context, req *connect.Request[v1alpha1.UpdateNodeOSRequest]) (*connect.Response[v1alpha1.UpdateNodeOSResponse], error) {
+	return c.updateNodeOS.CallUnary(ctx, req)
+}
+
 // CreateJoinToken calls orch.v1alpha1.ControlService.CreateJoinToken.
 func (c *controlServiceClient) CreateJoinToken(ctx context.Context, req *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error) {
 	return c.createJoinToken.CallUnary(ctx, req)
@@ -1027,6 +1043,7 @@ type ControlServiceHandler interface {
 	UploadImage(context.Context, *connect.ClientStream[v1alpha1.UploadImageRequest]) (*connect.Response[v1alpha1.UploadImageResponse], error)
 	UpdateNode(context.Context, *connect.Request[v1alpha1.UpdateNodeRequest]) (*connect.Response[v1alpha1.UpdateNodeResponse], error)
 	RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error)
+	UpdateNodeOS(context.Context, *connect.Request[v1alpha1.UpdateNodeOSRequest]) (*connect.Response[v1alpha1.UpdateNodeOSResponse], error)
 	CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error)
 	ListJoinTokens(context.Context, *connect.Request[v1alpha1.ListJoinTokensRequest]) (*connect.Response[v1alpha1.ListJoinTokensResponse], error)
 	RevokeJoinToken(context.Context, *connect.Request[v1alpha1.RevokeJoinTokenRequest]) (*connect.Response[v1alpha1.RevokeJoinTokenResponse], error)
@@ -1304,6 +1321,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("RemoveNode")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceUpdateNodeOSHandler := connect.NewUnaryHandler(
+		ControlServiceUpdateNodeOSProcedure,
+		svc.UpdateNodeOS,
+		connect.WithSchema(controlServiceMethods.ByName("UpdateNodeOS")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceCreateJoinTokenHandler := connect.NewUnaryHandler(
 		ControlServiceCreateJoinTokenProcedure,
 		svc.CreateJoinToken,
@@ -1486,6 +1509,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceUpdateNodeHandler.ServeHTTP(w, r)
 		case ControlServiceRemoveNodeProcedure:
 			controlServiceRemoveNodeHandler.ServeHTTP(w, r)
+		case ControlServiceUpdateNodeOSProcedure:
+			controlServiceUpdateNodeOSHandler.ServeHTTP(w, r)
 		case ControlServiceCreateJoinTokenProcedure:
 			controlServiceCreateJoinTokenHandler.ServeHTTP(w, r)
 		case ControlServiceListJoinTokensProcedure:
@@ -1693,6 +1718,10 @@ func (UnimplementedControlServiceHandler) UpdateNode(context.Context, *connect.R
 
 func (UnimplementedControlServiceHandler) RemoveNode(context.Context, *connect.Request[v1alpha1.RemoveNodeRequest]) (*connect.Response[v1alpha1.RemoveNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveNode is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) UpdateNodeOS(context.Context, *connect.Request[v1alpha1.UpdateNodeOSRequest]) (*connect.Response[v1alpha1.UpdateNodeOSResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.UpdateNodeOS is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) CreateJoinToken(context.Context, *connect.Request[v1alpha1.CreateJoinTokenRequest]) (*connect.Response[v1alpha1.CreateJoinTokenResponse], error) {

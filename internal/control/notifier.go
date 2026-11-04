@@ -198,7 +198,7 @@ func (n *notifier) describe(ctx context.Context, event model.Event) (notice, boo
 		}
 		result.Application, result.Event = payload.Application, config.NotifyReplicaUnhealthy
 		result.Text = fmt.Sprintf("replica %d of %s is unhealthy", payload.Replica, payload.Service)
-	case config.NotifyNodeLost, config.NotifyNodeDiskLow, config.NotifyCertificateExpiring, config.NotifyBackupStale:
+	case config.NotifyNodeLost, config.NotifyNodeDiskLow, config.NotifyNodeRebootRequired, config.NotifyCertificateExpiring, config.NotifyBackupStale:
 		var payload model.ClusterAlert
 		if json.Unmarshal(event.Payload, &payload) != nil || payload.Message == "" {
 			return notice{}, false
