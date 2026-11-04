@@ -379,9 +379,18 @@ sudo -E orch cluster restore --from s3://acme-backups/production \
 
 It asks for the recovery key, or reads it from `ORCH_RECOVERY_KEY`.
 
-Volume backups in the bucket are not encrypted, so the bucket still holds
-every volume's data. Treat its access key as sensitive, and prefer a bucket
-with versioning or object lock so a leaked key cannot delete history.
+Volume and database backups are encrypted before they reach the bucket too,
+to a key the controller creates and keeps on its own, so nothing about them
+needs setting up. The node encrypts each copy as it uploads it; for a restore
+the controller hands the node the key of that one backup, and downloads are
+decrypted on the controller. The key is part of the controller's state, so a
+controller restored from the bucket with the recovery key opens the volume
+backups as before. Copies made before encryption existed are uploaded again,
+encrypted, while their node still has them. Agents too old to encrypt hold
+their copies back until they upgrade.
+
+Treat the bucket's access key as sensitive anyway, and prefer a bucket with
+versioning or object lock so a leaked key cannot delete history.
 `orch backup destination remove` stops copying; what is in the bucket stays.
 
 ## Upgrades

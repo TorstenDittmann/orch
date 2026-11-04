@@ -57,6 +57,10 @@ type Caddy struct {
 	now       func() time.Time
 	failures  uint32
 	nextStart time.Time
+	// onDemand answers Caddy's on-demand certificate question for wildcard
+	// routes; its server starts with the first wildcard.
+	onDemand       *onDemandPolicy
+	onDemandServer *onDemandServer
 }
 
 func NewCaddy(options CaddyOptions) (*Caddy, error) {
@@ -106,7 +110,8 @@ func NewCaddy(options CaddyOptions) (*Caddy, error) {
 		},
 		DisableKeepAlives: true,
 	}
-	return &Caddy{options: options, client: &http.Client{Transport: transport, Timeout: 5 * time.Second}, now: now}, nil
+	return &Caddy{options: options, client: &http.Client{Transport: transport, Timeout: 5 * time.Second}, now: now,
+		onDemand: newOnDemandPolicy(options.StateDir, now)}, nil
 }
 
 func (c *Caddy) Preflight(ctx context.Context) (string, error) {
@@ -145,6 +150,14 @@ func (c *Caddy) Apply(ctx context.Context, routes []Route, now time.Time) ([]mod
 	}
 	if err := c.ensureRunning(ctx); err != nil {
 		return applyFailure(routes, now, "caddy_unavailable", err)
+	}
+	c.onDemand.setWildcards(routes)
+	if c.onDemandServer == nil && hasWildcard(routes) {
+		server, err := startOnDemandServer(onDemandSocket(c.options.AdminSocket), c.onDemand, c.identity)
+		if err != nil {
+			return nil, fmt.Errorf("start the on-demand certificate check: %w", err)
+		}
+		c.onDemandServer = server
 	}
 	configuration, digest, err := render(routes, c.options.AdminSocket, c.options.testIssuer)
 	if err != nil {
@@ -793,7 +806,20 @@ func syncDirectory(path string) error {
 	return directory.Sync()
 }
 
+func hasWildcard(routes []Route) bool {
+	for _, route := range routes {
+		if route.HTTPS && config.IsWildcardDomain(route.Domain) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Caddy) Close() error {
+	c.mu.Lock()
+	_ = c.onDemandServer.Close()
+	c.onDemandServer = nil
+	c.mu.Unlock()
 	if transport, ok := c.client.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}

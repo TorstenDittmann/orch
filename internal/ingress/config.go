@@ -66,8 +66,9 @@ type caddyTLSAutomationPolicy struct {
 
 // onDemandPermissionPath answers Caddy's on-demand certificate question on the
 // plain HTTP listener, reachable only from the node itself. Caddy asks only
-// for names that match a wildcard policy's subjects, so those subjects are
-// what bound issuance; the endpoint just has to say yes.
+// for names that match a wildcard policy's subjects; the route hands the
+// question to the agent, which also limits how many new names a wildcard
+// gets a day, so random subdomains cannot use up the ACME quota.
 const onDemandPermissionPath = "/.well-known/orch/on-demand-tls"
 
 type caddyACMEIssuer struct {
@@ -318,7 +319,7 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		}
 	}
 	if len(wildcardSubjects) != 0 {
-		httpRoutes = append([]caddyRoute{onDemandPermissionRoute()}, httpRoutes...)
+		httpRoutes = append([]caddyRoute{onDemandPermissionRoute(onDemandSocket(adminSocket))}, httpRoutes...)
 	}
 	// Caddy tries routes in order, so an exact host such as api.example.com
 	// wins over *.example.com, and both win over the public catch-all.
@@ -481,13 +482,13 @@ func pathRank(route caddyRoute) int {
 	return len(route.Match[0].Path[0])
 }
 
-func onDemandPermissionRoute() caddyRoute {
+func onDemandPermissionRoute(socket string) caddyRoute {
 	return caddyRoute{
 		Match: []caddyMatcher{{
 			Host: []string{"127.0.0.1"}, Path: []string{onDemandPermissionPath},
 			ClientIP: &caddyIPMatcher{Ranges: []string{"127.0.0.1/32"}},
 		}},
-		Handle:   []any{staticResponseHandler{Handler: "static_response", StatusCode: 200}},
+		Handle:   []any{reverseProxyHandler{Handler: "reverse_proxy", Upstreams: []caddyUpstream{{Dial: "unix/" + socket}}}},
 		Terminal: true,
 	}
 }

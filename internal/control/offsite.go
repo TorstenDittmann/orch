@@ -2,6 +2,7 @@ package control
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -514,7 +515,7 @@ func (o *offsiteBackups) syncVolumes(ctx context.Context, client *objectstore.Cl
 			}
 			name := target.application + "/" + target.volume
 			connected := o.service.sessions != nil && o.service.sessions.Connected(target.node.ID)
-			if !connected || !o.service.sessions.offsiteBackups(target.node.ID) {
+			if !connected || !o.service.sessions.encryptedBackups(target.node.ID) {
 				// Right after a start the volume is only left out, so the sync
 				// is not reported as complete. A volume without a policy has
 				// only manual backups, so it is never reported.
@@ -586,15 +587,24 @@ func (o *offsiteBackups) syncVolume(ctx context.Context, client *objectstore.Cli
 	if target.backup != nil {
 		keep = target.backup.Keep
 	}
+	_, publicKey, err := o.service.volumeBackupKey(ctx)
+	if err != nil {
+		return err
+	}
 	prefix := offsiteVolumePrefix(client.Destination(), target)
 	names := make([]string, 0, len(local))
 	for _, backup := range local {
 		names = append(names, backup.GetName())
+		// Copies made before volume backups were encrypted are uploaded
+		// again while the node still has them.
+		if remote[backup.GetName()] && !o.encryptedCopy(ctx, client, prefix+backup.GetName()+objectstore.ArchiveSuffix, publicKey) {
+			delete(remote, backup.GetName())
+		}
 	}
 	for _, index := range missingNewest(names, remote, keep) {
 		backup := local[index]
 		key := prefix + backup.GetName() + objectstore.ArchiveSuffix
-		err := o.service.uploadVolumeBackup(ctx, client, target, backup, key)
+		err := o.service.uploadVolumeBackup(ctx, client, target, backup, key, publicKey)
 		if connect.CodeOf(err) == connect.CodeNotFound {
 			// The node pruned it since it listed it; nothing to copy.
 			continue
@@ -603,6 +613,7 @@ func (o *offsiteBackups) syncVolume(ctx context.Context, client *objectstore.Cli
 			return fmt.Errorf("upload %s: %w", backup.GetName(), err)
 		}
 		remote[backup.GetName()] = true
+		o.markEncrypted(key, publicKey)
 	}
 	// Backups older than the volume's claim on this node were taken on a
 	// node that was lost; pruning leaves them, so they stay restorable.
@@ -630,13 +641,25 @@ func (s *service) localVolumeBackups(ctx context.Context, target volumeTarget) (
 	return backups, err
 }
 
-// uploadVolumeBackup has the volume's node upload one backup through
-// presigned URLs: one PUT up to 1 GiB, a multipart upload above.
-func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Client, target volumeTarget, backup *orchv1alpha1.VolumeBackupInfo, key string) error {
+// volumeBackupKey returns the key pair volume backups in the bucket are
+// encrypted to, created on first use.
+func (s *service) volumeBackupKey(ctx context.Context) (private, public string, err error) {
+	private, public, err = s.state.VolumeBackupKey(ctx, s.secretBox, s.now())
+	if err != nil {
+		return "", "", connect.NewError(connect.CodeInternal, fmt.Errorf("read the volume backup key: %w", err))
+	}
+	return private, public, nil
+}
+
+// uploadVolumeBackup has the volume's node upload one backup, encrypted to
+// publicKey, through presigned URLs: one PUT up to 1 GiB, a multipart
+// upload above.
+func (s *service) uploadVolumeBackup(ctx context.Context, client *objectstore.Client, target volumeTarget, backup *orchv1alpha1.VolumeBackupInfo, key, publicKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, offsiteTransferLimit)
 	defer cancel()
-	command := &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD, Backup: backup.GetName()}
-	size := backup.GetSizeBytes()
+	command := &orchv1alpha1.VolumeCommand{Action: orchv1alpha1.VolumeAction_VOLUME_ACTION_UPLOAD, Backup: backup.GetName(),
+		EncryptTo: publicKey}
+	size := security.EncryptedBackupSize(backup.GetSizeBytes())
 	if size <= uint64(offsiteSinglePutLimit) {
 		url, err := client.PresignPut(key, offsitePresignExpiry)
 		if err != nil {
@@ -774,34 +797,81 @@ func mergeVolumeBackups(local, remote []*orchv1alpha1.VolumeBackupInfo) []*orchv
 }
 
 // bucketSource returns a presigned URL for a volume backup the bucket has,
-// or "" when there is no destination or the bucket does not have it. A
-// bucket it cannot read, or an agent too old to download, is an error, so a
-// restore reports that instead of a missing backup.
-func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) (string, error) {
+// or "" when there is no destination or the bucket does not have it, and
+// the key that opens this one backup when it is encrypted. A bucket it
+// cannot read, or an agent too old to download, is an error, so a restore
+// reports that instead of a missing backup.
+func (s *service) bucketSource(ctx context.Context, target volumeTarget, name string) (string, []byte, error) {
 	client, err := s.offsiteClient(ctx)
 	if err != nil {
-		return "", connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup destination: %w", err))
+		return "", nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the backup destination: %w", err))
 	}
 	if client == nil || !objectstore.ValidBackupName(name) {
-		return "", nil
+		return "", nil, nil
 	}
 	key := offsiteVolumePrefix(client.Destination(), target) + name + objectstore.ArchiveSuffix
-	exists, err := timed(ctx, offsiteRequestTimeout, func(ctx context.Context) (bool, error) { return client.Exists(ctx, key) })
-	if err != nil {
-		return "", connect.NewError(connect.CodeUnavailable, fmt.Errorf("look for the backup in the bucket: %w", err))
+	var header []byte
+	err = withTimeout(ctx, offsiteRequestTimeout, func(ctx context.Context) error {
+		body, _, err := client.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		header, err = readBackupHeader(body)
+		return err
+	})
+	if errors.Is(err, objectstore.ErrNotFound) {
+		return "", nil, nil
 	}
-	if !exists {
-		return "", nil
+	if err != nil {
+		return "", nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("look for the backup in the bucket: %w", err))
 	}
 	if !s.sessions.offsiteBackups(target.node.ID) {
-		return "", connect.NewError(connect.CodeFailedPrecondition,
+		return "", nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("backup %s is only in the bucket; upgrade the agent on node %s to restore it", name, target.node.Name))
+	}
+	var contentKey []byte
+	if security.IsEncryptedBackup(bufio.NewReader(bytes.NewReader(header))) {
+		if !s.sessions.encryptedBackups(target.node.ID) {
+			return "", nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("backup %s in the bucket is encrypted; upgrade the agent on node %s to restore it", name, target.node.Name))
+		}
+		if contentKey, err = s.backupContentKey(ctx, header); err != nil {
+			return "", nil, err
+		}
 	}
 	url, err := client.PresignGet(key, offsitePresignExpiry)
 	if err != nil {
-		return "", connect.NewError(connect.CodeInternal, fmt.Errorf("presign the bucket's backup: %w", err))
+		clear(contentKey)
+		return "", nil, connect.NewError(connect.CodeInternal, fmt.Errorf("presign the bucket's backup: %w", err))
 	}
-	return url, nil
+	return url, contentKey, nil
+}
+
+// readBackupHeader reads what is needed to tell an encrypted copy from a
+// plaintext one and to derive its key: the encrypted header, or less for a
+// copy shorter than that.
+func readBackupHeader(body io.Reader) ([]byte, error) {
+	header := make([]byte, security.EncryptedBackupHeaderSize)
+	count, err := io.ReadFull(body, header)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		err = nil
+	}
+	return header[:count], err
+}
+
+// backupContentKey returns the key of the one encrypted volume backup whose
+// header is given, so a node can open it without the cluster's private key.
+func (s *service) backupContentKey(ctx context.Context, header []byte) ([]byte, error) {
+	private, _, err := s.volumeBackupKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	contentKey, err := security.BackupContentKey(header, private)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("the bucket's copy is not encrypted to this cluster's backup key: %w", err))
+	}
+	return contentKey, nil
 }
 
 // openBucketBackup opens a volume backup in the bucket for streaming to a
@@ -827,5 +897,32 @@ func (s *service) openBucketBackup(ctx context.Context, target volumeTarget, nam
 		body.Close()
 		return nil, 0, connect.NewError(connect.CodeUnavailable, errors.New("the bucket did not say how large the backup is"))
 	}
-	return body, size, nil
+	buffered := bufio.NewReaderSize(body, security.EncryptedBackupHeaderSize)
+	if !security.IsEncryptedBackup(buffered) {
+		// Copied before volume backups were encrypted.
+		return readCloser{buffered, body}, size, nil
+	}
+	plainSize, ok := security.PlainBackupSize(uint64(size))
+	header, _ := buffered.Peek(security.EncryptedBackupHeaderSize)
+	if !ok {
+		body.Close()
+		return nil, 0, connect.NewError(connect.CodeDataLoss, errors.New("the bucket's encrypted copy has an impossible size"))
+	}
+	contentKey, err := s.backupContentKey(ctx, header)
+	if err != nil {
+		body.Close()
+		return nil, 0, err
+	}
+	plaintext, err := security.DecryptBackupWithContentKey(buffered, contentKey)
+	clear(contentKey)
+	if err != nil {
+		body.Close()
+		return nil, 0, connect.NewError(connect.CodeDataLoss, fmt.Errorf("open the bucket's copy: %w", err))
+	}
+	return readCloser{plaintext, body}, int64(plainSize), nil
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
 }

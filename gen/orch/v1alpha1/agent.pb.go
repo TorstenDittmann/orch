@@ -3540,8 +3540,11 @@ type AgentHello struct {
 	// Set by agents that upload volume backups to, and restore them from,
 	// presigned URLs (VOLUME_ACTION_UPLOAD and RESTORE with urls).
 	OffsiteBackups bool `protobuf:"varint,26,opt,name=offsite_backups,json=offsiteBackups,proto3" json:"offsite_backups,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Set by agents that encrypt uploads to encrypt_to and decrypt restores
+	// with content_key (VolumeCommand).
+	EncryptedBackups bool `protobuf:"varint,27,opt,name=encrypted_backups,json=encryptedBackups,proto3" json:"encrypted_backups,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *AgentHello) Reset() {
@@ -3752,6 +3755,13 @@ func (x *AgentHello) GetSelfUpgrade() bool {
 func (x *AgentHello) GetOffsiteBackups() bool {
 	if x != nil {
 		return x.OffsiteBackups
+	}
+	return false
+}
+
+func (x *AgentHello) GetEncryptedBackups() bool {
+	if x != nil {
+		return x.EncryptedBackups
 	}
 	return false
 }
@@ -4471,6 +4481,10 @@ func (x *CancelOperation) GetRequestId() string {
 // backup to presigned URLs: one URL takes the whole archive, several take
 // consecutive parts of part_size bytes.
 // RESTORE with urls[0] downloads a backup the node does not have first.
+// UPLOAD with encrypt_to uploads the backup encrypted to that public key, so
+// the urls cover the encrypted size. RESTORE with content_key decrypts the
+// downloaded backup with the key of that one backup; the copy kept on the
+// node is plaintext like every other local backup.
 type VolumeCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -4481,6 +4495,8 @@ type VolumeCommand struct {
 	Offset        uint64                 `protobuf:"varint,6,opt,name=offset,proto3" json:"offset,omitempty"`
 	Urls          []string               `protobuf:"bytes,7,rep,name=urls,proto3" json:"urls,omitempty"`
 	PartSize      uint64                 `protobuf:"varint,8,opt,name=part_size,json=partSize,proto3" json:"part_size,omitempty"`
+	EncryptTo     string                 `protobuf:"bytes,9,opt,name=encrypt_to,json=encryptTo,proto3" json:"encrypt_to,omitempty"`
+	ContentKey    []byte                 `protobuf:"bytes,10,opt,name=content_key,json=contentKey,proto3" json:"content_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4569,6 +4585,20 @@ func (x *VolumeCommand) GetPartSize() uint64 {
 		return x.PartSize
 	}
 	return 0
+}
+
+func (x *VolumeCommand) GetEncryptTo() string {
+	if x != nil {
+		return x.EncryptTo
+	}
+	return ""
+}
+
+func (x *VolumeCommand) GetContentKey() []byte {
+	if x != nil {
+		return x.ContentKey
+	}
+	return nil
 }
 
 type VolumeBackupInfo struct {
@@ -6005,7 +6035,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\tdns_state\x18\b \x01(\tR\bdnsState\x12#\n" +
 	"\ringress_state\x18\t \x01(\tR\fingressState\x12)\n" +
 	"\x10draining_objects\x18\n" +
-	" \x01(\rR\x0fdrainingObjects\"\xc7\b\n" +
+	" \x01(\rR\x0fdrainingObjects\"\xf4\b\n" +
 	"\n" +
 	"AgentHello\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12\x17\n" +
@@ -6036,7 +6066,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\ragent_version\x18\x17 \x01(\tR\fagentVersion\x12$\n" +
 	"\x0eagent_build_id\x18\x18 \x01(\tR\fagentBuildId\x12!\n" +
 	"\fself_upgrade\x18\x19 \x01(\bR\vselfUpgrade\x12'\n" +
-	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\"`\n" +
+	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\x12+\n" +
+	"\x11encrypted_backups\x18\x1b \x01(\bR\x10encryptedBackups\"`\n" +
 	"\rAssignmentAck\x12\x17\n" +
 	"\aboot_id\x18\x01 \x01(\tR\x06bootId\x12\x1e\n" +
 	"\n" +
@@ -6100,7 +6131,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\rR\x0etimeoutSeconds\"0\n" +
 	"\x0fCancelOperation\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xfe\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xbe\x02\n" +
 	"\rVolumeCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x123\n" +
@@ -6110,7 +6141,12 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x06backup\x18\x05 \x01(\tR\x06backup\x12\x16\n" +
 	"\x06offset\x18\x06 \x01(\x04R\x06offset\x12\x12\n" +
 	"\x04urls\x18\a \x03(\tR\x04urls\x12\x1b\n" +
-	"\tpart_size\x18\b \x01(\x04R\bpartSize\"\xb6\x01\n" +
+	"\tpart_size\x18\b \x01(\x04R\bpartSize\x12\x1d\n" +
+	"\n" +
+	"encrypt_to\x18\t \x01(\tR\tencryptTo\x12\x1f\n" +
+	"\vcontent_key\x18\n" +
+	" \x01(\fR\n" +
+	"contentKey\"\xb6\x01\n" +
 	"\x10VolumeBackupInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +

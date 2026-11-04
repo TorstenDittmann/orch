@@ -170,6 +170,7 @@ func TestLoadDeniesAllResourcesWithoutRequesting(t *testing.T) {
 
 func TestLoadSupportsHTTPSModules(t *testing.T) {
 	var requests atomic.Int32
+	var changed atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
 		if request.URL.Path != "/v1alpha1/Application.pkl" {
@@ -177,6 +178,9 @@ func TestLoadSupportsHTTPSModules(t *testing.T) {
 			return
 		}
 		_, _ = response.Write(pklschema.ApplicationSource())
+		if changed.Load() {
+			_, _ = response.Write([]byte("\n// changed\n"))
+		}
 	}))
 	defer server.Close()
 
@@ -193,6 +197,15 @@ func TestLoadSupportsHTTPSModules(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("HTTPS module made %d requests, want 1", requests.Load())
+	}
+	// The module was pinned on first use, so a changed copy is refused.
+	if lock, err := os.ReadFile(filepath.Join(filepath.Dir(filename), ModuleLockFile)); err != nil ||
+		!strings.Contains(string(lock), server.URL+"/v1alpha1/Application.pkl sha256:") {
+		t.Fatalf("lock file = %q, %v; want the module pinned", lock, err)
+	}
+	changed.Store(true)
+	if _, err := Load(context.Background(), filename, LoadOptions{caCertificates: certificate}); err == nil || !strings.Contains(err.Error(), "changed since") {
+		t.Fatalf("Load() with a changed module = %v, want refused", err)
 	}
 }
 
