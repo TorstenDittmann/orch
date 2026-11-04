@@ -123,7 +123,7 @@ before running them, and they are only offered with `--allow-destructive`.
 | Applications | `list_apps`, `app_status`, `app_history`, `app_diff`, `wait_for_rollout`, `logs` | `deploy`, `rollback`, `restart`, `remove_app`*, `exec`* |
 | Jobs and cron | `list_jobs`, `job_status`, `job_logs`, `cron_runs`, `cron_logs` | `run_job`*, `cancel_job`*, `retry_job`, `run_cron` |
 | Secrets and registries | `list_secrets`, `list_registries` | `set_secret`*, `delete_secret`*, `registry_login`, `registry_logout`* |
-| Volumes | `list_volumes`, `list_volume_backups` | `backup_volume`, `restore_volume`* |
+| Volumes | `list_volumes`, `list_volume_backups` | `backup_volume`, `restore_volume`*, `move_volume`* |
 | Databases | `list_databases` | `backup_database`, `restore_database`* |
 
 \* destructive, offered only with `--allow-destructive`.

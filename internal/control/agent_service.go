@@ -101,6 +101,7 @@ func (s *agentService) Connect(ctx context.Context, stream *connect.BidiStream[o
 	session.architecture, session.selfUpgrade = hello.GetArchitecture(), hello.GetSelfUpgrade()
 	session.offsiteBackups = hello.GetOffsiteBackups()
 	session.encryptedBackups = hello.GetEncryptedBackups()
+	session.volumeMoves = hello.GetVolumeMoves()
 	session.mu.Unlock()
 	s.upgrades.kick()
 	if err := s.state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{

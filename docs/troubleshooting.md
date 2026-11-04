@@ -246,7 +246,7 @@ Read `Reason` and `Message` on the application, and `reason=` on each replica.
 | `node_cordoned`, `node_draining` | The only eligible nodes are cordoned or draining. Run `orch node uncordon NODE` when maintenance is over. |
 | `node_unreachable`, `node_not_ready` | The eligible node is not connected or not ready. See [a worker is disconnected](#a-worker-is-disconnected). |
 | `volume_node_lost` | The worker that holds a service's local volume is gone. orch will not create an empty volume elsewhere. Bring that worker back, or restore the data separately. |
-| `local_volume_pinned` | The service's volume lives on a node that cannot run it right now, for example because it is cordoned, draining, or out of capacity. The message names the node. Make room on that node or uncordon it. |
+| `local_volume_pinned` | The service's volume lives on a node that cannot run it right now, for example because it is cordoned, draining, or out of capacity. The message names the node. Make room on that node or uncordon it, or move the volume with `orch volume move APP VOLUME NODE`. |
 | `local_volume_conflict` | One service mounts several volumes that already live on different nodes. Every volume a service mounts must live on the node that runs it. |
 | `node_port_in_use` | Every eligible node already runs a replica that publishes the same node port. Add a node or reduce replicas. |
 | `node_port_conflict`, `tcp_port_conflict` | Another application already owns that published port. |

@@ -58,6 +58,9 @@ type agentSession struct {
 	// encryptedBackups is set when the agent encrypts uploads and decrypts
 	// restores from the bucket.
 	encryptedBackups bool
+	// volumeMoves is set when the agent accepts WRITE and BACKUP with an
+	// allocation.
+	volumeMoves bool
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -217,6 +220,18 @@ func (m *sessionManager) encryptedBackups(nodeID string) bool {
 }
 
 // session returns the node's current session, or nil when it is not connected.
+// volumeMoves reports whether the node's agent can take part in a volume
+// move. Older agents reject the commands and their fields.
+func (m *sessionManager) volumeMoves(nodeID string) bool {
+	session := m.session(nodeID)
+	if session == nil {
+		return false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.volumeMoves
+}
+
 func (m *sessionManager) session(nodeID string) *agentSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()

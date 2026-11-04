@@ -22,12 +22,14 @@ Usage:
   orch db backups APP DATABASE [--target NAME] [--json]
   orch db backup APP DATABASE [--target NAME] [--json]
   orch db restore APP DATABASE [BACKUP] [--target NAME] [--json]
+  orch db move APP DATABASE NODE [--target NAME] [--json]
 
 Services and cron jobs reach a database with connect in orch.pkl, which reads
 the NAME-url secret orch creates for it.
 Restore uses the newest backup unless BACKUP is given. It swaps in the backup,
 restarts the database, and for dump-based engines loads the dump into it. The
-database's previous backup volume contents are kept as a backup first.`)
+database's previous backup volume contents are kept as a backup first.
+Move stops the database, copies its volumes to NODE, and starts it there.`)
 }
 
 func runDB(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -44,6 +46,8 @@ func runDB(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDBBackup(ctx, args[1:], stdout, stderr)
 	case "restore":
 		return runDBRestore(ctx, args[1:], stdout, stderr)
+	case "move":
+		return runDBMove(ctx, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printDBHelp(stdout)
 		return ExitOK
@@ -305,4 +309,23 @@ func latestScheduledBackup(volume *orchv1alpha1.VolumeSummary) (string, error) {
 		}
 	}
 	return backups[0].GetName(), nil
+}
+
+// runDBMove moves a database's volumes to another node. Its data volume
+// names the database's service, so every volume of it moves along.
+func runDBMove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	parsed, ok := parseVolumeFlags("db move", args, stderr, false)
+	if !ok {
+		return ExitInvalid
+	}
+	if parsed.flags.NArg() != 3 || parsed.contextPath == "" {
+		fmt.Fprintln(stderr, "db move requires APP DATABASE NODE and --context")
+		return ExitInvalid
+	}
+	application, name := parsed.flags.Arg(0), parsed.flags.Arg(1)
+	if err := validateApplicationDatabase(application, name); err != nil {
+		writeError(stderr, err, parsed.jsonOutput)
+		return ExitInvalid
+	}
+	return moveVolume(ctx, parsed, application, config.DatabaseDataVolume(name), parsed.flags.Arg(2), stdout, stderr)
 }

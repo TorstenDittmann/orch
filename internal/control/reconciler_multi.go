@@ -162,6 +162,10 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 	if err != nil {
 		return err
 	}
+	volumeMoves, err := r.state.VolumeMoves(ctx)
+	if err != nil {
+		return err
+	}
 	plannedAllocations := make([]distributedAllocation, 0)
 	plannedCron := make([]distributedCron, 0)
 	preservedAllocations := make(map[string][]model.AllocationDesired)
@@ -227,6 +231,13 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		applicationAllocations := make([]distributedAllocation, 0, len(bundle.allocations))
 		volumeConflict := false
 		for _, allocation := range bundle.allocations {
+			if _, moving := volumeMoves[application.Name+"/"+allocation.Service]; moving {
+				// orch volume move holds the service off every node until its
+				// volumes are on the new node.
+				states[application.Name] = executionState(model.ExecutionPending, application.Generation,
+					"volume_moving", "the service's volumes are being moved to another node", now)
+				continue
+			}
 			service := manifest.Services[allocation.Service]
 			volumeNames := make([]string, 0, len(service.Mounts))
 			volumeNode := ""
@@ -261,9 +272,9 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		// Reports preserve controller-side blockers. Reopen execution derivation
 		// after successful planning; unresolved placement blockers below override
 		// this state again, including when the assignment payload is unchanged.
-		if application.Execution.ObservedGeneration != application.Generation ||
+		if states[application.Name].Reason != "volume_moving" && (application.Execution.ObservedGeneration != application.Generation ||
 			application.Execution.Status == model.ExecutionBlocked ||
-			strings.HasPrefix(application.Execution.Reason, "pre_deploy_") {
+			strings.HasPrefix(application.Execution.Reason, "pre_deploy_")) {
 			states[application.Name] = executionState(model.ExecutionPending, application.Generation,
 				"placement_pending", "desired state is waiting for durable multi-node assignment receipt", now)
 		}
@@ -529,7 +540,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 			}
 			if decision.Reason == scheduler.ReasonLocalVolumePinned {
 				states[allocation.Application] = executionState(model.ExecutionBlocked, allocation.ApplicationGeneration,
-					"local_volume_pinned", "a local volume keeps this allocation on the draining node", now)
+					"local_volume_pinned", "a local volume keeps this allocation on the draining node; move it with orch volume move APP VOLUME NODE", now)
 			}
 			for _, volume := range item.volumeNames {
 				if err := r.state.ClaimVolume(ctx, allocation.Application, volume, decision.NodeID, now); err != nil {

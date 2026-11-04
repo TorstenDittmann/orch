@@ -182,6 +182,16 @@ restores the backup you pick, the same way as `orch db restore` with a name.
 Loading a dump is limited to five minutes. For a larger database, download the
 dump and load it yourself with `orch exec`.
 
+## Move
+
+```sh
+orch db move shop main worker-2
+```
+
+stops the database, copies its volumes to `worker-2`, and starts it there. A
+failed move leaves it running on its old node. See
+[moving a volume](operations.md#moving-a-volume).
+
 ## Limits
 
 - A database runs one replica on one node, like any service with a local

@@ -364,6 +364,7 @@ const (
 	VolumeAction_VOLUME_ACTION_RESTORE     VolumeAction = 3
 	VolumeAction_VOLUME_ACTION_READ        VolumeAction = 4
 	VolumeAction_VOLUME_ACTION_UPLOAD      VolumeAction = 5
+	VolumeAction_VOLUME_ACTION_WRITE       VolumeAction = 6
 )
 
 // Enum value maps for VolumeAction.
@@ -375,6 +376,7 @@ var (
 		3: "VOLUME_ACTION_RESTORE",
 		4: "VOLUME_ACTION_READ",
 		5: "VOLUME_ACTION_UPLOAD",
+		6: "VOLUME_ACTION_WRITE",
 	}
 	VolumeAction_value = map[string]int32{
 		"VOLUME_ACTION_UNSPECIFIED": 0,
@@ -383,6 +385,7 @@ var (
 		"VOLUME_ACTION_RESTORE":     3,
 		"VOLUME_ACTION_READ":        4,
 		"VOLUME_ACTION_UPLOAD":      5,
+		"VOLUME_ACTION_WRITE":       6,
 	}
 )
 
@@ -3543,8 +3546,11 @@ type AgentHello struct {
 	// Set by agents that encrypt uploads to encrypt_to and decrypt restores
 	// with content_key (VolumeCommand).
 	EncryptedBackups bool `protobuf:"varint,27,opt,name=encrypted_backups,json=encryptedBackups,proto3" json:"encrypted_backups,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Set by agents that take part in volume moves (VOLUME_ACTION_WRITE and
+	// BACKUP with allocation_id).
+	VolumeMoves   bool `protobuf:"varint,28,opt,name=volume_moves,json=volumeMoves,proto3" json:"volume_moves,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentHello) Reset() {
@@ -3762,6 +3768,13 @@ func (x *AgentHello) GetOffsiteBackups() bool {
 func (x *AgentHello) GetEncryptedBackups() bool {
 	if x != nil {
 		return x.EncryptedBackups
+	}
+	return false
+}
+
+func (x *AgentHello) GetVolumeMoves() bool {
+	if x != nil {
+		return x.VolumeMoves
 	}
 	return false
 }
@@ -4485,6 +4498,10 @@ func (x *CancelOperation) GetRequestId() string {
 // the urls cover the encrypted size. RESTORE with content_key decrypts the
 // downloaded backup with the key of that one backup; the copy kept on the
 // node is plaintext like every other local backup.
+// BACKUP with allocation_id stops that allocation first; a volume move uses
+// it once the allocation has left the node's assignment. WRITE stores data
+// at offset of a backup copied from another node; the frame with complete
+// set adds the archive to the node's backups once it holds size_bytes.
 type VolumeCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -4497,6 +4514,10 @@ type VolumeCommand struct {
 	PartSize      uint64                 `protobuf:"varint,8,opt,name=part_size,json=partSize,proto3" json:"part_size,omitempty"`
 	EncryptTo     string                 `protobuf:"bytes,9,opt,name=encrypt_to,json=encryptTo,proto3" json:"encrypt_to,omitempty"`
 	ContentKey    []byte                 `protobuf:"bytes,10,opt,name=content_key,json=contentKey,proto3" json:"content_key,omitempty"`
+	AllocationId  string                 `protobuf:"bytes,11,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,12,opt,name=data,proto3" json:"data,omitempty"`
+	SizeBytes     uint64                 `protobuf:"varint,13,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Complete      bool                   `protobuf:"varint,14,opt,name=complete,proto3" json:"complete,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4599,6 +4620,34 @@ func (x *VolumeCommand) GetContentKey() []byte {
 		return x.ContentKey
 	}
 	return nil
+}
+
+func (x *VolumeCommand) GetAllocationId() string {
+	if x != nil {
+		return x.AllocationId
+	}
+	return ""
+}
+
+func (x *VolumeCommand) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *VolumeCommand) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *VolumeCommand) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
 }
 
 type VolumeBackupInfo struct {
@@ -6035,7 +6084,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\tdns_state\x18\b \x01(\tR\bdnsState\x12#\n" +
 	"\ringress_state\x18\t \x01(\tR\fingressState\x12)\n" +
 	"\x10draining_objects\x18\n" +
-	" \x01(\rR\x0fdrainingObjects\"\xf4\b\n" +
+	" \x01(\rR\x0fdrainingObjects\"\x97\t\n" +
 	"\n" +
 	"AgentHello\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12\x17\n" +
@@ -6067,7 +6116,8 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0eagent_build_id\x18\x18 \x01(\tR\fagentBuildId\x12!\n" +
 	"\fself_upgrade\x18\x19 \x01(\bR\vselfUpgrade\x12'\n" +
 	"\x0foffsite_backups\x18\x1a \x01(\bR\x0eoffsiteBackups\x12+\n" +
-	"\x11encrypted_backups\x18\x1b \x01(\bR\x10encryptedBackups\"`\n" +
+	"\x11encrypted_backups\x18\x1b \x01(\bR\x10encryptedBackups\x12!\n" +
+	"\fvolume_moves\x18\x1c \x01(\bR\vvolumeMoves\"`\n" +
 	"\rAssignmentAck\x12\x17\n" +
 	"\aboot_id\x18\x01 \x01(\tR\x06bootId\x12\x1e\n" +
 	"\n" +
@@ -6131,7 +6181,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x04 \x01(\rR\x0etimeoutSeconds\"0\n" +
 	"\x0fCancelOperation\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xbe\x02\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\xb2\x03\n" +
 	"\rVolumeCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x123\n" +
@@ -6146,7 +6196,12 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"encrypt_to\x18\t \x01(\tR\tencryptTo\x12\x1f\n" +
 	"\vcontent_key\x18\n" +
 	" \x01(\fR\n" +
-	"contentKey\"\xb6\x01\n" +
+	"contentKey\x12#\n" +
+	"\rallocation_id\x18\v \x01(\tR\fallocationId\x12\x12\n" +
+	"\x04data\x18\f \x01(\fR\x04data\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\r \x01(\x04R\tsizeBytes\x12\x1a\n" +
+	"\bcomplete\x18\x0e \x01(\bR\bcomplete\"\xb6\x01\n" +
 	"\x10VolumeBackupInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\n" +
@@ -6269,14 +6324,15 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x17JOB_RUN_STATE_SUCCEEDED\x10\x03\x12\x18\n" +
 	"\x14JOB_RUN_STATE_FAILED\x10\x04\x12\x1b\n" +
 	"\x17JOB_RUN_STATE_TIMED_OUT\x10\x05\x12\x19\n" +
-	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\xac\x01\n" +
+	"\x15JOB_RUN_STATE_SKIPPED\x10\x06*\xc5\x01\n" +
 	"\fVolumeAction\x12\x1d\n" +
 	"\x19VOLUME_ACTION_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12VOLUME_ACTION_LIST\x10\x01\x12\x18\n" +
 	"\x14VOLUME_ACTION_BACKUP\x10\x02\x12\x19\n" +
 	"\x15VOLUME_ACTION_RESTORE\x10\x03\x12\x16\n" +
 	"\x12VOLUME_ACTION_READ\x10\x04\x12\x18\n" +
-	"\x14VOLUME_ACTION_UPLOAD\x10\x052\xa2\x02\n" +
+	"\x14VOLUME_ACTION_UPLOAD\x10\x05\x12\x17\n" +
+	"\x13VOLUME_ACTION_WRITE\x10\x062\xa2\x02\n" +
 	"\fAgentService\x12L\n" +
 	"\aConnect\x12\x1d.orch.v1alpha1.ConnectRequest\x1a\x1e.orch.v1alpha1.ConnectResponse(\x010\x01\x12c\n" +
 	"\x10RenewCertificate\x12&.orch.v1alpha1.RenewCertificateRequest\x1a'.orch.v1alpha1.RenewCertificateResponse\x12_\n" +

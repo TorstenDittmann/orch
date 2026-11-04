@@ -323,7 +323,7 @@ func (r *sessionRunner) connect(ctx context.Context) error {
 		AdvertiseAddress: r.capabilities.AdvertiseAddress, WireguardPublicKey: r.capabilities.WireGuardPublicKey,
 		WireguardListenPort: r.capabilities.WireGuardListenPort,
 		AgentVersion:        buildinfo.Version, AgentBuildId: buildinfo.BuildID, SelfUpgrade: r.selfUpgrade,
-		OffsiteBackups: true, EncryptedBackups: true,
+		OffsiteBackups: true, EncryptedBackups: true, VolumeMoves: true,
 	}
 	if cachedErr == nil {
 		hello.CachedAssignmentGeneration = cached.Generation

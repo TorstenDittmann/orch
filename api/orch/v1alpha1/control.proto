@@ -38,6 +38,7 @@ service ControlService {
   rpc BackupVolume(BackupVolumeRequest) returns (BackupVolumeResponse);
   rpc RestoreVolume(RestoreVolumeRequest) returns (RestoreVolumeResponse);
   rpc DownloadVolumeBackup(DownloadVolumeBackupRequest) returns (stream DownloadVolumeBackupResponse);
+  rpc MoveVolume(MoveVolumeRequest) returns (MoveVolumeResponse);
   rpc ConfigureNetwork(ConfigureNetworkRequest) returns (ConfigureNetworkResponse);
   rpc ListCronRuns(ListCronRunsRequest) returns (ListCronRunsResponse);
   rpc TailCronLogs(TailCronLogsRequest) returns (stream TailCronLogsResponse);
@@ -567,6 +568,29 @@ message RestoreVolumeRequest {
 message RestoreVolumeResponse {
   // The volume's contents just before the restore, kept as a backup.
   VolumeBackupInfo previous = 1;
+}
+
+// MoveVolumeRequest moves a local volume, together with every other volume
+// its service mounts, to another node. The service stops, a final backup of
+// each volume is copied to the node and restored there, and the service
+// starts on it.
+message MoveVolumeRequest {
+  string application = 1;
+  string volume = 2;
+  string node = 3;
+}
+
+message MoveVolumeResponse {
+  string service = 1;
+  string from_node = 2;
+  string to_node = 3;
+  // The final backup of each moved volume, kept on both nodes.
+  repeated MovedVolume volumes = 4;
+}
+
+message MovedVolume {
+  string volume = 1;
+  VolumeBackupInfo backup = 2;
 }
 
 message DownloadVolumeBackupRequest {

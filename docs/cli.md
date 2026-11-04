@@ -693,6 +693,7 @@ orch volume backups APP VOLUME [--target NAME] [--json]
 orch volume backup APP VOLUME [--target NAME] [--json]
 orch volume restore APP VOLUME BACKUP [--target NAME] [--json]
 orch volume download APP VOLUME BACKUP [--output FILE|-] [--target NAME]
+orch volume move APP VOLUME NODE [--target NAME] [--json]
 ```
 
 `list` shows each local volume, its worker, its backup schedule, the newest
@@ -707,6 +708,13 @@ kept as a `-before-restore` backup, and the command prints how to restore it.
 `download` copies a backup archive (`.tar.gz`) to this machine, by default as
 `APP-VOLUME-BACKUP.tar.gz`; `--output -` writes it to standard output. See
 [volume backups](operations.md#volume-backups).
+
+`move` moves the volume to NODE, together with every other volume of the
+service that mounts it. The service stops, a final `-manual` backup of each
+volume is copied to NODE through the controller and restored there, and the
+service starts on NODE. If a step fails, the service starts on its old node
+again with its data untouched. NODE must be active, connected, and match the
+service's constraints. See [moving a volume](operations.md#moving-a-volume).
 
 With a [backup destination](#orch-backup), `backups` also lists the copies in
 the bucket and where each backup is stored, and `restore` and `download`
@@ -743,6 +751,7 @@ orch db list [APP] [--target NAME] [--json]
 orch db backups APP DATABASE [--target NAME] [--json]
 orch db backup APP DATABASE [--target NAME] [--json]
 orch db restore APP DATABASE [BACKUP] [--target NAME] [--json]
+orch db move APP DATABASE NODE [--target NAME] [--json]
 ```
 
 Works with the databases declared under `databases` in `orch.pkl`. `list`
@@ -750,7 +759,8 @@ shows each database's engine, the secret that holds its connection URL, and
 its backup schedule. `backups` and `backup` list and take backups of the
 volume that holds the database's backups. `restore` uses the newest backup
 unless BACKUP is given; for Postgres, MySQL, MariaDB and MongoDB it also loads
-the restored dump into the running database. See [Databases](databases.md).
+the restored dump into the running database. `move` moves the database and
+its volumes to NODE, like `orch volume move`. See [Databases](databases.md).
 
 ## Jobs
 
@@ -948,7 +958,9 @@ orch node drain NODE [--target NAME] [--json]
 ```
 
 `cordon` stops new placement on a node, `drain` moves its movable workloads
-away, and `uncordon` makes it active again. See
+away, and `uncordon` makes it active again. `drain` prints an
+`orch volume move` command for each service a local volume keeps on the node.
+See
 [node maintenance](operations.md#node-maintenance).
 
 ### orch node ingress

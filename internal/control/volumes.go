@@ -122,6 +122,7 @@ func (s *service) volumeOperation(ctx context.Context, target volumeTarget, comm
 			RequestId: requestID, Action: command.GetAction(), Application: target.application, Volume: target.volume,
 			Backup: command.GetBackup(), Offset: command.GetOffset(), Urls: command.GetUrls(), PartSize: command.GetPartSize(),
 			EncryptTo: command.GetEncryptTo(), ContentKey: command.GetContentKey(),
+			AllocationId: command.GetAllocationId(), Data: command.GetData(), SizeBytes: command.GetSizeBytes(), Complete: command.GetComplete(),
 		}
 		return &orchv1alpha1.ConnectResponse{Message: &orchv1alpha1.ConnectResponse_Volume{Volume: message}}
 	})

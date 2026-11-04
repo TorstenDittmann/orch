@@ -446,6 +446,9 @@ message AgentHello {
   // Set by agents that encrypt uploads to encrypt_to and decrypt restores
   // with content_key (VolumeCommand).
   bool encrypted_backups = 27;
+  // Set by agents that take part in volume moves (VOLUME_ACTION_WRITE and
+  // BACKUP with allocation_id).
+  bool volume_moves = 28;
 }
 
 message AssignmentAck {
@@ -533,6 +536,7 @@ enum VolumeAction {
   VOLUME_ACTION_RESTORE = 3;
   VOLUME_ACTION_READ = 4;
   VOLUME_ACTION_UPLOAD = 5;
+  VOLUME_ACTION_WRITE = 6;
 }
 
 // VolumeCommand lists, takes, restores or reads the backups of one local
@@ -545,6 +549,10 @@ enum VolumeAction {
 // the urls cover the encrypted size. RESTORE with content_key decrypts the
 // downloaded backup with the key of that one backup; the copy kept on the
 // node is plaintext like every other local backup.
+// BACKUP with allocation_id stops that allocation first; a volume move uses
+// it once the allocation has left the node's assignment. WRITE stores data
+// at offset of a backup copied from another node; the frame with complete
+// set adds the archive to the node's backups once it holds size_bytes.
 message VolumeCommand {
   string request_id = 1;
   VolumeAction action = 2;
@@ -556,6 +564,10 @@ message VolumeCommand {
   uint64 part_size = 8;
   string encrypt_to = 9;
   bytes content_key = 10;
+  string allocation_id = 11;
+  bytes data = 12;
+  uint64 size_bytes = 13;
+  bool complete = 14;
 }
 
 message VolumeBackupInfo {

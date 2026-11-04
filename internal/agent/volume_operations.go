@@ -63,6 +63,16 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_BACKUP:
 		allocation, before := r.volumeOwner(ctx, application, volume)
+		if command.GetAllocationId() != "" {
+			// A volume move: the service has left this node, so there is no
+			// container to run the before command in.
+			var err error
+			if allocation, err = r.stopForMove(ctx, application, command.GetAllocationId()); err != nil {
+				fail(err)
+				return
+			}
+			before = nil
+		}
 		backup, err := r.volumes.backup(ctx, allocation, volume, before, volumeBackupManual)
 		if err != nil {
 			fail(err)
@@ -88,6 +98,18 @@ func (r *sessionRunner) runVolume(ctx context.Context, command *orchv1alpha1.Vol
 		response := &orchv1alpha1.VolumeResponse{Complete: true}
 		if previous.Name != "" {
 			response.Backup = volumeBackupMessage(previous)
+		}
+		send(response)
+	case orchv1alpha1.VolumeAction_VOLUME_ACTION_WRITE:
+		backup, err := r.volumes.receive(application, volume, command.GetBackup(), command.GetOffset(), command.GetData(),
+			command.GetSizeBytes(), command.GetComplete())
+		if err != nil {
+			fail(err)
+			return
+		}
+		response := &orchv1alpha1.VolumeResponse{Complete: true}
+		if command.GetComplete() {
+			response.Backup = volumeBackupMessage(backup)
 		}
 		send(response)
 	case orchv1alpha1.VolumeAction_VOLUME_ACTION_READ:
