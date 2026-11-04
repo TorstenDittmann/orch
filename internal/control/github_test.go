@@ -231,3 +231,144 @@ func TestGitHubTrustIssuesCredentialsLimitedToOneApplication(t *testing.T) {
 		t.Fatalf("exchange after untrust = %v", err)
 	}
 }
+
+func TestGitHubPreviewTrustAdmitsOnlyThePullRequestsOwnPreview(t *testing.T) {
+	fake := newFakeGitHub(t)
+	_, dataDir, contextPath, clusterID := bootstrapController(t)
+	server, err := Start(context.Background(), Options{DataDir: dataDir, Listen: "127.0.0.1:0", GitHubKeysURL: fake.server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	endpoint := "https://" + server.Addr().String()
+	rewriteContextServer(t, contextPath, endpoint)
+	credentials, err := clusterctl.LoadAdministratorCredentials(contextPath, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.CloseIdleConnections)
+	ctx := context.Background()
+	if _, err := admin.SetGitHubTrust(ctx, "acme/hello", "hello", "main", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	exchange := orchv1alpha1connect.NewCredentialServiceClient(tlsHTTPClient(credentials.RootCAs, tls.Certificate{}), endpoint)
+	issue := func(claims map[string]any, application string) (*orchv1alpha1.ExchangeGitHubTokenResponse, []byte, error) {
+		base := map[string]any{"aud": GitHubAudience(clusterID), "event_name": "pull_request", "ref": "refs/pull/7/merge", "base_ref": "main"}
+		for key, value := range claims {
+			base[key] = value
+		}
+		csr, key, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := exchange.ExchangeGitHubToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeGitHubTokenRequest{
+			Token: fake.token(t, base), Application: application, CertificateRequestDer: csr,
+		}))
+		if err != nil {
+			return nil, nil, err
+		}
+		return response.Msg, key, nil
+	}
+	if _, _, err := issue(map[string]any{}, "hello-pr-7"); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("preview without --previews = %v", err)
+	}
+	trusted, err := admin.SetGitHubTrustRule(ctx, &orchv1alpha1.SetGitHubTrustRequest{Repository: "acme/hello", Application: "hello", Branch: "main", Previews: true, Domains: []string{"example.com"}})
+	if err != nil || !trusted.GetChanged() || !trusted.GetTrust().GetPreviews() {
+		t.Fatalf("trust with previews = %+v, %v", trusted, err)
+	}
+	if trusts, err := admin.ListGitHubTrusts(ctx); err != nil || len(trusts) != 1 || !trusts[0].GetPreviews() {
+		t.Fatalf("ListGitHubTrusts() = %+v, %v", trusts, err)
+	}
+	for name, test := range map[string]struct {
+		claims      map[string]any
+		application string
+	}{
+		"production app":        {map[string]any{}, "hello"},
+		"another pull request":  {map[string]any{}, "hello-pr-8"},
+		"other base branch":     {map[string]any{"base_ref": "develop"}, "hello-pr-7"},
+		"branch ref":            {map[string]any{"ref": "refs/heads/main"}, "hello-pr-7"},
+		"pull_request_target":   {map[string]any{"event_name": "pull_request_target"}, "hello-pr-7"},
+		"other repository":      {map[string]any{"repository": "acme/other"}, "hello-pr-7"},
+		"unparsable pull ref":   {map[string]any{"ref": "refs/pull/x/merge"}, "hello-pr-7"},
+		"production from a PR":  {map[string]any{}, ""},
+		"pull request number 0": {map[string]any{"ref": "refs/pull/0/merge"}, "hello-pr-0"},
+	} {
+		issued, _, err := issue(test.claims, test.application)
+		if name == "production from a PR" {
+			// Without ORCH_APP the run still gets only its own preview.
+			if err != nil || issued.GetApplication() != "hello-pr-7" {
+				t.Errorf("%s: %+v, %v", name, issued, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("%s: exchange accepted for %s", name, issued.GetApplication())
+		}
+	}
+	// A push run of the same rule still deploys production.
+	push, err := exchange.ExchangeGitHubToken(ctx, connect.NewRequest(&orchv1alpha1.ExchangeGitHubTokenRequest{
+		Token: fake.token(t, map[string]any{"aud": GitHubAudience(clusterID)}), CertificateRequestDer: mustDeployerCSR(t),
+	}))
+	if err != nil || push.Msg.GetApplication() != "hello" {
+		t.Fatalf("push exchange = %+v, %v", push, err)
+	}
+
+	issued, keyPEM, err := issue(map[string]any{}, "hello-pr-7")
+	if err != nil || issued.GetApplication() != "hello-pr-7" {
+		t.Fatalf("preview exchange = %+v, %v", issued, err)
+	}
+	pair, err := tls.X509KeyPair(issued.GetCertificatePem(), keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployer := generatedClient(tlsHTTPClient(credentials.RootCAs, pair), endpoint)
+
+	// Previews get the secrets set for hello-preview, never hello's.
+	if _, err := admin.SetSecret(ctx, "hello-preview", "api-key", []byte("preview-value"), "preview-secret-key-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.SetSecret(ctx, "hello", "prod-only", []byte("production"), "preview-secret-key-2"); err != nil {
+		t.Fatal(err)
+	}
+	manifest := newTestManifest("hello", map[string]config.Service{
+		"web": {
+			Image: "example/web@sha256:1111111111111111111111111111111111111111111111111111111111111111", Replicas: 3,
+			HTTP:      &config.HTTP{Port: 8080, Domains: []string{"hello.example.com"}, HealthPath: "/", HTTPS: true},
+			SecretEnv: map[string]string{"API_KEY": "api-key"},
+		},
+	})
+	urls, err := config.Preview(manifest, 7)
+	if err != nil || len(urls) != 1 || urls[0] != "https://pr-7.hello.example.com" {
+		t.Fatalf("Preview() = %v, %v", urls, err)
+	}
+	preview := mustCanonicalConfig(t, manifest)
+	applied, err := deployer.ApplyApplication(ctx, connect.NewRequest(&orchv1alpha1.ApplyApplicationRequest{CanonicalManifestJson: preview, IdempotencyKey: "preview-hello-key-1"}))
+	if err != nil || applied.Msg.GetName() != "hello-pr-7" {
+		t.Fatalf("deploy preview = %+v, %v", applied, err)
+	}
+	secrets, err := admin.ListSecrets(ctx, "hello-pr-7")
+	if err != nil || len(secrets) != 1 || secrets[0].GetName() != "api-key" {
+		t.Fatalf("preview secrets = %+v, %v", secrets, err)
+	}
+
+	if _, err := deployer.RemoveApplication(ctx, connect.NewRequest(&orchv1alpha1.RemoveApplicationRequest{Name: "hello", IdempotencyKey: "preview-remove-key-1"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("preview deployer removes production = %v", err)
+	}
+	if _, err := deployer.RemoveApplication(ctx, connect.NewRequest(&orchv1alpha1.RemoveApplicationRequest{Name: "hello-pr-7", IdempotencyKey: "preview-remove-key-2"})); err != nil {
+		t.Fatalf("preview deployer removes its preview = %v", err)
+	}
+}
+
+func mustDeployerCSR(t *testing.T) []byte {
+	t.Helper()
+	csr, _, err := security.GenerateDeployerCertificateRequest(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return csr
+}

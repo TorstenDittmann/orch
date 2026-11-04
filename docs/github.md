@@ -60,8 +60,9 @@ job request its OIDC token.
 | `--domain` | any | Deploys may route only this domain and its subdomains, and not the public listener; repeat for more |
 | `--image` | see below | Image repository to build and push before deploying |
 | `-f` | `orch.pkl` | Manifest to deploy, for a repository with several |
+| `--previews` | off | Also deploy a [preview](#preview-deployments) of every pull request, writing `preview.yml` |
 | `--repo` | the `origin` remote | `OWNER/REPO` when the remote is not GitHub |
-| `--force` | off | Replace an existing `deploy.yml` |
+| `--force` | off | Replace existing workflows |
 
 When a `Dockerfile` sits next to the manifest and the manifest's workloads all
 use one image repository, the workflow builds that image from the manifest's
@@ -111,6 +112,9 @@ written workflows so they do not replace each other.
 | `version` | the action's tag, or the latest release | orch CLI version to install |
 
 The pushed image is available to later steps as `steps.<id>.outputs.image`.
+On a `pull_request` event the action deploys the pull request's
+[preview](#preview-deployments) instead, and `steps.<id>.outputs.preview-url`
+holds its first URL; `app` is then required.
 
 The action deploys with `orch deploy --image`, which replaces the image of
 every service and cron job in `orch.pkl` that uses the same repository, so the
@@ -159,7 +163,8 @@ public listener, is refused. Run `trust` or `init` again with the same
 `--domain` flags, since leaving them out removes the limit.
 
 Only runs started by `push`, `workflow_dispatch`, `schedule` or
-`repository_dispatch` can deploy. The controller refuses
+`repository_dispatch` can deploy the application itself, and `pull_request`
+runs only their own [preview](#preview-deployments). The controller refuses
 `pull_request_target`, `workflow_run` and other events that run on the
 trusted branch but may build code from a pull request.
 
@@ -170,6 +175,54 @@ self-hosted runner, with an [SSH target](#deploy-with-an-ssh-key) from
 inside its network, or by pulling new images itself with
 [`autoUpdate`](runtime.md#automatic-image-updates) while the workflow only
 pushes the image.
+
+## Preview deployments
+
+Add `--previews` and every pull request gets its own copy of the application:
+
+```console
+$ orch github init --previews
+Trusted acme/hello to deploy hello from branch main.
+Wrote .github/workflows/deploy.yml: every push to main builds ghcr.io/acme/hello and deploys it.
+Wrote .github/workflows/preview.yml: every pull request into main deploys hello-pr-N on pr-N. subdomains,
+comments the URL on the pull request, and removes it when the pull request closes.
+Previews get the secrets set for hello-preview: orch secret set hello-preview NAME --from-stdin
+```
+
+`preview.yml` runs the same action on `pull_request` events. For pull request
+12 it builds the image and runs `orch deploy --preview 12`, which deploys:
+
+- the application as `hello-pr-12`, next to `hello`, never replacing it;
+- every domain with a `pr-12.` prefix, so `hello.example.com` becomes
+  `pr-12.hello.example.com` (a wildcard `*.example.com` becomes
+  `*.pr-12.example.com`);
+- one replica of each service, without autoscaling, volume and database
+  backups, notifications, `autoUpdate`, the public HTTP listener, or public
+  and node ports, which belong to production.
+
+The action then comments the URL on the pull request, editing the same
+comment on every push, and runs `orch remove hello-pr-12` when the pull
+request is merged or closed. Point a wildcard DNS record such as
+`*.hello.example.com` at your ingress nodes so new previews need no DNS
+changes; each preview gets its own certificate like any other domain.
+
+Preview runs get a credential for their own preview only: pull request 12 can
+deploy and remove `hello-pr-12` and nothing else, and only when it targets the
+trusted branch. It cannot touch `hello`, other pull requests' previews, or the
+`--environment` gate production uses. GitHub gives no OIDC token to pull
+requests from forks, so the workflow skips them. Combine `--previews` with
+`--domain` to keep previews on your own domains.
+
+Previews never see production secrets. Set the secrets they need once on
+`hello-preview`; each deploy copies them into the preview, and databases in
+the manifest get fresh passwords per preview as usual:
+
+```console
+printf '%s' "$STRIPE_TEST_KEY" | orch secret set hello-preview stripe-api-key --from-stdin
+```
+
+Removing a preview stops its workloads. Its volumes stay on their node like
+those of any removed application.
 
 ## What history shows
 

@@ -192,7 +192,8 @@ func (s *service) requireImageAccess(ctx context.Context, manifest *config.Manif
 		}
 		repository := reference.TrimNamed(named).String()
 		using := users[repository]
-		if len(using) == 0 || slices.Contains(using, principal.application) || s.publicImage(ctx, named) {
+		if len(using) == 0 || slices.ContainsFunc(using, func(user string) bool { return sameImageOwner(user, principal.application) }) ||
+			s.publicImage(ctx, named) {
 			continue
 		}
 		return connect.NewError(connect.CodePermissionDenied,
@@ -200,6 +201,21 @@ func (s *service) requireImageAccess(ctx context.Context, manifest *config.Manif
 				item.path, repository, using[0], principal.application))
 	}
 	return nil
+}
+
+// sameImageOwner reports whether two applications may share private images
+// without an administrator: they are the same application, or one is a
+// pull request preview of the other (APP and APP-pr-N), or both are previews
+// of the same application. Previews run the image their application builds.
+func sameImageOwner(left, right string) bool {
+	return imageOwner(left) == imageOwner(right)
+}
+
+func imageOwner(application string) string {
+	if base, _, ok := model.PreviewBase(application); ok {
+		return base
+	}
+	return application
 }
 
 type manifestImage struct{ path, image string }

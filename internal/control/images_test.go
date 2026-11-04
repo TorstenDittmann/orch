@@ -235,4 +235,14 @@ func TestDeployersCannotUseOtherApplicationsPrivateImages(t *testing.T) {
 	if err := deploy(billing, "billing", map[string]string{"api": "ghcr.io/acme/billing:latest"}, "billing-two"); err != nil {
 		t.Fatal(err)
 	}
+	// A pull request preview runs the image its application builds, but a
+	// preview of another application does not get it.
+	preview := context.WithValue(ctx, principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "billing-pr-7"})
+	if err := deploy(preview, "billing-pr-7", map[string]string{"api": pinned("ghcr.io/acme/billing")}, "billing-preview"); err != nil {
+		t.Fatalf("preview could not run its application's image: %v", err)
+	}
+	otherPreview := context.WithValue(ctx, principalKey{}, authenticatedPrincipal{certificate: &x509.Certificate{}, application: "shop-pr-7"})
+	if err := deploy(otherPreview, "shop-pr-7", map[string]string{"api": pinned("ghcr.io/acme/billing")}, "shop-preview"); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("another application's preview used billing's private image: %v", err)
+	}
 }

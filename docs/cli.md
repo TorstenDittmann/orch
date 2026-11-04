@@ -395,7 +395,7 @@ To compare against what is deployed, use `orch app diff`.
 ### orch deploy
 
 ```text
-orch deploy [-f orch.pkl] [--root DIR] [--image [NAME=]REF]... [--wait] [--timeout 10m] [--idempotency-key KEY] [--target NAME] [--json]
+orch deploy [-f orch.pkl] [--root DIR] [--image [NAME=]REF]... [--preview N] [--wait] [--timeout 10m] [--idempotency-key KEY] [--target NAME] [--json]
 ```
 
 Submits the application as desired state. Without `--wait` it returns as soon
@@ -406,6 +406,7 @@ as the controller accepts it; the rollout continues in the background.
 | `-f`, `--file` | `orch.pkl` | Pkl manifest path |
 | `--root` | manifest directory | Pkl evaluation root |
 | `--image` | none | Deploy this image instead of the manifest's; repeatable |
+| `--preview` | none | Deploy the preview of pull request `N` as `APP-pr-N` on `pr-N.` subdomains; see [preview deployments](github.md#preview-deployments) |
 | `--wait` | `false` | Wait for this revision to become ready, printing progress |
 | `--timeout` | `10m` | Rollout wait deadline |
 | `--idempotency-key` | generated | Stable key for safe retries |
@@ -851,8 +852,8 @@ administrator has logged in to it.
 ### orch github
 
 ```text
-orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
-orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--target NAME] [--json]
+orch github init [--app APP] [--branch BRANCH] [--environment NAME] [--image REPOSITORY] [--domain DOMAIN]... [--previews] [-f orch.pkl] [--repo OWNER/REPO] [--force] [--target NAME] [--json]
+orch github trust OWNER/REPO --app APP [--branch main] [--environment NAME] [--domain DOMAIN]... [--previews] [--target NAME] [--json]
 orch github list [--target NAME] [--json]
 orch github untrust OWNER/REPO --app APP [--target NAME] [--json]
 ```
@@ -867,8 +868,11 @@ image before deploying; `--image` names the repository explicitly. `trust` does
 the same without touching the checkout and prints the workflow instead. When `ORCH_CLUSTER` is set and no target is given, remote
 commands sign in with the run's GitHub OIDC token, and `ORCH_APP` picks the
 application when the repository is trusted for several. `--domain`, on
-`init` and `trust`, limits the domains its deploys may route. See
-[deploy from GitHub](github.md).
+`init` and `trust`, limits the domains its deploys may route. `--previews`
+lets pull requests deploy and remove their own `APP-pr-N`, and makes `init`
+also write `.github/workflows/preview.yml`. See
+[deploy from GitHub](github.md) and
+[preview deployments](github.md#preview-deployments).
 
 ### orch notify
 
