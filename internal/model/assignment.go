@@ -83,6 +83,10 @@ type HTTPDesired struct {
 	// DomainPorts maps a domain in Domains to the container port that serves
 	// it when that is not Port. Omitted when unset, like Redirects.
 	DomainPorts map[string]uint32 `json:"domain_ports,omitempty"`
+	// Paths limits Domains to these URL path prefixes; empty serves the
+	// whole domain. Omitted when unset, like Redirects.
+	Paths       []string `json:"paths,omitempty"`
+	StripPrefix bool     `json:"strip_prefix,omitempty"`
 }
 
 // PortFor returns the container port that serves domain.
@@ -208,6 +212,8 @@ type ServiceEndpoint struct {
 	BasicAuth   *HTTPBasicAuth    `json:"basic_auth,omitempty"`
 	Redirects   map[string]string `json:"redirects,omitempty"`
 	DomainPorts map[string]uint32 `json:"domain_ports,omitempty"`
+	Paths       []string          `json:"paths,omitempty"`
+	StripPrefix bool              `json:"strip_prefix,omitempty"`
 }
 
 func NetworkConfigEqual(left, right NetworkConfig) bool { return reflect.DeepEqual(left, right) }

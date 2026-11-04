@@ -65,6 +65,8 @@ func (s *Store) ReadyServiceEndpoints(ctx context.Context) ([]model.ServiceEndpo
 				}
 			}
 			endpoint.DomainPorts = maps.Clone(http.DomainPorts)
+			endpoint.Paths = append([]string(nil), http.Paths...)
+			endpoint.StripPrefix = http.StripPrefix
 		}
 		if tcp != nil {
 			endpoint.TCPPublicPort = tcp.PublicPort

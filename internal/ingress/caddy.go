@@ -635,7 +635,11 @@ func probeRoute(ctx context.Context, route Route) error {
 	if host == model.PublicHTTPRoute {
 		host = "127.0.0.1"
 	}
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+"/", nil)
+	path := route.Path
+	if path == "" {
+		path = "/"
+	}
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+path, nil)
 	response, err := client.Do(request)
 	if err != nil {
 		return err
@@ -643,7 +647,7 @@ func probeRoute(ctx context.Context, route Route) error {
 	defer response.Body.Close()
 	_, _ = io.CopyN(io.Discard, response.Body, 4<<10)
 	if response.StatusCode >= 500 {
-		return &routeStatusError{domain: route.Domain, status: response.StatusCode}
+		return &routeStatusError{domain: route.Key(), status: response.StatusCode}
 	}
 	if route.BasicAuth != nil && response.StatusCode == http.StatusUnauthorized {
 		// The probe has no password, so Caddy answers before proxying. Check
@@ -661,14 +665,14 @@ func probeUpstreams(ctx context.Context, route Route) error {
 			return nil
 		}
 	}
-	return &routeStatusError{domain: route.Domain, status: http.StatusBadGateway}
+	return &routeStatusError{domain: route.Key(), status: http.StatusBadGateway}
 }
 
 func activeRoutes(routes []Route, now time.Time) []model.RouteStatus {
 	result := make([]model.RouteStatus, 0, len(routes))
 	for _, route := range routes {
 		result = append(result, model.RouteStatus{Application: route.Application, Service: route.Service,
-			Domain: route.Domain, HTTPS: route.HTTPS, State: model.RouteActive,
+			Domain: route.Key(), HTTPS: route.HTTPS, State: model.RouteActive,
 			CertificateState: certificateState(route), UpstreamCount: uint32(len(route.Upstreams)), UpdatedAt: now.UTC()})
 	}
 	return result

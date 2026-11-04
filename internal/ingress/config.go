@@ -178,6 +178,11 @@ type basicAccount struct {
 	Password string `json:"password"`
 }
 
+type rewriteHandler struct {
+	Handler         string `json:"handler"`
+	StripPathPrefix string `json:"strip_path_prefix"`
+}
+
 type staticResponseHandler struct {
 	Handler    string              `json:"handler"`
 	StatusCode int                 `json:"status_code"`
@@ -200,13 +205,16 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		if left, right := routeRank(routes[i].Domain), routeRank(routes[j].Domain); left != right {
 			return left < right
 		}
-		return routes[i].Domain < routes[j].Domain
+		return routes[i].Key() < routes[j].Key()
 	})
 	seen := make(map[string]struct{}, len(routes))
 	httpRoutes := make([]caddyRoute, 0, len(routes))
 	httpsRoutes := make([]caddyRoute, 0, len(routes))
 	httpsSubjects := make([]string, 0, len(routes))
 	wildcardSubjects := make([]string, 0)
+	// Routes that share a domain by path share its certificate and its
+	// plain HTTP redirect, so each domain adds those once.
+	secured := make(map[string]struct{}, len(routes))
 	for _, route := range routes {
 		wildcard := config.IsWildcardDomain(route.Domain)
 		if route.Domain == model.PublicHTTPRoute {
@@ -216,10 +224,20 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		} else if err := config.ValidateDomain(route.Domain); err != nil {
 			return nil, "", fmt.Errorf("invalid ingress domain %q: %w", route.Domain, err)
 		}
-		if _, exists := seen[route.Domain]; exists {
+		if route.Path != "" {
+			if route.Domain == model.PublicHTTPRoute {
+				return nil, "", fmt.Errorf("public IP ingress cannot have a path")
+			}
+			if err := config.ValidateRoutePath(route.Path); err != nil {
+				return nil, "", fmt.Errorf("invalid ingress path %q: %w", route.Path, err)
+			}
+		} else if route.StripPrefix {
+			return nil, "", fmt.Errorf("ingress route %q strips a prefix without a path", route.Domain)
+		}
+		if _, exists := seen[route.Key()]; exists {
 			return nil, "", fmt.Errorf("ingress domains must be unique")
 		}
-		seen[route.Domain] = struct{}{}
+		seen[route.Key()] = struct{}{}
 		sort.Strings(route.Upstreams)
 		upstreams := make([]caddyUpstream, 0, len(route.Upstreams))
 		lastUpstream := ""
@@ -245,10 +263,17 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 			}
 			handlers = append(handlers, basicAuthUserGate(route.BasicAuth.User), handler)
 		}
+		if route.StripPrefix {
+			handlers = append(handlers, rewriteHandler{Handler: "rewrite", StripPathPrefix: route.Path})
+		}
 		handlers = append(handlers, reverseProxyHandler{Handler: "reverse_proxy", Upstreams: upstreams})
 		reverse := caddyRoute{Handle: handlers, Terminal: true}
 		if route.Domain != model.PublicHTTPRoute {
 			reverse.Match = []caddyMatcher{{Host: []string{route.Domain}}}
+			if route.Path != "" {
+				// /api and everything below it, but not /apikeys.
+				reverse.Match[0].Path = []string{route.Path, route.Path + "/*"}
+			}
 		} else if len(route.RedirectFrom) != 0 {
 			return nil, "", fmt.Errorf("public IP ingress cannot have redirects")
 		}
@@ -256,14 +281,17 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 		if route.HTTPS {
 			scheme = "https://"
 			httpsRoutes = append(httpsRoutes, reverse)
-			if wildcard {
-				// Each subdomain gets its own certificate on its first TLS
-				// handshake, so no DNS provider credentials are needed.
-				wildcardSubjects = append(wildcardSubjects, route.Domain)
-				httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://{http.request.host}"))
-			} else {
-				httpsSubjects = append(httpsSubjects, route.Domain)
-				httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://"+route.Domain))
+			if _, done := secured[route.Domain]; !done {
+				secured[route.Domain] = struct{}{}
+				if wildcard {
+					// Each subdomain gets its own certificate on its first TLS
+					// handshake, so no DNS provider credentials are needed.
+					wildcardSubjects = append(wildcardSubjects, route.Domain)
+					httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://{http.request.host}"))
+				} else {
+					httpsSubjects = append(httpsSubjects, route.Domain)
+					httpRoutes = append(httpRoutes, redirectRoute(route.Domain, "https://"+route.Domain))
+				}
 			}
 		} else {
 			httpRoutes = append(httpRoutes, reverse)
@@ -295,8 +323,14 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 	}
 	// Caddy tries routes in order, so an exact host such as api.example.com
 	// wins over *.example.com, and both win over the public catch-all.
+	// Within a host the longest path prefix goes first.
 	for _, list := range [][]caddyRoute{httpRoutes, httpsRoutes} {
-		sort.SliceStable(list, func(i, j int) bool { return matchRank(list[i]) < matchRank(list[j]) })
+		sort.SliceStable(list, func(i, j int) bool {
+			if left, right := matchRank(list[i]), matchRank(list[j]); left != right {
+				return left < right
+			}
+			return pathRank(list[i]) > pathRank(list[j])
+		})
 	}
 	servers := map[string]caddyServer{
 		"http": {
@@ -438,6 +472,14 @@ func matchRank(route caddyRoute) int {
 		}
 	}
 	return 0
+}
+
+// pathRank is the length of a route's path prefix, zero for a whole host.
+func pathRank(route caddyRoute) int {
+	if len(route.Match) == 0 || len(route.Match[0].Path) == 0 {
+		return 0
+	}
+	return len(route.Match[0].Path[0])
 }
 
 func onDemandPermissionRoute(socket string) caddyRoute {

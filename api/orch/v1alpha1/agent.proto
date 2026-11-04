@@ -91,6 +91,10 @@ message HTTPDesired {
   map<string, string> redirects = 8;
   // Container ports of domains not served by port.
   map<string, uint32> domain_ports = 9;
+  // URL path prefixes served on domains; empty serves the whole domain.
+  repeated string paths = 10;
+  // Remove the matched prefix before forwarding.
+  bool strip_prefix = 11;
 }
 
 // HTTPBasicAuth carries an argon2id hash, never the password.
@@ -199,6 +203,8 @@ message ServiceEndpoint {
   HTTPBasicAuth basic_auth = 12;
   map<string, string> redirects = 13;
   map<string, uint32> domain_ports = 14;
+  repeated string paths = 15;
+  bool strip_prefix = 16;
 }
 
 message AllocationDesired {

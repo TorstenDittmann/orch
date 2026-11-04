@@ -26,6 +26,7 @@ import (
 	controlclient "github.com/TorstenDittmann/orch/internal/client"
 	clusterctl "github.com/TorstenDittmann/orch/internal/cluster"
 	"github.com/TorstenDittmann/orch/internal/config"
+	"github.com/TorstenDittmann/orch/internal/model"
 	"github.com/TorstenDittmann/orch/internal/target"
 	"github.com/distribution/reference"
 )
@@ -246,6 +247,17 @@ func localizeDevManifest(manifest *config.Manifest, httpPort int) ([]string, []d
 	if httpPort != 80 {
 		suffix = ":" + strconv.Itoa(httpPort)
 	}
+	// Services that share a domain by path share the local domain of the
+	// service serving the rest of it, so relative links such as /api keep
+	// working under orch dev.
+	rootOwners := make(map[string]string)
+	for _, name := range names {
+		if http := manifest.Services[name].HTTP; http != nil && len(http.Paths) == 0 {
+			for _, domain := range http.Domains {
+				rootOwners[domain] = name
+			}
+		}
+	}
 	for _, name := range names {
 		service := manifest.Services[name]
 		service.Constraints = nil
@@ -253,7 +265,13 @@ func localizeDevManifest(manifest *config.Manifest, httpPort int) ([]string, []d
 			if service.HTTP.Public {
 				urls = append(urls, "http://localhost"+suffix+" ("+name+")")
 			}
-			domain := name + "." + manifest.Name + ".localhost"
+			local := name
+			if len(service.HTTP.Paths) != 0 && len(service.HTTP.Domains) != 0 {
+				if owner, ok := rootOwners[service.HTTP.Domains[0]]; ok {
+					local = owner
+				}
+			}
+			domain := local + "." + manifest.Name + ".localhost"
 			// Each extra port gets its own local domain, such as
 			// name-9001.app.localhost.
 			var extra map[string]int
@@ -270,10 +288,14 @@ func localizeDevManifest(manifest *config.Manifest, httpPort int) ([]string, []d
 			// password prompt.
 			service.HTTP.Redirects = nil
 			service.HTTP.BasicAuth = nil
-			urls = append(urls, "http://"+domain+suffix)
+			for _, path := range model.RoutePaths(service.HTTP.Paths) {
+				urls = append(urls, "http://"+domain+suffix+path)
+			}
 			for _, local := range slices.Sorted(maps.Keys(extra)) {
 				service.HTTP.Domains = append(service.HTTP.Domains, local)
-				urls = append(urls, "http://"+local+suffix)
+				for _, path := range model.RoutePaths(service.HTTP.Paths) {
+					urls = append(urls, "http://"+local+suffix+path)
+				}
 			}
 			sort.Strings(service.HTTP.Domains)
 		}

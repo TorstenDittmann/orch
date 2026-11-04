@@ -329,10 +329,10 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 			}, nil
 		}
 		if service.HTTP != nil && len(service.HTTP.Domains)+len(service.HTTP.Redirects) != 0 {
-			for _, domain := range httpRouteDomains(service.HTTP) {
+			for _, domain := range service.HTTP.RouteKeys() {
 				owner := application.Name + "/" + name
 				if domainOwners != nil && domainOwners[domain] != owner {
-					return plannedApplication{}, &blockReason{reason: "domain_conflict", message: base + ".http domain " + domain + " is already owned by an earlier application"}, nil
+					return plannedApplication{}, &blockReason{reason: "domain_conflict", message: base + ".http route " + domain + " is already owned by an earlier application"}, nil
 				}
 			}
 		}
@@ -431,6 +431,7 @@ func planApplicationBundleForNetwork(clusterID string, node model.Node, applicat
 					Port: uint32(service.HTTP.Port), Public: service.HTTP.Public, Domains: append([]string(nil), service.HTTP.Domains...),
 					HealthPath: service.HTTP.HealthPath, HTTPS: service.HTTP.HTTPS, NodeLocal: service.HTTP.NodeLocal,
 					Redirects: cloneEnvironment(service.HTTP.Redirects),
+					Paths:     append([]string(nil), service.HTTP.Paths...), StripPrefix: service.HTTP.StripPrefix,
 				}
 				for domain, port := range service.HTTP.DomainPorts {
 					if allocation.HTTP.DomainPorts == nil {
@@ -648,6 +649,7 @@ func cloneRollbackSpec(input *model.RollbackSpec) *model.RollbackSpec {
 		http.Domains = append([]string(nil), input.HTTP.Domains...)
 		http.Redirects = cloneEnvironment(input.HTTP.Redirects)
 		http.DomainPorts = maps.Clone(input.HTTP.DomainPorts)
+		http.Paths = append([]string(nil), input.HTTP.Paths...)
 		if input.HTTP.BasicAuth != nil {
 			auth := *input.HTTP.BasicAuth
 			http.BasicAuth = &auth
@@ -912,7 +914,7 @@ func desiredDomainOwners(applications []model.Application) (map[string]string, e
 			if service.HTTP.Public {
 				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, model.PublicHTTPRoute})
 			}
-			for _, domain := range httpRouteDomains(service.HTTP) {
+			for _, domain := range service.HTTP.RouteKeys() {
 				candidates = append(candidates, candidate{application.CreatedAt, application.Name, serviceName, domain})
 			}
 		}
@@ -1099,15 +1101,4 @@ func executionState(status string, generation uint64, reason, message string, no
 	return model.ApplicationExecution{
 		Status: status, ObservedGeneration: generation, Reason: reason, Message: message, UpdatedAt: now,
 	}
-}
-
-// httpRouteDomains returns every hostname a service claims on ingress: the
-// domains it serves and the domains that redirect to them.
-func httpRouteDomains(http *config.HTTP) []string {
-	domains := append([]string(nil), http.Domains...)
-	for from := range http.Redirects {
-		domains = append(domains, from)
-	}
-	sort.Strings(domains)
-	return domains
 }
