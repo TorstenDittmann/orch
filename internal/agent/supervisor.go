@@ -1695,7 +1695,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		unavailable := make([]model.RouteStatus, 0, len(routes)+len(pending))
 		for _, route := range routes {
 			unavailable = append(unavailable, model.RouteStatus{
-				Application: route.Application, Service: route.Service, Domain: route.Domain,
+				Application: route.Application, Service: route.Service, Domain: route.Key(),
 				HTTPS: route.HTTPS, State: model.RouteFailed, CertificateState: "pending",
 				UpstreamCount: uint32(len(route.Upstreams)), Reason: reason, Message: message, UpdatedAt: now,
 			})
@@ -1716,7 +1716,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		unavailable := make([]model.RouteStatus, 0, len(routes)+len(pending))
 		for _, route := range routes {
 			unavailable = append(unavailable, model.RouteStatus{
-				Application: route.Application, Service: route.Service, Domain: route.Domain,
+				Application: route.Application, Service: route.Service, Domain: route.Key(),
 				HTTPS: route.HTTPS, State: model.RouteFailed, UpstreamCount: uint32(len(route.Upstreams)),
 				Reason: "caddy_unavailable", Message: networkStatus.Message, UpdatedAt: now,
 			})
@@ -1738,7 +1738,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 			observed = make([]model.RouteStatus, 0, len(routes))
 			for _, route := range routes {
 				observed = append(observed, model.RouteStatus{
-					Application: route.Application, Service: route.Service, Domain: route.Domain,
+					Application: route.Application, Service: route.Service, Domain: route.Key(),
 					HTTPS: route.HTTPS, State: model.RouteFailed, UpstreamCount: uint32(len(route.Upstreams)),
 					Reason: "ingress_apply_failed", Message: boundedMessage(err.Error()), UpdatedAt: now,
 				})
@@ -2269,7 +2269,8 @@ func remoteServingView(assignment model.Assignment, serving, specs map[string]st
 		if (endpoint.HTTPPublic || len(endpoint.Domains) != 0) &&
 			(!endpoint.HTTPNodeLocal || endpoint.NodeID == assignment.NodeID) {
 			allocation.HTTP = &model.HTTPDesired{Port: endpoint.Port, Public: endpoint.HTTPPublic, Domains: append([]string(nil), endpoint.Domains...), HTTPS: endpoint.HTTPS,
-				BasicAuth: endpoint.BasicAuth, Redirects: cloneStringMap(endpoint.Redirects), DomainPorts: maps.Clone(endpoint.DomainPorts)}
+				BasicAuth: endpoint.BasicAuth, Redirects: cloneStringMap(endpoint.Redirects), DomainPorts: maps.Clone(endpoint.DomainPorts),
+				Paths: append([]string(nil), endpoint.Paths...), StripPrefix: endpoint.StripPrefix}
 		}
 		if endpoint.TCPPublicPort != 0 {
 			allocation.TCP = &model.TCPDesired{Port: endpoint.Port, PublicPort: endpoint.TCPPublicPort}
@@ -2464,8 +2465,8 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 			if allocation.HTTP.Public {
 				desiredOwners[model.PublicHTTPRoute] = key
 			}
-			for _, domain := range allocation.HTTP.Domains {
-				desiredOwners[domain] = key
+			for _, route := range model.RouteKeys(allocation.HTTP.Domains, allocation.HTTP.Paths) {
+				desiredOwners[route] = key
 			}
 		}
 		address := serving[allocation.ID]
@@ -2524,11 +2525,19 @@ func desiredRoutes(allocations []model.AllocationDesired, statuses []model.Alloc
 				}
 			}
 			sort.Strings(redirectFrom)
-			candidates[domain] = append(candidates[domain], routeCandidate{owner: key, route: ingress.Route{
-				Application: key.application, Service: key.service, Domain: domain,
-				HTTPS: contract.HTTPS, Upstreams: upstreamsFor(domain),
-				BasicAuth: contract.BasicAuth, RedirectFrom: redirectFrom,
-			}})
+			// Services can share a domain by path, each path its own route.
+			// The domain's redirects ride on its first route only.
+			for index, path := range model.RoutePaths(contract.Paths) {
+				route := ingress.Route{
+					Application: key.application, Service: key.service, Domain: domain,
+					HTTPS: contract.HTTPS, Upstreams: upstreamsFor(domain),
+					BasicAuth: contract.BasicAuth, Path: path, StripPrefix: contract.StripPrefix && path != "",
+				}
+				if index == 0 {
+					route.RedirectFrom = redirectFrom
+				}
+				candidates[route.Key()] = append(candidates[route.Key()], routeCandidate{owner: key, route: route})
+			}
 		}
 	}
 

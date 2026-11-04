@@ -445,6 +445,43 @@ func TestPublicHTTPOwnershipBlocksLaterApplication(t *testing.T) {
 	}
 }
 
+func TestPathRoutesShareADomainAcrossApplications(t *testing.T) {
+	service := func(paths ...string) config.Service {
+		return config.Service{Image: executableImage, HTTP: &config.HTTP{Port: 8080, Domains: []string{"example.com"},
+			HealthPath: "/healthz", HTTPS: true, Paths: paths}}
+	}
+	frontend := newTestManifest("frontend", map[string]config.Service{"web": service()})
+	backend := newTestManifest("backend", map[string]config.Service{"api": service("/api")})
+	copycat := newTestManifest("copycat", map[string]config.Service{"api": service("/api")})
+	applications := []model.Application{
+		{Name: "copycat", Generation: 1, RevisionID: "revision-three", CanonicalManifest: mustCanonicalManifest(t, copycat), CreatedAt: reconcilerTestTime.Add(2 * time.Second)},
+		{Name: "backend", Generation: 1, RevisionID: "revision-two", CanonicalManifest: mustCanonicalManifest(t, backend), CreatedAt: reconcilerTestTime.Add(time.Second)},
+		{Name: "frontend", Generation: 1, RevisionID: "revision-one", CanonicalManifest: mustCanonicalManifest(t, frontend), CreatedAt: reconcilerTestTime},
+	}
+	owners, err := desiredDomainOwners(applications)
+	if err != nil || owners["example.com"] != "frontend/web" || owners["example.com/api"] != "backend/api" {
+		t.Fatalf("owners = %#v, %v", owners, err)
+	}
+	networkConfig, err := model.FirstNodeNetwork(model.DefaultWorkloadCIDR, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{OperatingSystem: "linux", Architecture: "amd64", RuntimeVersion: "containerd 2.3.4",
+		Snapshotter: "overlayfs", CgroupsV2: true, CNIVersion: network.CNISpecVersion,
+		CNIPluginsVersion: network.CNIPluginsVersion, Nftables: true, DNSAvailable: true,
+		CaddyVersion: ingress.RequiredCaddyVersion, NetworkGeneration: 1, NodeSubnet: networkConfig.NodeSubnet,
+		NetworkState: model.NetworkReady, DNSState: model.SubsystemReady}
+	planned, blocked, err := planApplicationBundleForNetwork("cluster-one", node, applications[1], networkConfig, true, owners, nil, nil)
+	if err != nil || blocked != nil || len(planned.allocations) == 0 ||
+		!reflect.DeepEqual(planned.allocations[0].HTTP.Paths, []string{"/api"}) {
+		t.Fatalf("backend planned = %#v, blocked = %#v, %v", planned, blocked, err)
+	}
+	_, blocked, err = planApplicationBundleForNetwork("cluster-one", node, applications[0], networkConfig, true, owners, nil, nil)
+	if err != nil || blocked == nil || blocked.reason != "domain_conflict" {
+		t.Fatalf("copycat blocked = %#v, %v", blocked, err)
+	}
+}
+
 func TestReconcilerPlansDeterministicAllocationsAndPreservesUnaffectedSpecs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/TorstenDittmann/orch/internal/config"
@@ -100,5 +102,35 @@ func TestLocalizeDevManifestGivesEachHTTPPortALocalDomain(t *testing.T) {
 	if !reflect.DeepEqual(http.Domains, []string{"rustfs-9001.storage.localhost", "rustfs.storage.localhost"}) ||
 		!reflect.DeepEqual(http.DomainPorts, map[string]int{"rustfs-9001.storage.localhost": 9001}) {
 		t.Fatalf("http = %#v", http)
+	}
+}
+
+func TestLocalizeDevManifestKeepsPathRoutesOnTheSharedDomain(t *testing.T) {
+	manifest := &config.Manifest{
+		Name: "shop",
+		Services: map[string]config.Service{
+			"web": {HTTP: &config.HTTP{Port: 3000, Domains: []string{"example.com"}, HTTPS: true}},
+			"api": {HTTP: &config.HTTP{Port: 8080, Domains: []string{"example.com"}, HTTPS: true,
+				Paths: []string{"/api"}, StripPrefix: true}},
+		},
+	}
+	urls, _ := localizeDevManifest(manifest, 8080)
+	if want := []string{"http://web.shop.localhost:8080/api", "http://web.shop.localhost:8080"}; !reflect.DeepEqual(urls, want) {
+		t.Fatalf("urls = %v, want %v", urls, want)
+	}
+	api := manifest.Services["api"].HTTP
+	if !reflect.DeepEqual(api.Domains, []string{"web.shop.localhost"}) || !reflect.DeepEqual(api.Paths, []string{"/api"}) || !api.StripPrefix {
+		t.Fatalf("api = %#v", api)
+	}
+	if err := config.Validate(manifest); err != nil {
+		var validation *config.ValidationError
+		if !errors.As(err, &validation) {
+			t.Fatal(err)
+		}
+		for _, problem := range validation.Problems {
+			if strings.Contains(problem.Path, ".http.domains") || strings.Contains(problem.Path, ".http.paths") {
+				t.Fatalf("localized routes are invalid: %v", err)
+			}
+		}
 	}
 }
