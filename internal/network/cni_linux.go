@@ -270,11 +270,25 @@ func (m *linuxManager) Inspect(_ context.Context, request AttachmentRequest) (At
 	if err := m.validateRequest(request, false); err != nil {
 		return Attachment{}, err
 	}
-	result, err := m.cni.GetNetworkListCachedResult(m.list, runtimeConf(request, request.IfName))
+	result, err := m.cachedResult(request)
 	if err != nil {
 		return Attachment{}, ErrNotFound
 	}
 	return m.attachmentFromResult(request, result)
+}
+
+// cachedResult reads the CNI result cached for an attachment. libcni reports
+// a missing cache file as a nil result without an error, which happens when
+// the cache entry was removed or never written, so that case is ErrNotFound.
+func (m *linuxManager) cachedResult(request AttachmentRequest) (cnitypes.Result, error) {
+	result, err := m.cni.GetNetworkListCachedResult(m.list, runtimeConf(request, request.IfName))
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, ErrNotFound
+	}
+	return result, nil
 }
 
 func (m *linuxManager) Check(ctx context.Context, request AttachmentRequest) error {
@@ -291,7 +305,7 @@ func (m *linuxManager) Check(ctx context.Context, request AttachmentRequest) err
 	}
 	// A restarted agent learns the private network access of running
 	// workloads here.
-	result, err := m.cni.GetNetworkListCachedResult(m.list, runtimeConf(request, request.IfName))
+	result, err := m.cachedResult(request)
 	if err != nil {
 		return fmt.Errorf("read CNI attachment: %w", err)
 	}
@@ -371,6 +385,9 @@ func runtimeConf(request AttachmentRequest, ifName string) *libcni.RuntimeConf {
 }
 
 func (m *linuxManager) attachmentFromResult(request AttachmentRequest, result cnitypes.Result) (Attachment, error) {
+	if result == nil {
+		return Attachment{}, ErrNotFound
+	}
 	converted, err := types100.NewResultFromResult(result)
 	if err != nil {
 		return Attachment{}, fmt.Errorf("convert CNI result: %w", err)
