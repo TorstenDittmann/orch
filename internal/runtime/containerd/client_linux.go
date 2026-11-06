@@ -56,6 +56,12 @@ type runtimeClient struct {
 	networkPreflightErr error
 	attachmentStore     network.AttachmentStore
 	controllerRegistry  orchruntime.ControllerRegistry
+
+	// imageMu guards pinnedImages and lastImagePrune, and serializes image
+	// removal with pinning.
+	imageMu        sync.Mutex
+	pinnedImages   map[string]int
+	lastImagePrune time.Time
 }
 
 func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error) {
@@ -254,6 +260,7 @@ func (c *runtimeClient) ListOwned(ctx context.Context) ([]orchruntime.Object, er
 		return nil, fmt.Errorf("reconcile runtime secret projections: %w", err)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	c.maybePruneImages(ctx)
 	return result, nil
 }
 
@@ -331,6 +338,7 @@ func (c *runtimeClient) Ensure(ctx context.Context, allocation model.AllocationD
 			_ = c.client.LeasesService().Delete(context.Background(), lease, leases.SynchronousDelete)
 		}
 	}()
+	defer c.pinImage(allocation.Image)()
 	leaseContext := leases.WithLease(ctx, lease.ID)
 	image, err := c.resolveImage(leaseContext, allocation)
 	if err != nil {
@@ -386,7 +394,7 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 		containerdclient.WithPlatform(platforms.DefaultString()),
 	}
 	if resolver := c.controllerResolver(ctx, reference); resolver != nil {
-		image, err = c.client.Pull(ctx, reference, append(pullOptions, containerdclient.WithResolver(resolver))...)
+		image, err = c.pull(ctx, reference, append(pullOptions, containerdclient.WithResolver(resolver))...)
 		if err != nil {
 			if strings.Contains(err.Error(), "no match for platform") {
 				return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("the image was built for another platform than this node's %s; rebuild it with --platform %s", platforms.DefaultString(), platforms.DefaultString())}
@@ -413,7 +421,7 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 		resolver := docker.NewResolver(docker.ResolverOptions{Hosts: docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer))})
 		pullOptions = append(pullOptions, containerdclient.WithResolver(resolver))
 	}
-	image, err = c.client.Pull(ctx, reference, pullOptions...)
+	image, err = c.pull(ctx, reference, pullOptions...)
 	if err != nil {
 		if strings.Contains(err.Error(), "no match for platform") {
 			return nil, &orchruntime.ImagePullError{Image: reference, Err: fmt.Errorf("the image does not support worker platform %s", platforms.DefaultString())}
@@ -424,6 +432,20 @@ func (c *runtimeClient) resolveImage(ctx context.Context, allocation model.Alloc
 		return nil, &orchruntime.ImagePullError{Image: reference, Err: errors.New("the pulled image does not match its digest")}
 	}
 	return image, nil
+}
+
+// pull pulls an image. When the disk is full, it removes every unused image
+// and tries once more, so a node full of old images can still deploy.
+func (c *runtimeClient) pull(ctx context.Context, reference string, options ...containerdclient.RemoteOpt) (containerdclient.Image, error) {
+	image, err := c.client.Pull(ctx, reference, options...)
+	if !isNoSpace(err) {
+		return image, err
+	}
+	removed, pruneErr := c.pruneImages(ctx, 0)
+	if removed == 0 {
+		return nil, errors.Join(err, pruneErr)
+	}
+	return c.client.Pull(ctx, reference, options...)
 }
 
 // controllerResolver returns a resolver for the controller when it holds the

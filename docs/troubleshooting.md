@@ -616,6 +616,13 @@ Images live in `/var/lib/orch-containerd`, workload logs in
 and their backups in `/var/lib/orch-agent/volume-backups`. See the
 [host reference](host.md) for every path.
 
+Each worker removes images no container uses every ten minutes, keeping the two
+most recent unused images of each repository so a rollback does not have to
+pull again. When a pull runs out of space, the worker removes every unused
+image and retries the pull once, so a full disk of old images does not block a
+deploy. containerd frees the space in the background after the images are
+removed.
+
 ### Fix
 
 - **Space.** Grow the file system that holds `/var/lib`, or move data off it.
