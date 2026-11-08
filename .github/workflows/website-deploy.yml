@@ -39,7 +39,7 @@ jobs:
         working-directory: website
         run: mise exec -- bun run check && mise exec -- bun run build:site
       # Pinned by commit, so the action installs the orch version below.
-      - uses: TorstenDittmann/orch@e0873bd547761f314660ca565c049e7a5e2171c3 # v0.1.15
+      - uses: TorstenDittmann/orch@6a716c6c265f2cd7e9410e65a8592c788296468f # v0.1.20
         with:
           cluster: ${{ vars.ORCH_CLUSTER }}
           version: ${{ vars.ORCH_VERSION }}
