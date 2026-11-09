@@ -223,7 +223,7 @@ func (r *sessionRunner) heartbeatRequest(ctx context.Context) *orchv1alpha1.Conn
 	}
 	return &orchv1alpha1.ConnectRequest{Message: &orchv1alpha1.ConnectRequest_Heartbeat{Heartbeat: &orchv1alpha1.AgentHeartbeat{
 		BootId: r.bootID, AcknowledgedAssignmentGeneration: assignmentGeneration, Usage: r.usage.Sample(),
-		Allocations: r.allocationCPU.Sample(ctx), RebootRequired: r.reboot.required(ctx, r.now()),
+		Allocations: r.allocationCPU.Sample(ctx), RebootRequired: r.reboot.required(ctx, currentTime(r.now)),
 	}}}
 }
 

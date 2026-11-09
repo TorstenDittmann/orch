@@ -68,3 +68,19 @@ func TestRunOSUpdateAnswersAndRebootsOnlyWhenNeeded(t *testing.T) {
 		t.Fatalf("unsupported = %v", failure)
 	}
 }
+
+// Serve builds the runner without a clock, so heartbeats and OS updates must
+// fall back to the wall clock instead of calling a nil now.
+func TestRebootCheckWithoutClock(t *testing.T) {
+	t.Parallel()
+	updater := &stubOSUpdater{required: true}
+	runner := &sessionRunner{cache: supervisorCache(t), osUpdates: true, reboot: &rebootCheck{updater: updater}}
+	if heartbeat := runner.heartbeatRequest(context.Background()).GetHeartbeat(); !heartbeat.GetRebootRequired() {
+		t.Fatalf("heartbeat = %v", heartbeat)
+	}
+	outbound := make(chan *orchv1alpha1.ConnectRequest, 1)
+	runner.runOSUpdate(context.Background(), &orchv1alpha1.OSUpdateCommand{RequestId: "request"}, outbound)
+	if result := (<-outbound).GetOperationResult().GetOsUpdate(); !result.GetRebooting() || updater.reboots != 1 {
+		t.Fatalf("result = %v reboots = %d", result, updater.reboots)
+	}
+}
