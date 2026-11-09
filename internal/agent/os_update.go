@@ -182,7 +182,7 @@ func (r *sessionRunner) runOSUpdate(ctx context.Context, command *orchv1alpha1.O
 		return
 	}
 	rebooting := false
-	if r.reboot.required(ctx, r.now()) {
+	if r.reboot.required(ctx, currentTime(r.now)) {
 		if err := updater.Reboot(ctx); err != nil {
 			enqueueOperationError(ctx, outbound, command.GetRequestId(), "failed", boundedMessage(err.Error()))
 			return
