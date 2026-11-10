@@ -70,7 +70,8 @@ func TestClusterAlertsNotifyOncePerProblem(t *testing.T) {
 	if err := state.RecordNodeUsage(ctx, "node-one", model.NodeUsage{ObservedAt: now.Add(-time.Minute), DiskUsedBytes: 95e9, DiskTotalBytes: 100e9}); err != nil {
 		t.Fatal(err)
 	}
-	alerts := newClusterAlerts(s, now.Add(10*24*time.Hour))
+	controllerNotAfter := now.Add(10 * 24 * time.Hour)
+	alerts := newClusterAlerts(s, func() time.Time { return controllerNotAfter })
 	alerts.startedAt = reconcilerTestTime
 	for range 2 {
 		if err := alerts.check(ctx); err != nil {
@@ -83,7 +84,7 @@ func TestClusterAlertsNotifyOncePerProblem(t *testing.T) {
 	got := texts()
 	slices.Sort(got)
 	want := []string{
-		"[prod] controller certificate expires 2026-09-12T13:00:00Z; run orch cluster certificates renew on the controller host",
+		"[prod] controller certificate expires 2026-09-12T13:00:00Z; the controller renews it 45 days ahead, so renewal is failing; check its logs or run orch cluster certificates renew on the controller host",
 		"[prod] node node-1 disk is 95% full (95.0 GB of 100.0 GB used)",
 		"[prod] node node-1 is unreachable; last heartbeat 2026-09-02T12:01:00Z",
 		"[prod] the newest controller backup is from 2026-08-30T13:00:00Z, more than 2 days ago",
@@ -137,7 +138,7 @@ func TestClusterAlertsKeepLostNodeAcrossControllerRestart(t *testing.T) {
 	}
 	// A restarted controller does not clear the alert during its startup
 	// grace, so it does not send it again once the grace ends.
-	alerts := newClusterAlerts(s, time.Time{})
+	alerts := newClusterAlerts(s, func() time.Time { return time.Time{} })
 	for range 2 {
 		if err := alerts.check(ctx); err != nil {
 			t.Fatal(err)
@@ -167,7 +168,7 @@ func TestClusterAlertsIgnoreDowntimeBeforeControllerStart(t *testing.T) {
 	enrollCompatibleNode(t, state)
 	now := reconcilerTestTime.Add(time.Hour)
 	s := newService(state, cluster, nil, nil, nil, nil, func() time.Time { return now })
-	alerts := newClusterAlerts(s, time.Time{})
+	alerts := newClusterAlerts(s, func() time.Time { return time.Time{} })
 	if alerts.lost(mustNode(t, s), now) {
 		t.Fatal("a node was lost right after the controller started")
 	}
@@ -210,7 +211,8 @@ func TestClusterAlertsReportNodesWaitingForAReboot(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := newService(state, cluster, nil, nil, nil, sessions, func() time.Time { return now })
-	alerts := newClusterAlerts(s, now.Add(365*24*time.Hour))
+	controllerNotAfter := now.Add(365 * 24 * time.Hour)
+	alerts := newClusterAlerts(s, func() time.Time { return controllerNotAfter })
 	alerts.startedAt = now
 	raised := func() bool {
 		t.Helper()

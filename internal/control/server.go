@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -65,6 +64,7 @@ type Server struct {
 	uploadsDone     chan struct{}
 	autoscaleDone   chan struct{}
 	notifyDone      chan struct{}
+	identityDone    chan struct{}
 	alertsDone      chan struct{}
 	offsiteDone     chan struct{}
 }
@@ -113,6 +113,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return fail(err, state, nil)
 	}
+	identity := newControllerIdentity(credentials, now, renewControllerLeafIn(dataDir, cluster))
 	secretKeyPath := filepath.Join(dataDir, clusterctl.SecretKeyFilename)
 	storedSecretFingerprint, err := state.SecretKeyFingerprint(ctx)
 	if err != nil {
@@ -185,7 +186,7 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	adminMux.HandleFunc("/healthz", healthHandler)
 	// /metrics needs the same credentials as the administrator API: an
 	// administrator certificate on the HTTPS port, or access to the socket.
-	metrics := implementation.metricsHandler(credentials.Certificate.Leaf.NotAfter)
+	metrics := implementation.metricsHandler(identity.NotAfter)
 	mux.Handle("/metrics", authenticateAdministrator(cluster.ID, administratorNotBefore, metrics))
 	adminMux.Handle("/metrics", authenticateLocalAdministrator(metrics))
 	enrollmentPath, enrollmentHandler := orchv1alpha1connect.NewEnrollmentServiceHandler(
@@ -223,18 +224,12 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 			return fail(err, state, listener)
 		}
 	}
-	// Serve the CA after the leaf so a joining node can pin it by
-	// fingerprint from a join token before it has the CA certificate.
-	served := credentials.Certificate
-	if block, _ := pem.Decode(credentials.CACertificatePEM); block != nil {
-		served.Certificate = append(append([][]byte(nil), served.Certificate...), block.Bytes)
-	}
 	tlsConfig := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{served},
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		ClientCAs:    credentials.ClientCAs,
-		NextProtos:   []string{"h2", "http/1.1"},
+		MinVersion:     tls.VersionTLS13,
+		GetCertificate: identity.GetCertificate,
+		ClientAuth:     tls.VerifyClientCertIfGiven,
+		ClientCAs:      credentials.ClientCAs,
+		NextProtos:     []string{"h2", "http/1.1"},
 	}
 	httpServer := &http.Server{
 		Handler: mux, TLSConfig: tlsConfig,
@@ -251,15 +246,19 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		serveDone: make(chan struct{}), shutdownDone: make(chan struct{}),
 		reconcileCancel: reconcileCancel, reconcileDone: make(chan struct{}), backupDone: make(chan struct{}),
 		upgradesDone: make(chan struct{}), imagesDone: make(chan struct{}), uploadsDone: make(chan struct{}), autoscaleDone: make(chan struct{}),
-		notifyDone: make(chan struct{}), alertsDone: make(chan struct{}), offsiteDone: make(chan struct{}),
+		notifyDone: make(chan struct{}), identityDone: make(chan struct{}), alertsDone: make(chan struct{}), offsiteDone: make(chan struct{}),
 	}
+	go func() {
+		defer close(server.identityDone)
+		identity.run(reconcileContext)
+	}()
 	go func() {
 		defer close(server.notifyDone)
 		newNotifier(state, secretBox, cluster.Name).run(reconcileContext)
 	}()
 	go func() {
 		defer close(server.alertsDone)
-		newClusterAlerts(implementation, credentials.Certificate.Leaf.NotAfter).run(reconcileContext)
+		newClusterAlerts(implementation, identity.NotAfter).run(reconcileContext)
 	}()
 	go func() {
 		defer close(server.upgradesDone)
@@ -370,6 +369,7 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		<-server.uploadsDone
 		<-server.autoscaleDone
 		<-server.notifyDone
+		<-server.identityDone
 		<-server.alertsDone
 		<-server.offsiteDone
 		server.sessions.Close()

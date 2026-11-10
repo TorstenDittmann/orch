@@ -166,3 +166,34 @@ func TestRestoreFlagsExpiredControllerLeafForRenewal(t *testing.T) {
 		t.Fatal("inspected recovery material with an expired CA")
 	}
 }
+
+func TestRenewControllerLeafKeepsCAAndAdministrators(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	initialized, err := Bootstrap(context.Background(), BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: filepath.Join(root, "state"),
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: func() time.Time { return bootstrapTestTime },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pki := filepath.Join(initialized.DataDir, controllerIdentityDirectory)
+	caBefore, _ := os.ReadFile(filepath.Join(pki, "ca.pem"))
+	soon := bootstrapTestTime.AddDate(0, 11, 10)
+	credentials, err := RenewControllerLeaf(initialized.DataDir, initialized.Cluster, soon, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !credentials.Certificate.Leaf.NotAfter.Equal(soon.AddDate(1, 0, 0)) {
+		t.Fatalf("renewed controller NotAfter = %s", credentials.Certificate.Leaf.NotAfter)
+	}
+	if caAfter, _ := os.ReadFile(filepath.Join(pki, "ca.pem")); !bytes.Equal(caBefore, caAfter) {
+		t.Fatal("renewing the controller leaf changed the CA")
+	}
+	if _, err := LoadControllerCredentials(initialized.DataDir, initialized.Cluster, soon.AddDate(0, 6, 0)); err != nil {
+		t.Fatalf("renewed controller identity on disk: %v", err)
+	}
+	if _, err := LoadAdministratorCredentials(initialized.ContextPath, soon); err != nil {
+		t.Fatalf("administrator identity after controller renewal: %v", err)
+	}
+}

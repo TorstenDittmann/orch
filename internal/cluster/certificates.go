@@ -280,3 +280,40 @@ func replaceControllerLeaf(pki string, controller security.KeyPair) error {
 	}
 	return syncDirectory(pki)
 }
+
+// RenewControllerLeaf reissues only the controller's server certificate from
+// the cluster CA in dataDir and returns the reloaded credentials. The running
+// controller calls it shortly before the certificate expires, so a cluster
+// never loses its workers because nobody ran a renewal; administrator
+// certificates are not touched.
+func RenewControllerLeaf(dataDir string, stored model.Cluster, now time.Time, random io.Reader) (ControllerCredentials, error) {
+	if random == nil {
+		random = rand.Reader
+	}
+	current := now.UTC()
+	pki := filepath.Join(dataDir, controllerIdentityDirectory)
+	caPEM, err := readPrivateFile(filepath.Join(pki, "ca.pem"))
+	if err != nil {
+		return ControllerCredentials{}, fmt.Errorf("read controller identity ca.pem: %w", err)
+	}
+	caKeyPEM, err := readPrivateFile(filepath.Join(pki, "ca-key.pem"))
+	if err != nil {
+		return ControllerCredentials{}, fmt.Errorf("read controller identity ca-key.pem: %w", err)
+	}
+	if err := security.VerifyCertificateAuthority(caPEM, caKeyPEM, stored.Name, current); err != nil {
+		return ControllerCredentials{}, fmt.Errorf("validate cluster CA: %w", err)
+	}
+	controller, err := security.IssueIdentity(caPEM, caKeyPEM, security.IssueOptions{
+		ClusterID: stored.ID, Role: security.RoleController, Server: stored.Endpoint, Now: current, Random: random,
+	})
+	if err != nil {
+		return ControllerCredentials{}, fmt.Errorf("issue controller identity: %w", err)
+	}
+	if err := security.VerifyIdentity(caPEM, controller, stored.ID, security.RoleController, stored.Endpoint, current); err != nil {
+		return ControllerCredentials{}, fmt.Errorf("validate controller identity: %w", err)
+	}
+	if err := replaceControllerLeaf(pki, controller); err != nil {
+		return ControllerCredentials{}, fmt.Errorf("replace controller identity: %w", err)
+	}
+	return LoadControllerCredentials(dataDir, stored, current)
+}

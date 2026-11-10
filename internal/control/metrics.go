@@ -44,7 +44,7 @@ type metricsInput struct {
 // metricsHandler serves the Prometheus text exposition format. Every value is
 // computed from current state at scrape time, so the controller keeps no
 // metric state and a restart loses nothing.
-func (s *service) metricsHandler(controllerNotAfter time.Time) http.Handler {
+func (s *service) metricsHandler(controllerNotAfter func() time.Time) http.Handler {
 	caNotAfter, _ := security.CertificateNotAfter(s.caPEM)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
@@ -65,7 +65,7 @@ func (s *service) metricsHandler(controllerNotAfter time.Time) http.Handler {
 			http.Error(response, "read cluster state", http.StatusInternalServerError)
 			return
 		}
-		input.caNotAfter, input.controllerNotAfter = caNotAfter, controllerNotAfter
+		input.caNotAfter, input.controllerNotAfter = caNotAfter, controllerNotAfter()
 		if principal, ok := request.Context().Value(principalKey{}).(authenticatedPrincipal); ok && principal.certificate != nil {
 			input.adminNotAfter = principal.certificate.NotAfter
 		}

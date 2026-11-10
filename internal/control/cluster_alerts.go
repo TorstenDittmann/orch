@@ -42,12 +42,12 @@ const (
 // and forgotten when it clears so it is reported again if it comes back.
 type clusterAlerts struct {
 	service            *service
-	controllerNotAfter time.Time
+	controllerNotAfter func() time.Time
 	caNotAfter         time.Time
 	startedAt          time.Time
 }
 
-func newClusterAlerts(s *service, controllerNotAfter time.Time) *clusterAlerts {
+func newClusterAlerts(s *service, controllerNotAfter func() time.Time) *clusterAlerts {
 	caNotAfter, _ := security.CertificateNotAfter(s.caPEM)
 	return &clusterAlerts{service: s, controllerNotAfter: controllerNotAfter, caNotAfter: caNotAfter, startedAt: s.now()}
 }
@@ -136,7 +136,8 @@ func (a *clusterAlerts) check(ctx context.Context) error {
 	}
 
 	renew := "run orch cluster certificates renew on the controller host"
-	a.certificate(active, now, "controller certificate", a.controllerNotAfter, renew)
+	a.certificate(active, now, "controller certificate", a.controllerNotAfter(),
+		"the controller renews it 45 days ahead, so renewal is failing; check its logs or "+renew)
 	a.certificate(active, now, "cluster CA certificate", a.caNotAfter, renew)
 	if s.administrators != nil {
 		for _, notAfter := range s.administrators.recent(now) {
