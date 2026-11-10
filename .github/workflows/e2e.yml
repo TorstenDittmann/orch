@@ -50,10 +50,12 @@ jobs:
         # controller treats it as an upgrade for workers on the latest release.
         # A prerelease of that tag's own version would sort below it.
         run: |
+          set -o pipefail
           latest="$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||; s|-.*||' | sort -V | tail -n 1)"
-          IFS=. read -r major minor patch <<<"${latest:-0.0.0}"
+          [[ -n "$latest" ]] || { echo "could not read the newest release tag" >&2; exit 1; }
+          IFS=. read -r major minor patch <<<"$latest"
           version="${major}.${minor}.$((patch + 1))-e2e.${GITHUB_RUN_NUMBER}"
-          echo "Building $version (newest tag: ${latest:-none})"
+          echo "Building $version (newest tag: v$latest)"
           make build VERSION="$version" && cp bin/orch "$RUNNER_TEMP/orch-head"
       - name: Fresh install
         if: ${{ !matrix.upgrade }}
