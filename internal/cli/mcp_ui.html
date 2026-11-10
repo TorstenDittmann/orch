@@ -323,6 +323,11 @@ function appView(app, options) {
 // deployView shows a deploy, rollback or rollout wait, and follows the
 // rollout through app_status until it is ready or fails.
 function deployView(result) {
+  // rollback without wait nests the accepted revision under "deployment".
+  if (result.deployment) {
+    const d = result.deployment;
+    result = { application: d.name, generation: d.generation, revision_id: d.revision_id, status: "PENDING", changed: d.changed };
+  }
   const name = result.application;
   const generation = result.generation || 0;
   const status = String(result.status || "").toLowerCase().replace(/_/g, " ");
