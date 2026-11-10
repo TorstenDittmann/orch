@@ -196,6 +196,7 @@ func isSQLite(name string) bool {
 // snapshotSQLite copies a live database with SQLite's online backup. It opens
 // the database read-only so the copy never changes its journal mode.
 func snapshotSQLite(ctx context.Context, name, scratch string) (string, error) {
+	defer unjamSQLiteFIFOs(name)()
 	temporary, err := os.CreateTemp(scratch, "sqlite-*.db")
 	if err != nil {
 		return "", err
