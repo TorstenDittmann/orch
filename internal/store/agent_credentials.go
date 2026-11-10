@@ -152,3 +152,53 @@ func DecorateCertificateState(node *model.Node, now time.Time) {
 	}
 	node.CertificateState, node.CertificateReason = certificateState(*node, now)
 }
+
+// AdoptNewerAgentCertificate records an agent certificate the controller
+// issued but no longer remembers, which happens after restoring a backup taken
+// before the agent's last renewal. The caller has already verified the chain
+// to the cluster CA and the node identity in it. Only a certificate for the
+// enrolled key that outlives every recorded one is adopted, so certificates
+// retired by a renewal the database does remember stay rejected.
+func (s *Store) AdoptNewerAgentCertificate(ctx context.Context, nodeID, serial, publicKeyHash string, certificatePEM []byte, notAfter, now time.Time) (bool, error) {
+	if nodeID == "" || serial == "" || len(certificatePEM) == 0 || notAfter.IsZero() {
+		return false, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin agent certificate adoption: %w", err)
+	}
+	defer tx.Rollback()
+	node, err := nodeByIDInTransaction(ctx, tx, nodeID)
+	if err != nil {
+		return false, err
+	}
+	if node.Lifecycle == model.NodeLifecycleRemoved || node.PublicKeyHash != publicKeyHash ||
+		serial == node.CertificateSerial || serial == node.PendingCertificateSerial ||
+		!notAfter.After(node.CertificateNotAfter) ||
+		(node.PendingCertificateNotAfter != nil && !notAfter.After(*node.PendingCertificateNotAfter)) {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE nodes SET certificate_serial = ?, certificate_pem = ?, certificate_not_after = ?,
+		pending_certificate_serial = '', pending_certificate_pem = X'', pending_certificate_not_after = '',
+		pending_certificate_request_hash = '', pending_certificate_issued_at = ''
+		WHERE id = ? AND certificate_serial = ? AND lifecycle != 'REMOVED'`, serial, certificatePEM,
+		notAfter.UTC().Format(time.RFC3339Nano), nodeID, node.CertificateSerial)
+	if err != nil {
+		return false, fmt.Errorf("adopt agent certificate: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return false, nil
+	}
+	payload, _ := json.Marshal(struct {
+		NodeID  string `json:"node_id"`
+		Adopted bool   `json:"adopted"`
+	}{nodeID, true})
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events(cluster_id, kind, payload, created_at) VALUES (?, ?, ?, ?)`,
+		node.ClusterID, model.EventCertificateActivated, string(payload), now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return false, fmt.Errorf("record agent certificate adoption: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit agent certificate adoption: %w", err)
+	}
+	return true, nil
+}
