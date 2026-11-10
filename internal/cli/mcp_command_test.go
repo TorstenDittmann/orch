@@ -96,7 +96,7 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 	if response := session.request("ping", nil); response["error"] != nil {
 		t.Fatalf("ping = %v", response)
 	}
-	if response := session.request("resources/list", nil); response["error"].(map[string]any)["code"] != float64(-32601) {
+	if response := session.request("prompts/list", nil); response["error"].(map[string]any)["code"] != float64(-32601) {
 		t.Fatalf("unknown method = %v", response)
 	}
 
@@ -268,5 +268,62 @@ func TestMCPCommandRejectsArguments(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"mcp", "extra"}, &stdout, &stderr); code != ExitInvalid {
 		t.Fatalf("code = %d", code)
+	}
+}
+
+func TestMCPUIViews(t *testing.T) {
+	// A client without MCP Apps gets plain tools.
+	plain := startMCPTestSession(t, newMCPServer("", mcpChanges))
+	plain.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}})
+	for _, tool := range plain.request("tools/list", nil)["result"].(map[string]any)["tools"].([]any) {
+		if tool.(map[string]any)["_meta"] != nil {
+			t.Fatalf("tool offered a view to a client without MCP Apps: %v", tool)
+		}
+	}
+
+	server := newMCPServer("", mcpChanges)
+	server.run = func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+		_, _ = io.WriteString(stdout, `{"applications":[{"name":"shop","execution_status":9}]}`+"\n")
+		return ExitOK
+	}
+	session := startMCPTestSession(t, server)
+	session.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{
+		"extensions": map[string]any{mcpUIExtension: map[string]any{"mimeTypes": []any{mcpUIMimeType}}}}})
+	views := map[string]string{}
+	for _, tool := range session.request("tools/list", nil)["result"].(map[string]any)["tools"].([]any) {
+		definition := tool.(map[string]any)
+		if meta, ok := definition["_meta"].(map[string]any); ok {
+			views[definition["name"].(string)] = meta["ui"].(map[string]any)["resourceUri"].(string)
+		}
+	}
+	want := map[string]string{"status": "ui://orch/cluster", "list_apps": "ui://orch/apps", "app_status": "ui://orch/app",
+		"deploy": "ui://orch/deploy", "rollback": "ui://orch/deploy", "wait_for_rollout": "ui://orch/deploy"}
+	if !reflect.DeepEqual(views, want) {
+		t.Fatalf("views = %v", views)
+	}
+
+	listed := session.request("resources/list", nil)["result"].(map[string]any)["resources"].([]any)
+	if len(listed) != len(mcpViews) {
+		t.Fatalf("resources = %v", listed)
+	}
+	for _, uri := range want {
+		read := session.request("resources/read", map[string]any{"uri": uri})["result"].(map[string]any)["contents"].([]any)[0].(map[string]any)
+		page := read["text"].(string)
+		if read["mimeType"] != mcpUIMimeType || read["uri"] != uri || strings.Contains(page, "ORCH_CONFIG") ||
+			!strings.Contains(page, `"view":"`+strings.TrimPrefix(uri, "ui://orch/")+`"`) || !strings.Contains(page, "EXECUTION_STATUS_HEALTHY") {
+			t.Fatalf("resource %s = %v", uri, read["mimeType"])
+		}
+	}
+	if response := session.request("resources/read", map[string]any{"uri": "ui://orch/nope"}); response["error"] == nil {
+		t.Fatalf("unknown resource = %v", response)
+	}
+
+	result := session.request("tools/call", map[string]any{"name": "list_apps", "arguments": map[string]any{}})["result"].(map[string]any)
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok || structured["applications"].([]any)[0].(map[string]any)["name"] != "shop" {
+		t.Fatalf("list_apps result = %v", result)
+	}
+	if result := session.request("tools/call", map[string]any{"name": "list_nodes", "arguments": map[string]any{}})["result"].(map[string]any); result["structuredContent"] != nil {
+		t.Fatalf("tool without a view returned structured content: %v", result)
 	}
 }

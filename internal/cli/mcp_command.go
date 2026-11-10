@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // orch mcp serves the CLI to AI assistants over the Model Context Protocol
@@ -66,6 +67,10 @@ type mcpTool struct {
 	remote bool
 	// json appends --json; the command prints text otherwise.
 	json bool
+	// ui names the view (see mcpViews) that clients supporting MCP Apps show
+	// with the result; the command's JSON is passed to it as structured
+	// content.
+	ui string
 	// build returns the orch arguments, any arguments after --, and stdin.
 	build func(mcpArgs) (args, command []string, input string, err error)
 }
@@ -110,6 +115,9 @@ type mcpServer struct {
 	byName map[string]mcpTool
 	// run executes one orch command; tests replace it.
 	run func(ctx context.Context, args []string, stdout, stderr io.Writer) int
+
+	// ui is set when the client can show MCP Apps views.
+	ui atomic.Bool
 
 	writeMu  sync.Mutex
 	cancelMu sync.Mutex
@@ -248,27 +256,39 @@ func (s *mcpServer) handle(request mcpRequest) (any, *mcpError) {
 	switch request.Method {
 	case "initialize":
 		var params struct {
-			ProtocolVersion string `json:"protocolVersion"`
+			ProtocolVersion string          `json:"protocolVersion"`
+			Capabilities    json.RawMessage `json:"capabilities"`
 		}
 		_ = json.Unmarshal(request.Params, &params)
 		version := mcpLatestProtocol
 		if mcpProtocols[params.ProtocolVersion] {
 			version = params.ProtocolVersion
 		}
+		s.ui.Store(mcpClientSupportsUI(params.Capabilities))
 		return map[string]any{
 			"protocolVersion": version,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "orch", "title": "orch", "version": Version},
-			"instructions":    mcpInstructions,
+			"capabilities": map[string]any{
+				"tools":      map[string]any{"listChanged": false},
+				"resources":  map[string]any{"listChanged": false},
+				"extensions": map[string]any{mcpUIExtension: map[string]any{}},
+			},
+			"serverInfo":   map[string]any{"name": "orch", "title": "orch", "version": Version},
+			"instructions": mcpInstructions,
 		}, nil
 	case "ping":
 		return struct{}{}, nil
 	case "tools/list":
 		tools := make([]map[string]any, 0, len(s.tools))
 		for _, tool := range s.tools {
-			tools = append(tools, tool.definition())
+			tools = append(tools, tool.definition(s.ui.Load()))
 		}
 		return map[string]any{"tools": tools}, nil
+	case "resources/list":
+		return s.listResources(), nil
+	case "resources/templates/list":
+		return map[string]any{"resourceTemplates": []any{}}, nil
+	case "resources/read":
+		return s.readResource(request.Params)
 	case "notifications/cancelled":
 		var params struct {
 			RequestID json.RawMessage `json:"requestId"`
@@ -300,17 +320,30 @@ func (s *mcpServer) callTool(ctx context.Context, raw json.RawMessage) (any, *mc
 	if !ok {
 		return nil, &mcpError{Code: -32602, Message: "unknown tool: " + params.Name}
 	}
-	text, failed := s.invoke(ctx, tool, mcpArgs(params.Arguments))
-	return map[string]any{
+	text, stdout, failed := s.invokeOutput(ctx, tool, mcpArgs(params.Arguments))
+	result := map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 		"isError": failed,
-	}, nil
+	}
+	if tool.ui != "" && len(stdout) <= mcpMaxOutput {
+		if structured := mcpStructured(stdout); structured != nil {
+			result["structuredContent"] = structured
+		}
+	}
+	return result, nil
 }
 
 func (s *mcpServer) invoke(ctx context.Context, tool mcpTool, arguments mcpArgs) (string, bool) {
+	text, _, failed := s.invokeOutput(ctx, tool, arguments)
+	return text, failed
+}
+
+// invokeOutput runs a tool's command and returns the text for the model, the
+// command's standard output alone, and whether it failed.
+func (s *mcpServer) invokeOutput(ctx context.Context, tool mcpTool, arguments mcpArgs) (string, string, bool) {
 	args, command, input, err := tool.build(arguments)
 	if err != nil {
-		return err.Error(), true
+		return err.Error(), "", true
 	}
 	if tool.json {
 		args = append(args, "--json")
@@ -318,7 +351,7 @@ func (s *mcpServer) invoke(ctx context.Context, tool mcpTool, arguments mcpArgs)
 	if tool.remote {
 		target := s.target
 		if value, err := arguments.str("target"); err != nil {
-			return err.Error(), true
+			return err.Error(), "", true
 		} else if value != "" {
 			target = value
 		}
@@ -347,10 +380,10 @@ func (s *mcpServer) invoke(ctx context.Context, tool mcpTool, arguments mcpArgs)
 	if len(text) > mcpMaxOutput {
 		text = text[:mcpMaxOutput] + "\n[output truncated]"
 	}
-	return text, code != ExitOK
+	return text, stdout.String(), code != ExitOK
 }
 
-func (tool mcpTool) definition() map[string]any {
+func (tool mcpTool) definition(ui bool) map[string]any {
 	properties := map[string]any{}
 	required := []string{}
 	params := tool.params
@@ -370,7 +403,7 @@ func (tool mcpTool) definition() map[string]any {
 			required = append(required, param.name)
 		}
 	}
-	return map[string]any{
+	definition := map[string]any{
 		"name":        tool.name,
 		"title":       tool.title,
 		"description": tool.description,
@@ -383,6 +416,11 @@ func (tool mcpTool) definition() map[string]any {
 			"openWorldHint":   tool.remote,
 		},
 	}
+	if ui && tool.ui != "" {
+		uri := mcpViewURI(tool.ui)
+		definition["_meta"] = map[string]any{"ui": map[string]any{"resourceUri": uri}, "ui/resourceUri": uri}
+	}
+	return definition
 }
 
 // mcpArgs reads tool arguments, rejecting values of the wrong type.
@@ -587,16 +625,16 @@ func mcpTools() []mcpTool {
 			params:      []mcpParam{mcpFile, mcpRoot}, build: mcpCommand([]string{"render"}, manifestFields)},
 
 		// Cluster state.
-		{name: "status", title: "Cluster status", readOnly: true, idempotent: true, remote: true, json: true,
+		{name: "status", title: "Cluster status", readOnly: true, idempotent: true, remote: true, json: true, ui: "cluster",
 			description: "Show the cluster: name, server, network, certificate expiry and controller backups.",
 			build:       mcpCommand([]string{"status"}, nil)},
 		{name: "list_nodes", title: "List nodes", readOnly: true, idempotent: true, remote: true, json: true,
 			description: "List the cluster's nodes with their state, labels, ingress and resources.",
 			build:       mcpCommand([]string{"nodes"}, nil)},
-		{name: "list_apps", title: "List applications", readOnly: true, idempotent: true, remote: true, json: true,
+		{name: "list_apps", title: "List applications", readOnly: true, idempotent: true, remote: true, json: true, ui: "apps",
 			description: "List every application on the cluster with its revision and rollout status.",
 			build:       mcpCommand([]string{"app", "list"}, nil)},
-		{name: "app_status", title: "Application status", readOnly: true, idempotent: true, remote: true, json: true,
+		{name: "app_status", title: "Application status", readOnly: true, idempotent: true, remote: true, json: true, ui: "app",
 			description: "Show an application's replicas, health, routes, ports and cron jobs, with the reason anything is not ready.",
 			params:      []mcpParam{mcpApp},
 			build:       mcpCommand([]string{"app", "status"}, func(b *mcpBuilder) { b.positional("app", true) })},
@@ -618,7 +656,7 @@ func mcpTools() []mcpTool {
 				b.positional("app", true)
 				b.positional("revision", true)
 			})},
-		{name: "wait_for_rollout", title: "Wait for rollout", readOnly: true, idempotent: true, remote: true, json: true,
+		{name: "wait_for_rollout", title: "Wait for rollout", readOnly: true, idempotent: true, remote: true, json: true, ui: "deploy",
 			description: "Wait until an application's revision is ready or fails, and report the outcome.",
 			params:      []mcpParam{mcpApp, {name: "revision", kind: "string", description: "revision to wait for (default the current desired state)"}, mcpTimeout},
 			build: mcpCommand([]string{"app", "watch"}, func(b *mcpBuilder) {
@@ -647,7 +685,7 @@ func mcpTools() []mcpTool {
 			})},
 
 		// Deploying.
-		{name: "deploy", title: "Deploy", remote: true, json: true,
+		{name: "deploy", title: "Deploy", remote: true, json: true, ui: "deploy",
 			description: "Deploy the application described by a manifest. Validate and plan first; use wait=true to report when it is ready.",
 			params:      []mcpParam{mcpFile, mcpRoot, mcpWait, mcpTimeout},
 			build: mcpCommand([]string{"deploy"}, func(b *mcpBuilder) {
@@ -655,7 +693,7 @@ func mcpTools() []mcpTool {
 				b.boolFlag("wait", "wait")
 				b.stringFlag("timeout", "timeout")
 			})},
-		{name: "rollback", title: "Roll back", remote: true, json: true,
+		{name: "rollback", title: "Roll back", remote: true, json: true, ui: "deploy",
 			description: "Return an application to an earlier revision from app_history.",
 			params:      []mcpParam{mcpApp, {name: "revision", kind: "string", description: "revision ID to return to", required: true}, mcpWait, mcpTimeout},
 			build: mcpCommand([]string{"rollback"}, func(b *mcpBuilder) {
