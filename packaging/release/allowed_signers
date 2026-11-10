@@ -3,3 +3,4 @@
 # (repository secret ORCH_RELEASE_SIGNING_KEY); install.sh, install.ps1 and
 # the controller's agent download check that signature. Generate the key once
 # with scripts/release-signing-key.sh.
+orch-release namespaces="orch-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPGudEXfUCi4f0a0SwFVJeEUfcXhxb97z8VuY4VHgA12 orch-release 2026-11-10
