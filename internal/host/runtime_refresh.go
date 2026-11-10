@@ -40,13 +40,45 @@ func installedContainerdVersion(output string) string {
 	return match[1]
 }
 
+// runtimeUndo puts back the containerd that a refresh replaced, for when the
+// rest of the upgrade fails and the previous orch, which may accept only the
+// older daemon, comes back.
+type runtimeUndo struct {
+	prefix   string
+	stage    string
+	targets  []string
+	previous map[string]string
+	run      Command
+}
+
+// revert restores the previous daemon and shim, restarts containerd and puts
+// the previous digests back into files.
+func (u *runtimeUndo) revert(ctx context.Context, files map[string]string) error {
+	defer u.discard()
+	for _, target := range u.targets {
+		if err := replaceRegular(filepath.Join(u.stage, "previous", target), filepath.Join(u.prefix, target), 0755); err != nil {
+			return fmt.Errorf("restore previous containerd: %w", err)
+		}
+	}
+	if _, err := u.run(ctx, "systemctl", "restart", "orch-containerd.service"); err != nil {
+		return fmt.Errorf("restart previous containerd: %w", err)
+	}
+	for path, digest := range u.previous {
+		files[path] = digest
+	}
+	return nil
+}
+
+// discard drops the backup once the upgrade no longer needs it.
+func (u *runtimeUndo) discard() { os.RemoveAll(u.stage) }
+
 // apply refreshes containerd when needed. files is the installation
 // manifest's owned-file map; it is updated with the new digests on success.
-// It reports whether the daemon was replaced.
-func (r runtimeRefresh) apply(ctx context.Context, files map[string]string) (bool, error) {
+// It returns an undo when the daemon was replaced and nil when it was current.
+func (r runtimeRefresh) apply(ctx context.Context, files map[string]string) (*runtimeUndo, error) {
 	artifacts, err := Artifacts(r.arch)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	var bundled *Artifact
 	for index := range artifacts {
@@ -55,19 +87,19 @@ func (r runtimeRefresh) apply(ctx context.Context, files map[string]string) (boo
 		}
 	}
 	if bundled == nil {
-		return false, errors.New("the node bundle has no containerd")
+		return nil, errors.New("the node bundle has no containerd")
 	}
 	daemon := filepath.Join(r.prefix, "bin", "containerd")
 	output, err := r.run(ctx, daemon, "--version")
 	if err != nil {
-		return false, fmt.Errorf("read installed containerd version: %w", err)
+		return nil, fmt.Errorf("read installed containerd version: %w", err)
 	}
 	installed := installedContainerdVersion(output)
 	if installed == "" {
-		return false, fmt.Errorf("unrecognized containerd version output %q", strings.TrimSpace(output))
+		return nil, fmt.Errorf("unrecognized containerd version output %q", strings.TrimSpace(output))
 	}
 	if installed == strings.TrimPrefix(bundled.Version, "v") {
-		return false, nil
+		return nil, nil
 	}
 	targets := make([]string, 0, len(bundled.Files))
 	for _, target := range bundled.Files {
@@ -82,41 +114,46 @@ func (r runtimeRefresh) apply(ctx context.Context, files map[string]string) (boo
 		path := filepath.Join(r.prefix, target)
 		recorded, owned := files[path]
 		if !owned {
-			return false, fmt.Errorf("refusing unowned file: %s", path)
+			return nil, fmt.Errorf("refusing unowned file: %s", path)
 		}
 		if err := verifyHash(path, recorded); err != nil {
-			return false, fmt.Errorf("owned content changed: %s", path)
+			return nil, fmt.Errorf("owned content changed: %s", path)
 		}
 	}
 	stage, err := os.MkdirTemp(r.stateDir, "runtime-refresh-*")
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	defer os.RemoveAll(stage)
+	undo := &runtimeUndo{prefix: r.prefix, stage: stage, targets: targets, previous: map[string]string{}, run: r.run}
+	keep := false
+	defer func() {
+		if !keep {
+			undo.discard()
+		}
+	}()
 	downloaded := filepath.Join(stage, bundled.Name)
 	if err := r.fetch(ctx, *bundled, downloaded); err != nil {
-		return false, err
+		return nil, err
 	}
 	unpacked := filepath.Join(stage, "unpacked")
 	if err := extract(*bundled, downloaded, unpacked); err != nil {
-		return false, err
+		return nil, err
 	}
 	backup := filepath.Join(stage, "previous")
 	for _, target := range targets {
 		if err := copyRegular(filepath.Join(r.prefix, target), filepath.Join(backup, target), 0755); err != nil {
-			return false, err
+			return nil, err
 		}
 	}
-	restore := func(cause error) (bool, error) {
-		for _, target := range targets {
-			if err := replaceRegular(filepath.Join(backup, target), filepath.Join(r.prefix, target), 0755); err != nil {
-				return false, fmt.Errorf("%v; restore previous containerd: %w", cause, err)
-			}
+	for _, target := range targets {
+		path := filepath.Join(r.prefix, target)
+		undo.previous[path] = files[path]
+	}
+	restore := func(cause error) (*runtimeUndo, error) {
+		if err := undo.revert(ctx, files); err != nil {
+			return nil, fmt.Errorf("%v; %w", cause, err)
 		}
-		if _, err := r.run(ctx, "systemctl", "restart", "orch-containerd.service"); err != nil {
-			return false, fmt.Errorf("%v; restart previous containerd: %w", cause, err)
-		}
-		return false, cause
+		return nil, cause
 	}
 	for _, target := range targets {
 		if err := replaceRegular(filepath.Join(unpacked, target), filepath.Join(r.prefix, target), 0755); err != nil {
@@ -129,9 +166,10 @@ func (r runtimeRefresh) apply(ctx context.Context, files map[string]string) (boo
 	for _, target := range targets {
 		digest, err := hashFile(filepath.Join(r.prefix, target))
 		if err != nil {
-			return true, err
+			return restore(err)
 		}
 		files[filepath.Join(r.prefix, target)] = digest
 	}
-	return true, nil
+	keep = true
+	return undo, nil
 }

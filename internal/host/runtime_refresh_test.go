@@ -47,9 +47,9 @@ func TestRuntimeRefreshSkipsCurrentContainerd(t *testing.T) {
 			t.Fatal("a current containerd must not be downloaded")
 			return nil
 		}}
-	changed, err := refresh.apply(context.Background(), map[string]string{})
-	if err != nil || changed {
-		t.Fatalf("apply = %v, %v", changed, err)
+	undo, err := refresh.apply(context.Background(), map[string]string{})
+	if err != nil || undo != nil {
+		t.Fatalf("apply = %v, %v", undo, err)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("calls = %v, want only the version check", calls)
@@ -89,5 +89,49 @@ func TestRuntimeRefreshRefusesChangedFiles(t *testing.T) {
 	files[shim] = digest
 	if _, err := refresh.apply(context.Background(), files); err == nil || !strings.Contains(err.Error(), "unowned") {
 		t.Fatalf("apply error = %v", err)
+	}
+}
+
+// A rolled-back upgrade must leave the containerd the previous orch accepts.
+func TestRuntimeUndoRestoresThePreviousContainerd(t *testing.T) {
+	prefix, stage := t.TempDir(), t.TempDir()
+	targets := []string{"bin/containerd-shim-runc-v2", "bin/containerd"}
+	files, previous := map[string]string{}, map[string]string{}
+	for _, target := range targets {
+		for dir, content := range map[string]string{prefix: "new " + target, filepath.Join(stage, "previous"): "old " + target} {
+			path := filepath.Join(dir, target)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		path := filepath.Join(prefix, target)
+		files[path], previous[path] = "new-digest", "old-digest"
+	}
+	var calls []string
+	undo := &runtimeUndo{prefix: prefix, stage: stage, targets: targets, previous: previous,
+		run: func(_ context.Context, name string, args ...string) (string, error) {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			return "", nil
+		}}
+	if err := undo.revert(context.Background(), files); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		path := filepath.Join(prefix, target)
+		if content, err := os.ReadFile(path); err != nil || string(content) != "old "+target {
+			t.Fatalf("%s = %q, %v", target, content, err)
+		}
+		if files[path] != "old-digest" {
+			t.Fatalf("manifest digest for %s = %q", target, files[path])
+		}
+	}
+	if len(calls) != 1 || calls[0] != "systemctl restart orch-containerd.service" {
+		t.Fatalf("calls = %v", calls)
+	}
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("backup was kept after the revert: %v", err)
 	}
 }
