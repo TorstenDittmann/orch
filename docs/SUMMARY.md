@@ -19,6 +19,7 @@
   - [Targets and interfaces](targets.md)
   - [AI assistants](ai.md)
 - Operations
+  - [Production checklist](production.md)
   - [Cluster operations](operations.md)
   - [Security and recovery](security.md)
   - [Troubleshooting](troubleshooting.md)

@@ -320,19 +320,17 @@ checks the complete network slice and isolated-ACME prerequisites before
 running it; see
 [docs/runtime.md](docs/runtime.md#privileged-runtime-verification).
 
-## Status and roadmap
+## Status
 
-Work is split into reviewable vertical slices:
-
-1. Configuration and CLI contract.
-2. Secure single-node controller/agent/runtime.
-3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
-4. Multi-node scheduling and WireGuard routing.
-5. Secrets and operator workflows (implemented ahead of multi-node).
-6. Packaging and release hardening.
+orch is heading for 1.0. The `v1` manifest schema is frozen, and
+[docs/compatibility.md](docs/compatibility.md) says what stays stable across
+1.x releases. Before running a cluster in production, work through
+[docs/production.md](docs/production.md).
 
 Tagging `vX.Y.Z` publishes a GitHub release with stamped Linux, macOS and
-Windows binaries for amd64 and arm64, and `SHA256SUMS`.
+Windows binaries for amd64 and arm64, `SHA256SUMS`, its signature and build
+provenance attestations. Every pull request also installs orch on real GitHub
+runners, fresh and as an upgrade from the latest release.
 
 ## License
 
