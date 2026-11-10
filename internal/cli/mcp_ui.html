@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orch</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: var(--color-background-primary, #ffffff);
+  --bg2: var(--color-background-secondary, #f5f5f4);
+  --fg: var(--color-text-primary, #1c1917);
+  --fg2: var(--color-text-secondary, #57534e);
+  --line: var(--color-border-primary, #e7e5e4);
+  --ok: var(--color-text-success, #15803d);
+  --info: var(--color-text-info, #1d4ed8);
+  --warn: var(--color-text-warning, #a16207);
+  --bad: var(--color-text-danger, #b91c1c);
+  --sans: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --radius: var(--border-radius-md, 8px);
+}
+:root[data-theme="dark"] {
+  --bg: var(--color-background-primary, #1c1917);
+  --bg2: var(--color-background-secondary, #292524);
+  --fg: var(--color-text-primary, #fafaf9);
+  --fg2: var(--color-text-secondary, #a8a29e);
+  --line: var(--color-border-primary, #44403c);
+  --ok: var(--color-text-success, #4ade80);
+  --info: var(--color-text-info, #93c5fd);
+  --warn: var(--color-text-warning, #facc15);
+  --bad: var(--color-text-danger, #f87171);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
+main { padding: 14px 16px; }
+header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+h1 { font-size: 16px; margin: 0; font-weight: 600; }
+h2 { font-size: 12px; margin: 16px 0 6px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .04em; }
+.sub { color: var(--fg2); font-size: 12px; }
+.spacer { flex: 1; }
+button { font: inherit; font-size: 12px; color: var(--fg); background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); padding: 3px 10px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ok { color: var(--ok); } .info { color: var(--info); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--fg2); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--fg2); font-size: 12px; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg2); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+.grid > :nth-child(odd) { color: var(--fg2); }
+.note { margin-top: 2px; font-size: 12px; color: var(--fg2); white-space: pre-wrap; word-break: break-word; }
+.box { background: var(--bg2); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.5 var(--mono); }
+a { color: var(--info); text-decoration: none; cursor: pointer; } a:hover { text-decoration: underline; }
+.scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main id="root"><p class="sub">Loading…</p></main>
+<script>window.orch = ORCH_CONFIG;</script>
+<script>
+"use strict";
+// MCP Apps view for orch. It talks to the host over postMessage JSON-RPC:
+// ui/initialize, then the host sends the tool's input and result, and the view
+// can call orch's read-only tools through the host to refresh itself.
+// Everything shown comes from the cluster, and application-controlled text is
+// only ever inserted as text, never as HTML.
+const view = window.orch.view;
+const enums = window.orch.enums;
+const root = document.getElementById("root");
+let nextID = 1;
+const pending = new Map();
+let args = {};
+let pollTimer = null;
+
+function post(message) { window.parent.postMessage(Object.assign({ jsonrpc: "2.0" }, message), "*"); }
+function request(method, params) {
+  const id = nextID++;
+  post({ id, method, params });
+  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+}
+function notify(method, params) { post({ method, params }); }
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window.parent) return;
+  const message = event.data;
+  if (!message || message.jsonrpc !== "2.0") return;
+  if (message.id != null && !message.method) {
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    if (message.error) waiter.reject(new Error(message.error.message || "request failed"));
+    else waiter.resolve(message.result);
+    return;
+  }
+  if (message.id != null) {
+    // Host requests such as ping and ui/resource-teardown need an answer.
+    if (message.method === "ui/resource-teardown") clearTimeout(pollTimer);
+    post({ id: message.id, result: {} });
+    return;
+  }
+  switch (message.method) {
+    case "ui/notifications/tool-input": args = (message.params && message.params.arguments) || {}; break;
+    case "ui/notifications/tool-result": show(message.params); break;
+    case "ui/notifications/tool-cancelled": render(h("p", { class: "sub" }, "Cancelled.")); break;
+    case "ui/notifications/host-context-changed": applyContext(message.params); break;
+  }
+});
+
+function applyContext(context) {
+  if (!context) return;
+  if (context.theme) document.documentElement.dataset.theme = context.theme;
+  const variables = context.styles && context.styles.variables;
+  if (variables) for (const [name, value] of Object.entries(variables)) if (value) document.documentElement.style.setProperty(name, value);
+}
+
+// h builds an element; strings become text nodes, so data cannot inject markup.
+function h(tag, attrs, ...children) {
+  const element = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (value == null || value === false) continue;
+    if (key.startsWith("on")) element.addEventListener(key.slice(2), value);
+    else element.setAttribute(key, value);
+  }
+  for (const child of children.flat(Infinity)) {
+    if (child == null || child === false) continue;
+    element.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return element;
+}
+// fill replaces an element's children, skipping empty ones.
+function fill(element, ...nodes) { element.replaceChildren(...nodes.flat(Infinity).filter((node) => node != null && node !== false)); }
+function render(...nodes) { fill(root, ...nodes); }
+
+// Enums arrive as numbers (or names); show them as short lowercase words.
+function enumName(kind, value) {
+  const name = typeof value === "string" ? value : (enums[kind] || {})[value || 0] || "";
+  return name.replace(/^(EXECUTION_STATUS|ALLOCATION_PHASE|HEALTH_STATUS|ROUTE_STATE|JOB_RUN_STATE)_/, "").toLowerCase().replace(/_/g, " ");
+}
+function tone(word) {
+  if (/^(healthy|running|ready|active|succeeded|valid|issued)$/.test(word)) return "ok";
+  if (/^(pending|starting|pulling|checking|waiting)$/.test(word)) return "info";
+  if (/^(degraded|backoff|blocked|stopping|skipped)$/.test(word)) return "warn";
+  if (/^(failed|unhealthy|timed out|rolled back|canceled)$/.test(word)) return "bad";
+  return "muted";
+}
+function badge(word) { return word && word !== "unspecified" ? h("span", { class: "badge " + tone(word) }, word) : h("span", { class: "muted" }, "–"); }
+
+function toDate(value) {
+  if (!value) return null;
+  if (typeof value === "string") return new Date(value);
+  if (typeof value === "object" && value.seconds != null) return new Date(Number(value.seconds) * 1000 + Math.floor((value.nanos || 0) / 1e6));
+  return null;
+}
+function ago(value) {
+  const date = toDate(value);
+  if (!date || isNaN(date)) return "–";
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const units = [["day", 86400], ["hour", 3600], ["minute", 60], ["second", 1]];
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size || unit === "second") {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(Math.round(seconds / size), unit);
+    }
+  }
+}
+function short(revision) { return revision ? String(revision).slice(0, 12) : "–"; }
+function openLink(url) { request("ui/open-link", { url }).catch(() => {}); }
+
+// Tool results carry the command's JSON as structuredContent; fall back to
+// parsing the text, and to showing the text when it is not JSON.
+function payload(result) {
+  if (!result) return { text: "No result." };
+  if (result.structuredContent) return { data: result.structuredContent };
+  const text = (result.content || []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  if (!result.isError) { try { const data = JSON.parse(text); if (data && typeof data === "object") return { data }; } catch (_) {} }
+  return { text: text || "No output.", failed: !!result.isError };
+}
+async function callTool(name, extra) {
+  const params = Object.assign({}, extra);
+  if (args.target) params.target = args.target;
+  return payload(await request("tools/call", { name, arguments: params }));
+}
+
+function header(title, subtitle, refresh) {
+  const button = refresh ? h("button", { onclick: async () => { button.disabled = true; try { await refresh(); } finally { button.disabled = false; } } }, "Refresh") : null;
+  return h("header", {}, h("h1", {}, title), subtitle ? h("span", { class: "sub" }, subtitle) : null, h("span", { class: "spacer" }), button);
+}
+function failure(title, text) { return [header(title), h("div", { class: "box" }, h("pre", {}, text))]; }
+
+// Views.
+
+function clusterView(status) {
+  const now = Date.now();
+  const expiry = (value) => {
+    const date = toDate(value);
+    if (!date) return null;
+    const days = (date.getTime() - now) / 86400000;
+    return h("span", { class: days < 0 ? "bad" : days < 30 ? "warn" : "" }, "expires " + ago(value));
+  };
+  const backup = status.backup;
+  let backupCell = h("span", { class: "muted" }, "not reported");
+  if (backup) {
+    if (!backup.enabled) backupCell = h("span", { class: "warn" }, "off");
+    else if (backup.failure) backupCell = h("span", {}, h("span", { class: "bad" }, "failed " + ago(backup.failed_at)), h("div", { class: "note" }, backup.failure));
+    else if (backup.latest_at) {
+      const stale = now - toDate(backup.latest_at).getTime() > 48 * 3600000;
+      backupCell = h("span", { class: stale ? "warn" : "" }, "latest " + ago(backup.latest_at));
+    } else backupCell = h("span", { class: "muted" }, "none yet");
+  }
+  const rows = [
+    ["Server", h("span", { class: "mono" }, status.server || "–")],
+    ["Cluster ID", h("span", { class: "mono" }, status.cluster_id || "–")],
+    ["Network", h("span", {}, h("span", { class: "mono" }, status.workload_cidr || "–"), status.network_frozen ? " · frozen" : "")],
+    ["Created", ago(status.created_at)],
+    ["Admin certificate", expiry(status.administrator_certificate_not_after) || "–"],
+    ["Controller certificate", expiry(status.controller_certificate_not_after) || "–"],
+    ["Backups", backupCell],
+  ];
+  if (backup && backup.destination) {
+    rows.push(["Off-host copy", backup.upload_failure ? h("span", { class: "bad" }, "failed: " + backup.upload_failure) : backup.uploaded_at ? "uploaded " + ago(backup.uploaded_at) : h("span", { class: "muted" }, "not yet")]);
+  }
+  return [
+    header(status.name || "Cluster", "generation " + (status.generation || 0), () => refreshWith("status", {}, clusterView)),
+    h("div", { class: "grid" }, rows.map(([label, value]) => [h("div", {}, label), h("div", {}, value)])),
+  ];
+}
+
+function appsView(list) {
+  const applications = list.applications || [];
+  const top = header("Applications", applications.length + (applications.length === 1 ? " app" : " apps"), () => refreshWith("list_apps", {}, appsView));
+  if (applications.length === 0) return [top, h("p", { class: "sub" }, "No applications yet. Deploy one with the deploy tool.")];
+  return [top, h("div", { class: "scroll" }, h("table", {},
+    h("tr", {}, h("th", {}, "Name"), h("th", {}, "Status"), h("th", {}, "Revision"), h("th", {}, "Updated")),
+    applications.map((app) => h("tr", { class: "click", title: "Show " + app.name, onclick: () => openApp(app.name, list) },
+      h("td", {}, h("strong", {}, app.name), app.execution_reason ? h("div", { class: "note" }, app.execution_reason) : null),
+      h("td", {}, badge(enumName("ExecutionStatus", app.execution_status))),
+      h("td", { class: "mono" }, "#" + (app.generation || 0) + " " + short(app.revision_id)),
+      h("td", { class: "muted" }, ago(app.execution_updated_at || app.updated_at)))),
+  ))];
+}
+
+async function openApp(name, list) {
+  render(header(name), h("p", { class: "sub" }, "Loading…"));
+  const result = await callTool("app_status", { app: name });
+  const back = h("button", { onclick: () => render(...appsView(list)) }, "← All apps");
+  if (!result.data) return render(back, ...failure(name, result.text));
+  render(back, ...appView(result.data));
+}
+
+function appView(app, options) {
+  options = options || {};
+  const status = enumName("ExecutionStatus", app.execution_status);
+  const nodes = [];
+  if (!options.embedded) {
+    nodes.push(header(app.name, "#" + (app.generation || 0) + " " + short(app.revision_id), () => refreshWith("app_status", { app: app.name }, appView)));
+  }
+  const summary = [
+    ["Status", h("span", {}, badge(status), app.execution_reason ? h("span", { class: "muted" }, " · " + app.execution_reason) : null)],
+    ["Revision", h("span", { class: "mono" }, "desired #" + (app.generation || 0) + ", observed #" + (app.observed_generation || 0) + ", active #" + (app.active_generation || 0))],
+    ["Updated", ago(app.execution_updated_at || app.updated_at)],
+  ];
+  nodes.push(h("div", { class: "grid" }, summary.map(([label, value]) => [h("div", {}, label), h("div", {}, value)])));
+  if (app.execution_message) nodes.push(h("div", { class: "box" }, h("pre", {}, app.execution_message)));
+
+  const allocations = (app.allocations || []).slice().sort((a, b) => (a.service || "").localeCompare(b.service || "") || (a.replica || 0) - (b.replica || 0));
+  if (allocations.length) {
+    nodes.push(h("h2", {}, "Replicas"), h("div", { class: "scroll" }, h("table", {},
+      h("tr", {}, h("th", {}, "Service"), h("th", {}, "Phase"), h("th", {}, "Health"), h("th", {}, "Node"), h("th", {}, "Restarts")),
+      allocations.map((a) => {
+        const phase = enumName("AllocationPhase", a.phase);
+        const health = enumName("HealthStatus", a.health_status);
+        const behind = app.generation && a.active_application_generation && a.active_application_generation < app.generation;
+        const trouble = tone(phase) === "bad" || tone(phase) === "warn" || tone(health) === "bad";
+        return h("tr", {},
+          h("td", {}, h("strong", {}, a.service), " #" + (a.replica || 1), behind ? h("span", { class: "muted" }, " · old revision") : null,
+            (a.reason && trouble) ? h("div", { class: "note" }, a.reason + (a.message ? ": " + a.message : "")) : null),
+          h("td", {}, badge(phase)),
+          h("td", {}, badge(health)),
+          h("td", { class: "muted" }, a.node_name || "–"),
+          h("td", { class: a.restart_count ? "warn" : "muted" }, String(a.restart_count || 0)));
+      }))));
+  }
+
+  const routes = app.routes || [];
+  const tcp = app.tcp_routes || [];
+  const ports = app.node_ports || [];
+  if (routes.length || tcp.length || ports.length) {
+    nodes.push(h("h2", {}, "Routes"), h("div", { class: "scroll" }, h("table", {},
+      routes.map((r) => {
+        const url = (r.https ? "https://" : "http://") + r.domain;
+        return h("tr", {},
+          h("td", {}, h("a", { onclick: () => openLink(url) }, url), r.reason && tone(enumName("RouteState", r.state)) !== "ok" ? h("div", { class: "note" }, r.reason) : null),
+          h("td", {}, badge(enumName("RouteState", r.state))),
+          h("td", { class: "muted" }, r.https ? "certificate " + (r.certificate_state || "–") : "http"));
+      }),
+      tcp.map((r) => h("tr", {},
+        h("td", { class: "mono" }, "tcp :" + r.public_port + " → " + r.service + ":" + r.target_port),
+        h("td", {}, badge(enumName("RouteState", r.state))),
+        h("td", { class: "muted" }, (r.upstream_count || 0) + " upstreams"))),
+      ports.map((p) => h("tr", {},
+        h("td", { class: "mono" }, (p.protocol || "tcp") + " " + (p.node_name || "*") + ":" + p.node_port + " → " + p.service + ":" + p.target_port),
+        h("td", {}, badge(enumName("RouteState", p.state))),
+        h("td", { class: "muted" }, "node port"))),
+    )));
+  }
+
+  const crons = app.cron_jobs || [];
+  if (crons.length) {
+    nodes.push(h("h2", {}, "Cron jobs"), h("div", { class: "scroll" }, h("table", {},
+      h("tr", {}, h("th", {}, "Job"), h("th", {}, "Last run"), h("th", {}, "Next run")),
+      crons.map((c) => h("tr", {},
+        h("td", {}, h("strong", {}, c.job), c.active_run_id ? h("span", { class: "info" }, " · running") : null),
+        h("td", {}, badge(enumName("JobRunState", c.last_state))),
+        h("td", { class: "muted" }, ago(c.next_run_at)))))));
+  }
+  return nodes;
+}
+
+// deployView shows a deploy, rollback or rollout wait, and follows the
+// rollout through app_status until it is ready or fails.
+function deployView(result) {
+  const name = result.application;
+  const generation = result.generation || 0;
+  const status = String(result.status || "").toLowerCase().replace(/_/g, " ");
+  const live = h("div", {});
+  const stateLine = h("span", {}, badge(status === "pending" ? "pending" : status));
+  const nodes = [
+    header(name ? "Deploy " + name : "Deploy", "#" + generation + " " + short(result.revision_id), name ? () => follow(true) : null),
+    h("div", { class: "grid" },
+      h("div", {}, "Rollout"), h("div", {}, stateLine),
+      result.changed === false ? [h("div", {}, "Change"), h("div", { class: "muted" }, "already current")] : null,
+      (result.preview_urls || []).length ? [h("div", {}, "Preview"), h("div", {}, result.preview_urls.map((url) => h("div", {}, h("a", { onclick: () => openLink(url) }, url))))] : null),
+    result.error ? h("div", { class: "box" }, h("pre", {}, result.error)) : null,
+    live,
+  ];
+  const started = Date.now();
+  async function follow(once) {
+    clearTimeout(pollTimer);
+    const current = await callTool("app_status", { app: name }).catch((error) => ({ text: error.message, failed: true }));
+    if (!current.data) { fill(live, h("div", { class: "box" }, h("pre", {}, current.text))); return; }
+    const app = current.data;
+    const outcome = rollout(app, generation, result.revision_id);
+    fill(stateLine, badge(outcome.word), outcome.detail ? h("span", { class: "muted" }, " · " + outcome.detail) : null);
+    fill(live, h("h2", {}, "Application"), ...appView(app, { embedded: true }));
+    if (!once && !outcome.done && Date.now() - started < 15 * 60000) pollTimer = setTimeout(() => follow(false), 2000);
+  }
+  if (name) follow(false);
+  return nodes;
+}
+
+// rollout mirrors orch's own readiness check for a deployed generation.
+function rollout(app, generation, revision) {
+  const status = enumName("ExecutionStatus", app.execution_status);
+  if (app.deleted) return { word: "failed", detail: "application was removed", done: true };
+  if (app.generation > generation) return { word: "superseded", detail: "by #" + app.generation, done: true };
+  if (app.generation !== generation || app.observed_generation !== generation) return { word: "pending", detail: "waiting for the controller", done: false };
+  if (status === "failed" || status === "rolled back") return { word: status, detail: app.execution_reason, done: true };
+  if (status === "removed" || status === "stopping") return { word: "failed", detail: "application is being removed", done: true };
+  if ((status === "running" || status === "healthy") && app.active_generation === generation && (!revision || app.active_revision_id === revision)) return { word: "ready", done: true };
+  return { word: status === "unspecified" ? "pending" : status, detail: app.execution_reason, done: false };
+}
+
+async function refreshWith(tool, extra, draw) {
+  const params = Object.assign({}, extra);
+  const result = await callTool(tool, params);
+  if (!result.data) return render(...failure(tool, result.text));
+  render(...draw(result.data));
+}
+
+const views = { cluster: clusterView, apps: appsView, app: appView, deploy: deployView };
+const titles = { cluster: "Cluster", apps: "Applications", app: "Application", deploy: "Deploy" };
+
+function show(result) {
+  clearTimeout(pollTimer);
+  const { data, text } = payload(result);
+  if (!data) return render(...failure(titles[view], text));
+  render(...views[view](data));
+}
+
+// Keep the host's frame as tall as the content.
+let lastHeight = 0;
+new ResizeObserver(() => {
+  const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
+  if (height !== lastHeight) { lastHeight = height; notify("ui/notifications/size-changed", { width: document.documentElement.scrollWidth, height }); }
+}).observe(document.documentElement);
+
+if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.dataset.theme = "dark";
+request("ui/initialize", {
+  protocolVersion: "2026-01-26",
+  appInfo: { name: "orch", version: window.orch.version },
+  appCapabilities: { availableDisplayModes: ["inline"] },
+}).then((result) => {
+  applyContext(result && result.hostContext);
+  notify("ui/notifications/initialized", {});
+}).catch(() => render(h("p", { class: "sub" }, "This view needs a host that supports MCP Apps.")));
+</script>
+</body>
+</html>

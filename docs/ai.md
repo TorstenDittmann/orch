@@ -48,6 +48,23 @@ Then ask in plain language, for example "why is the shop app not ready?",
 "deploy orch.pkl and wait for it", or "roll checkout back to yesterday's
 revision".
 
+## Interactive views
+
+In clients that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps),
+such as Claude, some tools answer with an interactive view next to the text
+the assistant reads:
+
+| Tool | View |
+| --- | --- |
+| `status` | The cluster's server, network, certificate expiry and backups |
+| `list_apps` | Every application and its rollout status; select one to open it |
+| `app_status` | Replicas with phase, health and restarts, routes and cron jobs |
+| `deploy`, `rollback`, `wait_for_rollout` | The rollout, followed live until it is ready or fails |
+
+Views refresh through orch's own read-only tools, with the same target and
+credentials, and need no setup. Clients without MCP Apps get the same text
+answers as before.
+
 ## Choosing the cluster and limiting access
 
 | Command | What the assistant gets |
