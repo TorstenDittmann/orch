@@ -52,7 +52,7 @@ revision".
 
 | Command | What the assistant gets |
 | --- | --- |
-| `orch mcp` | Tools that read, deploy, roll back and back up, against the selected target |
+| `orch mcp` | Tools that read, deploy, roll back, back up, log in to registries and label nodes, against the selected target |
 | `orch mcp --target staging` | The same tools, always against `staging` |
 | `orch mcp --allow-destructive` | Also the destructive tools, such as `exec`, `remove_app` and `set_secret` |
 | `orch mcp --read-only` | Only tools that read; nothing can be changed |

@@ -78,6 +78,19 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	flags.StringVar(&targetName, "target", "", "target for remote tools (defaults to the selected target)")
 	flags.BoolVar(&readOnly, "read-only", false, "offer only tools that do not change the cluster")
 	flags.BoolVar(&allowDestructive, "allow-destructive", false, "also offer tools that delete or replace workloads, secrets and data, or run commands in replicas")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, `Usage: orch mcp [--target NAME] [--read-only | --allow-destructive]
+
+Runs an MCP server over stdio for AI assistants.
+
+By default the assistant can read the cluster and also change it: deploy,
+roll back, take backups, log in to registries and label nodes. Use --read-only
+for an assistant that should only investigate, and --allow-destructive only
+when it may also delete apps, change secrets or run commands in replicas.
+
+`)
+		flags.PrintDefaults()
+	}
 	if err := flags.Parse(args); err != nil {
 		return ExitInvalid
 	}
