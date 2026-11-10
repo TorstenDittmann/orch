@@ -101,8 +101,8 @@ func (m *pinnedModules) Read(uri url.URL) (string, error) {
 	raw := uri.String()
 	// The orch schema always comes from this binary, offline.
 	for _, base := range []string{pklschema.SchemaBaseURL, pklschema.LegacySchemaBaseURL} {
-		if raw == base+"v1alpha1/Application.pkl" {
-			return string(pklschema.ApplicationSource()), nil
+		if source, ok := pklschema.Modules[strings.TrimPrefix(raw, base)]; ok && strings.HasPrefix(raw, base) {
+			return source, nil
 		}
 	}
 	contents, err := m.fetch(raw)

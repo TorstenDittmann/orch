@@ -10,12 +10,16 @@ import (
 
 func TestModuleReaderServesOnlyApplicationSchema(t *testing.T) {
 	reader := ModuleReader{}
-	want, err := reader.Read(*mustParseURL(t, ApplicationURI))
+	want, err := reader.Read(*mustParseURL(t, applicationV1URI))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(want, "module orch.Application") {
 		t.Fatalf("embedded schema does not declare the application module")
+	}
+	legacy, err := reader.Read(*mustParseURL(t, ApplicationURI))
+	if err != nil || !strings.Contains(legacy, `amends "../v1/Application.pkl"`) {
+		t.Fatalf("legacy schema = %q, %v; want an alias of v1", legacy, err)
 	}
 
 	for _, raw := range []string{
@@ -43,11 +47,11 @@ func TestMirrorServesOnlyApplicationSchema(t *testing.T) {
 	if !strings.HasPrefix(base, "http://127.0.0.1:") {
 		t.Fatalf("mirror base = %q, want loopback", base)
 	}
-	if !strings.HasSuffix(ApplicationURL, "/pkl/v1alpha1/Application.pkl") || !strings.HasPrefix(ApplicationURL, SchemaBaseURL) {
+	if !strings.HasSuffix(ApplicationURL, "/pkl/v1/Application.pkl") || !strings.HasPrefix(ApplicationURL, SchemaBaseURL) {
 		t.Fatalf("ApplicationURL %q does not point at the repository schema", ApplicationURL)
 	}
 
-	response, err := http.Get(base + "v1alpha1/Application.pkl")
+	response, err := http.Get(base + "v1/Application.pkl")
 	if err != nil {
 		t.Fatal(err)
 	}

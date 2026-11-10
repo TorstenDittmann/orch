@@ -6,7 +6,9 @@ import (
 )
 
 const (
-	SchemaVersion           = "v1alpha1"
+	SchemaVersion = "v1"
+	// LegacySchemaVersion is the pre-1.0 name of the same schema.
+	LegacySchemaVersion     = "v1alpha1"
 	DefaultCPU              = "100m"
 	DefaultMemory           = "128Mi"
 	DefaultRestart          = "always"

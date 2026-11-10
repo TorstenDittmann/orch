@@ -31,7 +31,7 @@ func TestParseCanonicalJSONRejectsNoncanonicalAndUnknownData(t *testing.T) {
 		t.Fatal(err)
 	}
 	compact := bytes.ReplaceAll(canonical, []byte("  "), nil)
-	unknown := bytes.Replace(canonical, []byte("\"schema\": \"v1alpha1\""), []byte("\"schema\": \"v1alpha1\", \"unknown\": true"), 1)
+	unknown := bytes.Replace(canonical, []byte("\"schema\": \"v1\""), []byte("\"schema\": \"v1\", \"unknown\": true"), 1)
 	trailing := append(append([]byte(nil), canonical...), []byte("{}")...)
 	for name, data := range map[string][]byte{"compact": compact, "unknown": unknown, "trailing": trailing} {
 		t.Run(name, func(t *testing.T) {

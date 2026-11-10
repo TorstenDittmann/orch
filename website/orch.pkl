@@ -1,4 +1,4 @@
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 // orch.torsten.work, served by orch as a static site. Requires orch v0.1.14 or
 // newer. Build first with `bun run build:site`; the deploy workflow is

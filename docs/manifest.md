@@ -1,7 +1,7 @@
 # Application manifest reference
 
 An application is described by one Pkl module, usually named `orch.pkl`, that
-amends the versioned `v1alpha1/Application.pkl` schema. The schema is
+amends the versioned `v1/Application.pkl` schema. The schema is
 embedded in the `orch` binary, so `orch` never downloads it; editors fetch the
 same file from GitHub for completion and type checks. This page lists every field it defines, with
 its type, default, and the rules that `orch validate` enforces on top of the
@@ -11,7 +11,7 @@ For a guided introduction, start with [applications](configuration.md). For
 the commands that read this file, see the [CLI reference](cli.md).
 
 ```pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "shop"
 
@@ -90,7 +90,7 @@ manifest is always complete. `orch render` prints it:
 ```console
 $ orch render
 {
-  "schema": "v1alpha1",
+  "schema": "v1",
   "name": "shop",
   "services": {
     "web": {
@@ -139,7 +139,7 @@ the cluster, use `orch app diff`; see [deployments](runtime.md#rollbacks).
 
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
-| `schema` | `"v1alpha1"` | `"v1alpha1"` | Fixed. You do not set it. |
+| `schema` | `"v1"` | `"v1"` | Set by the schema you amend; `"v1alpha1"` for manifests that amend the pre-1.0 URL. You do not set it. |
 | `name` | DNS label | required | Application name, unique in the cluster |
 | `services` | `Mapping<DnsLabel, Service>` | empty | At most 100; an application needs a service or a database |
 | `cronJobs` | `Mapping<DnsLabel, CronJob>` | empty | At most 100 |
@@ -709,7 +709,7 @@ deploy {
 
 | Field | Type | Default | Rules |
 | --- | --- | --- | --- |
-| `driver` | `"local"` | `"local"` | Only `local` exists in `v1alpha1` |
+| `driver` | `"local"` | `"local"` | Only `local` exists in `v1` |
 | `backup` | `VolumeBackup?` | `null` | The volume must be mounted by a service |
 
 A local volume lives on one worker. It is created there by the first replica
@@ -899,7 +899,7 @@ A shared module can export functions or templates:
 
 ```pkl
 // lib/web.pkl
-import "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+import "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 function web(imageRef: String, domain: String): Application.Service = new {
   image = imageRef
@@ -918,7 +918,7 @@ function web(imageRef: String, domain: String): Application.Service = new {
 
 ```pkl
 // orch.pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 import "lib/web.pkl"
 
@@ -936,7 +936,7 @@ services {
 Within one file, a `local` value and Pkl's amend syntax remove repetition:
 
 ```pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "shop"
 
@@ -991,7 +991,7 @@ Modules can also be imported from `https:` URLs, which lets several
 repositories share one set of conventions:
 
 ```pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 import "https://modules.example.com/orch/v3/web.pkl"
 ```
@@ -1040,11 +1040,13 @@ evaluates against the schema embedded in the binary, so manifests work offline
 and always match the CLI version you run. Stock `pkl eval` also resolves the
 URL.
 
-Manifests written as `amends "orch:/v1alpha1/Application.pkl"` keep working
-with `orch`, but editors cannot resolve that scheme. Replace it with the URL
-above to get editor support. The earlier
+Manifests written before orch 1.0 amend
+`https://orch.torsten.work/pkl/v1alpha1/Application.pkl`. That schema is v1
+under its old name, so those manifests keep working unchanged across 1.x;
+switch the URL to `v1` whenever convenient. `amends
+"orch:/v1alpha1/Application.pkl"` and the earlier
 `https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/v1alpha1/Application.pkl`
-URL also keeps working.
+URL also keep working, but editors cannot resolve the `orch:` scheme.
 
 `pkl eval` shows the evaluated module, but only `orch validate` applies orch's
 additional rules. Use `orch render` to see exactly what would be sent to the

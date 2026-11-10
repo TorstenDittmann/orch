@@ -5,7 +5,7 @@ The public product and documentation site is a prerendered
 `src/routes/+page.svelte`; documentation pages are rendered from the Markdown in
 `../docs`, with the sidebar order taken from `docs/SUMMARY.md`. The versioned
 Pkl schemas in `../pkl/v*/` are published unchanged at `/pkl/`, for example
-`/pkl/v1alpha1/Application.pkl`. Dependencies are
+`/pkl/v1/Application.pkl`. Dependencies are
 pinned by `package.json` and `bun.lock`.
 
 From this directory:
@@ -67,5 +67,5 @@ bun run build:site
 bun run start
 ```
 
-Check `/`, `/quick-start/`, `/pkl/v1alpha1/Application.pkl`, and `/sitemap.xml`. Unknown paths return the
+Check `/`, `/quick-start/`, `/pkl/v1/Application.pkl`, and `/sitemap.xml`. Unknown paths return the
 generated 404 page with HTTP status 404, rather than the homepage.

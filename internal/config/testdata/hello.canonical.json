@@ -1,5 +1,5 @@
 {
-  "schema": "v1alpha1",
+  "schema": "v1",
   "name": "hello",
   "services": {
     "web": {

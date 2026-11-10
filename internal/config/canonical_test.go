@@ -24,9 +24,42 @@ func TestHelloCanonicalGolden(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("canonical contract changed (-want +got):\nwant:\n%s\ngot:\n%s", want, got)
 	}
+	const digestV1 = "sha256:05f276293cb300662a894aa898691ec92414d70d5fc41e516f878f40493af97f"
+	if digest := DigestCanonicalJSON(got); digest != digestV1 {
+		t.Fatalf("hello digest changed: got %s, want %s", digest, digestV1)
+	}
+
+	// A manifest written before 1.0 still amends v1alpha1. It must produce the
+	// same revision digest as it always did, so upgrading orch never turns an
+	// unchanged manifest into a new deployment.
+	source, err := os.ReadFile("../../examples/hello/orch.pkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.CreateTemp("../../examples/hello", ".legacy-*.pkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := file.Name()
+	t.Cleanup(func() { _ = os.Remove(legacy) })
+	_, err = file.WriteString(strings.Replace(string(source), "/pkl/v1/Application.pkl", "/pkl/v1alpha1/Application.pkl", 1))
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyManifest, err := Load(context.Background(), legacy, LoadOptions{RootDir: "../.."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyJSON, err := CanonicalJSON(legacyManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	const legacyDigest = "sha256:e1681709e2d1f82a25ec5ee03bfb384544bb67e937a0bbc78fc0d0575083dbd4"
-	if digest := DigestCanonicalJSON(got); digest != legacyDigest {
-		t.Fatalf("Pkl migration changed the hello digest: got %s, want %s", digest, legacyDigest)
+	if digest := DigestCanonicalJSON(legacyJSON); digest != legacyDigest {
+		t.Fatalf("Pkl migration changed the pre-1.0 hello digest: got %s, want %s", digest, legacyDigest)
 	}
 }
 

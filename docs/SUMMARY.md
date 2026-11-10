@@ -27,5 +27,6 @@
   - [Application manifest](manifest.md)
   - [Hosts and ports](host.md)
   - [Architecture](architecture.md)
+  - [Compatibility](compatibility.md)
   - [Compared with Swarm and Kubernetes](comparison.md)
   - [Limitations](product.md)
