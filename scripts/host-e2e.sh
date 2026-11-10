@@ -49,6 +49,17 @@ diagnose() {
 }
 trap 'diagnose' ERR
 
+# GitHub runners ship Docker and its containerd. orch does not take over
+# foreign container services, so set them aside the way a fresh host has none,
+# and undo Docker's FORWARD DROP policy.
+for unit in docker.socket docker.service containerd.service; do
+	sudo systemctl disable --now "$unit" >/dev/null 2>&1 || true
+done
+sudo systemctl mask docker.service containerd.service >/dev/null 2>&1 || true
+if command -v iptables >/dev/null 2>&1; then
+	sudo iptables -P FORWARD ACCEPT || true
+fi
+
 step "Install the controller with $("$orch" version)"
 as_root "$orch" init --name e2e --wait-timeout 5m
 
