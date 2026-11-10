@@ -1,0 +1,5 @@
+# Keys allowed to sign orch releases, in ssh-keygen allowed_signers format.
+# The release workflow signs SHA256SUMS with the matching private key
+# (repository secret ORCH_RELEASE_SIGNING_KEY); install.sh, install.ps1 and
+# the controller's agent download check that signature. Generate the key once
+# with scripts/release-signing-key.sh.

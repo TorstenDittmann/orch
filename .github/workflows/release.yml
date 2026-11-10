@@ -5,12 +5,13 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
-  release:
-    name: Build and publish release
+  # Tests and builds run without write access; only the publish job below can
+  # change the release, and it runs no third-party build code.
+  build:
+    name: Build and test
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
@@ -26,10 +27,76 @@ jobs:
         run: make check
       - name: Build release binaries
         run: make release VERSION="${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Sign and publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Sign SHA256SUMS
+        env:
+          SIGNING_KEY: ${{ secrets.ORCH_RELEASE_SIGNING_KEY }}
+        run: |
+          keyed=false
+          if grep -q '^orch-release' packaging/release/allowed_signers; then keyed=true; fi
+          if [ -z "$SIGNING_KEY" ]; then
+            if [ "$keyed" = true ]; then
+              echo "::error::packaging/release/allowed_signers has a key but the ORCH_RELEASE_SIGNING_KEY secret is not set; installs and upgrades would refuse this release"
+              exit 1
+            fi
+            echo "::warning::No release signing key yet; run scripts/release-signing-key.sh once to set one up"
+            exit 0
+          fi
+          umask 077
+          key="$RUNNER_TEMP/release-signing-key"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          ssh-keygen -Y sign -n orch-release -f "$key" dist/SHA256SUMS
+          rm -f "$key"
+          if [ "$keyed" = true ]; then
+            ssh-keygen -Y verify -f packaging/release/allowed_signers -I orch-release -n orch-release \
+              -s dist/SHA256SUMS.sig < dist/SHA256SUMS
+          fi
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/orch-*
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+
+  dev-image:
+    name: Publish dev node image
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Docker Buildx

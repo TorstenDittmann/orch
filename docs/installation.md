@@ -28,7 +28,7 @@ disabled. Configure the appropriate firewalld zones and forwarding policy.
 
 Install `orch` on the controller. The script downloads the binary for the
 host from the [latest release](https://github.com/TorstenDittmann/orch/releases/latest),
-verifies its checksum and puts it in `/usr/local/bin`:
+verifies the release signature and checksum, and puts it in `/usr/local/bin`:
 
 ```console
 curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.sh | sh
@@ -36,8 +36,17 @@ curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/orch/main/install.s
 
 Set `ORCH_VERSION=v0.2.0` to install a specific release and `ORCH_INSTALL_DIR`
 to choose another directory. To install by hand, download `orch-linux-amd64` or
-`orch-linux-arm64` and `SHA256SUMS` from the release, check them with
-`sha256sum -c --ignore-missing SHA256SUMS`, and make the binary executable.
+`orch-linux-arm64`, `SHA256SUMS` and `SHA256SUMS.sig` from the release, check
+the signature and the checksum, and make the binary executable:
+
+```console
+curl -fsSLO https://raw.githubusercontent.com/TorstenDittmann/orch/main/packaging/release/allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I orch-release -n orch-release -s SHA256SUMS.sig < SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+Each release binary also carries a GitHub build provenance attestation, which
+`gh attestation verify orch-linux-amd64 --repo TorstenDittmann/orch` checks.
 
 Then run, as root:
 

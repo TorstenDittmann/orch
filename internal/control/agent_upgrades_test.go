@@ -3,6 +3,8 @@ package control
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
+	"github.com/TorstenDittmann/orch/internal/release"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -241,5 +245,64 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 	}
 	if requests == 0 {
 		t.Fatal("release server was not used")
+	}
+}
+
+func TestAgentUpgradesRequireTheReleaseSignatureWhenKeyed(t *testing.T) {
+	other := otherArchitecture()
+	asset := "orch-linux-" + other
+	binary := []byte(other + " orch")
+	digest := sha256.Sum256(binary)
+	sums := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(digest[:]), asset))
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := release.Sign(signer, sums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveSignature := true
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v0.2.0/SHA256SUMS":
+			_, _ = response.Write(sums)
+		case "/v0.2.0/SHA256SUMS.sig":
+			if !serveSignature {
+				http.NotFound(response, request)
+				return
+			}
+			_, _ = response.Write(signature)
+		case "/v0.2.0/" + asset:
+			_, _ = response.Write(binary)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	previousURL, previousKeys := releaseDownloadURL, releaseSigningKeys
+	releaseDownloadURL = server.URL
+	releaseSigningKeys = func() ([]ssh.PublicKey, error) { return []ssh.PublicKey{signer.PublicKey()}, nil }
+	defer func() { releaseDownloadURL, releaseSigningKeys = previousURL, previousKeys }()
+
+	if _, err := newUpgradeFixture(t).upgrades.binary(context.Background(), other); err != nil {
+		t.Fatalf("signed release refused: %v", err)
+	}
+	serveSignature = false
+	if _, err := newUpgradeFixture(t).upgrades.binary(context.Background(), other); err == nil {
+		t.Fatal("release without a signature was accepted")
+	}
+	serveSignature = true
+	_, otherPrivate, _ := ed25519.GenerateKey(rand.Reader)
+	otherSigner, _ := ssh.NewSignerFromKey(otherPrivate)
+	if signature, err = release.Sign(otherSigner, sums); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newUpgradeFixture(t).upgrades.binary(context.Background(), other); err == nil {
+		t.Fatal("release signed by an unknown key was accepted")
 	}
 }

@@ -89,6 +89,17 @@ refresh the `pki` copy in your off-host backups. If a restore finds an expired
 controller certificate, it reports that and still restores the data. Run the
 renewal against the restored data directory before starting the controller.
 
+## Release signatures
+
+Every release signs its `SHA256SUMS` with an SSH key whose public half is in
+[`packaging/release/allowed_signers`](../packaging/release/allowed_signers),
+and carries a GitHub build provenance attestation for each binary. `install.sh`
+and `install.ps1` check the signature with `ssh-keygen` before installing, and
+a controller that downloads the release binary for workers on another
+architecture refuses one whose signature does not match the key built into it.
+Workers receive their binary from the controller over their authenticated agent
+connection.
+
 ## Worker enrollment
 
 Create one join token per worker:
