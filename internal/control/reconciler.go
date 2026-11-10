@@ -557,8 +557,8 @@ func nodeBlocker(node model.Node) *blockReason {
 	if strings.TrimSpace(node.RuntimeVersion) == "" {
 		return nodeBlock("", "containerd_unavailable", "the enrolled agent did not report a compatible containerd runtime")
 	}
-	if node.RuntimeVersion != "containerd 2.3.4" {
-		return nodeBlock("", "unsupported_runtime_version", "this release requires containerd 2.3.4")
+	if !model.SupportedRuntimeVersion(node.RuntimeVersion) {
+		return nodeBlock("", "unsupported_runtime_version", "this release requires "+model.ContainerdRequirement)
 	}
 	if strings.TrimSpace(node.Snapshotter) == "" {
 		return nodeBlock("", "snapshotter_unavailable", "the enrolled agent did not report a configured containerd snapshotter")

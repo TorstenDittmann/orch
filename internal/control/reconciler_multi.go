@@ -387,7 +387,7 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 		reachable := node.LastSeenAt != nil && now.Sub(*node.LastSeenAt) < distributedLossGrace
 		connected := r.sessions == nil || r.sessions.Connected(node.ID)
 		runtimeCompatible := node.OperatingSystem == "linux" && (node.Architecture == "amd64" || node.Architecture == "arm64") &&
-			node.CgroupsV2 && node.RuntimeVersion == "containerd 2.3.4" && node.Snapshotter != ""
+			node.CgroupsV2 && model.SupportedRuntimeVersion(node.RuntimeVersion) && node.Snapshotter != ""
 		networkCompatible := node.NetworkState == model.NetworkReady && node.DNSState == model.SubsystemReady &&
 			node.NetworkGeneration == cluster.NetworkGeneration && node.NodeSubnet == networks[node.ID].NodeSubnet
 		if len(nodes) > 1 {

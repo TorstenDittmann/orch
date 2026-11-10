@@ -141,7 +141,7 @@ dependencies, systemd services and enrollment with `orch node install`. Use
 `orch node doctor` or `install --dry-run` first to inspect prerequisites and planned actions.
 
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
-2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
+2.3 (2.3.4 or newer), `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
 the official CNI plugins 1.9.1, and kernel WireGuard support. Ingress-enabled
 nodes additionally run Caddy 2.11.3 as a dedicated non-root user; its
 root-owned binary must carry `cap_net_bind_service=+ep`. The agent needs

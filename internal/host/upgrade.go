@@ -39,6 +39,7 @@ type UpgradeResult struct {
 	RecoveryPath      string               `json:"recovery_path,omitempty"`
 	AutomaticRollback bool                 `json:"automatic_rollback"`
 	Actions           []string             `json:"actions"`
+	Warnings          []string             `json:"warnings,omitempty"`
 }
 
 type upgradeJournal struct {
@@ -367,6 +368,20 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 		}
 		journal.Phase = "replaced"
 		if err = saveUpgradeJournal(journalPath, journal); err != nil {
+			return result, err
+		}
+	}
+	// While the agent is stopped, bring an older managed containerd up to the
+	// bundled release. A failure keeps the previous daemon, which this release
+	// still supports, so it never fails the upgrade.
+	if refreshed, refreshErr := newRuntimeRefresh(runCommand).apply(ctx, state.Files); refreshErr != nil {
+		result.Warnings = append(result.Warnings, "containerd was not updated: "+refreshErr.Error())
+	} else if refreshed {
+		result.Actions = append(result.Actions, "Updated containerd to the bundled release")
+		// Record the new digests now, so a later rollback of the orch binary
+		// still leaves a manifest that matches the files on disk.
+		data, _ := json.MarshalIndent(state, "", "  ")
+		if err = atomicOwned(ManifestPath, data, 0600); err != nil {
 			return result, err
 		}
 	}
