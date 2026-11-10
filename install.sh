@@ -61,8 +61,16 @@ download "$base/SHA256SUMS" "$tmp/SHA256SUMS" || fail "could not download $base/
 # next to this script. The checksum alone comes from the same place as the
 # binary, so the signature is what ties the download to the orch project.
 verify_signature() {
-	download "https://raw.githubusercontent.com/$repo/main/packaging/release/allowed_signers" "$tmp/allowed_signers" ||
-		fail "could not download the release signing keys"
+	signers="https://raw.githubusercontent.com/$repo/main/packaging/release/allowed_signers"
+	if command -v curl >/dev/null 2>&1; then
+		# A missing file means no key is published yet, the same as an empty one.
+		status="$(curl -sSL --retry 3 -o "$tmp/allowed_signers" -w '%{http_code}' "$signers")" ||
+			fail "could not download the release signing keys"
+		[ "$status" = 404 ] && return 0
+		[ "$status" = 200 ] || fail "could not download the release signing keys (HTTP $status)"
+	else
+		download "$signers" "$tmp/allowed_signers" || fail "could not download the release signing keys"
+	fi
 	grep -q '^orch-release' "$tmp/allowed_signers" || return 0
 	if ! download "$base/SHA256SUMS.sig" "$tmp/SHA256SUMS.sig" 2>/dev/null; then
 		[ "${ORCH_SKIP_SIGNATURE:-}" = 1 ] && { say "Warning: $version has no release signature; checked its checksum only."; return 0; }

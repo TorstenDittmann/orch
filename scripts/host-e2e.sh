@@ -10,8 +10,16 @@
 set -euo pipefail
 
 [[ $# -ge 1 && $# -le 2 ]] || { echo "usage: $0 ORCH [UPGRADE_ORCH]" >&2; exit 2; }
-orch="$(realpath "$1")"
-upgrade="${2:+$(realpath "$2")}"
+# orch only runs binaries that are root owned and not group or world
+# writable, so stage both where an installer would put them.
+bin=/usr/local/lib/orch-e2e
+sudo install -D -o root -g root -m 0755 "$1" "$bin/orch"
+orch="$bin/orch"
+upgrade=""
+if [[ $# -eq 2 ]]; then
+	sudo install -D -o root -g root -m 0755 "$2" "$bin/orch-upgrade"
+	upgrade="$bin/orch-upgrade"
+fi
 pkl="$(command -v pkl)" || { echo "pkl is required on PATH" >&2; exit 2; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/orch-host-e2e.XXXXXX")"
 chmod 0755 "$work"
