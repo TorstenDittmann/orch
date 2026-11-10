@@ -52,12 +52,23 @@ manager, and revoke it when the tool is gone.
 ## Certificate renewal
 
 The controller and administrator certificates are valid for one year; the
-cluster CA is valid for ten. Worker certificates renew automatically, but the
-controller and administrator certificates do not. `orch status` shows both
-expiry times, and `orch cluster doctor` warns 30 days before the controller
-certificate expires.
+cluster CA is valid for ten. All of them except the CA renew themselves:
 
-Renew both on the controller host. This works before or after the
+- Workers renew their certificates 90 days before they expire.
+- The controller reissues its own server certificate from the cluster CA 45
+  days before it expires and serves the new one without a restart.
+- `orch` renews an administrator context's certificate the first time it
+  connects within 30 days of expiry, and rewrites the context in place.
+  Contexts that are not used for a whole year expire; renew them as below.
+
+`orch status` shows the expiry times, `orch cluster doctor` warns 30 days
+before the controller certificate expires, and a cluster notification fires if
+automatic renewal keeps failing.
+
+To renew by hand, for example to recover an expired context or to lock out
+every earlier administrator certificate:
+
+Run the renewal on the controller host. This works before or after the
 certificates expire, as long as the cluster CA is still valid. The CA does not
 change, so workers and existing backups are unaffected:
 

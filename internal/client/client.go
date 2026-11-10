@@ -112,7 +112,42 @@ func NewEndpoint(endpoint Endpoint) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newCertificateClient(endpoint, credentials)
+	client, err := newCertificateClient(endpoint, credentials)
+	if err != nil {
+		return nil, err
+	}
+	if time.Until(credentials.Certificate.Leaf.NotAfter) < clusterctl.AdministratorRenewalWindow {
+		if renewed, renewErr := client.renewAdministratorCertificate(endpoint); renewErr == nil {
+			return renewed, nil
+		}
+	}
+	return client, nil
+}
+
+// renewAdministratorCertificate replaces a context's administrator
+// certificate when it is close to expiry and returns a client that uses the
+// new one. Any failure leaves the context and the current client as they are;
+// orch status keeps showing the expiry.
+func (client *Client) renewAdministratorCertificate(endpoint Endpoint) (*Client, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	response, err := client.service.RenewAdministratorCertificate(ctx, connect.NewRequest(&orchv1alpha1.RenewAdministratorCertificateRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	if err := clusterctl.ReplaceAdministratorIdentity(endpoint.ContextPath, response.Msg.GetCertificatePem(), response.Msg.GetPrivateKeyPem(), time.Now()); err != nil {
+		return nil, err
+	}
+	credentials, err := clusterctl.LoadAdministratorCredentials(endpoint.ContextPath, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	renewed, err := newCertificateClient(endpoint, credentials)
+	if err != nil {
+		return nil, err
+	}
+	_ = client.Close()
+	return renewed, nil
 }
 
 // newCertificateClient connects over mTLS with already loaded credentials.

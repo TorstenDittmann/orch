@@ -177,6 +177,9 @@ const (
 	// ControlServiceCreateAccessTokenProcedure is the fully-qualified name of the ControlService's
 	// CreateAccessToken RPC.
 	ControlServiceCreateAccessTokenProcedure = "/orch.v1alpha1.ControlService/CreateAccessToken"
+	// ControlServiceRenewAdministratorCertificateProcedure is the fully-qualified name of the
+	// ControlService's RenewAdministratorCertificate RPC.
+	ControlServiceRenewAdministratorCertificateProcedure = "/orch.v1alpha1.ControlService/RenewAdministratorCertificate"
 	// ControlServiceListAccessTokensProcedure is the fully-qualified name of the ControlService's
 	// ListAccessTokens RPC.
 	ControlServiceListAccessTokensProcedure = "/orch.v1alpha1.ControlService/ListAccessTokens"
@@ -259,6 +262,7 @@ type ControlServiceClient interface {
 	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
 	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
 	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
+	RenewAdministratorCertificate(context.Context, *connect.Request[v1alpha1.RenewAdministratorCertificateRequest]) (*connect.Response[v1alpha1.RenewAdministratorCertificateResponse], error)
 	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
 	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
 	SetNotification(context.Context, *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error)
@@ -581,6 +585,12 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("CreateAccessToken")),
 			connect.WithClientOptions(opts...),
 		),
+		renewAdministratorCertificate: connect.NewClient[v1alpha1.RenewAdministratorCertificateRequest, v1alpha1.RenewAdministratorCertificateResponse](
+			httpClient,
+			baseURL+ControlServiceRenewAdministratorCertificateProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("RenewAdministratorCertificate")),
+			connect.WithClientOptions(opts...),
+		),
 		listAccessTokens: connect.NewClient[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse](
 			httpClient,
 			baseURL+ControlServiceListAccessTokensProcedure,
@@ -640,65 +650,66 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // controlServiceClient implements ControlServiceClient.
 type controlServiceClient struct {
-	runJob                  *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
-	runCronJob              *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
-	getJob                  *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
-	listJobs                *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
-	cancelJob               *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
-	retryJob                *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
-	getCluster              *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
-	getApplication          *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
-	listDeployments         *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
-	getDeployment           *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
-	compareDeployments      *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
-	rollbackApplication     *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
-	listApplications        *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
-	listRuntimes            *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
-	listEvents              *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
-	listRecentEvents        *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
-	applyApplication        *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
-	enrollAgent             *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
-	listNodes               *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
-	getNodeUsage            *connect.Client[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse]
-	removeApplication       *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
-	tailLogs                *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
-	exec                    *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	restartService          *connect.Client[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse]
-	listVolumes             *connect.Client[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse]
-	backupVolume            *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
-	restoreVolume           *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
-	downloadVolumeBackup    *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
-	moveVolume              *connect.Client[v1alpha1.MoveVolumeRequest, v1alpha1.MoveVolumeResponse]
-	configureNetwork        *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
-	listCronRuns            *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
-	tailCronLogs            *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
-	setSecret               *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
-	listSecrets             *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
-	deleteSecret            *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
-	loginRegistry           *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
-	listRegistries          *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
-	logoutRegistry          *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
-	lookupImage             *connect.Client[v1alpha1.LookupImageRequest, v1alpha1.LookupImageResponse]
-	uploadImage             *connect.Client[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
-	updateNode              *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
-	removeNode              *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
-	updateNodeOS            *connect.Client[v1alpha1.UpdateNodeOSRequest, v1alpha1.UpdateNodeOSResponse]
-	createJoinToken         *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
-	listJoinTokens          *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
-	revokeJoinToken         *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
-	setGitHubTrust          *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
-	listGitHubTrusts        *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
-	deleteGitHubTrust       *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
-	createAccessToken       *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
-	listAccessTokens        *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
-	deleteAccessToken       *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
-	setNotification         *connect.Client[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse]
-	listNotifications       *connect.Client[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse]
-	deleteNotification      *connect.Client[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse]
-	testNotification        *connect.Client[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse]
-	setBackupDestination    *connect.Client[v1alpha1.SetBackupDestinationRequest, v1alpha1.SetBackupDestinationResponse]
-	getBackupDestination    *connect.Client[v1alpha1.GetBackupDestinationRequest, v1alpha1.GetBackupDestinationResponse]
-	removeBackupDestination *connect.Client[v1alpha1.RemoveBackupDestinationRequest, v1alpha1.RemoveBackupDestinationResponse]
+	runJob                        *connect.Client[v1alpha1.RunJobRequest, v1alpha1.RunJobResponse]
+	runCronJob                    *connect.Client[v1alpha1.RunCronJobRequest, v1alpha1.RunCronJobResponse]
+	getJob                        *connect.Client[v1alpha1.GetJobRequest, v1alpha1.GetJobResponse]
+	listJobs                      *connect.Client[v1alpha1.ListJobsRequest, v1alpha1.ListJobsResponse]
+	cancelJob                     *connect.Client[v1alpha1.CancelJobRequest, v1alpha1.CancelJobResponse]
+	retryJob                      *connect.Client[v1alpha1.RetryJobRequest, v1alpha1.RetryJobResponse]
+	getCluster                    *connect.Client[v1alpha1.GetClusterRequest, v1alpha1.GetClusterResponse]
+	getApplication                *connect.Client[v1alpha1.GetApplicationRequest, v1alpha1.GetApplicationResponse]
+	listDeployments               *connect.Client[v1alpha1.ListDeploymentsRequest, v1alpha1.ListDeploymentsResponse]
+	getDeployment                 *connect.Client[v1alpha1.GetDeploymentRequest, v1alpha1.GetDeploymentResponse]
+	compareDeployments            *connect.Client[v1alpha1.CompareDeploymentsRequest, v1alpha1.CompareDeploymentsResponse]
+	rollbackApplication           *connect.Client[v1alpha1.RollbackApplicationRequest, v1alpha1.RollbackApplicationResponse]
+	listApplications              *connect.Client[v1alpha1.ListApplicationsRequest, v1alpha1.ListApplicationsResponse]
+	listRuntimes                  *connect.Client[v1alpha1.ListRuntimesRequest, v1alpha1.ListRuntimesResponse]
+	listEvents                    *connect.Client[v1alpha1.ListEventsRequest, v1alpha1.ListEventsResponse]
+	listRecentEvents              *connect.Client[v1alpha1.ListRecentEventsRequest, v1alpha1.ListRecentEventsResponse]
+	applyApplication              *connect.Client[v1alpha1.ApplyApplicationRequest, v1alpha1.ApplyApplicationResponse]
+	enrollAgent                   *connect.Client[v1alpha1.EnrollAgentRequest, v1alpha1.EnrollAgentResponse]
+	listNodes                     *connect.Client[v1alpha1.ListNodesRequest, v1alpha1.ListNodesResponse]
+	getNodeUsage                  *connect.Client[v1alpha1.GetNodeUsageRequest, v1alpha1.GetNodeUsageResponse]
+	removeApplication             *connect.Client[v1alpha1.RemoveApplicationRequest, v1alpha1.RemoveApplicationResponse]
+	tailLogs                      *connect.Client[v1alpha1.TailLogsRequest, v1alpha1.TailLogsResponse]
+	exec                          *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	restartService                *connect.Client[v1alpha1.RestartServiceRequest, v1alpha1.RestartServiceResponse]
+	listVolumes                   *connect.Client[v1alpha1.ListVolumesRequest, v1alpha1.ListVolumesResponse]
+	backupVolume                  *connect.Client[v1alpha1.BackupVolumeRequest, v1alpha1.BackupVolumeResponse]
+	restoreVolume                 *connect.Client[v1alpha1.RestoreVolumeRequest, v1alpha1.RestoreVolumeResponse]
+	downloadVolumeBackup          *connect.Client[v1alpha1.DownloadVolumeBackupRequest, v1alpha1.DownloadVolumeBackupResponse]
+	moveVolume                    *connect.Client[v1alpha1.MoveVolumeRequest, v1alpha1.MoveVolumeResponse]
+	configureNetwork              *connect.Client[v1alpha1.ConfigureNetworkRequest, v1alpha1.ConfigureNetworkResponse]
+	listCronRuns                  *connect.Client[v1alpha1.ListCronRunsRequest, v1alpha1.ListCronRunsResponse]
+	tailCronLogs                  *connect.Client[v1alpha1.TailCronLogsRequest, v1alpha1.TailCronLogsResponse]
+	setSecret                     *connect.Client[v1alpha1.SetSecretRequest, v1alpha1.SetSecretResponse]
+	listSecrets                   *connect.Client[v1alpha1.ListSecretsRequest, v1alpha1.ListSecretsResponse]
+	deleteSecret                  *connect.Client[v1alpha1.DeleteSecretRequest, v1alpha1.DeleteSecretResponse]
+	loginRegistry                 *connect.Client[v1alpha1.LoginRegistryRequest, v1alpha1.LoginRegistryResponse]
+	listRegistries                *connect.Client[v1alpha1.ListRegistriesRequest, v1alpha1.ListRegistriesResponse]
+	logoutRegistry                *connect.Client[v1alpha1.LogoutRegistryRequest, v1alpha1.LogoutRegistryResponse]
+	lookupImage                   *connect.Client[v1alpha1.LookupImageRequest, v1alpha1.LookupImageResponse]
+	uploadImage                   *connect.Client[v1alpha1.UploadImageRequest, v1alpha1.UploadImageResponse]
+	updateNode                    *connect.Client[v1alpha1.UpdateNodeRequest, v1alpha1.UpdateNodeResponse]
+	removeNode                    *connect.Client[v1alpha1.RemoveNodeRequest, v1alpha1.RemoveNodeResponse]
+	updateNodeOS                  *connect.Client[v1alpha1.UpdateNodeOSRequest, v1alpha1.UpdateNodeOSResponse]
+	createJoinToken               *connect.Client[v1alpha1.CreateJoinTokenRequest, v1alpha1.CreateJoinTokenResponse]
+	listJoinTokens                *connect.Client[v1alpha1.ListJoinTokensRequest, v1alpha1.ListJoinTokensResponse]
+	revokeJoinToken               *connect.Client[v1alpha1.RevokeJoinTokenRequest, v1alpha1.RevokeJoinTokenResponse]
+	setGitHubTrust                *connect.Client[v1alpha1.SetGitHubTrustRequest, v1alpha1.SetGitHubTrustResponse]
+	listGitHubTrusts              *connect.Client[v1alpha1.ListGitHubTrustsRequest, v1alpha1.ListGitHubTrustsResponse]
+	deleteGitHubTrust             *connect.Client[v1alpha1.DeleteGitHubTrustRequest, v1alpha1.DeleteGitHubTrustResponse]
+	createAccessToken             *connect.Client[v1alpha1.CreateAccessTokenRequest, v1alpha1.CreateAccessTokenResponse]
+	renewAdministratorCertificate *connect.Client[v1alpha1.RenewAdministratorCertificateRequest, v1alpha1.RenewAdministratorCertificateResponse]
+	listAccessTokens              *connect.Client[v1alpha1.ListAccessTokensRequest, v1alpha1.ListAccessTokensResponse]
+	deleteAccessToken             *connect.Client[v1alpha1.DeleteAccessTokenRequest, v1alpha1.DeleteAccessTokenResponse]
+	setNotification               *connect.Client[v1alpha1.SetNotificationRequest, v1alpha1.SetNotificationResponse]
+	listNotifications             *connect.Client[v1alpha1.ListNotificationsRequest, v1alpha1.ListNotificationsResponse]
+	deleteNotification            *connect.Client[v1alpha1.DeleteNotificationRequest, v1alpha1.DeleteNotificationResponse]
+	testNotification              *connect.Client[v1alpha1.TestNotificationRequest, v1alpha1.TestNotificationResponse]
+	setBackupDestination          *connect.Client[v1alpha1.SetBackupDestinationRequest, v1alpha1.SetBackupDestinationResponse]
+	getBackupDestination          *connect.Client[v1alpha1.GetBackupDestinationRequest, v1alpha1.GetBackupDestinationResponse]
+	removeBackupDestination       *connect.Client[v1alpha1.RemoveBackupDestinationRequest, v1alpha1.RemoveBackupDestinationResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -953,6 +964,11 @@ func (c *controlServiceClient) CreateAccessToken(ctx context.Context, req *conne
 	return c.createAccessToken.CallUnary(ctx, req)
 }
 
+// RenewAdministratorCertificate calls orch.v1alpha1.ControlService.RenewAdministratorCertificate.
+func (c *controlServiceClient) RenewAdministratorCertificate(ctx context.Context, req *connect.Request[v1alpha1.RenewAdministratorCertificateRequest]) (*connect.Response[v1alpha1.RenewAdministratorCertificateResponse], error) {
+	return c.renewAdministratorCertificate.CallUnary(ctx, req)
+}
+
 // ListAccessTokens calls orch.v1alpha1.ControlService.ListAccessTokens.
 func (c *controlServiceClient) ListAccessTokens(ctx context.Context, req *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error) {
 	return c.listAccessTokens.CallUnary(ctx, req)
@@ -1051,6 +1067,7 @@ type ControlServiceHandler interface {
 	ListGitHubTrusts(context.Context, *connect.Request[v1alpha1.ListGitHubTrustsRequest]) (*connect.Response[v1alpha1.ListGitHubTrustsResponse], error)
 	DeleteGitHubTrust(context.Context, *connect.Request[v1alpha1.DeleteGitHubTrustRequest]) (*connect.Response[v1alpha1.DeleteGitHubTrustResponse], error)
 	CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error)
+	RenewAdministratorCertificate(context.Context, *connect.Request[v1alpha1.RenewAdministratorCertificateRequest]) (*connect.Response[v1alpha1.RenewAdministratorCertificateResponse], error)
 	ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error)
 	DeleteAccessToken(context.Context, *connect.Request[v1alpha1.DeleteAccessTokenRequest]) (*connect.Response[v1alpha1.DeleteAccessTokenResponse], error)
 	SetNotification(context.Context, *connect.Request[v1alpha1.SetNotificationRequest]) (*connect.Response[v1alpha1.SetNotificationResponse], error)
@@ -1369,6 +1386,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("CreateAccessToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceRenewAdministratorCertificateHandler := connect.NewUnaryHandler(
+		ControlServiceRenewAdministratorCertificateProcedure,
+		svc.RenewAdministratorCertificate,
+		connect.WithSchema(controlServiceMethods.ByName("RenewAdministratorCertificate")),
+		connect.WithHandlerOptions(opts...),
+	)
 	controlServiceListAccessTokensHandler := connect.NewUnaryHandler(
 		ControlServiceListAccessTokensProcedure,
 		svc.ListAccessTokens,
@@ -1525,6 +1548,8 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceDeleteGitHubTrustHandler.ServeHTTP(w, r)
 		case ControlServiceCreateAccessTokenProcedure:
 			controlServiceCreateAccessTokenHandler.ServeHTTP(w, r)
+		case ControlServiceRenewAdministratorCertificateProcedure:
+			controlServiceRenewAdministratorCertificateHandler.ServeHTTP(w, r)
 		case ControlServiceListAccessTokensProcedure:
 			controlServiceListAccessTokensHandler.ServeHTTP(w, r)
 		case ControlServiceDeleteAccessTokenProcedure:
@@ -1750,6 +1775,10 @@ func (UnimplementedControlServiceHandler) DeleteGitHubTrust(context.Context, *co
 
 func (UnimplementedControlServiceHandler) CreateAccessToken(context.Context, *connect.Request[v1alpha1.CreateAccessTokenRequest]) (*connect.Response[v1alpha1.CreateAccessTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.CreateAccessToken is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) RenewAdministratorCertificate(context.Context, *connect.Request[v1alpha1.RenewAdministratorCertificateRequest]) (*connect.Response[v1alpha1.RenewAdministratorCertificateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RenewAdministratorCertificate is not implemented"))
 }
 
 func (UnimplementedControlServiceHandler) ListAccessTokens(context.Context, *connect.Request[v1alpha1.ListAccessTokensRequest]) (*connect.Response[v1alpha1.ListAccessTokensResponse], error) {

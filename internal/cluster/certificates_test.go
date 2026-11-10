@@ -3,11 +3,14 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TorstenDittmann/orch/internal/security"
 )
 
 func TestRenewCertificatesReissuesExpiredLeavesFromExistingCA(t *testing.T) {
@@ -195,5 +198,47 @@ func TestRenewControllerLeafKeepsCAAndAdministrators(t *testing.T) {
 	}
 	if _, err := LoadAdministratorCredentials(initialized.ContextPath, soon); err != nil {
 		t.Fatalf("administrator identity after controller renewal: %v", err)
+	}
+}
+
+func TestReplaceAdministratorIdentitySwitchesTheContext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	initialized, err := Bootstrap(context.Background(), BootstrapOptions{
+		Name: "test", Server: "https://controller.example", DataDir: filepath.Join(root, "state"),
+		ContextPath: filepath.Join(root, "config", "context.json"), Now: func() time.Time { return bootstrapTestTime },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pki := filepath.Join(initialized.DataDir, controllerIdentityDirectory)
+	caPEM, _ := os.ReadFile(filepath.Join(pki, "ca.pem"))
+	caKeyPEM, _ := os.ReadFile(filepath.Join(pki, "ca-key.pem"))
+	soon := bootstrapTestTime.AddDate(0, 11, 10)
+	before, err := LoadAdministratorCredentials(initialized.ContextPath, soon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCertificate, _ := resolveContextReference(initialized.ContextPath, before.Context.Credentials.ClientCertificate)
+
+	pair, err := security.IssueIdentity(caPEM, caKeyPEM, security.IssueOptions{ClusterID: initialized.Cluster.ID, Role: security.RoleAdministrator, Now: soon, Random: rand.Reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceAdministratorIdentity(initialized.ContextPath, pair.CertificatePEM, []byte("not a key"), soon); err == nil {
+		t.Fatal("a mismatched key was installed")
+	}
+	if err := ReplaceAdministratorIdentity(initialized.ContextPath, pair.CertificatePEM, pair.PrivateKeyPEM, soon); err != nil {
+		t.Fatal(err)
+	}
+	after, err := LoadAdministratorCredentials(initialized.ContextPath, soon.AddDate(0, 6, 0))
+	if err != nil {
+		t.Fatalf("renewed context six months later: %v", err)
+	}
+	if !after.Certificate.Leaf.NotAfter.Equal(soon.AddDate(1, 0, 0)) {
+		t.Fatalf("renewed NotAfter = %s", after.Certificate.Leaf.NotAfter)
+	}
+	if _, err := os.Stat(oldCertificate); !os.IsNotExist(err) {
+		t.Fatalf("old certificate still present: %v", err)
 	}
 }
