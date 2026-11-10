@@ -197,12 +197,30 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 	asset := "orch-linux-" + other
 	binary := []byte(other + " orch")
 	digest := sha256.Sum256(binary)
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums := func() []byte {
+		return []byte(fmt.Sprintf("%s  %s\n%s  orch-linux-riscv64\n", hex.EncodeToString(digest[:]), asset, "00"))
+	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requests++
 		switch request.URL.Path {
 		case "/v0.2.0/SHA256SUMS":
-			fmt.Fprintf(response, "%s  %s\n%s  orch-linux-riscv64\n", hex.EncodeToString(digest[:]), asset, "00")
+			_, _ = response.Write(sums())
+		case "/v0.2.0/SHA256SUMS.sig":
+			signature, err := release.Sign(signer, sums())
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = response.Write(signature)
 		case "/v0.2.0/" + asset:
 			_, _ = response.Write(binary)
 		default:
@@ -210,9 +228,10 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	previous := releaseDownloadURL
+	previous, previousKeys := releaseDownloadURL, releaseSigningKeys
 	releaseDownloadURL = server.URL
-	defer func() { releaseDownloadURL = previous }()
+	releaseSigningKeys = func() ([]ssh.PublicKey, error) { return []ssh.PublicKey{signer.PublicKey()}, nil }
+	defer func() { releaseDownloadURL, releaseSigningKeys = previous, previousKeys }()
 
 	f := newUpgradeFixture(t)
 	got, err := f.upgrades.binary(context.Background(), other)
@@ -237,7 +256,7 @@ func TestAgentUpgradesDownloadOtherArchitecture(t *testing.T) {
 		t.Fatal("served a binary that was not offered")
 	}
 
-	// A tampered checksum file is refused.
+	// A correctly signed checksum that doesn't match the binary is refused.
 	f2 := newUpgradeFixture(t)
 	digest[0] ^= 0xff
 	if _, err := f2.upgrades.binary(context.Background(), other); err == nil {
