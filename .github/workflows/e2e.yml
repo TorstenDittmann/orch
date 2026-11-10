@@ -46,9 +46,17 @@ jobs:
       - name: Install pinned toolchain
         uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
       - name: Build this commit
-        # A release-shaped version newer than any 0.1 release, so the
-        # controller treats it as an upgrade for the workers.
-        run: make build VERSION="1.0.0-e2e.${GITHUB_RUN_NUMBER}" && cp bin/orch "$RUNNER_TEMP/orch-head"
+        # A release-shaped version one patch above the newest tag, so the
+        # controller treats it as an upgrade for workers on the latest release.
+        # A prerelease of that tag's own version would sort below it.
+        run: |
+          set -o pipefail
+          latest="$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||; s|-.*||' | sort -V | tail -n 1)"
+          [[ -n "$latest" ]] || { echo "could not read the newest release tag" >&2; exit 1; }
+          IFS=. read -r major minor patch <<<"$latest"
+          version="${major}.${minor}.$((patch + 1))-e2e.${GITHUB_RUN_NUMBER}"
+          echo "Building $version (newest tag: v$latest)"
+          make build VERSION="$version" && cp bin/orch "$RUNNER_TEMP/orch-head"
       - name: Fresh install
         if: ${{ !matrix.upgrade }}
         run: mise exec -- scripts/host-e2e.sh "$RUNNER_TEMP/orch-head"
