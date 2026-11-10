@@ -62,6 +62,20 @@ func (f *firewall) preflight() error {
 	return nil
 }
 
+// present reports whether the orch table is still installed. Any error
+// counts as absent, so the caller rebuilds and surfaces the real failure.
+func (f *firewall) present() bool {
+	if !f.prepared {
+		return false
+	}
+	connection, err := nftables.New()
+	if err != nil {
+		return false
+	}
+	_, err = connection.ListTableOfFamily(f.tableName, nftables.TableFamilyIPv4)
+	return err == nil
+}
+
 func (f *firewall) prepare(config model.NetworkConfig) error {
 	connection, err := nftables.New()
 	if err != nil {

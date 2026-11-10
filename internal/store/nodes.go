@@ -92,6 +92,13 @@ func enrollAgentInTransaction(ctx context.Context, tx *sql.Tx, input model.Enrol
 			}
 		}
 		changed = true
+		// A removed node keeps its row for history, but its name is free: a
+		// reinstalled server usually rejoins under the same hostname. The name
+		// column is unique across all rows, so the old row gives its name up.
+		if _, err := tx.ExecContext(ctx, `UPDATE nodes SET name = name || '~removed-' || id
+			WHERE name = ? AND lifecycle = 'REMOVED'`, input.Name); err != nil {
+			return model.EnrollAgentResult{}, fmt.Errorf("release removed node name: %w", err)
+		}
 		stamp := input.CreatedAt.UTC().Format(time.RFC3339Nano)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO nodes
 			(id, cluster_id, name, public_key_hash, certificate_serial,

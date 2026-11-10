@@ -250,7 +250,9 @@ func waitForDeployment(ctx context.Context, reader controlclient.ApplicationRead
 	if err != nil {
 		status = "FAILED"
 		failure = err.Error()
-		if errors.Is(err, context.DeadlineExceeded) {
+		// The controller may answer a request cut off by our deadline with
+		// its own error, so the local deadline decides whether we timed out.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			status = "TIMED_OUT"
 		} else if errors.Is(err, context.Canceled) {
 			status = "CANCELED"

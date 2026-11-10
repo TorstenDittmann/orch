@@ -208,3 +208,38 @@ func TestEnrollmentRejectsTwentyFirstActiveNode(t *testing.T) {
 		t.Fatalf("twenty-first enrollment = %v", err)
 	}
 }
+
+func TestRemovedNodeNameCanJoinAgain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 2 {
+		original := testEnrollAgent("node-old", "worker-1", fmt.Sprintf("%064x", 11), "rejoin-enroll-old-key", fmt.Sprintf("%064x", 401))
+		if index == 1 {
+			original = testEnrollAgent("node-older", "worker-2", fmt.Sprintf("%064x", 12), "rejoin-older-key", fmt.Sprintf("%064x", 402))
+		}
+		if _, err := state.EnrollAgent(ctx, original); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := state.RemoveNode(ctx, model.RemoveNode{NodeName: "worker-1", Lost: true,
+		IdempotencyKey: "rejoin-remove-key", RequestHash: strings.Repeat("6", 64), RemovedAt: testCreatedAt.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	replacement := testEnrollAgent("node-new", "worker-1", fmt.Sprintf("%064x", 13), "rejoin-enroll-new-key", fmt.Sprintf("%064x", 403))
+	if _, err := state.EnrollAgent(ctx, replacement); err != nil {
+		t.Fatalf("enroll under a removed node's name = %v", err)
+	}
+	node, err := state.NodeByName(ctx, "worker-1")
+	if err != nil || node.ID != "node-new" {
+		t.Fatalf("NodeByName(worker-1) = %+v, %v", node, err)
+	}
+	// An active node's name stays taken.
+	duplicate := testEnrollAgent("node-dup", "worker-2", fmt.Sprintf("%064x", 14), "rejoin-enroll-dup-key", fmt.Sprintf("%064x", 404))
+	if _, err := state.EnrollAgent(ctx, duplicate); err == nil {
+		t.Fatal("enrollment under an active node's name succeeded")
+	}
+}

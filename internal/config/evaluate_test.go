@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const validManifest = `amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+const validManifest = `amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "hello"
 

@@ -253,6 +253,19 @@ func TestLoadServesPublishedSchemaFromEmbeddedCopy(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsThePreOneZeroSchemaName(t *testing.T) {
+	for _, legacy := range []string{pklschema.LegacyApplicationURL, pklschema.LegacySchemaBaseURL + "v1alpha1/Application.pkl"} {
+		source := strings.Replace(validManifest, pklschema.ApplicationURL, legacy, 1)
+		manifest := loadManifest(t, source)
+		if manifest.Name != "hello" || manifest.Schema != LegacySchemaVersion {
+			t.Fatalf("%s: manifest = %q schema %q", legacy, manifest.Name, manifest.Schema)
+		}
+	}
+	if manifest := loadManifest(t, validManifest); manifest.Schema != SchemaVersion {
+		t.Fatalf("v1 manifest schema = %q", manifest.Schema)
+	}
+}
+
 func TestLoadAcceptsLegacyOrchSchemeURI(t *testing.T) {
 	source := strings.Replace(validManifest, pklschema.ApplicationURL, pklschema.ApplicationURI, 1)
 	if manifest := loadManifest(t, source); manifest.Name != "hello" {

@@ -48,7 +48,7 @@ jobs:
           - name: Test the workload firewall against the kernel
             run: |
               mise exec -- go test -c -o /tmp/orch-network.test ./internal/network
-              sudo ORCH_FIREWALL_E2E=1 unshare -n /tmp/orch-network.test -test.run TestWorkloadFirewall -test.v
+              sudo ORCH_FIREWALL_E2E=1 unshare -n /tmp/orch-network.test -test.run 'TestWorkloadFirewall|TestPrepareRebuilds' -test.v
               # The volume backup view needs root to bind-mount; run it in its own mount namespace.
               mise exec -- go test -c -o /tmp/orch-agent.test ./internal/agent
               sudo unshare -m /tmp/orch-agent.test -test.run TestVolumeBackupView -test.v

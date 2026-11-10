@@ -141,7 +141,7 @@ dependencies, systemd services and enrollment with `orch node install`. Use
 `orch node doctor` or `install --dry-run` first to inspect prerequisites and planned actions.
 
 The agent host must be Linux `amd64` or `arm64` with cgroups v2, containerd
-2.3.4, `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
+2.3 (2.3.4 or newer), `containerd-shim-runc-v2`, `runc`, `net.ipv4.ip_forward=1`, nftables,
 the official CNI plugins 1.9.1, and kernel WireGuard support. Ingress-enabled
 nodes additionally run Caddy 2.11.3 as a dedicated non-root user; its
 root-owned binary must carry `cap_net_bind_service=+ep`. The agent needs
@@ -279,7 +279,7 @@ operational failures.
 ## Executable example
 
 ~~~pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "runtime-demo"
 
@@ -320,19 +320,17 @@ checks the complete network slice and isolated-ACME prerequisites before
 running it; see
 [docs/runtime.md](docs/runtime.md#privileged-runtime-verification).
 
-## Status and roadmap
+## Status
 
-Work is split into reviewable vertical slices:
-
-1. Configuration and CLI contract.
-2. Secure single-node controller/agent/runtime.
-3. Single-node CNI networking, health gates, DNS, and HTTPS ingress.
-4. Multi-node scheduling and WireGuard routing.
-5. Secrets and operator workflows (implemented ahead of multi-node).
-6. Packaging and release hardening.
+orch is heading for 1.0. The `v1` manifest schema is frozen, and
+[docs/compatibility.md](docs/compatibility.md) says what stays stable across
+1.x releases. Before running a cluster in production, work through
+[docs/production.md](docs/production.md).
 
 Tagging `vX.Y.Z` publishes a GitHub release with stamped Linux, macOS and
-Windows binaries for amd64 and arm64, and `SHA256SUMS`.
+Windows binaries for amd64 and arm64, `SHA256SUMS`, its signature and build
+provenance attestations. Every pull request also installs orch on real GitHub
+runners, fresh and as an upgrade from the latest release.
 
 ## License
 

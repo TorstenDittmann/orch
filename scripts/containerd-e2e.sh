@@ -56,8 +56,8 @@ if [[ ! -S "$containerd_socket" ]]; then
 	exit 2
 fi
 containerd_version="$(containerd --version)"
-if [[ ! "$containerd_version" =~ (^|[[:space:]])v?2\.3\.4([[:space:]]|$) ]]; then
-	echo "containerd 2.3.4 is required; found: $containerd_version" >&2
+if [[ ! "$containerd_version" =~ (^|[[:space:]])v?2\.3\.([0-9]+)([[:space:]]|$) ]] || ((BASH_REMATCH[2] < 4)); then
+	echo "containerd 2.3.4 or a newer 2.3 release is required; found: $containerd_version" >&2
 	exit 2
 fi
 

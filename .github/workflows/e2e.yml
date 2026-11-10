@@ -1,0 +1,60 @@
+name: Host end-to-end
+
+# Installs orch on the disposable GitHub runner itself: controller, worker,
+# containerd, nftables, Caddy ingress and a real deployment. The upgrade job
+# starts from the latest published release and upgrades to this commit, which
+# is the path every existing cluster takes.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Fresh install (amd64)
+            runner: ubuntu-24.04
+            upgrade: false
+          - name: Fresh install (arm64)
+            runner: ubuntu-24.04-arm
+            upgrade: false
+          - name: Upgrade from the latest release
+            runner: ubuntu-24.04
+            upgrade: true
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - name: Build this commit
+        # A release-shaped version newer than any 0.1 release, so the
+        # controller treats it as an upgrade for the workers.
+        run: make build VERSION="1.0.0-e2e.${GITHUB_RUN_NUMBER}" && cp bin/orch "$RUNNER_TEMP/orch-head"
+      - name: Fresh install
+        if: ${{ !matrix.upgrade }}
+        run: mise exec -- scripts/host-e2e.sh "$RUNNER_TEMP/orch-head"
+      - name: Upgrade from the latest release
+        if: ${{ matrix.upgrade }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          ORCH_INSTALL_DIR="$RUNNER_TEMP/release" sh install.sh
+          mise exec -- scripts/host-e2e.sh "$RUNNER_TEMP/release/orch" "$RUNNER_TEMP/orch-head"

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
@@ -69,6 +70,15 @@ func authenticateAgent(clusterID string, state *store.Store, next http.Handler) 
 				} else {
 					fingerprint, err := security.CertificatePublicKeyHash(certificate)
 					slot, slotErr := state.AgentCertificateSlot(request.Context(), nodeID, certificate.SerialNumber.String(), fingerprint)
+					if err == nil && slotErr != nil {
+						// A controller restored from an older backup does not know
+						// renewals issued since; adopt a newer certificate it signed.
+						certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})
+						if adopted, adoptErr := state.AdoptNewerAgentCertificate(request.Context(), nodeID, certificate.SerialNumber.String(),
+							fingerprint, certificatePEM, certificate.NotAfter, time.Now()); adoptErr == nil && adopted {
+							slot, slotErr = "CURRENT", nil
+						}
+					}
 					if err != nil || slotErr != nil {
 						principal.err = errors.New("agent certificate does not match enrolled identity")
 						principal.code = connect.CodePermissionDenied

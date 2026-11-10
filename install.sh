@@ -6,6 +6,7 @@
 # ORCH_VERSION picks a release tag such as v0.2.0 (default: the latest release).
 # ORCH_INSTALL_DIR picks the directory (default: /usr/local/bin, using sudo when
 # needed, or ~/.local/bin when sudo is unavailable).
+# ORCH_SKIP_SIGNATURE=1 installs a release that predates release signatures.
 set -eu
 
 repo="TorstenDittmann/orch"
@@ -56,6 +57,34 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 download "$base/SHA256SUMS" "$tmp/SHA256SUMS" || fail "could not download $base/SHA256SUMS"
+# Releases are signed with an SSH key; the public keys live in the repository,
+# next to this script. The checksum alone comes from the same place as the
+# binary, so the signature is what ties the download to the orch project.
+verify_signature() {
+	signers="https://raw.githubusercontent.com/$repo/main/packaging/release/allowed_signers"
+	if command -v curl >/dev/null 2>&1; then
+		# A missing file means no key is published yet, the same as an empty one.
+		status="$(curl -sSL --retry 3 -o "$tmp/allowed_signers" -w '%{http_code}' "$signers")" ||
+			fail "could not download the release signing keys"
+		[ "$status" = 404 ] && return 0
+		[ "$status" = 200 ] || fail "could not download the release signing keys (HTTP $status)"
+	else
+		download "$signers" "$tmp/allowed_signers" || fail "could not download the release signing keys"
+	fi
+	grep -q '^orch-release' "$tmp/allowed_signers" || return 0
+	if ! download "$base/SHA256SUMS.sig" "$tmp/SHA256SUMS.sig" 2>/dev/null; then
+		[ "${ORCH_SKIP_SIGNATURE:-}" = 1 ] && { say "Warning: $version has no release signature; checked its checksum only."; return 0; }
+		fail "$version has no release signature (SHA256SUMS.sig); set ORCH_SKIP_SIGNATURE=1 to install a release from before signatures"
+	fi
+	if ! command -v ssh-keygen >/dev/null 2>&1; then
+		say "Warning: ssh-keygen is not installed, so the release signature was not checked."
+		return 0
+	fi
+	ssh-keygen -Y verify -f "$tmp/allowed_signers" -I orch-release -n orch-release \
+		-s "$tmp/SHA256SUMS.sig" < "$tmp/SHA256SUMS" >/dev/null 2>&1 ||
+		fail "release signature check failed for $version; refusing to install"
+}
+verify_signature
 checksum() { awk -v name="$1" '$2 == name || $2 == "*" name { print $1 }' "$tmp/SHA256SUMS"; }
 # The gzipped asset is about a third of the size; releases before it existed,
 # and hosts without gzip, get the plain binary.

@@ -15,3 +15,5 @@ func canMountVolumes() bool { return false }
 const archiveOpenFlags = 0
 
 func isSymlinkLoop(error) bool { return false }
+
+func unjamSQLiteFIFOs(string) func() { return func() {} }

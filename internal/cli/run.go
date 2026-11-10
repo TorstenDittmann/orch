@@ -385,7 +385,7 @@ const certificateRenewalWindow = 30 * 24 * time.Hour
 func certificateExpirySummary(notAfter, now time.Time) string {
 	summary := "valid until " + notAfter.UTC().Format(time.RFC3339)
 	if notAfter.Sub(now) < certificateRenewalWindow {
-		summary += " (expires soon; run 'orch cluster certificates renew' on the controller host)"
+		summary += " (expires soon and should renew itself; if it does not, run 'orch cluster certificates renew' on the controller host)"
 	}
 	return summary
 }

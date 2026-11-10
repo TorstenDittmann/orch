@@ -243,3 +243,45 @@ func TestConcurrentCertificatePromotionIsIdempotent(t *testing.T) {
 		t.Fatalf("promotion results changed=%v errors=%v", changed, errorsSeen)
 	}
 }
+
+// A controller restored from a backup taken before an agent renewed its
+// certificate must accept the newer certificate instead of locking the node out.
+func TestRestoredControllerAdoptsANewerAgentCertificate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	state := openTestStore(t)
+	if err := state.InitializeCluster(ctx, testCluster("cluster-one")); err != nil {
+		t.Fatal(err)
+	}
+	enroll := testEnrollAgent("node-one", "node-1", strings.Repeat("a", 64), "enrollment-key-one", strings.Repeat("1", 64))
+	if _, err := state.EnrollAgent(ctx, enroll); err != nil {
+		t.Fatal(err)
+	}
+	now := testCreatedAt.Add(24 * time.Hour)
+	newer := enroll.CertificateNotAfter.AddDate(1, 0, 0)
+	refused := []struct {
+		name, serial, hash string
+		notAfter           time.Time
+	}{
+		{"an older certificate", "41", enroll.PublicKeyHash, enroll.CertificateNotAfter.Add(-time.Hour)},
+		{"an equally old certificate", "41", enroll.PublicKeyHash, enroll.CertificateNotAfter},
+		{"another key", "41", strings.Repeat("b", 64), newer},
+	}
+	for _, test := range refused {
+		if adopted, err := state.AdoptNewerAgentCertificate(ctx, enroll.NodeID, test.serial, test.hash, []byte("cert"), test.notAfter, now); err != nil || adopted {
+			t.Fatalf("%s: adopted = %v, %v", test.name, adopted, err)
+		}
+	}
+	if adopted, err := state.AdoptNewerAgentCertificate(ctx, enroll.NodeID, "41", enroll.PublicKeyHash, []byte("renewed"), newer, now); err != nil || !adopted {
+		t.Fatalf("newer certificate adopted = %v, %v", adopted, err)
+	}
+	if slot, err := state.AgentCertificateSlot(ctx, enroll.NodeID, "41", enroll.PublicKeyHash); err != nil || slot != "CURRENT" {
+		t.Fatalf("adopted slot = %q, %v", slot, err)
+	}
+	if slot, err := state.AgentCertificateSlot(ctx, enroll.NodeID, enroll.CertificateSerial, enroll.PublicKeyHash); err == nil || slot != "" {
+		t.Fatalf("superseded slot = %q, %v", slot, err)
+	}
+	if adopted, err := state.AdoptNewerAgentCertificate(ctx, enroll.NodeID, enroll.CertificateSerial, enroll.PublicKeyHash, []byte("old"), enroll.CertificateNotAfter, now); err != nil || adopted {
+		t.Fatalf("superseded certificate adopted again = %v, %v", adopted, err)
+	}
+}

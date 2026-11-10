@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # The same pinned upstream releases as packaging/node/artifacts.json, for both architectures.
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64) containerd=1d0eccd52471ab75e8d4645b538f73dc635f905cd2be776366eb1036a0089595; \
+      amd64) containerd=828db4f3720a37361a803ece1633feca2b130a68579cdb4a9ea4fad03df35a33; \
              runc=f6ae8efc0fa40079e1475e97cbe9d1bd3f106a28d6af78a11d9f1bd565515e60; \
              cni=b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303; \
              caddy=3894577b14657feab3624d782f64175050211e52a228a6f57b4f24f4b0d970f3 ;; \
-      arm64) containerd=ad21f456a69bca9c183a8bde892a7576d5d09ae88b3e376a47bde4a886037ab3; \
+      arm64) containerd=cc2095381b33bbd4d16bd2ce606802e0c887b0c809a9f99c30ad6a439268f3b3; \
              runc=633301e2e32f8a5ad54031aab4901eb00308bec677dd15faa2751e8f9dab5ca4; \
              cni=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec; \
              caddy=866d2b226a4c07adc38aea7df653ee63b98890691d4cd41db1f1c83e18300bbe ;; \
@@ -21,7 +21,7 @@ RUN set -eu; \
     esac; \
     fetch() { curl -fsSL -o "$1" "$2" && echo "$3  $1" | sha256sum -c -; }; \
     mkdir -p /opt/orch/bin /opt/orch/cni /tmp/a && cd /tmp/a; \
-    fetch containerd.tgz "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-static-2.3.4-linux-$TARGETARCH.tar.gz" "$containerd"; \
+    fetch containerd.tgz "https://github.com/containerd/containerd/releases/download/v2.3.7/containerd-static-2.3.7-linux-$TARGETARCH.tar.gz" "$containerd"; \
     tar -xzf containerd.tgz -C /opt/orch bin/containerd bin/containerd-shim-runc-v2 bin/ctr; \
     fetch runc "https://github.com/opencontainers/runc/releases/download/v1.4.3/runc.$TARGETARCH" "$runc"; \
     install -m 0755 runc /opt/orch/bin/runc; \

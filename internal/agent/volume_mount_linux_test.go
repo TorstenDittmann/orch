@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,5 +79,33 @@ func TestOpenRegularDoesNotBlockOnAFIFO(t *testing.T) {
 	}
 	if _, err := openRegular(link); !errors.Is(err, errNotRegular) {
 		t.Fatalf("openRegular(symlink) = %v, want errNotRegular", err)
+	}
+}
+
+func TestSnapshotSQLiteDoesNotHangOnAFIFO(t *testing.T) {
+	for _, swapped := range []string{"", "-wal"} {
+		directory := t.TempDir()
+		name := filepath.Join(directory, "app.db")
+		if swapped != "" {
+			if err := os.WriteFile(name, append(append([]byte(nil), sqliteHeader...), make([]byte, 4096)...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := syscall.Mkfifo(name+swapped, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			snapshot, err := snapshotSQLite(context.Background(), name, directory)
+			if err == nil {
+				_ = os.Remove(snapshot)
+			}
+			done <- err
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("snapshotSQLite blocked on a FIFO at %q", "app.db"+swapped)
+		}
 	}
 }

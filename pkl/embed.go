@@ -17,7 +17,10 @@ import (
 const (
 	// ApplicationURL is the schema URI manifests amend. Editors fetch it over
 	// HTTPS; orch evaluation serves it from the embedded copy instead.
-	ApplicationURL = SchemaBaseURL + "v1alpha1/Application.pkl"
+	ApplicationURL = SchemaBaseURL + "v1/Application.pkl"
+	// LegacyApplicationURL is the pre-1.0 name of the same schema. It amends
+	// v1 and only changes the schema field, so older manifests keep working.
+	LegacyApplicationURL = SchemaBaseURL + "v1alpha1/Application.pkl"
 	// SchemaBaseURL is the published directory that holds versioned schemas.
 	SchemaBaseURL = "https://orch.torsten.work/pkl/"
 	// LegacySchemaBaseURL is the earlier GitHub location, still served from
@@ -25,14 +28,24 @@ const (
 	LegacySchemaBaseURL = "https://raw.githubusercontent.com/TorstenDittmann/orch/main/pkl/"
 	// ApplicationURI is the original orch: form, still accepted by orch.
 	ApplicationURI     = "orch:/v1alpha1/Application.pkl"
+	applicationV1URI   = "orch:/v1/Application.pkl"
 	RequiredPklVersion = "0.32.1"
 )
 
-//go:embed v1alpha1/Application.pkl
+//go:embed v1/Application.pkl
 var applicationSource string
+
+//go:embed v1alpha1/Application.pkl
+var legacyApplicationSource string
 
 func ApplicationSource() []byte {
 	return []byte(applicationSource)
+}
+
+// Modules are the embedded schema files by their path below SchemaBaseURL.
+var Modules = map[string]string{
+	"v1/Application.pkl":       applicationSource,
+	"v1alpha1/Application.pkl": legacyApplicationSource,
 }
 
 // ModuleReader exposes only the embedded, versioned application schema.
@@ -59,10 +72,13 @@ func (ModuleReader) ListElements(url.URL) ([]applepkl.PathElement, error) {
 }
 
 func (ModuleReader) Read(uri url.URL) (string, error) {
-	if uri.String() != ApplicationURI {
-		return "", fmt.Errorf("unknown orch schema module %q", uri.String())
+	switch uri.String() {
+	case ApplicationURI:
+		return legacyApplicationSource, nil
+	case applicationV1URI:
+		return applicationSource, nil
 	}
-	return applicationSource, nil
+	return "", fmt.Errorf("unknown orch schema module %q", uri.String())
 }
 
 // RunExternalReader serves the embedded schema over Pkl's external-reader
@@ -92,10 +108,12 @@ func StartMirror() (*Mirror, error) {
 		return nil, fmt.Errorf("start Pkl schema mirror: %w", err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1alpha1/Application.pkl", func(response http.ResponseWriter, _ *http.Request) {
-		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(response, applicationSource)
-	})
+	for path, source := range Modules {
+		mux.HandleFunc("GET /"+path, func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = io.WriteString(response, source)
+		})
+	}
 	mirror := &Mirror{server: &http.Server{Handler: mux}, listener: listener}
 	go func() { _ = mirror.server.Serve(listener) }()
 	return mirror, nil
@@ -111,7 +129,7 @@ func (m *Mirror) Rewrites() map[string]string {
 // AllowedModule matches the rewritten schema URL, since Pkl checks the module
 // allowlist after applying rewrites.
 func (m *Mirror) AllowedModule() string {
-	return `^http://` + regexp.QuoteMeta(m.listener.Addr().String()) + `/v1alpha1/Application\.pkl$`
+	return `^http://` + regexp.QuoteMeta(m.listener.Addr().String()) + `/v1(alpha1)?/Application\.pkl$`
 }
 
 func (m *Mirror) Close() error {

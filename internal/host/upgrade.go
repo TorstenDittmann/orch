@@ -39,6 +39,7 @@ type UpgradeResult struct {
 	RecoveryPath      string               `json:"recovery_path,omitempty"`
 	AutomaticRollback bool                 `json:"automatic_rollback"`
 	Actions           []string             `json:"actions"`
+	Warnings          []string             `json:"warnings,omitempty"`
 }
 
 type upgradeJournal struct {
@@ -370,13 +371,46 @@ func UpgradeNode(ctx context.Context, options UpgradeOptions) (UpgradeResult, er
 			return result, err
 		}
 	}
+	// While the agent is stopped, bring an older managed containerd up to the
+	// bundled release. A failure keeps the previous daemon, which this release
+	// still supports, so it never fails the upgrade.
+	undo, refreshErr := newRuntimeRefresh(runCommand).apply(ctx, state.Files)
+	if refreshErr != nil {
+		result.Warnings = append(result.Warnings, "containerd was not updated: "+refreshErr.Error())
+	} else if undo != nil {
+		defer undo.discard()
+		result.Actions = append(result.Actions, "Updated containerd to the bundled release")
+		// Record the new digests now, so the manifest matches the files on
+		// disk whichever way the upgrade ends.
+		data, _ := json.MarshalIndent(state, "", "  ")
+		if err = atomicOwned(ManifestPath, data, 0600); err != nil {
+			return result, err
+		}
+	}
+	// The previous orch may accept only the containerd it shipped with, so a
+	// rollback puts the previous daemon back before the previous agent starts.
+	rollback := func(cause error) error {
+		if undo != nil {
+			revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+			defer cancel()
+			if err := undo.revert(revertCtx, state.Files); err != nil {
+				cause = fmt.Errorf("%v; %w", cause, err)
+			} else {
+				data, _ := json.MarshalIndent(state, "", "  ")
+				if err := atomicOwned(ManifestPath, data, 0600); err != nil {
+					cause = fmt.Errorf("%v; record previous containerd: %w", cause, err)
+				}
+			}
+		}
+		return rollbackNode(ctx, runCommand, journalPath, AgentDir, journal, cause)
+	}
 	if _, err = runCommand(ctx, "systemctl", "start", "orch-agent.service"); err != nil {
-		return result, rollbackNode(ctx, runCommand, journalPath, AgentDir, journal, err)
+		return result, rollback(err)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, options.WaitTimeout)
 	defer cancel()
 	if err = waitForAgent(waitCtx, state.NodeID); err != nil {
-		return result, rollbackNode(ctx, runCommand, journalPath, AgentDir, journal, err)
+		return result, rollback(err)
 	}
 	state.BinaryHash, state.Build = result.CandidateHash, result.Candidate
 	state.Files[Prefix+"/bin/orch"] = result.CandidateHash

@@ -65,7 +65,7 @@ func Load(ctx context.Context, filename string, options LoadOptions) (*Manifest,
 		func(evaluatorOptions *applepkl.EvaluatorOptions) {
 			evaluatorOptions.Properties = map[string]string{}
 			evaluatorOptions.Env = map[string]string{}
-			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1alpha1/Application\.pkl$`, mirror.AllowedModule()}
+			evaluatorOptions.AllowedModules = []string{`^pkl:.*$`, `^file:.*$`, `^https://.*$`, `^orch:/v1(alpha1)?/Application\.pkl$`, mirror.AllowedModule()}
 			evaluatorOptions.AllowedResources = []string{`^$`}
 			// Remote modules go through modules, which pins each one by
 			// hash in ModuleLockFile on first use.

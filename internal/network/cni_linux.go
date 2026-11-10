@@ -142,7 +142,7 @@ func (m *linuxManager) Prepare(ctx context.Context, desired model.NetworkConfig)
 	if err := m.validateDesired(desired); err != nil {
 		return err
 	}
-	if m.list != nil && m.loopback != nil && model.NetworkConfigEqual(m.config, desired) {
+	if m.upToDate(desired) {
 		return nil
 	}
 	// DNS must bind the gateway before the controller can freeze the network
@@ -153,6 +153,14 @@ func (m *linuxManager) Prepare(ctx context.Context, desired model.NetworkConfig)
 		return err
 	}
 	return m.prepareAfterBridge(ctx, desired)
+}
+
+// upToDate reports whether the network is already prepared for desired. A
+// host firewall reload, an OS update or nft flush ruleset can delete the orch
+// table behind the agent's back, so the cached configuration only counts while
+// the table still exists; otherwise Prepare rebuilds it on the next reconcile.
+func (m *linuxManager) upToDate(desired model.NetworkConfig) bool {
+	return m.list != nil && m.loopback != nil && model.NetworkConfigEqual(m.config, desired) && m.firewall.present()
 }
 
 func (m *linuxManager) Validate(_ context.Context, desired model.NetworkConfig) error {

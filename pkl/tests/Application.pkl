@@ -1,6 +1,6 @@
 amends "pkl:test"
 
-import "../v1alpha1/Application.pkl" as app
+import "../v1/Application.pkl" as app
 
 local service = new app.Service {
   image = "example/web:1"

@@ -441,7 +441,7 @@ copy of a busy database.
 Run migrations from the application image before each rollout:
 
 ```pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "shop"
 

@@ -58,6 +58,9 @@ func runHostUpgrade(ctx context.Context, kind string, args []string, stdout, std
 		for _, action := range result.Actions {
 			fmt.Fprintln(stdout, "Action:", action)
 		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintln(stdout, "Warning:", warning)
+		}
 		if result.RecoveryPath != "" {
 			fmt.Fprintln(stdout, "Recovery:", result.RecoveryPath)
 		}

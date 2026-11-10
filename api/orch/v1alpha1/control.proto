@@ -60,6 +60,7 @@ service ControlService {
   rpc ListGitHubTrusts(ListGitHubTrustsRequest) returns (ListGitHubTrustsResponse);
   rpc DeleteGitHubTrust(DeleteGitHubTrustRequest) returns (DeleteGitHubTrustResponse);
   rpc CreateAccessToken(CreateAccessTokenRequest) returns (CreateAccessTokenResponse);
+  rpc RenewAdministratorCertificate(RenewAdministratorCertificateRequest) returns (RenewAdministratorCertificateResponse);
   rpc ListAccessTokens(ListAccessTokensRequest) returns (ListAccessTokensResponse);
   rpc DeleteAccessToken(DeleteAccessTokenRequest) returns (DeleteAccessTokenResponse);
   rpc SetNotification(SetNotificationRequest) returns (SetNotificationResponse);
@@ -1059,6 +1060,18 @@ message AccessToken {
   // Domains the token may route, each with its subdomains. Empty allows any
   // domain not used by another application, and the public listener.
   repeated string domains = 8;
+}
+
+// RenewAdministratorCertificateRequest asks for a fresh one-year
+// administrator certificate. Only a caller authenticated with an
+// administrator context certificate may ask; access tokens and the local
+// socket may not.
+message RenewAdministratorCertificateRequest {}
+
+message RenewAdministratorCertificateResponse {
+  bytes certificate_pem = 1;
+  bytes private_key_pem = 2;
+  google.protobuf.Timestamp expires_at = 3;
 }
 
 message CreateAccessTokenRequest {

@@ -1,0 +1,491 @@
+module orch.Application
+
+/// The resolved application contract produced by every orch configuration.
+schema: "v1" | "v1alpha1" = "v1"
+
+/// A DNS-label application name.
+name: DnsLabel
+
+/// Services keyed by their DNS-label name. An application needs at least one
+/// service or database.
+services: Mapping<DnsLabel, Service>(length <= 100, connectsToDatabases("services", this)) = new {}
+
+/// Scheduled one-shot jobs keyed by their DNS-label name.
+cronJobs: Mapping<DnsLabel, CronJob>(length <= 100, connectsToDatabases("cronJobs", this)) = new {}
+
+/// Node-local volumes keyed by their DNS-label name.
+volumes: Mapping<DnsLabel, Volume>(length <= 100) = new {}
+
+/// Where to send notifications about this application, such as failed
+/// deploys and backups.
+notifications: Listing<Notification>(length <= 20) = new {}
+
+/// Databases orch runs, keyed by name. Each one becomes a service of that name
+/// with its own volume, a generated password, and a `NAME-url` secret holding
+/// the connection URL.
+databases: Mapping<DatabaseName, Database>(length <= 20) = new {}
+
+/// Rolling deployment behavior.
+deploy: Deployment = new {}
+
+/// Lets the application's services, jobs and cron jobs reach private
+/// networks: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and 100.64.0.0/10,
+/// such as a managed database in the node's VPC. Without it they reach the
+/// internet and other workloads in the cluster, but not hosts on those
+/// networks. Only administrator credentials may turn it on.
+allowPrivateNetwork: Boolean = false
+
+typealias RestartPolicy = "always" | "on-failure" | "never"
+
+typealias DnsLabel = String(length <= 63, matches(Regex(#"^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"#)))
+
+/// Something that happened to an application that can be notified.
+typealias NotificationEvent =
+  "deploy.succeeded"
+    | "deploy.failed"
+    | "deploy.rolled_back"
+    | "backup.failed"
+    | "cron.failed"
+    | "replica.unhealthy"
+
+/// A DNS label short enough to name the database's volumes and secrets.
+typealias DatabaseName = DnsLabel(length <= 54)
+
+typealias EnvironmentName = String(matches(Regex(#"^[A-Za-z_][A-Za-z0-9_]*$"#)))
+
+typealias ManifestString = String(length <= 4096)
+
+typealias Port = Int(isBetween(1, 65535))
+
+class Service {
+  /// The container image to run. Set either `image` or `static`.
+  image: String(!isBlank, length <= 1024)? = null
+
+  /// Serve a folder of files instead of running an image. `orch deploy` packs
+  /// the folder into an image with a built-in web server and uploads it.
+  static: Static? = null
+
+  command: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  args: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  replicas: Int(isBetween(1, 100)) = 1
+
+  restart: RestartPolicy = "always"
+
+  resources: Resources = new {}
+
+  /// An HTTP endpoint, or a listing of them for a container that serves
+  /// several ports, each on its own domains. Readiness checks the first one.
+  /// A `static` service gets one on port 8080 to amend, as in `http { domains { ... } }`.
+  http: (Http | Listing<Http>(length.isBetween(1, 20), sharesOneEndpoint(this)))? =
+    if (static != null) new Http { port = 8080; healthPath = "/.orch/health" } else null
+
+  tcp: Tcp? = null
+
+  /// A UDP endpoint published on the node that runs each replica. It requires
+  /// an `http` or `tcp` endpoint on the same service for readiness.
+  udp: Udp? = null
+
+  dependsOn: Listing<DnsLabel>(length <= 64, isDistinct) = new {}
+
+  env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
+
+  secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  /// Sets each variable to the connection URL of the named database in
+  /// `databases`, and waits for that database like `dependsOn`.
+  connect: Mapping<EnvironmentName, DatabaseName>(length <= 20) = new {}
+
+  secretFiles: Listing<SecretFile>(length <= 64) = new {}
+
+  /// Exact node-label matches required by every replica.
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
+
+  mounts: Listing<Mount>(length <= 64) = new {}
+
+  /// How long a replica may take to exit after SIGTERM before it is killed,
+  /// from "1s" to "10m". Unset means 10 seconds.
+  stopGracePeriod: String? = null
+
+  /// Run replicas with every Linux capability and access to the node's
+  /// devices, for workloads that start their own containers, such as a Docker
+  /// daemon. A privileged replica can take over its node. Only administrator
+  /// credentials may deploy an application that sets it.
+  privileged: Boolean = false
+
+  /// Grant only these Linux capabilities, retaining seccomp, no-new-privileges
+  /// and blocked host devices. Use canonical CAP_* names. Administrator-only;
+  /// cannot be combined with privileged.
+  capabilities: Listing<String(!isBlank, length <= 64)>(length <= 41, isDistinct) = new {}
+
+  /// Adds and removes replicas to keep average CPU use near a target. Leave
+  /// `replicas` unset when this is set; `min` is the starting count.
+  autoscale: Autoscale? = null
+}
+
+class Static {
+  /// The folder to serve, relative to the manifest, such as a build's `dist`.
+  dir: String(!isBlank, length <= 4096)
+
+  /// Answer unknown paths with `/index.html`, for single-page apps with
+  /// client-side routing. Otherwise they get `/404.html` with status 404.
+  spa: Boolean = false
+}
+
+class Autoscale {
+  min: Int(isBetween(1, 100)) = 1
+
+  max: Int(isBetween(min, 100))
+
+  /// Target average CPU use of each replica, as a percent of `resources.cpu`.
+  cpuPercent: Int(isBetween(10, 100)) = 70
+}
+
+class Resources {
+  cpu: String(matches(Regex(#"^[1-9][0-9]*(?:m)?$"#))) = "100m"
+
+  memory: String(matches(Regex(#"^[1-9][0-9]*(?:Ki|Mi|Gi|Ti)$"#))) = "128Mi"
+}
+
+class Http {
+  port: Port
+
+  /// Expose this service as the catch-all plaintext listener on ingress port 80.
+  public: Boolean = false
+
+  /// Hostnames to route here. `*.example.com` matches any one label below
+  /// example.com; an exact domain elsewhere wins over it.
+  domains: Listing<String>(length <= 100, isDistinct) = new {}
+
+  healthPath: String(length <= 2048) = ""
+
+  https: Boolean = true
+
+  /// Publish HTTP routes only on the ingress-enabled node running each replica.
+  /// Use this when a hostname points at that node, rather than shared ingress.
+  nodeLocal: Boolean = false
+
+  /// Ask for a username and password before a request reaches the service.
+  basicAuth: BasicAuth? = null
+
+  /// Domains that permanently redirect to one of `domains`, such as
+  /// `["www.example.com"] = "example.com"`. The path and query are kept.
+  redirects: Mapping<String, String>(length <= 100) = new {}
+
+  /// URL path prefixes this service answers on its `domains`, such as `"/api"`,
+  /// so several services can share a domain. The longest matching prefix wins,
+  /// and a service without `paths` gets everything else.
+  paths: Listing<String>(length <= 20, isDistinct) = new {}
+
+  /// Remove the matched prefix before forwarding, so `/api/users` reaches the
+  /// service as `/users`.
+  stripPrefix: Boolean = false
+}
+
+class BasicAuth {
+  user: String(matches(Regex(#"^[A-Za-z0-9._-]{1,64}$"#)))
+
+  /// Name of the application secret that holds the password.
+  passwordSecret: DnsLabel
+}
+
+class Tcp {
+  port: Port
+
+  /// Opens this port on every ingress node and proxies connections to ready replicas.
+  publicPort: Port? = null
+
+  /// Publishes this port on the node that runs each replica, keeping client addresses.
+  nodePort: Port? = null
+}
+
+class Udp {
+  port: Port
+
+  /// Publishes this port on the node that runs each replica, keeping client addresses.
+  nodePort: Port
+}
+
+class CronJob {
+  image: String(!isBlank, length <= 1024)
+
+  schedule: String(!isBlank, length <= 256)
+
+  command: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  args: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+
+  resources: Resources = new {}
+
+  env: Mapping<EnvironmentName, ManifestString>(length <= 256) = new {}
+
+  secretEnv: Mapping<EnvironmentName, DnsLabel>(length <= 256) = new {}
+
+  /// Sets each variable to the connection URL of the named database in
+  /// `databases`, and waits for that database like `dependsOn`.
+  connect: Mapping<EnvironmentName, DatabaseName>(length <= 20) = new {}
+
+  secretFiles: Listing<SecretFile>(length <= 64) = new {}
+
+  dependsOn: Listing<DnsLabel>(length <= 64, isDistinct) = new {}
+
+  /// Exact node-label matches required to own this cron schedule.
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
+
+  startDeadline: String = "1m"
+
+  timeout: String = "15m"
+
+  /// Read-only mounts of local volumes that a service in this application
+  /// owns. Each run is placed on the node that holds those volumes.
+  mounts: Listing<Mount(readOnly)>(length <= 64) = new {}
+}
+
+class SecretFile {
+  source: DnsLabel
+
+  target: ManifestString
+}
+
+class Mount {
+  source: DnsLabel
+
+  target: ManifestString
+
+  readOnly: Boolean = false
+}
+
+class Volume {
+  driver: "local" = "local"
+
+  /// Archives this volume on its node on a schedule. The volume must be
+  /// mounted by a service.
+  backup: VolumeBackup? = null
+}
+
+class VolumeBackup {
+  /// Five-field cron schedule in UTC.
+  schedule: String(!isBlank, length <= 256) = "0 3 * * *"
+
+  /// How many archives to keep on the node.
+  keep: Int(isBetween(1, 365)) = 7
+
+  /// Command run in the owning service's container before each archive, for
+  /// example to flush or save state. A failing command skips that backup.
+  before: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+}
+
+class PreDeployHook {
+  service: DnsLabel
+  command: Listing<ManifestString(!isEmpty)>(length.isBetween(1, 256))
+  args: Listing<ManifestString(!isEmpty)>(length <= 256) = new {}
+  timeout: String = "15m"
+}
+
+class Deployment {
+  preDeploy: PreDeployHook? = null
+
+  maxSurge: Int(isBetween(0, 100)) = 1
+
+  maxUnavailable: Int(isBetween(0, 100)) = 0
+
+  healthDeadline: String = "2m"
+
+  autoRollback: Boolean = true
+
+  /// Redeploy when an image tag points to a new digest. The controller checks
+  /// the registry every few minutes.
+  autoUpdate: Boolean = false
+}
+
+abstract class Notification {
+  /// The service the notification is sent to.
+  fixed kind: String
+
+  /// Name of the application secret that holds the webhook URL.
+  url: DnsLabel
+
+  /// Events to send. Empty sends the failures: `deploy.failed`,
+  /// `deploy.rolled_back`, `backup.failed` and `cron.failed`.
+  on: Listing<NotificationEvent>(isDistinct) = new {}
+}
+
+/// A Slack incoming webhook.
+class Slack extends Notification {
+  fixed kind = "slack"
+}
+
+/// A Discord channel webhook.
+class Discord extends Notification {
+  fixed kind = "discord"
+}
+
+/// Any HTTPS endpoint, sent a JSON document per event.
+class Webhook extends Notification {
+  fixed kind = "webhook"
+}
+
+abstract class Database {
+  /// The engine this database runs.
+  fixed engine: String
+
+  /// Image tag of the engine's official image.
+  version: String(!isBlank, length <= 128)
+
+  /// Full image reference instead of the official image, for a mirror or a
+  /// compatible build. `version` is ignored when this is set.
+  image: String(!isBlank, length <= 1024)? = null
+
+  resources: Resources = new {}
+
+  /// Exact node-label matches for the node that runs the database and keeps
+  /// its data.
+  constraints: Mapping<String(!isBlank, length <= 256), ManifestString(!isBlank)>(length <= 64) = new {}
+
+  /// Backs up the database on its node on a schedule. Off unless set, for
+  /// example `backup = new DatabaseBackup {}` for nightly backups.
+  backup: DatabaseBackup? = null
+}
+
+class DatabaseBackup {
+  /// Five-field cron schedule in UTC.
+  schedule: String(!isBlank, length <= 256) = "0 3 * * *"
+
+  /// How many backups to keep on the node.
+  keep: Int(isBetween(1, 365)) = 7
+}
+
+/// PostgreSQL, backed up with `pg_dump`.
+class Postgres extends Database {
+  fixed engine = "postgres"
+  version = "17"
+  resources { memory = "256Mi" }
+}
+
+/// MySQL, backed up with `mysqldump`.
+class MySQL extends Database {
+  fixed engine = "mysql"
+  version = "8.4"
+  resources { memory = "512Mi" }
+}
+
+/// MariaDB, backed up with `mariadb-dump`.
+class MariaDB extends Database {
+  fixed engine = "mariadb"
+  version = "11.4"
+  resources { memory = "256Mi" }
+}
+
+/// MongoDB, backed up with `mongodump`.
+class MongoDB extends Database {
+  fixed engine = "mongodb"
+  version = "8.0"
+  resources { memory = "512Mi" }
+}
+
+/// Redis with append-only persistence, backed up from a saved snapshot.
+class Redis extends Database {
+  fixed engine = "redis"
+  version = "7.4"
+}
+
+/// Valkey with append-only persistence, backed up from a saved snapshot.
+class Valkey extends Database {
+  fixed engine = "valkey"
+  version = "8.1"
+}
+
+/// Dragonfly, a Redis-compatible store, backed up from a saved snapshot.
+class Dragonfly extends Database {
+  fixed engine = "dragonfly"
+  version = "latest"
+  resources { memory = "256Mi" }
+}
+
+/// Garnet, a Redis-compatible cache. It keeps its data in memory only, so it
+/// starts empty after a restart and cannot be backed up.
+class Garnet extends Database {
+  fixed engine = "garnet"
+  version = "latest"
+  resources { memory = "256Mi" }
+}
+
+/// ClickHouse, backed up with its `BACKUP` command. Dashes in the database
+/// name become underscores.
+class ClickHouse extends Database {
+  fixed engine = "clickhouse"
+  version = "25.8"
+  resources { memory = "1Gi" }
+}
+
+/// libSQL server (sqld), backed up with SQLite's online backup. Clients
+/// authenticate with the generated `NAME-token`.
+class LibSQL extends Database {
+  fixed engine = "libsql"
+  version = "latest"
+}
+
+/// Whether every `connect` in [owners] names one of the application's databases.
+local function connectsToDatabases(
+  kind: String,
+  owners: Mapping<String, Service | CronJob>,
+): Boolean =
+  owners.every((owner, value) ->
+    value.connect.every((variable, database) ->
+      databases.containsKey(database)
+        || throw(
+          "\(kind)[\"\(owner)\"].connect[\"\(variable)\"]: no database is named \"\(database)\" in databases"
+        )
+    )
+  )
+
+/// Whether the entries of an `http` listing can act as one endpoint: each on
+/// its own port, `public` and `healthPath` only on the first, the same
+/// `https`, `nodeLocal`, `basicAuth`, `paths` and `stripPrefix` on all, and
+/// each redirect on one entry.
+local const function sharesOneEndpoint(entries: Listing<Http>): Boolean =
+  let (list = entries.toList())
+    (list.map((entry) -> entry.port).isDistinct || throw("http: every entry needs its own port"))
+      && (
+        list.flatMap((entry) -> entry.redirects.keys.toList()).isDistinct
+          || throw("http: a domain can redirect from only one entry")
+      )
+      && IntSeq(1, list.length - 1)
+        .toList()
+        .every((index) ->
+          let (entry = list[index])
+            (
+              !entry.domains.isEmpty
+                || throw("http[\(index)].domains: must route at least one domain")
+            )
+              && (
+                !entry.public || throw("http[\(index)].public: only the first entry can be public")
+              )
+              && (
+                entry.healthPath.isEmpty
+                  || throw(
+                    "http[\(index)].healthPath: readiness checks the first entry, so only it takes a healthPath"
+                  )
+              )
+              && (
+                entry.https == list[0].https
+                  || throw("http[\(index)].https: must match the first entry")
+              )
+              && (
+                entry.nodeLocal == list[0].nodeLocal
+                  || throw("http[\(index)].nodeLocal: must match the first entry")
+              )
+              && (
+                entry.basicAuth == list[0].basicAuth
+                  || throw("http[\(index)].basicAuth: must match the first entry")
+              )
+              && (
+                entry.paths == list[0].paths
+                  || throw("http[\(index)].paths: must match the first entry")
+              )
+              && (
+                entry.stripPrefix == list[0].stripPrefix
+                  || throw("http[\(index)].stripPrefix: must match the first entry")
+              )
+        )

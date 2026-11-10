@@ -2,6 +2,7 @@ package control
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,7 @@ import (
 	"connectrpc.com/connect"
 	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/internal/buildinfo"
+	"github.com/TorstenDittmann/orch/internal/release"
 )
 
 const (
@@ -229,6 +231,9 @@ func (u *agentUpgrades) binary(ctx context.Context, architecture string) (agentB
 	return binary, nil
 }
 
+// releaseSigningKeys is a variable so tests can sign their own releases.
+var releaseSigningKeys = release.Keys
+
 func (u *agentUpgrades) download(ctx context.Context, architecture string) (string, error) {
 	switch architecture {
 	case "amd64", "arm64":
@@ -239,13 +244,28 @@ func (u *agentUpgrades) download(ctx context.Context, architecture string) (stri
 	directory := filepath.Join(u.dataDir, "agent-binaries", u.version)
 	path := filepath.Join(directory, asset)
 	base := releaseDownloadURL + "/v" + u.version + "/"
-	sums, err := u.fetch(ctx, base+"SHA256SUMS", 1<<20)
+	sums, err := u.fetchAll(ctx, base+"SHA256SUMS", 1<<20)
 	if err != nil {
 		return "", err
 	}
-	defer sums.Close()
+	// The checksums come from the same place as the binary, so on their own
+	// they only catch corruption. A build that carries a release key also
+	// requires the release's signature over them.
+	keys, err := releaseSigningKeys()
+	if err != nil {
+		return "", err
+	}
+	if len(keys) > 0 {
+		signature, err := u.fetchAll(ctx, base+release.SignatureAsset, 64<<10)
+		if err != nil {
+			return "", fmt.Errorf("release v%s signature: %w", u.version, err)
+		}
+		if err := release.Verify(keys, sums, signature); err != nil {
+			return "", fmt.Errorf("release v%s: %w", u.version, err)
+		}
+	}
 	expected := ""
-	scanner := bufio.NewScanner(sums)
+	scanner := bufio.NewScanner(bytes.NewReader(sums))
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {
@@ -286,6 +306,15 @@ func (u *agentUpgrades) download(ctx context.Context, architecture string) (stri
 		return "", err
 	}
 	return path, nil
+}
+
+func (u *agentUpgrades) fetchAll(ctx context.Context, url string, limit int64) ([]byte, error) {
+	body, err := u.fetch(ctx, url, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	return io.ReadAll(body)
 }
 
 func (u *agentUpgrades) fetch(ctx context.Context, url string, limit int64) (io.ReadCloser, error) {

@@ -85,7 +85,7 @@ func Validate(manifest *Manifest) error {
 		problems = append(problems, Problem{Path: field, Message: message})
 	}
 
-	if manifest.Schema != SchemaVersion {
+	if manifest.Schema != SchemaVersion && manifest.Schema != LegacySchemaVersion {
 		add("schema", fmt.Sprintf("must be %q", SchemaVersion))
 	}
 	validateDNSLabel("name", manifest.Name, add)

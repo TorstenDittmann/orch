@@ -113,8 +113,8 @@ func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities
 		return orchruntime.Capabilities{}, fmt.Errorf("cgroups v2 is unavailable: %w", err)
 	}
 	normalizedVersion := strings.TrimPrefix(version.Version, "v")
-	if normalizedVersion != "2.3.4" {
-		return orchruntime.Capabilities{}, fmt.Errorf("containerd 2.3.4 is required, found %q: %w", version.Version, orchruntime.ErrUnsupported)
+	if !model.SupportedContainerdVersion(normalizedVersion) {
+		return orchruntime.Capabilities{}, fmt.Errorf("%s is required, found %q: %w", model.ContainerdRequirement, version.Version, orchruntime.ErrUnsupported)
 	}
 	for _, executable := range []string{"containerd-shim-runc-v2", "runc"} {
 		if _, err := exec.LookPath(executable); err != nil {

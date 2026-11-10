@@ -5,7 +5,7 @@ credentials, gives your services a connection URL, and backs the data up when
 you ask it to.
 
 ```pkl
-amends "https://orch.torsten.work/pkl/v1alpha1/Application.pkl"
+amends "https://orch.torsten.work/pkl/v1/Application.pkl"
 
 name = "shop"
 

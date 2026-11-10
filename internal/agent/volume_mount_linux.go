@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -48,3 +49,39 @@ func unmountVolumeView(mountpoint string) error {
 // Without root a backup reads only what its own user can, so a planted
 // symlink gains nothing.
 func canMountVolumes() bool { return os.Geteuid() == 0 }
+
+// unjamSQLiteFIFOs keeps SQLite's own opens from hanging a backup. The SQLite
+// driver opens the database and its -wal, -shm and -journal sidecars with a
+// blocking open(2), so a workload that swaps one of them for a FIFO after
+// isSQLite checked it would park the backup in a syscall no context cancels,
+// with the volume lock held. While the snapshot runs, any of those names that
+// is a FIFO is briefly opened read-write, which releases a blocked open; SQLite
+// then fails on the FIFO and the archive falls back to a plain copy.
+func unjamSQLiteFIFOs(name string) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+				path := name + suffix
+				if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeNamedPipe != 0 {
+					if fifo, err := os.OpenFile(path, os.O_RDWR|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0); err == nil {
+						_ = fifo.Close()
+					}
+				}
+			}
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
+}

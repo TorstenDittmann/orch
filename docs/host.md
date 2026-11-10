@@ -201,15 +201,17 @@ executables. No upstream installer script runs.
 
 | Component | Version | Installed files |
 | --- | --- | --- |
-| containerd (static build) | 2.3.4 | `/opt/orch/bin/containerd`, `/opt/orch/bin/containerd-shim-runc-v2` |
+| containerd (static build) | 2.3.7 | `/opt/orch/bin/containerd`, `/opt/orch/bin/containerd-shim-runc-v2` |
 | runc | 1.4.3 | `/opt/orch/bin/runc` |
 | CNI plugins | 1.9.1 | `/opt/orch/cni/bridge`, `/opt/orch/cni/host-local`, `/opt/orch/cni/loopback` |
 | Caddy | 2.11.3 | `/opt/orch/bin/caddy` |
 
 The versions are fixed for a given orch release. The controller only places
-workloads on a node that reports containerd 2.3.4 and CNI plugins v1.9.1, and
-only routes ingress through a node that reports Caddy v2.11.3. To change them,
-upgrade orch.
+workloads on a node that reports containerd 2.3.4 or a newer 2.3 patch release
+and CNI plugins v1.9.1, and only routes ingress through a node that reports
+Caddy v2.11.3. To change them, upgrade orch: `orch node upgrade` (and the
+controller-driven worker upgrade) also replaces an older containerd with the
+bundled one and restarts it, which leaves running containers in place.
 
 It also installs these packages from the distribution's signed repositories,
 without upgrading the rest of the host:

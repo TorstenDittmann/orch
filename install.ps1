@@ -33,6 +33,28 @@ try {
     $binary = Join-Path $tmp 'orch.exe'
     $sums = Join-Path $tmp 'SHA256SUMS'
     Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sums
+    # Releases are signed with an SSH key whose public half lives in the
+    # repository; the checksums alone come from the same place as the binary.
+    $signers = Join-Path $tmp 'allowed_signers'
+    Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/main/packaging/release/allowed_signers" -OutFile $signers
+    if (Select-String -Path $signers -Pattern '^orch-release' -Quiet) {
+        $signature = Join-Path $tmp 'SHA256SUMS.sig'
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS.sig" -OutFile $signature
+        } catch {
+            if ($env:ORCH_SKIP_SIGNATURE -ne '1') { throw "orch install: $version has no release signature; set ORCH_SKIP_SIGNATURE=1 to install a release from before signatures" }
+            $signature = $null
+            Write-Host "Warning: $version has no release signature; checked its checksum only."
+        }
+        $sshKeygen = Get-Command ssh-keygen -ErrorAction SilentlyContinue
+        if ($signature -and $sshKeygen) {
+            # Feed the exact bytes on stdin; a PowerShell pipe would re-encode them.
+            $check = Start-Process -FilePath $sshKeygen.Source -ArgumentList @('-Y', 'verify', '-f', "`"$signers`"", '-I', 'orch-release', '-n', 'orch-release', '-s', "`"$signature`"") -RedirectStandardInput $sums -RedirectStandardOutput (Join-Path $tmp 'verify.out') -NoNewWindow -Wait -PassThru
+            if ($check.ExitCode -ne 0) { throw "orch install: release signature check failed for $version; refusing to install" }
+        } elseif ($signature) {
+            Write-Host "Warning: ssh-keygen is not installed, so the release signature was not checked."
+        }
+    }
     $checksums = @{}
     foreach ($line in Get-Content $sums) {
         $fields = $line -split '\s+'

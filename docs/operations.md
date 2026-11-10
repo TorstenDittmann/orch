@@ -283,6 +283,13 @@ sudo orch cluster restore \
   --data-dir /var/lib/orch-controller.restored
 ```
 
+A restored controller knows only what the backup knew. Workers that renewed
+their certificate since then are accepted automatically, because the
+controller signed the newer certificate itself. Changes made after the backup
+are not, so check `orch nodes` and `orch status` after a restore: remove
+again any node you removed since the backup, and redeploy applications you
+changed since then.
+
 To keep a different number of daily backups, or none, pass
 `--backups-keep N` to `orch controller serve` (`0` turns them off). For an
 extra copy at any time:
