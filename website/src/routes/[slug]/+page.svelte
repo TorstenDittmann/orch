@@ -162,6 +162,65 @@
 		margin: 0 0 20px;
 	}
 
+	/* Tab boxes (see tabGroups in docs.ts): one bordered box, the tab strip on
+	   top and the selected panel's code block inside it without its own border. */
+	.prose :global(.tabs) {
+		margin: 0 0 20px;
+		border: 1px solid var(--line);
+		border-radius: 8px;
+	}
+
+	.prose :global(.tablist) {
+		display: flex;
+		gap: 20px;
+		padding-inline: 20px;
+		border-bottom: 1px solid var(--line);
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+
+	.prose :global(.tablist button) {
+		flex: none;
+		margin: 0 0 -1px;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		padding: 10px 0 9px;
+		background: none;
+		color: var(--dim);
+		font: inherit;
+		font-size: 14px;
+		cursor: pointer;
+	}
+
+	.prose :global(.tablist button:hover),
+	.prose :global(.tablist button[aria-selected="true"]) {
+		color: var(--fg);
+	}
+
+	.prose :global(.tablist button[aria-selected="true"]) {
+		border-bottom-color: var(--accent);
+		font-weight: 500;
+	}
+
+	.prose :global(.tablist button:focus-visible) {
+		outline-offset: -2px;
+	}
+
+	.prose :global(.tabpanel > p) {
+		margin: 0;
+		padding: 14px 20px 0;
+		font-size: 14px;
+	}
+
+	.prose :global(.tabpanel pre) {
+		margin: 0;
+	}
+
+	.prose :global(.tabpanel .shiki) {
+		border: 0;
+		border-radius: 0 0 8px 8px;
+	}
+
 	.prose :global(blockquote) {
 		margin: 0 0 20px;
 		padding: 2px 0 2px 16px;

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Marked, type Tokens } from "marked";
+import { Marked, type Token, type Tokens } from "marked";
 import { createCssVariablesTheme, createHighlighter } from "shiki";
 
 const docsDir = resolve(process.cwd(), "../docs");
@@ -108,6 +108,51 @@ function rewriteHref(href: string, from: string): string {
 	return target.path + (hash ? `#${hash}` : "");
 }
 
+/**
+ * Turns the tokens between `<!-- tabs -->` and `<!-- /tabs -->` into a tab
+ * box. Each tab starts with a paragraph that is only bold text, such as
+ * `**Cursor**`, which becomes its label. On GitHub the comments are invisible
+ * and the tabs read as labelled sections.
+ */
+function tabGroups(tokens: Token[], file: string): Token[] {
+	const out: Token[] = [];
+	let group = 0;
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i];
+		if (token.type !== "html" || token.raw.trim() !== "<!-- tabs -->") {
+			out.push(token);
+			continue;
+		}
+		const end = tokens.findIndex((t, j) => j > i && t.type === "html" && t.raw.trim() === "<!-- /tabs -->");
+		if (end === -1) throw new Error(`${file}: <!-- tabs --> without <!-- /tabs -->`);
+		const tabs: { label: string; tokens: Token[] }[] = [];
+		for (const inner of tokens.slice(i + 1, end)) {
+			const label = inner.type === "paragraph" && inner.raw.trim().match(/^\*\*([^*]+)\*\*$/);
+			if (label) tabs.push({ label: label[1], tokens: [] });
+			else if (inner.type !== "space") {
+				if (!tabs.length) throw new Error(`${file}: tab content before the first **Label**`);
+				tabs[tabs.length - 1].tokens.push(inner);
+			}
+		}
+		const html = (text: string): Token => ({ type: "html", raw: text, text, pre: false, block: true });
+		const id = (n: number) => `tabs-${group}-${n}`;
+		const buttons = tabs.map(
+			(tab, n) =>
+				`<button type="button" role="tab" id="${id(n)}" aria-controls="${id(n)}-panel" aria-selected="${n === 0}" tabindex="${n === 0 ? 0 : -1}">${escapeHtml(tab.label)}</button>`,
+		);
+		out.push(html(`<div class="tabs"><div class="tablist" role="tablist">${buttons.join("")}</div>`));
+		tabs.forEach((tab, n) => {
+			out.push(html(`<div class="tabpanel" role="tabpanel" id="${id(n)}-panel" aria-labelledby="${id(n)}"${n ? " hidden" : ""}>`));
+			out.push(...tab.tokens);
+			out.push(html("</div>"));
+		});
+		out.push(html("</div>"));
+		group++;
+		i = end;
+	}
+	return out;
+}
+
 export type Heading = { depth: number; text: string; id: string };
 export type Doc = { title: string; html: string; headings: Heading[]; file: string };
 
@@ -119,6 +164,9 @@ export function renderDoc(file: string): Doc {
 
 	const marked = new Marked({
 		gfm: true,
+		hooks: {
+			processAllTokens: (tokens) => tabGroups(tokens, file),
+		},
 		walkTokens(token) {
 			if (token.type === "link") (token as Tokens.Link).href = rewriteHref((token as Tokens.Link).href, file);
 		},

@@ -14,20 +14,24 @@ you can do from your terminal, and nothing more.
 Add a target first if you have not (`orch target add NAME ssh://root@CONTROLLER`),
 then register `orch mcp` with your client.
 
-Claude Code:
+<!-- tabs -->
+
+**Claude Code**
 
 ```console
 claude mcp add orch -- orch mcp
 ```
 
-Codex:
+**Codex**
 
 ```console
 codex mcp add orch -- orch mcp
 ```
 
-Claude Desktop, Cursor, Windsurf and most other clients read a JSON file
-(`claude_desktop_config.json`, `.cursor/mcp.json`, and so on):
+**Cursor**
+
+Add to `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` for every
+project:
 
 ```json
 {
@@ -40,6 +44,27 @@ Claude Desktop, Cursor, Windsurf and most other clients read a JSON file
 }
 ```
 
+**opencode**
+
+Add to `opencode.json` in your project, or `~/.config/opencode/opencode.json`
+for every project:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "orch": {
+      "type": "local",
+      "command": ["orch", "mcp"]
+    }
+  }
+}
+```
+
+<!-- /tabs -->
+
+Claude Desktop, Windsurf and most other clients read the same `mcpServers`
+JSON as Cursor from their own file, such as `claude_desktop_config.json`.
 VS Code uses `.vscode/mcp.json` with `"servers"` in place of `"mcpServers"`.
 Desktop apps do not always see your shell's `PATH`; if the client cannot start
 `orch`, use its full path from `command -v orch`.
