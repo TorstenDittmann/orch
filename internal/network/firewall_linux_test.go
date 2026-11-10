@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/TorstenDittmann/orch/internal/model"
+	"github.com/containernetworking/cni/libcni"
+	"github.com/google/nftables"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
@@ -202,4 +204,44 @@ func listen(t *testing.T, address string) {
 			_ = connection.Close()
 		}
 	}()
+}
+
+// TestPrepareRebuildsAFirewallFlushedByTheHost covers OS updates and firewall
+// reloads that run nft flush ruleset: the next reconcile must reinstall the
+// orch table instead of trusting its cached configuration.
+//
+//	ORCH_FIREWALL_E2E=1 unshare -n go test -run TestPrepareRebuilds ./internal/network
+func TestPrepareRebuildsAFirewallFlushedByTheHost(t *testing.T) {
+	if os.Getenv("ORCH_FIREWALL_E2E") != "1" {
+		t.Skip("set ORCH_FIREWALL_E2E=1 and run as root under unshare -n")
+	}
+	config := model.NetworkConfig{ClusterCIDR: "10.198.0.0/16", NodeSubnet: "10.198.0.0/24", Gateway: "10.198.0.1"}
+	f := &firewall{stateDir: t.TempDir(), tableName: "orch_fwflush", bridge: "orchfwflush", wireguard: "orchfwflushwg"}
+	manager := &linuxManager{firewall: f, list: &libcni.NetworkConfigList{}, loopback: &libcni.NetworkConfig{}, config: config}
+	if manager.upToDate(config) {
+		t.Fatal("network counted as prepared before the firewall was installed")
+	}
+	if err := f.prepare(config); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.upToDate(config) {
+		t.Fatal("prepared network was not counted as up to date")
+	}
+	connection, err := nftables.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.FlushRuleset()
+	if err := connection.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if manager.upToDate(config) {
+		t.Fatal("a flushed firewall still counted as up to date, so Prepare would not reinstall it")
+	}
+	if err := f.prepare(config); err != nil {
+		t.Fatalf("rebuild after flush = %v", err)
+	}
+	if !manager.upToDate(config) {
+		t.Fatal("rebuilt firewall was not counted as up to date")
+	}
 }
