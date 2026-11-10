@@ -7,6 +7,8 @@
 	import Notify from "../lib/components/illustrations/Notify.svelte";
 	import Rollout from "../lib/components/illustrations/Rollout.svelte";
 	import Setup from "../lib/components/illustrations/Setup.svelte";
+	import Tui from "../lib/components/illustrations/Tui.svelte";
+	import Web from "../lib/components/illustrations/Web.svelte";
 
 	let { data } = $props();
 </script>
@@ -69,6 +71,24 @@
 		<a class="quiet" href="/networking/">Networking →</a>
 	</div>
 	<Network />
+</section>
+
+<section class="container step">
+	<div class="intro">
+		<h2>A dashboard without a server</h2>
+		<p>Run <code>orch web</code> and your browser opens a live view of applications, nodes, deploy history and logs. It runs on your machine with a one-time link, so there is nothing to host and no password to manage.</p>
+		<a class="quiet" href="/targets/#the-web-dashboard">Web dashboard →</a>
+	</div>
+	<Web />
+</section>
+
+<section class="container step">
+	<div class="intro">
+		<h2>Or stay in the terminal</h2>
+		<p><code>orch tui</code> shows the same cluster from the keyboard. Follow logs, compare deploys and roll back, or drain a node, right inside your SSH session.</p>
+		<a class="quiet" href="/targets/#the-terminal-ui">Terminal UI →</a>
+	</div>
+	<Tui />
 </section>
 
 <section class="container extras">
