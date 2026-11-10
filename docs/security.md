@@ -103,7 +103,7 @@ renewal against the restored data directory before starting the controller.
 ## Release signatures
 
 Every release signs its `SHA256SUMS` with an SSH key whose public half is in
-[`packaging/release/allowed_signers`](../packaging/release/allowed_signers),
+[`packaging/release/allowed_signers`](https://github.com/TorstenDittmann/orch/blob/main/packaging/release/allowed_signers),
 and carries a GitHub build provenance attestation for each binary. `install.sh`
 and `install.ps1` check the signature with `ssh-keygen` before installing, and
 a controller that downloads the release binary for workers on another
