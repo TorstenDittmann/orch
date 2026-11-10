@@ -9,6 +9,35 @@
 
 	const isDocs = $derived(page.url.pathname !== "/");
 
+	// Tab boxes in the docs are server-rendered too, see tabGroups in docs.ts.
+	function showTab(tab: HTMLElement) {
+		for (const other of tab.parentElement!.querySelectorAll<HTMLElement>('[role="tab"]')) {
+			const selected = other === tab;
+			other.ariaSelected = String(selected);
+			other.tabIndex = selected ? 0 : -1;
+			const panel = document.getElementById(other.getAttribute("aria-controls") ?? "");
+			if (panel) panel.hidden = !selected;
+		}
+	}
+
+	function selectTab(event: MouseEvent) {
+		const tab = (event.target as Element).closest<HTMLElement>('.tabs [role="tab"]');
+		if (tab) showTab(tab);
+	}
+
+	function moveTab(event: KeyboardEvent) {
+		const tab = (event.target as Element).closest<HTMLElement>('.tabs [role="tab"]');
+		if (!tab) return;
+		const tabs = [...tab.parentElement!.querySelectorAll<HTMLElement>('[role="tab"]')];
+		const index = tabs.indexOf(tab);
+		const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 }[event.key];
+		if (next === undefined) return;
+		event.preventDefault();
+		const target = tabs[(next + tabs.length) % tabs.length];
+		showTab(target);
+		target.focus();
+	}
+
 	// Code blocks are server-rendered HTML, so their copy buttons are handled by delegation.
 	onMount(() => {
 		async function copy(event: MouseEvent) {
@@ -27,7 +56,13 @@
 			}, 1500);
 		}
 		document.addEventListener("click", copy);
-		return () => document.removeEventListener("click", copy);
+		document.addEventListener("click", selectTab);
+		document.addEventListener("keydown", moveTab);
+		return () => {
+			document.removeEventListener("click", copy);
+			document.removeEventListener("click", selectTab);
+			document.removeEventListener("keydown", moveTab);
+		};
 	});
 </script>
 
