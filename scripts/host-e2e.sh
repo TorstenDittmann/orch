@@ -7,7 +7,9 @@
 #
 # It installs systemd services, containerd and firewall rules and does not
 # clean up. Run it only on a disposable machine such as a CI runner.
-set -euo pipefail
+# -E so the diagnostics trap also fires for failures inside functions such
+# as as_root, where errexit would otherwise end the script without it.
+set -Eeuo pipefail
 
 [[ $# -ge 1 && $# -le 2 ]] || { echo "usage: $0 ORCH [UPGRADE_ORCH]" >&2; exit 2; }
 # orch only runs binaries that are root owned and not group or world
@@ -40,6 +42,7 @@ serving() {
 }
 
 diagnose() {
+	trap - ERR
 	set +e
 	step "Diagnostics"
 	as_root "$orch" nodes
@@ -47,7 +50,7 @@ diagnose() {
 	as_root "$orch" events --limit 50
 	sudo journalctl -u orch-controller -u orch-agent -u orch-containerd --no-pager -n 200
 }
-trap 'diagnose' ERR
+trap 'diagnose; exit 1' ERR
 
 # GitHub runners ship Docker and its containerd. orch does not take over
 # foreign container services, so set them aside the way a fresh host has none,
@@ -103,7 +106,8 @@ sys.exit(0 if nodes and all((n.get("agent_version") or n.get("agentVersion")) ==
 ' "$want"; do
 		if ((SECONDS > deadline)); then
 			echo "workers did not reach $want" >&2
-			false
+			diagnose
+			exit 1
 		fi
 		sleep 5
 	done
