@@ -1574,3 +1574,80 @@ func TestPlanApplicationCarriesPrivateNetworkThroughRollbackAndWire(t *testing.T
 		t.Fatal("wire assignment lost allowPrivateNetwork")
 	}
 }
+
+// A stateless replica keeps running on its node when a transient report (a
+// network hiccup, a low allocatable-memory sample) leaves no node eligible,
+// instead of being stopped until the node recovers.
+func TestDistributedReconcilerKeepsStatelessReplicaWhenItsOnlyNodeRegresses(t *testing.T) {
+	ctx := context.Background()
+	state, cluster := reconcilerStore(t)
+	enrollDistributedNode(t, state, "node-one", "node-1", "10.0.0.1", 'a', '1')
+	enrollDistributedNode(t, state, "node-two", "node-2", "10.0.0.2", 'b', '2')
+	if err := state.UpdateNodeLabels(ctx, "node-two", map[string]string{"region": "us"}); err != nil {
+		t.Fatal(err)
+	}
+	now := reconcilerTestTime.Add(2 * time.Minute)
+	reconciler := NewReconciler(state, cluster, func() time.Time { return now }, nil)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for index, nodeID := range []string{"node-one", "node-two"} {
+		assignment, err := state.CurrentAssignment(ctx, nodeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.AcknowledgeAssignment(ctx, nodeID, assignment.Generation, assignment.Digest); err != nil {
+			t.Fatal(err)
+		}
+		ingressState := model.SubsystemNotConfigured
+		if assignment.Network.IngressEnabled {
+			ingressState = model.SubsystemReady
+		}
+		if _, err := state.RecordAgentReport(ctx, model.AgentReport{
+			NodeID: nodeID, BootID: []string{"boot-node-one", "boot-node-two"}[index], Sequence: 1,
+			AssignmentGeneration: assignment.Generation, AssignmentDigest: assignment.Digest,
+			Network: model.NetworkStatus{Generation: assignment.Network.Generation, State: model.NetworkReady,
+				ClusterCIDR: assignment.Network.ClusterCIDR, NodeSubnet: assignment.Network.NodeSubnet,
+				Gateway: assignment.Network.Gateway, DNSState: model.SubsystemReady, IngressState: ingressState},
+			ReportedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	applyManifest(t, state, runtimeManifest(executableImage, func(service *config.Service) {
+		service.Constraints = map[string]string{"region": "us"}
+	}), "revision-one", "application-key-one", now)
+	now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := state.CurrentAssignment(ctx, "node-two")
+	if err != nil || len(placed.Allocations) != 1 {
+		t.Fatalf("placed assignment = %#v, %v", placed.Allocations, err)
+	}
+
+	// node-two reports almost no allocatable memory for one sample.
+	if err := state.UpdateAgentCapabilities(ctx, model.AgentCapabilities{
+		NodeID: "node-two", BootID: "boot-node-two", OperatingSystem: "linux", Architecture: "amd64",
+		RuntimeVersion: "containerd 2.3.4", Snapshotter: "overlayfs", CgroupsV2: true,
+		CNIVersion: network.CNISpecVersion, CNIPluginsVersion: network.CNIPluginsVersion,
+		Nftables: true, DNSAvailable: true, CaddyVersion: ingress.RequiredCaddyVersion,
+		TotalCPUMillis: 4000, TotalMemoryBytes: 8 << 30, AllocatableCPUMillis: 3500, AllocatableMemoryBytes: 1 << 20,
+		AdvertiseAddress: "10.0.0.2", WireGuardPublicKey: base64.StdEncoding.EncodeToString(slices.Repeat([]byte{2}, 32)),
+		WireGuardListenPort: model.DefaultWireGuardListenPort, SeenAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if err := reconciler.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := state.CurrentAssignment(ctx, "node-two")
+	if err != nil || len(kept.Allocations) != 1 || kept.Allocations[0].ID != placed.Allocations[0].ID {
+		t.Fatalf("assignment after a low-memory report = %#v, %v; want the running replica kept", kept.Allocations, err)
+	}
+	application, err := state.Application(ctx, "hello")
+	if err != nil || application.Execution.Status != model.ExecutionBlocked {
+		t.Fatalf("execution = %#v, %v; want blocked with the replica kept", application.Execution, err)
+	}
+}

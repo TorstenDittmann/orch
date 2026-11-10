@@ -464,8 +464,13 @@ func (r *Reconciler) reconcileDistributed(ctx context.Context, cluster model.Clu
 				generation = item.job.ApplicationGeneration
 			}
 			states[application] = executionState(model.ExecutionBlocked, generation, reason, message, now)
-			if item, exists := allocationByLogical[decision.WorkloadID]; exists && len(item.volumeNames) != 0 {
-				if owner := currentNodeByLogical[decision.WorkloadID]; owner != "" {
+			// When no node fits any more, keep the replica where it already
+			// runs rather than stopping working capacity. Stateful replicas
+			// always stay; stateless ones stay unless their node is being
+			// drained or removed, which is an explicit request to move.
+			if item, exists := allocationByLogical[decision.WorkloadID]; exists {
+				if owner := currentNodeByLogical[decision.WorkloadID]; owner != "" &&
+					(len(item.volumeNames) != 0 || keepsStatelessReplica(nodeByID[owner])) {
 					allocation := currentAllocationByLogical[decision.WorkloadID]
 					if allocation.ID == "" {
 						continue
@@ -1011,4 +1016,12 @@ func usedNodePorts(allocations []model.AllocationDesired) []string {
 		result = append(result, allocationNodePorts(allocation)...)
 	}
 	return result
+}
+
+// keepsStatelessReplica reports whether a stateless replica that no longer
+// fits anywhere may keep running on its current node.
+func keepsStatelessReplica(node model.Node) bool {
+	return node.ID != "" &&
+		node.Lifecycle != model.NodeLifecycleDraining &&
+		node.Lifecycle != model.NodeLifecycleRemoved
 }
