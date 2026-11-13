@@ -1,6 +1,6 @@
 module github.com/TorstenDittmann/orch
 
-go 1.26.10
+go 1.26.11
 
 require (
 	charm.land/bubbles/v2 v2.1.0
