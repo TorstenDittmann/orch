@@ -1169,12 +1169,12 @@ orch mcp approve CODE [--deploy | --allow-destructive] [--app APP] [--ttl 720h] 
 ```
 
 `expose` serves the MCP server from the controller at `https://DOMAIN/mcp`,
-for assistants that need a URL, such as Claude connectors. Point DNS for
+for any MCP client that connects by URL with OAuth. Point DNS for
 `DOMAIN` at the controller's server; its ingress gets the certificate. Without
 arguments it prints the current URL, and `--off` stops serving it.
 
 `approve` lets the assistant waiting on the approval page with `CODE` connect.
-See [remote MCP](ai.md#remote-mcp-for-claude-connectors).
+See [remote MCP](ai.md#remote-mcp-over-a-url).
 
 | Flag | Default | Purpose |
 | --- | --- | --- |

@@ -151,11 +151,12 @@ was last used, and `orch token revoke NAME` stops one within 15 minutes.
 In GitHub Actions you need no token at all: `orch github trust` lets the
 workflow sign in with GitHub's own identity. See [deploy from GitHub](github.md).
 
-## Remote MCP for Claude connectors
+## Remote MCP over a URL
 
-Claude on the web, desktop and phone, and other assistants that add MCP
-servers by URL, cannot start `orch mcp` on your computer. The controller can
-serve the same tools at a URL instead:
+Any MCP client that connects to remote servers by URL with OAuth, such as
+Claude connectors, ChatGPT, Cursor, VS Code or a hosted agent, cannot start
+`orch mcp` on your computer. The controller can serve the same tools at a URL
+instead, as a standard OAuth-protected MCP server:
 
 ```console
 $ orch mcp expose mcp.example.com
@@ -166,8 +167,8 @@ Point DNS for the domain at the controller's server. The ingress on that
 server gets an HTTPS certificate for it, like for an application, and
 forwards requests to the controller on the host's loopback interface.
 
-Then add `https://mcp.example.com/mcp` to your assistant; in Claude, under
-Settings, Connectors, Add custom connector. The assistant opens an approval
+Then add `https://mcp.example.com/mcp` to your client as a remote MCP server.
+It discovers the authorization server, registers itself and opens an approval
 page that shows its name, where it will return to, and a code. Approve it from
 any machine with orch administrator access:
 

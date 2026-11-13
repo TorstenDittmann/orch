@@ -92,7 +92,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
        orch mcp approve CODE [--deploy | --allow-destructive] [--app APP] [--ttl 720h]
 
 Runs an MCP server over stdio for AI assistants. For assistants that need a
-URL, such as Claude connectors, orch mcp expose serves it on the controller
+URL with OAuth, orch mcp expose serves it on the controller
 at https://DOMAIN/mcp and orch mcp approve lets one connect.
 
 By default the assistant can read the cluster and also change it: deploy,

@@ -223,7 +223,7 @@ func runMCPRemoteCommand(ctx context.Context, args []string, stdout, stderr io.W
 		}
 		fmt.Fprintf(stdout, "Remote MCP is served at https://%s/mcp\n\n", domain)
 		fmt.Fprintf(stdout, "Point DNS for %s at the controller's server; orch gets its HTTPS certificate.\n", domain)
-		fmt.Fprintln(stdout, "Then add the URL to your assistant, for example in Claude under Settings, Connectors, Add custom connector.")
+		fmt.Fprintln(stdout, "Then add the URL to any MCP client that supports remote servers with OAuth.")
 		fmt.Fprintln(stdout, "When it opens the approval page, run the orch mcp approve command shown there.")
 		return ExitOK
 	}
@@ -271,7 +271,7 @@ func printMCPRemoteHelp(output io.Writer) {
   orch mcp approve CODE [--deploy | --allow-destructive] [--app APP] [--ttl 720h] [--json]
 
 expose serves orch's MCP server at https://DOMAIN/mcp from the controller, for
-assistants that need a URL, such as Claude connectors. Point DNS for DOMAIN at
+any MCP client that connects by URL with OAuth. Point DNS for DOMAIN at
 the controller's server. Without arguments it shows the current URL.
 
 approve lets the assistant waiting on the approval page with CODE connect. It

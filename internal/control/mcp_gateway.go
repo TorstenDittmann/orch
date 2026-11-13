@@ -26,8 +26,8 @@ import (
 	"github.com/TorstenDittmann/orch/internal/store"
 )
 
-// The remote MCP server lets AI assistants that need a URL, such as Claude
-// connectors, use orch. Ingress on the controller's host terminates HTTPS for
+// The remote MCP server lets any MCP client that connects to remote servers by URL
+// with OAuth use orch. Ingress on the controller's host terminates HTTPS for
 // the configured domain and forwards to this gateway on loopback. The gateway
 // is its own OAuth 2.1 authorization server: an assistant registers itself,
 // sends the person to /authorize, and an administrator approves the code
