@@ -220,3 +220,16 @@ func TestFakeReportsOnDemandCertificateForWildcard(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderRoutesOnlySystemRoutesToLoopback(t *testing.T) {
+	system := Route{Service: MCPService, Domain: "mcp.example.com", HTTPS: true, System: true, Upstreams: []string{MCPUpstream}}
+	rendered, _, err := Render([]Route{system}, "/run/orch/caddy.sock")
+	if err != nil || !strings.Contains(string(rendered), MCPUpstream) || !strings.Contains(string(rendered), "mcp.example.com") {
+		t.Fatalf("system route render = %s, %v", rendered, err)
+	}
+	application := system
+	application.System, application.Application = false, "app"
+	if _, _, err := Render([]Route{application}, "/run/orch/caddy.sock"); err == nil {
+		t.Fatal("an application route reached a loopback upstream")
+	}
+}

@@ -179,6 +179,9 @@ message NetworkConfig {
   repeated ServiceEndpoint endpoints = 7;
   bool ingress_enabled = 8;
   uint32 wireguard_listen_port = 9;
+  // Domain of the remote MCP server. Only the ingress on the controller's
+  // own host routes it, to the controller's loopback MCP listener.
+  string mcp_domain = 10;
 }
 
 message WireGuardPeer {

@@ -172,9 +172,10 @@ func runController(ctx context.Context, args []string, stdout, stderr io.Writer)
 func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("controller serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dataDir, listen, adminSocket string
+	var dataDir, listen, adminSocket, mcpListen string
 	flags.StringVar(&dataDir, "data-dir", "", "initialized controller state directory")
 	flags.StringVar(&listen, "listen", "", "TCP listen address")
+	flags.StringVar(&mcpListen, "mcp-listen", control.DefaultMCPListen, "loopback address of the remote MCP gateway for the ingress on this host (\"off\" disables)")
 	flags.StringVar(&adminSocket, "admin-socket", "", "local administrator socket (default DATA_DIR/admin.sock, \"off\" disables)")
 	backupsKeep := flags.Int("backups-keep", control.DefaultBackupKeep, "daily backups to keep in DATA_DIR/backups (0 disables)")
 	if err := flags.Parse(args); err != nil {
@@ -211,7 +212,12 @@ func runControllerServe(ctx context.Context, args []string, stdout, stderr io.Wr
 	if keep == 0 {
 		keep = -1
 	}
-	err := control.Serve(ctx, control.Options{DataDir: dataDir, Listen: listen, AdminSocket: adminSocket, BackupKeep: keep}, func(address net.Addr) {
+	if mcpListen == "off" {
+		mcpListen = ""
+	}
+	options := control.Options{DataDir: dataDir, Listen: listen, AdminSocket: adminSocket, BackupKeep: keep,
+		MCPListen: mcpListen, MCP: NewMCPRunner(), Warn: func(message string) { fmt.Fprintln(stderr, message) }}
+	err := control.Serve(ctx, options, func(address net.Addr) {
 		fmt.Fprintf(stdout, "Controller listening on https://%s\n", address.String())
 	})
 	if err != nil {

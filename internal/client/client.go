@@ -62,6 +62,9 @@ func New(contextPath string) (*Client, error) {
 	if contextPath == AccessTokenReference {
 		return NewAccessToken(context.Background(), os.Getenv("ORCH_TOKEN"))
 	}
+	if strings.HasPrefix(contextPath, InProcessReferencePrefix) {
+		return newInProcessClient(contextPath)
+	}
 	if contextPath == LocalReference {
 		return NewEndpoint(Endpoint{Target: "local", Transport: target.Transport{Type: target.TransportSocket, Socket: target.DefaultAdminSocket}})
 	}

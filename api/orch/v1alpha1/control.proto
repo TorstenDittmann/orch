@@ -70,6 +70,9 @@ service ControlService {
   rpc SetBackupDestination(SetBackupDestinationRequest) returns (SetBackupDestinationResponse);
   rpc GetBackupDestination(GetBackupDestinationRequest) returns (GetBackupDestinationResponse);
   rpc RemoveBackupDestination(RemoveBackupDestinationRequest) returns (RemoveBackupDestinationResponse);
+  rpc SetMCPDomain(SetMCPDomainRequest) returns (SetMCPDomainResponse);
+  rpc GetMCPDomain(GetMCPDomainRequest) returns (GetMCPDomainResponse);
+  rpc ApproveMCPConnection(ApproveMCPConnectionRequest) returns (ApproveMCPConnectionResponse);
 }
 
 enum ExecutionStatus {
@@ -1060,6 +1063,11 @@ message AccessToken {
   // Domains the token may route, each with its subdomains. Empty allows any
   // domain not used by another application, and the public listener.
   repeated string domains = 8;
+  // Set for a connection an AI assistant made to the remote MCP URL: "read",
+  // "deploy" or "destructive". Such an entry is not an ORCH_TOKEN.
+  string mcp_access = 9;
+  // The assistant's own name for itself, for MCP connections.
+  string mcp_client = 10;
 }
 
 // RenewAdministratorCertificateRequest asks for a fresh one-year
@@ -1148,4 +1156,38 @@ message RemoveBackupDestinationRequest {}
 
 message RemoveBackupDestinationResponse {
   bool changed = 1;
+}
+
+// SetMCPDomainRequest serves the remote MCP server at https://DOMAIN/mcp, or
+// stops serving it when domain is empty.
+message SetMCPDomainRequest {
+  string domain = 1;
+}
+
+message SetMCPDomainResponse {
+  bool changed = 1;
+}
+
+message GetMCPDomainRequest {}
+
+message GetMCPDomainResponse {
+  // Empty when the remote MCP server is off.
+  string domain = 1;
+}
+
+// ApproveMCPConnectionRequest lets the assistant waiting on the remote MCP
+// authorization page with this code connect.
+message ApproveMCPConnectionRequest {
+  string code = 1;
+  // "read" (default), "deploy" or "destructive".
+  string access = 2;
+  // Limits the connection to one application; empty means every one.
+  string application = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message ApproveMCPConnectionResponse {
+  AccessToken connection = 1;
+  // Where the assistant is sent back to, so the approver sees who it is.
+  string redirect_host = 2;
 }

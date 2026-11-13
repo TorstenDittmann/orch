@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/TorstenDittmann/orch/internal/network"
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 	"github.com/TorstenDittmann/orch/internal/schedule"
+	"github.com/TorstenDittmann/orch/internal/target"
 	"github.com/TorstenDittmann/orch/internal/tcpingress"
 )
 
@@ -47,13 +49,15 @@ type Supervisor struct {
 	lastProbes   map[string]time.Time
 	routes       []model.RouteStatus
 	tcpRoutes    []model.TCPRouteStatus
-	nodePorts    []model.NodePortStatus
-	publisher    network.NodePortPublisher
-	cronJobs     []model.CronJobStatus
-	jobRuns      []model.JobRunStatus
-	network      model.NetworkStatus
-	now          func() time.Time
-	random       io.Reader
+	// controllerLocal reports whether the controller runs on this host.
+	controllerLocal func() bool
+	nodePorts       []model.NodePortStatus
+	publisher       network.NodePortPublisher
+	cronJobs        []model.CronJobStatus
+	jobRuns         []model.JobRunStatus
+	network         model.NetworkStatus
+	now             func() time.Time
+	random          io.Reader
 }
 
 type SupervisorServices struct {
@@ -87,8 +91,15 @@ func NewSupervisorWithServices(cache *state.Store, runtime orchruntime.Runtime, 
 	return &Supervisor{state: cache, runtime: runtime, prober: services.Prober,
 		discovery: services.Discovery, ingress: services.Ingress, tcpIngress: services.TCPIngress, publisher: services.NodePorts, serving: make(map[string]string),
 		servingSpecs: make(map[string]string), accepted: make(map[string]state.ServingEndpoint),
-		lastProbes: make(map[string]time.Time),
-		now:        now, random: randomSource}
+		lastProbes: make(map[string]time.Time), controllerLocal: controllerOnThisHost,
+		now: now, random: randomSource}
+}
+
+// controllerOnThisHost reports whether this host serves the controller's
+// administrator socket, which only the controller host does.
+func controllerOnThisHost() bool {
+	info, err := os.Stat(target.DefaultAdminSocket)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 // ErrAllocationReconcile marks a Reconcile pass that completed for the
@@ -1682,6 +1693,7 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 	}
 	routeAllocations, routeServing, routeSpecs := remoteServingView(assignment, s.serving, s.servingSpecs)
 	routes, pending := desiredRoutes(routeAllocations, statuses, routeServing, routeSpecs, now)
+	system := mcpRoute(assignment.Network.MCPDomain, routes, s.controllerLocal)
 	activated := dnsReady
 	if !dnsReady {
 		reason := networkStatus.Reason
@@ -1729,7 +1741,8 @@ func (s *Supervisor) reconcileServices(ctx context.Context, assignment model.Ass
 		}
 		s.routes = unavailable
 	} else {
-		observed, err := s.ingress.Apply(ctx, routes, now)
+		observed, err := s.ingress.Apply(ctx, append(routes[:len(routes):len(routes)], system...), now)
+		observed = withoutSystemRoutes(observed)
 		if err != nil {
 			activated = false
 			networkStatus.IngressState = model.SubsystemFailed
@@ -2702,4 +2715,32 @@ func (s *Supervisor) restartDelay(restarts uint32) (time.Duration, error) {
 		return 0, err
 	}
 	return backoff + jitter, nil
+}
+
+// mcpRoute returns the route for orch's remote MCP server when this agent
+// shares its host with the controller, which serves the MCP gateway on
+// loopback. An application that routes the same domain keeps it.
+func mcpRoute(domain string, routes []ingress.Route, controllerLocal func() bool) []ingress.Route {
+	if domain == "" || controllerLocal == nil || !controllerLocal() {
+		return nil
+	}
+	for _, route := range routes {
+		if route.Domain == domain {
+			return nil
+		}
+	}
+	return []ingress.Route{{Service: ingress.MCPService, Domain: domain, HTTPS: true, System: true, Upstreams: []string{ingress.MCPUpstream}}}
+}
+
+// withoutSystemRoutes drops the statuses of orch's own routes, which belong
+// to no application.
+func withoutSystemRoutes(statuses []model.RouteStatus) []model.RouteStatus {
+	result := statuses[:0]
+	for _, status := range statuses {
+		if status.Application == "" && status.Service == ingress.MCPService {
+			continue
+		}
+		result = append(result, status)
+	}
+	return result
 }

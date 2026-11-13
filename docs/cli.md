@@ -1161,6 +1161,28 @@ and stdout. Clients such as Claude Code start it themselves; see
 | `--read-only` | `false` | Offer only tools that do not change the cluster |
 | `--allow-destructive` | `false` | Also offer tools that delete or replace workloads, secrets and data, or run commands in replicas |
 
+### orch mcp expose and approve
+
+```text
+orch mcp expose [DOMAIN | --off] [--target NAME] [--json]
+orch mcp approve CODE [--deploy | --allow-destructive] [--app APP] [--ttl 720h] [--target NAME] [--json]
+```
+
+`expose` serves the MCP server from the controller at `https://DOMAIN/mcp`,
+for assistants that need a URL, such as Claude connectors. Point DNS for
+`DOMAIN` at the controller's server; its ingress gets the certificate. Without
+arguments it prints the current URL, and `--off` stops serving it.
+
+`approve` lets the assistant waiting on the approval page with `CODE` connect.
+See [remote MCP](ai.md#remote-mcp-for-claude-connectors).
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--deploy` | `false` | Also allow rolling back, restarting, backing up, retrying jobs and running cron jobs |
+| `--allow-destructive` | `false` | Allow everything the MCP tools can do, including deleting apps, changing secrets and running commands in replicas |
+| `--app` | every app | Limit the connection to one application |
+| `--ttl` | `720h` | How long the connection works, from `1h` to `8760h` |
+
 ## Services and internals
 
 These commands are run by the systemd units that `orch init`, `orch join`, and
@@ -1169,7 +1191,7 @@ the install commands create. You rarely run them yourself.
 ### orch controller serve
 
 ```text
-orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off] [--backups-keep 7]
+orch controller serve --data-dir DIR --listen ADDRESS [--admin-socket PATH|off] [--mcp-listen ADDRESS|off] [--backups-keep 7]
 ```
 
 Runs the controller process. It writes a backup into `DATA_DIR/backups` once a
@@ -1180,6 +1202,7 @@ day; see [backups](operations.md#backups).
 | `--data-dir` | required | Initialized controller state directory |
 | `--listen` | required | TCP listen address, for example `0.0.0.0:9443` |
 | `--admin-socket` | `DATA_DIR/admin.sock` | Local administrator socket; `off` disables it |
+| `--mcp-listen` | `127.0.0.1:9444` | Loopback address of the remote MCP gateway that the ingress on this host forwards `orch mcp expose`'s domain to; `off` disables it |
 | `--backups-keep` | `7` | Daily backups to keep, 0 to 365; `0` turns automatic backups off |
 
 ### orch agent init

@@ -207,6 +207,15 @@ const (
 	// ControlServiceRemoveBackupDestinationProcedure is the fully-qualified name of the
 	// ControlService's RemoveBackupDestination RPC.
 	ControlServiceRemoveBackupDestinationProcedure = "/orch.v1alpha1.ControlService/RemoveBackupDestination"
+	// ControlServiceSetMCPDomainProcedure is the fully-qualified name of the ControlService's
+	// SetMCPDomain RPC.
+	ControlServiceSetMCPDomainProcedure = "/orch.v1alpha1.ControlService/SetMCPDomain"
+	// ControlServiceGetMCPDomainProcedure is the fully-qualified name of the ControlService's
+	// GetMCPDomain RPC.
+	ControlServiceGetMCPDomainProcedure = "/orch.v1alpha1.ControlService/GetMCPDomain"
+	// ControlServiceApproveMCPConnectionProcedure is the fully-qualified name of the ControlService's
+	// ApproveMCPConnection RPC.
+	ControlServiceApproveMCPConnectionProcedure = "/orch.v1alpha1.ControlService/ApproveMCPConnection"
 )
 
 // ControlServiceClient is a client for the orch.v1alpha1.ControlService service.
@@ -272,6 +281,9 @@ type ControlServiceClient interface {
 	SetBackupDestination(context.Context, *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error)
 	GetBackupDestination(context.Context, *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error)
 	RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error)
+	SetMCPDomain(context.Context, *connect.Request[v1alpha1.SetMCPDomainRequest]) (*connect.Response[v1alpha1.SetMCPDomainResponse], error)
+	GetMCPDomain(context.Context, *connect.Request[v1alpha1.GetMCPDomainRequest]) (*connect.Response[v1alpha1.GetMCPDomainResponse], error)
+	ApproveMCPConnection(context.Context, *connect.Request[v1alpha1.ApproveMCPConnectionRequest]) (*connect.Response[v1alpha1.ApproveMCPConnectionResponse], error)
 }
 
 // NewControlServiceClient constructs a client for the orch.v1alpha1.ControlService service. By
@@ -645,6 +657,24 @@ func NewControlServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(controlServiceMethods.ByName("RemoveBackupDestination")),
 			connect.WithClientOptions(opts...),
 		),
+		setMCPDomain: connect.NewClient[v1alpha1.SetMCPDomainRequest, v1alpha1.SetMCPDomainResponse](
+			httpClient,
+			baseURL+ControlServiceSetMCPDomainProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("SetMCPDomain")),
+			connect.WithClientOptions(opts...),
+		),
+		getMCPDomain: connect.NewClient[v1alpha1.GetMCPDomainRequest, v1alpha1.GetMCPDomainResponse](
+			httpClient,
+			baseURL+ControlServiceGetMCPDomainProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("GetMCPDomain")),
+			connect.WithClientOptions(opts...),
+		),
+		approveMCPConnection: connect.NewClient[v1alpha1.ApproveMCPConnectionRequest, v1alpha1.ApproveMCPConnectionResponse](
+			httpClient,
+			baseURL+ControlServiceApproveMCPConnectionProcedure,
+			connect.WithSchema(controlServiceMethods.ByName("ApproveMCPConnection")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -710,6 +740,9 @@ type controlServiceClient struct {
 	setBackupDestination          *connect.Client[v1alpha1.SetBackupDestinationRequest, v1alpha1.SetBackupDestinationResponse]
 	getBackupDestination          *connect.Client[v1alpha1.GetBackupDestinationRequest, v1alpha1.GetBackupDestinationResponse]
 	removeBackupDestination       *connect.Client[v1alpha1.RemoveBackupDestinationRequest, v1alpha1.RemoveBackupDestinationResponse]
+	setMCPDomain                  *connect.Client[v1alpha1.SetMCPDomainRequest, v1alpha1.SetMCPDomainResponse]
+	getMCPDomain                  *connect.Client[v1alpha1.GetMCPDomainRequest, v1alpha1.GetMCPDomainResponse]
+	approveMCPConnection          *connect.Client[v1alpha1.ApproveMCPConnectionRequest, v1alpha1.ApproveMCPConnectionResponse]
 }
 
 // RunJob calls orch.v1alpha1.ControlService.RunJob.
@@ -1014,6 +1047,21 @@ func (c *controlServiceClient) RemoveBackupDestination(ctx context.Context, req 
 	return c.removeBackupDestination.CallUnary(ctx, req)
 }
 
+// SetMCPDomain calls orch.v1alpha1.ControlService.SetMCPDomain.
+func (c *controlServiceClient) SetMCPDomain(ctx context.Context, req *connect.Request[v1alpha1.SetMCPDomainRequest]) (*connect.Response[v1alpha1.SetMCPDomainResponse], error) {
+	return c.setMCPDomain.CallUnary(ctx, req)
+}
+
+// GetMCPDomain calls orch.v1alpha1.ControlService.GetMCPDomain.
+func (c *controlServiceClient) GetMCPDomain(ctx context.Context, req *connect.Request[v1alpha1.GetMCPDomainRequest]) (*connect.Response[v1alpha1.GetMCPDomainResponse], error) {
+	return c.getMCPDomain.CallUnary(ctx, req)
+}
+
+// ApproveMCPConnection calls orch.v1alpha1.ControlService.ApproveMCPConnection.
+func (c *controlServiceClient) ApproveMCPConnection(ctx context.Context, req *connect.Request[v1alpha1.ApproveMCPConnectionRequest]) (*connect.Response[v1alpha1.ApproveMCPConnectionResponse], error) {
+	return c.approveMCPConnection.CallUnary(ctx, req)
+}
+
 // ControlServiceHandler is an implementation of the orch.v1alpha1.ControlService service.
 type ControlServiceHandler interface {
 	RunJob(context.Context, *connect.Request[v1alpha1.RunJobRequest]) (*connect.Response[v1alpha1.RunJobResponse], error)
@@ -1077,6 +1125,9 @@ type ControlServiceHandler interface {
 	SetBackupDestination(context.Context, *connect.Request[v1alpha1.SetBackupDestinationRequest]) (*connect.Response[v1alpha1.SetBackupDestinationResponse], error)
 	GetBackupDestination(context.Context, *connect.Request[v1alpha1.GetBackupDestinationRequest]) (*connect.Response[v1alpha1.GetBackupDestinationResponse], error)
 	RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error)
+	SetMCPDomain(context.Context, *connect.Request[v1alpha1.SetMCPDomainRequest]) (*connect.Response[v1alpha1.SetMCPDomainResponse], error)
+	GetMCPDomain(context.Context, *connect.Request[v1alpha1.GetMCPDomainRequest]) (*connect.Response[v1alpha1.GetMCPDomainResponse], error)
+	ApproveMCPConnection(context.Context, *connect.Request[v1alpha1.ApproveMCPConnectionRequest]) (*connect.Response[v1alpha1.ApproveMCPConnectionResponse], error)
 }
 
 // NewControlServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1446,6 +1497,24 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 		connect.WithSchema(controlServiceMethods.ByName("RemoveBackupDestination")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlServiceSetMCPDomainHandler := connect.NewUnaryHandler(
+		ControlServiceSetMCPDomainProcedure,
+		svc.SetMCPDomain,
+		connect.WithSchema(controlServiceMethods.ByName("SetMCPDomain")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceGetMCPDomainHandler := connect.NewUnaryHandler(
+		ControlServiceGetMCPDomainProcedure,
+		svc.GetMCPDomain,
+		connect.WithSchema(controlServiceMethods.ByName("GetMCPDomain")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlServiceApproveMCPConnectionHandler := connect.NewUnaryHandler(
+		ControlServiceApproveMCPConnectionProcedure,
+		svc.ApproveMCPConnection,
+		connect.WithSchema(controlServiceMethods.ByName("ApproveMCPConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orch.v1alpha1.ControlService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlServiceRunJobProcedure:
@@ -1568,6 +1637,12 @@ func NewControlServiceHandler(svc ControlServiceHandler, opts ...connect.Handler
 			controlServiceGetBackupDestinationHandler.ServeHTTP(w, r)
 		case ControlServiceRemoveBackupDestinationProcedure:
 			controlServiceRemoveBackupDestinationHandler.ServeHTTP(w, r)
+		case ControlServiceSetMCPDomainProcedure:
+			controlServiceSetMCPDomainHandler.ServeHTTP(w, r)
+		case ControlServiceGetMCPDomainProcedure:
+			controlServiceGetMCPDomainHandler.ServeHTTP(w, r)
+		case ControlServiceApproveMCPConnectionProcedure:
+			controlServiceApproveMCPConnectionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1815,4 +1890,16 @@ func (UnimplementedControlServiceHandler) GetBackupDestination(context.Context, 
 
 func (UnimplementedControlServiceHandler) RemoveBackupDestination(context.Context, *connect.Request[v1alpha1.RemoveBackupDestinationRequest]) (*connect.Response[v1alpha1.RemoveBackupDestinationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.RemoveBackupDestination is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) SetMCPDomain(context.Context, *connect.Request[v1alpha1.SetMCPDomainRequest]) (*connect.Response[v1alpha1.SetMCPDomainResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.SetMCPDomain is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) GetMCPDomain(context.Context, *connect.Request[v1alpha1.GetMCPDomainRequest]) (*connect.Response[v1alpha1.GetMCPDomainResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.GetMCPDomain is not implemented"))
+}
+
+func (UnimplementedControlServiceHandler) ApproveMCPConnection(context.Context, *connect.Request[v1alpha1.ApproveMCPConnectionRequest]) (*connect.Response[v1alpha1.ApproveMCPConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orch.v1alpha1.ControlService.ApproveMCPConnection is not implemented"))
 }

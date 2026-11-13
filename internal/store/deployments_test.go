@@ -260,7 +260,7 @@ func TestDeploymentMigrationPreservesOnlyKnownOutcomes(t *testing.T) {
 	if _, err := state.db.ExecContext(ctx, `DROP TABLE deployment_records`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.db.ExecContext(ctx, `DROP TABLE one_off_jobs; DROP TABLE node_port_observations; DROP TABLE github_trust; DROP TABLE node_usage_samples; DROP TABLE access_tokens; DROP TABLE service_scales; DROP TABLE volume_backup_failures; DROP TABLE notification_cursor; DROP TABLE cluster_notifications; DROP TABLE cluster_alerts; DROP TABLE backup_destination; DROP TABLE volume_backup_key; DROP TABLE volume_moves; ALTER TABLE application_revisions DROP COLUMN requested_manifest; ALTER TABLE clusters DROP COLUMN administrator_not_before; ALTER TABLE nodes DROP COLUMN os_update_lifecycle; ALTER TABLE nodes DROP COLUMN os_update_boot_id; DELETE FROM schema_migrations WHERE version >= 9`); err != nil {
+	if _, err := state.db.ExecContext(ctx, `DROP TABLE one_off_jobs; DROP TABLE node_port_observations; DROP TABLE github_trust; DROP TABLE node_usage_samples; DROP TABLE access_tokens; DROP TABLE service_scales; DROP TABLE volume_backup_failures; DROP TABLE notification_cursor; DROP TABLE cluster_notifications; DROP TABLE cluster_alerts; DROP TABLE backup_destination; DROP TABLE volume_backup_key; DROP TABLE volume_moves; DROP TABLE mcp_settings; DROP TABLE mcp_grants; ALTER TABLE application_revisions DROP COLUMN requested_manifest; ALTER TABLE clusters DROP COLUMN administrator_not_before; ALTER TABLE nodes DROP COLUMN os_update_lifecycle; ALTER TABLE nodes DROP COLUMN os_update_boot_id; DELETE FROM schema_migrations WHERE version >= 9`); err != nil {
 		t.Fatal(err)
 	}
 	path := state.path

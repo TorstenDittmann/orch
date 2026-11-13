@@ -137,7 +137,15 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		now := time.Now()
 		for _, token := range tokens {
 			scope, access := "app "+token.GetApplication(), "deploy"
-			if token.GetAdministrator() {
+			if token.GetApplication() == "" {
+				scope = "all apps"
+			}
+			if token.GetMcpAccess() != "" {
+				access = "MCP " + token.GetMcpAccess()
+				if token.GetMcpClient() != "" {
+					access += " (" + token.GetMcpClient() + ")"
+				}
+			} else if token.GetAdministrator() {
 				scope, access = "all apps", "administrator"
 			} else if token.GetReadOnly() {
 				access = "read-only"
@@ -169,7 +177,7 @@ func runToken(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			writeError(stderr, fmt.Errorf("no access token named %s", flags.Arg(0)), false)
 			return ExitInvalid
 		}
-		fmt.Fprintf(stdout, "Revoked %s. Credentials already issued with it expire within 15 minutes.\n", flags.Arg(0))
+		fmt.Fprintf(stdout, "Revoked %s. Credentials already issued with it expire within 15 minutes; MCP connections stop at once.\n", flags.Arg(0))
 	}
 	return ExitOK
 }
@@ -182,6 +190,9 @@ Usage:
   orch token create [NAME] --admin [--ttl 720h] [--json]
   orch token list [--json]
   orch token revoke NAME [--json]
+
+list also shows the connections AI assistants made with orch mcp approve,
+and revoke ends them.
 
 create prints a token for ORCH_TOKEN. With it, orch commands and orch mcp
 can deploy, roll back and inspect APP, or with --read-only only inspect it,

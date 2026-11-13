@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"connectrpc.com/connect"
@@ -92,10 +93,18 @@ func (s *service) ListAccessTokens(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("list access tokens"))
 	}
+	grants, err := s.state.MCPGrants(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("list MCP connections"))
+	}
 	response := &orchv1alpha1.ListAccessTokensResponse{}
 	for _, token := range tokens {
 		response.Tokens = append(response.Tokens, accessTokenMessage(token))
 	}
+	for _, grant := range grants {
+		response.Tokens = append(response.Tokens, mcpGrantMessage(grant))
+	}
+	sort.Slice(response.Tokens, func(i, j int) bool { return response.Tokens[i].GetName() < response.Tokens[j].GetName() })
 	return connect.NewResponse(response), nil
 }
 
@@ -112,6 +121,24 @@ func (s *service) DeleteAccessToken(ctx context.Context, request *connect.Reques
 	changed, err := s.state.DeleteAccessToken(ctx, request.Msg.GetName())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("delete access token"))
+	}
+	if !changed {
+		// MCP connections are revoked the same way, and stop at once.
+		grants, err := s.state.MCPGrants(ctx)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("list MCP connections"))
+		}
+		for _, grant := range grants {
+			if grant.Name != request.Msg.GetName() {
+				continue
+			}
+			if changed, err = s.state.DeleteMCPGrant(ctx, grant.Name); err != nil {
+				return nil, connect.NewError(connect.CodeInternal, errors.New("delete MCP connection"))
+			}
+			if s.mcp != nil {
+				s.mcp.revokeGrant(grant.ID)
+			}
+		}
 	}
 	return connect.NewResponse(&orchv1alpha1.DeleteAccessTokenResponse{Changed: changed}), nil
 }

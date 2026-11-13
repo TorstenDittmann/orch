@@ -41,6 +41,15 @@ type Options struct {
 
 	// GitHubKeysURL replaces GitHub's Actions signing key set; tests only.
 	GitHubKeysURL string
+
+	// MCPListen, when set, serves the remote MCP gateway on this loopback
+	// address for the ingress on the controller's host (DefaultMCPListen).
+	MCPListen string
+	// MCP answers remote MCP requests; without it the gateway still
+	// authorizes connections but serves no tools.
+	MCP MCPRunner
+	// Warn reports problems that do not stop the controller.
+	Warn func(string)
 }
 
 type Server struct {
@@ -48,6 +57,9 @@ type Server struct {
 	http            *http.Server
 	admin           *http.Server
 	adminDone       chan struct{}
+	mcp             *http.Server
+	mcpListener     net.Listener
+	mcpDone         chan struct{}
 	state           *store.Store
 	sessions        *sessionManager
 	lock            *dataLock
@@ -214,13 +226,37 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 	// Agents pull uploaded images from the controller like from a registry.
 	mux.Handle("/v2/", authenticateAgent(cluster.ID, state, requireAgentHTTP(uploads.RegistryHandler())))
 	mux.HandleFunc("/healthz", healthHandler)
+	var mcpListener net.Listener
+	if options.MCPListen != "" {
+		host, _, splitErr := net.SplitHostPort(options.MCPListen)
+		if address := net.ParseIP(host); splitErr != nil || address == nil || !address.IsLoopback() {
+			return fail(fmt.Errorf("MCP listen address %q must be a loopback address and port", options.MCPListen), state, listener)
+		}
+		mcpListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", options.MCPListen)
+		if err != nil {
+			// Remote MCP is optional; a second controller on one host, as in
+			// local development, simply goes without it.
+			mcpListener = nil
+			if options.Warn != nil {
+				options.Warn(fmt.Sprintf("Not serving remote MCP: listen on %s: %v", options.MCPListen, err))
+			}
+		} else {
+			implementation.mcp = newMCPGateway(state, now, options.MCP, handler)
+		}
+	}
 	if err := reconciler.Reconcile(ctx); err != nil {
+		if mcpListener != nil {
+			_ = mcpListener.Close()
+		}
 		return fail(fmt.Errorf("reconcile initial assignment: %w", err), state, listener)
 	}
 	var adminListener net.Listener
 	if options.AdminSocket != "" {
 		adminListener, err = listenAdminSocket(ctx, options.AdminSocket)
 		if err != nil {
+			if mcpListener != nil {
+				_ = mcpListener.Close()
+			}
 			return fail(err, state, listener)
 		}
 	}
@@ -303,6 +339,18 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 			_ = server.admin.Serve(adminListener)
 		}()
 	}
+	if mcpListener != nil {
+		server.mcpListener = mcpListener
+		server.mcp = &http.Server{
+			Handler: implementation.mcp, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+			MaxHeaderBytes: 32 << 10, ErrorLog: log.New(io.Discard, "", 0),
+		}
+		server.mcpDone = make(chan struct{})
+		go func() {
+			defer close(server.mcpDone)
+			_ = server.mcp.Serve(mcpListener)
+		}()
+	}
 	go func() {
 		defer close(server.reconcileDone)
 		ticker := time.NewTicker(5 * time.Second)
@@ -355,6 +403,14 @@ func (server *Server) Addr() net.Addr {
 	return server.listener.Addr()
 }
 
+// MCPAddr is where the remote MCP gateway listens, or nil when it is off.
+func (server *Server) MCPAddr() net.Addr {
+	if server == nil || server.mcpListener == nil {
+		return nil
+	}
+	return server.mcpListener.Addr()
+}
+
 func (server *Server) Shutdown(ctx context.Context) error {
 	if server == nil {
 		return nil
@@ -382,6 +438,12 @@ func (server *Server) Shutdown(ctx context.Context) error {
 				_ = server.admin.Close()
 			}
 			<-server.adminDone
+		}
+		if server.mcp != nil {
+			if err := server.mcp.Shutdown(ctx); err != nil {
+				_ = server.mcp.Close()
+			}
+			<-server.mcpDone
 		}
 		<-server.serveDone
 		server.shutdownErr = errors.Join(shutdownErr, server.serveErr, server.state.Close(), server.lock.Close())

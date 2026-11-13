@@ -1900,3 +1900,26 @@ func TestDesiredRoutesSplitASharedDomainByPath(t *testing.T) {
 		t.Fatalf("pending = %#v", pending)
 	}
 }
+
+func TestMCPRouteIsServedOnlyOnTheControllerHost(t *testing.T) {
+	local := func() bool { return true }
+	remote := func() bool { return false }
+	routes := []ingress.Route{{Application: "shop", Service: "web", Domain: "shop.example.com", Upstreams: []string{"10.0.0.2:80"}}}
+	got := mcpRoute("mcp.example.com", routes, local)
+	if len(got) != 1 || !got[0].System || got[0].Upstreams[0] != ingress.MCPUpstream || !got[0].HTTPS {
+		t.Fatalf("mcpRoute on the controller host = %+v", got)
+	}
+	if got := mcpRoute("mcp.example.com", routes, remote); got != nil {
+		t.Fatalf("mcpRoute on another host = %+v", got)
+	}
+	if got := mcpRoute("", routes, local); got != nil {
+		t.Fatalf("mcpRoute while off = %+v", got)
+	}
+	if got := mcpRoute("shop.example.com", routes, local); got != nil {
+		t.Fatalf("mcpRoute over an application's domain = %+v", got)
+	}
+	statuses := []model.RouteStatus{{Application: "shop", Service: "web"}, {Service: ingress.MCPService}}
+	if kept := withoutSystemRoutes(statuses); len(kept) != 1 || kept[0].Application != "shop" {
+		t.Fatalf("withoutSystemRoutes() = %+v", kept)
+	}
+}

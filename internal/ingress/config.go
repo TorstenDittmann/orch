@@ -245,7 +245,8 @@ func render(routes []Route, adminSocket string, testIssuer *testACMEIssuer) ([]b
 			host, port, err := net.SplitHostPort(upstream)
 			address, addressErr := netip.ParseAddr(host)
 			portNumber, portErr := strconv.ParseUint(port, 10, 16)
-			if err != nil || addressErr != nil || !address.Is4() || !address.IsPrivate() ||
+			allowed := address.IsPrivate() || (route.System && address.IsLoopback())
+			if err != nil || addressErr != nil || !address.Is4() || !allowed ||
 				portErr != nil || portNumber == 0 || upstream == lastUpstream {
 				return nil, "", fmt.Errorf("invalid or duplicate ingress upstream %q", upstream)
 			}

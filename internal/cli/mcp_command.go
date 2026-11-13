@@ -76,6 +76,9 @@ type mcpTool struct {
 }
 
 func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) != 0 && (args[0] == "expose" || args[0] == "approve") {
+		return runMCPRemoteCommand(ctx, args, stdout, stderr)
+	}
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var targetName string
@@ -85,8 +88,12 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	flags.BoolVar(&allowDestructive, "allow-destructive", false, "also offer tools that delete or replace workloads, secrets and data, or run commands in replicas")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, `Usage: orch mcp [--target NAME] [--read-only | --allow-destructive]
+       orch mcp expose [DOMAIN | --off]
+       orch mcp approve CODE [--deploy | --allow-destructive] [--app APP] [--ttl 720h]
 
-Runs an MCP server over stdio for AI assistants.
+Runs an MCP server over stdio for AI assistants. For assistants that need a
+URL, such as Claude connectors, orch mcp expose serves it on the controller
+at https://DOMAIN/mcp and orch mcp approve lets one connect.
 
 By default the assistant can read the cluster and also change it: deploy,
 roll back, take backups, log in to registries and label nodes. Use --read-only
@@ -124,8 +131,12 @@ when it may also delete apps, change secrets or run commands in replicas.
 
 type mcpServer struct {
 	target string
-	tools  []mcpTool
-	byName map[string]mcpTool
+	// context, when set, is the --context every remote tool uses; the
+	// remote MCP gateway sets it, and tools then take no target.
+	context      string
+	instructions string
+	tools        []mcpTool
+	byName       map[string]mcpTool
 	// run executes one orch command; tests replace it.
 	run func(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
@@ -286,14 +297,14 @@ func (s *mcpServer) handle(request mcpRequest) (any, *mcpError) {
 				"extensions": map[string]any{mcpUIExtension: map[string]any{}},
 			},
 			"serverInfo":   map[string]any{"name": "orch", "title": "orch", "version": Version},
-			"instructions": mcpInstructions,
+			"instructions": s.instructionsText(),
 		}, nil
 	case "ping":
 		return struct{}{}, nil
 	case "tools/list":
 		tools := make([]map[string]any, 0, len(s.tools))
 		for _, tool := range s.tools {
-			tools = append(tools, tool.definition(s.ui.Load()))
+			tools = append(tools, tool.definition(s.ui.Load(), s.context == ""))
 		}
 		return map[string]any{"tools": tools}, nil
 	case "resources/list":
@@ -361,7 +372,9 @@ func (s *mcpServer) invokeOutput(ctx context.Context, tool mcpTool, arguments mc
 	if tool.json {
 		args = append(args, "--json")
 	}
-	if tool.remote {
+	if tool.remote && s.context != "" {
+		args = append(args, "--context", s.context)
+	} else if tool.remote {
 		target := s.target
 		if value, err := arguments.str("target"); err != nil {
 			return err.Error(), "", true
@@ -396,11 +409,18 @@ func (s *mcpServer) invokeOutput(ctx context.Context, tool mcpTool, arguments mc
 	return text, stdout.String(), code != ExitOK
 }
 
-func (tool mcpTool) definition(ui bool) map[string]any {
+func (s *mcpServer) instructionsText() string {
+	if s.instructions != "" {
+		return s.instructions
+	}
+	return mcpInstructions
+}
+
+func (tool mcpTool) definition(ui, targetParam bool) map[string]any {
 	properties := map[string]any{}
 	required := []string{}
 	params := tool.params
-	if tool.remote {
+	if tool.remote && targetParam {
 		params = append(params[:len(params):len(params)], mcpParam{name: "target", kind: "string", description: "orch target to use instead of the selected one"})
 	}
 	for _, param := range params {

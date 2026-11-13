@@ -794,6 +794,10 @@ func (r *Reconciler) publishDistributed(ctx context.Context, nodes []model.Node,
 	if err := r.appendOneOffAssignments(ctx, cron); err != nil {
 		return err
 	}
+	mcpDomain, err := r.state.MCPDomain(ctx)
+	if err != nil {
+		return err
+	}
 	ordered := append([]model.Node(nil), nodes...)
 	sort.Slice(ordered, func(i, j int) bool {
 		leftRemoved := removedPlacementCount(current[ordered[i].ID], allocations[ordered[i].ID], cron[ordered[i].ID])
@@ -813,12 +817,16 @@ func (r *Reconciler) publishDistributed(ctx context.Context, nodes []model.Node,
 			}
 			return nodeCron[i].Application < nodeCron[j].Application
 		})
-		payload, digest, err := model.AssignmentPayloadWithJobs(networks[node.ID], nodeAllocations, nodeCron)
+		network := networks[node.ID]
+		if network.IngressEnabled {
+			network.MCPDomain = mcpDomain
+		}
+		payload, digest, err := model.AssignmentPayloadWithJobs(network, nodeAllocations, nodeCron)
 		if err != nil {
 			return err
 		}
 		assignment, changed, err := r.state.PublishAssignment(ctx, model.PublishAssignment{
-			NodeID: node.ID, Digest: digest, Payload: payload, Network: networks[node.ID],
+			NodeID: node.ID, Digest: digest, Payload: payload, Network: network,
 			Allocations: nodeAllocations, CronJobs: nodeCron, ApplicationStates: states, CreatedAt: now,
 		})
 		if err != nil {

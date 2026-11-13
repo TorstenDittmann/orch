@@ -457,6 +457,7 @@ func assignmentSnapshotMessage(assignment model.Assignment) *orchv1alpha1.Assign
 			NodeSubnet: assignment.Network.NodeSubnet, Gateway: assignment.Network.Gateway,
 			DnsZone: assignment.Network.DNSZone, IngressEnabled: assignment.Network.IngressEnabled,
 			WireguardListenPort: uint32(assignment.Network.WireGuardListenPort),
+			McpDomain:           assignment.Network.MCPDomain,
 		}
 		for _, peer := range assignment.Network.Peers {
 			message.Network.Peers = append(message.Network.Peers, &orchv1alpha1.WireGuardPeer{
