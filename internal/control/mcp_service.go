@@ -23,6 +23,9 @@ func (s *service) SetMCPDomain(ctx context.Context, request *connect.Request[orc
 		return nil, err
 	}
 	domain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(request.Msg.GetDomain()), "."))
+	if domain != "" && s.mcp == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this controller does not serve remote MCP; check the controller log, or its --mcp-listen setting"))
+	}
 	if domain != "" {
 		if config.IsWildcardDomain(domain) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("the MCP domain must be one hostname, not a wildcard"))
@@ -153,6 +156,9 @@ func (s *service) ApproveMCPConnection(ctx context.Context, request *connect.Req
 	}
 	if domain, err := s.state.MCPDomain(ctx); err != nil || domain == "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("remote MCP is off; turn it on with orch mcp expose DOMAIN"))
+	}
+	if err := s.state.DeleteExpiredMCPGrants(ctx, s.now()); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("remove expired MCP connections"))
 	}
 	grant, redirectHost, err := s.mcp.approve(ctx, request.Msg.GetCode(), access, application, lifetime)
 	if err != nil {

@@ -308,3 +308,24 @@ func TestMCPGrantNames(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPDomainNeedsAServingGateway(t *testing.T) {
+	_, dataDir, contextPath, _ := bootstrapController(t)
+	server, err := Start(context.Background(), Options{DataDir: dataDir, Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	rewriteContextServer(t, contextPath, "https://"+server.Addr().String())
+	admin, err := controlclient.New(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.CloseIdleConnections)
+	if _, err := admin.SetMCPDomain(context.Background(), "mcp.example.test"); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expose without a gateway = %v", err)
+	}
+	if _, err := admin.SetMCPDomain(context.Background(), ""); err != nil {
+		t.Fatalf("turning off without a gateway = %v", err)
+	}
+}

@@ -277,6 +277,7 @@ the controller's server. Without arguments it shows the current URL.
 approve lets the assistant waiting on the approval page with CODE connect. It
 can only read the cluster unless you add --deploy (also roll back, restart,
 back up and run cron jobs) or --allow-destructive (everything). --app limits it
-to one application. orch token list shows connections and orch token revoke
+to what an access token for that application can do: its status, logs and
+history, and with --deploy rolling it back. orch token list shows connections and orch token revoke
 ends one at once.`)
 }

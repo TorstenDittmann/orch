@@ -1180,7 +1180,7 @@ See [remote MCP](ai.md#remote-mcp-over-a-url).
 | --- | --- | --- |
 | `--deploy` | `false` | Also allow rolling back, restarting, backing up, retrying jobs and running cron jobs |
 | `--allow-destructive` | `false` | Allow everything the MCP tools can do, including deleting apps, changing secrets and running commands in replicas |
-| `--app` | every app | Limit the connection to one application |
+| `--app` | every app | Limit the connection to what an access token for this application can do |
 | `--ttl` | `720h` | How long the connection works, from `1h` to `8760h` |
 
 ## Services and internals

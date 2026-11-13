@@ -93,6 +93,9 @@ func (s *service) ListAccessTokens(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("list access tokens"))
 	}
+	if err := s.state.DeleteExpiredMCPGrants(ctx, s.now()); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("remove expired MCP connections"))
+	}
 	grants, err := s.state.MCPGrants(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("list MCP connections"))

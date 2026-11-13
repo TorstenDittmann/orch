@@ -185,7 +185,7 @@ password or token to copy.
 | `orch mcp approve CODE` | Read the cluster: status, logs, history, events, jobs, volumes |
 | `orch mcp approve CODE --deploy` | Also roll back, restart, back up, retry jobs and run cron jobs |
 | `orch mcp approve CODE --allow-destructive` | Everything the MCP tools can do, including removing apps, changing secrets and running commands in replicas |
-| `... --app shop` | Any of the above, for `shop` only |
+| `... --app shop` | Only what an access token for `shop` can do: its status, logs, history and diffs, and with `--deploy` also roll it back |
 
 The controller enforces the level on every call, not just the tool list:
 each one maps to the API calls it allows, and nothing else, such as creating
