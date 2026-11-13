@@ -13,7 +13,17 @@ const RequiredCaddyVersion = "v2.11.3"
 
 var ErrUnsupported = errors.New("ingress is unsupported on this platform")
 
+// MCPService and MCPUpstream name the route to orch's remote MCP gateway,
+// which the controller serves on loopback on its own host.
+const (
+	MCPService  = "orch-mcp"
+	MCPUpstream = "127.0.0.1:9444"
+)
+
 type Route struct {
+	// System marks orch's own route, which belongs to no application and
+	// forwards to a loopback upstream on this host.
+	System      bool
 	Application string
 	Service     string
 	Domain      string

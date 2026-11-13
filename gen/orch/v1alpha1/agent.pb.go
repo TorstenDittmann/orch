@@ -1497,8 +1497,11 @@ type NetworkConfig struct {
 	Endpoints           []*ServiceEndpoint     `protobuf:"bytes,7,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
 	IngressEnabled      bool                   `protobuf:"varint,8,opt,name=ingress_enabled,json=ingressEnabled,proto3" json:"ingress_enabled,omitempty"`
 	WireguardListenPort uint32                 `protobuf:"varint,9,opt,name=wireguard_listen_port,json=wireguardListenPort,proto3" json:"wireguard_listen_port,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Domain of the remote MCP server. Only the ingress on the controller's
+	// own host routes it, to the controller's loopback MCP listener.
+	McpDomain     string `protobuf:"bytes,10,opt,name=mcp_domain,json=mcpDomain,proto3" json:"mcp_domain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NetworkConfig) Reset() {
@@ -1592,6 +1595,13 @@ func (x *NetworkConfig) GetWireguardListenPort() uint32 {
 		return x.WireguardListenPort
 	}
 	return 0
+}
+
+func (x *NetworkConfig) GetMcpDomain() string {
+	if x != nil {
+		return x.McpDomain
+	}
+	return ""
 }
 
 type WireGuardPeer struct {
@@ -5994,7 +6004,7 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ad\n" +
 	"\x16SecretEnvironmentEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
-	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\xf7\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.orch.v1alpha1.SecretReferenceR\x05value:\x028\x01\"\x96\x03\n" +
 	"\rNetworkConfig\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\x04R\n" +
@@ -6007,7 +6017,10 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\x05peers\x18\x06 \x03(\v2\x1c.orch.v1alpha1.WireGuardPeerR\x05peers\x12<\n" +
 	"\tendpoints\x18\a \x03(\v2\x1e.orch.v1alpha1.ServiceEndpointR\tendpoints\x12'\n" +
 	"\x0fingress_enabled\x18\b \x01(\bR\x0eingressEnabled\x122\n" +
-	"\x15wireguard_listen_port\x18\t \x01(\rR\x13wireguardListenPort\"\x8a\x01\n" +
+	"\x15wireguard_listen_port\x18\t \x01(\rR\x13wireguardListenPort\x12\x1d\n" +
+	"\n" +
+	"mcp_domain\x18\n" +
+	" \x01(\tR\tmcpDomain\"\x8a\x01\n" +
 	"\rWireGuardPeer\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1d\n" +
 	"\n" +

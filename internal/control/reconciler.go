@@ -106,6 +106,9 @@ func (r *Reconciler) reconcileLegacy(ctx context.Context, cluster model.Cluster,
 	if err != nil {
 		return fmt.Errorf("derive first-node network: %w", err)
 	}
+	if networkConfig.MCPDomain, err = r.state.MCPDomain(ctx); err != nil {
+		return err
+	}
 	domainOwners, err := desiredDomainOwners(applications)
 	if err != nil {
 		return err

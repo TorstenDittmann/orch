@@ -193,6 +193,9 @@ type NetworkConfig struct {
 	Peers               []WireGuardPeer   `json:"peers,omitempty"`
 	Endpoints           []ServiceEndpoint `json:"endpoints,omitempty"`
 	IngressEnabled      bool              `json:"ingress_enabled,omitempty"`
+	// MCPDomain is the remote MCP server's domain. Only the ingress on the
+	// controller's own host routes it.
+	MCPDomain string `json:"mcp_domain,omitempty"`
 }
 
 type ServiceEndpoint struct {

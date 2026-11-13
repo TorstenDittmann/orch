@@ -334,6 +334,8 @@ func isRemoteCommand(args []string) bool {
 		return true
 	case "volume", "db", "backup":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
+	case "mcp":
+		return len(args) > 1 && (args[1] == "expose" || args[1] == "approve")
 	case "github", "token", "notify":
 		return len(args) > 1 && args[1] != "help" && args[1] != "-h" && args[1] != "--help"
 	case "app":

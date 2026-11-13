@@ -67,6 +67,8 @@ type service struct {
 	// databaseSecrets serializes generating database secrets, so two
 	// deploys cannot give one database different passwords.
 	databaseSecrets sync.Mutex
+	// mcp is the remote MCP gateway, when the controller serves one.
+	mcp *mcpGateway
 }
 
 func newService(state *store.Store, cluster model.Cluster, caPEM, caKey []byte, secretBox *security.SecretBox, sessions *sessionManager, now func() time.Time) *service {
@@ -452,6 +454,9 @@ func (s *service) ApplyApplication(ctx context.Context, request *connect.Request
 		return nil, err
 	}
 	if err := requireRouteDomains(ctx, manifest); err != nil {
+		return nil, err
+	}
+	if err := s.requireNotMCPDomain(ctx, manifest); err != nil {
 		return nil, err
 	}
 	source, err := deploymentSource(request.Msg.GetSource())

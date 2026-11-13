@@ -164,6 +164,29 @@ type AccessToken struct {
 // instead of access to one application.
 func (token AccessToken) Administrator() bool { return token.Application == "" }
 
+// MCP access levels for remote MCP connections, from least to most.
+const (
+	MCPAccessRead        = "read"
+	MCPAccessDeploy      = "deploy"
+	MCPAccessDestructive = "destructive"
+)
+
+// MCPGrant is a connection an administrator approved for an AI assistant on
+// the remote MCP server. Access is one of the MCPAccess levels; Application,
+// when set, limits the connection to that application.
+type MCPGrant struct {
+	ID          string
+	Name        string
+	ClientName  string
+	ClientID    string
+	Application string
+	Access      string
+	RefreshHash string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	LastUsedAt  time.Time
+}
+
 // ClusterNotification is a webhook for cluster events, set with orch notify
 // add. Its URL is kept encrypted in the store.
 type ClusterNotification struct {

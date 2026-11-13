@@ -29,6 +29,9 @@ type authenticatedPrincipal struct {
 	certificate *x509.Certificate
 	// local is set only for requests on the controller's admin socket.
 	local bool
+	// inProcess is set for requests the remote MCP gateway makes for an
+	// approved connection; restrictMCPAccess limits their procedures.
+	inProcess bool
 	// application is set for deployer certificates, which may only read and
 	// change this one application.
 	application string
@@ -156,7 +159,7 @@ func requireAdministrator(ctx context.Context) error {
 	if principal.err != nil {
 		return connect.NewError(principal.code, principal.err)
 	}
-	if principal.certificate == nil && !principal.local {
+	if principal.certificate == nil && !principal.local && !principal.inProcess {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("administrator client certificate is required"))
 	}
 	if principal.application != "" {
@@ -169,7 +172,7 @@ func requireAdministrator(ctx context.Context) error {
 // application a deployer is limited to, or "" for administrators.
 func requireDeployerOrAdministrator(ctx context.Context) (string, error) {
 	principal, ok := ctx.Value(principalKey{}).(authenticatedPrincipal)
-	if ok && principal.err == nil && principal.certificate != nil && principal.application != "" {
+	if ok && principal.err == nil && (principal.certificate != nil || principal.inProcess) && principal.application != "" {
 		return principal.application, nil
 	}
 	return "", requireAdministrator(ctx)

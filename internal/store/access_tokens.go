@@ -35,6 +35,13 @@ func (s *Store) CreateAccessToken(ctx context.Context, token model.AccessToken) 
 	if count >= maxAccessTokens {
 		return fmt.Errorf("a cluster keeps at most %d access tokens; delete unused ones first", maxAccessTokens)
 	}
+	var taken int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mcp_grants WHERE name = ?`, token.Name).Scan(&taken); err != nil {
+		return fmt.Errorf("check access token name: %w", err)
+	}
+	if taken != 0 {
+		return ErrAccessTokenExists
+	}
 	readOnly := 0
 	if token.ReadOnly {
 		readOnly = 1

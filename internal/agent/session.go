@@ -987,7 +987,8 @@ func assignmentModel(snapshot *orchv1alpha1.AssignmentSnapshot, nodeID string) (
 	if network := snapshot.GetNetwork(); network != nil {
 		assignment.Network = model.NetworkConfig{Generation: network.GetGeneration(), ClusterCIDR: network.GetClusterCidr(),
 			NodeSubnet: network.GetNodeSubnet(), Gateway: network.GetGateway(), DNSZone: network.GetDnsZone(),
-			IngressEnabled: network.GetIngressEnabled(), WireGuardListenPort: uint16(network.GetWireguardListenPort())}
+			IngressEnabled: network.GetIngressEnabled(), WireGuardListenPort: uint16(network.GetWireguardListenPort()),
+			MCPDomain: network.GetMcpDomain()}
 		for _, peer := range network.GetPeers() {
 			if peer == nil || len(peer.ProtoReflect().GetUnknown()) != 0 {
 				return model.Assignment{}, errors.New("assignment WireGuard peer contains unknown fields")

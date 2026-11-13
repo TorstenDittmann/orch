@@ -153,6 +153,59 @@ was last used, and `orch token revoke NAME` stops one within 15 minutes.
 In GitHub Actions you need no token at all: `orch github trust` lets the
 workflow sign in with GitHub's own identity. See [deploy from GitHub](github.md).
 
+## Remote MCP over a URL
+
+Any MCP client that connects to remote servers by URL with OAuth, such as
+Claude connectors, ChatGPT, Cursor, VS Code or a hosted agent, cannot start
+`orch mcp` on your computer. The controller can serve the same tools at a URL
+instead, as a standard OAuth-protected MCP server:
+
+```console
+$ orch mcp expose mcp.example.com
+Remote MCP is served at https://mcp.example.com/mcp
+```
+
+Point DNS for the domain at the controller's server. The ingress on that
+server gets an HTTPS certificate for it, like for an application, and
+forwards requests to the controller on the host's loopback interface.
+
+Then add `https://mcp.example.com/mcp` to your client as a remote MCP server.
+It discovers the authorization server, registers itself and opens an approval
+page that shows its name, where it will return to, and a code. Approve it from
+any machine with orch administrator access:
+
+```console
+$ orch mcp approve K7XQ-2MNP
+Approved Claude (returning to claude.ai) as mcp-claude-3f2a. It can read every application until 2026-12-13.
+```
+
+The page continues by itself and the assistant is connected. There is no
+password or token to copy.
+
+| Command | What the assistant can do |
+| --- | --- |
+| `orch mcp approve CODE` | Read the cluster: status, logs, history, events, jobs, volumes |
+| `orch mcp approve CODE --deploy` | Also roll back, restart, back up, retry jobs and run cron jobs |
+| `orch mcp approve CODE --allow-destructive` | Everything the MCP tools can do, including removing apps, changing secrets and running commands in replicas |
+| `... --app shop` | Only what an access token for `shop` can do: its status, logs, history and diffs, and with `--deploy` also roll it back |
+
+The controller enforces the level on every call, not just the tool list:
+each one maps to the API calls it allows, and nothing else, such as creating
+tokens, approving other connections or removing nodes, is reachable at any
+level. Connections show up in `orch token list` with when they were last
+used, expire after 30 days unless you pass `--ttl`, and `orch token revoke
+NAME` ends one at once. `orch mcp expose --off` stops serving the URL.
+
+Deploying a manifest stays with the CLI, `orch mcp` on your computer and
+GitHub Actions: manifests are evaluated where their files are, and the
+controller never runs Pkl. Over the URL, an assistant works with what is
+already deployed.
+
+Under the hood the controller is a small OAuth 2.1 server: assistants register
+themselves, use the authorization code flow with PKCE, and get access tokens
+that last an hour and refresh tokens that work once. An `ORCH_TOKEN` access
+token also works as a bearer token, with the same limits as on the CLI.
+
 ## Tools
 
 Every tool runs the matching CLI command, and most return the same JSON as
