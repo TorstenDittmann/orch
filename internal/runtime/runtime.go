@@ -130,12 +130,15 @@ type Runtime interface {
 	Close() error
 }
 
-// TaskCPU is the CPU time one running task has used since it started.
+// TaskCPU is the CPU time one running task has used since it started, and
+// its current memory working set.
 type TaskCPU struct {
 	ObjectID     string
 	AllocationID string
 	UsageMicros  uint64
-	ObservedAt   time.Time
+	// MemoryBytes is the memory in use excluding reclaimable file cache.
+	MemoryBytes uint64
+	ObservedAt  time.Time
 }
 
 // TaskCPUReader is implemented by runtimes that can read their tasks' CPU

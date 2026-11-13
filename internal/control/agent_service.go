@@ -312,7 +312,7 @@ func (s *agentService) handleAgentMessage(ctx context.Context, session *agentSes
 			if usage == nil || len(usage.ProtoReflect().GetUnknown()) != 0 || usage.GetAllocationId() == "" {
 				return connect.NewError(connect.CodeInvalidArgument, errors.New("heartbeat allocation usage is invalid"))
 			}
-			s.autoscaler.Record(usage.GetAllocationId(), usage.GetCpuUsedMillis(), seenAt)
+			s.autoscaler.Record(usage.GetAllocationId(), usage.GetCpuUsedMillis(), usage.GetMemoryUsedBytes(), seenAt)
 		}
 	case *orchv1alpha1.ConnectRequest_OperationResult:
 		if message.OperationResult == nil || len(message.OperationResult.ProtoReflect().GetUnknown()) != 0 {

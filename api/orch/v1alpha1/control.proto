@@ -138,6 +138,9 @@ message Application {
   // Each reporting allocation's average CPU use over the last minute, in
   // millicores, keyed by allocation id.
   map<string, uint64> allocation_cpu_millis = 22;
+  // Each reporting allocation's latest memory working set, in bytes, keyed by
+  // allocation id.
+  map<string, uint64> allocation_memory_bytes = 23;
 }
 
 // ServiceAutoscale is the live replica count of a service that sets autoscale.
@@ -316,6 +319,12 @@ message RuntimeSummary {
   google.protobuf.Timestamp ready_at = 27;
   google.protobuf.Timestamp finished_at = 28;
   google.protobuf.Timestamp updated_at = 29;
+  // Live usage of a running service replica: average CPU over the last
+  // minute and the latest memory working set. cpu_millis and memory_bytes
+  // above are what the replica requested. Unset when it has not reported.
+  bool has_usage = 30;
+  uint64 cpu_used_millis = 31;
+  uint64 memory_used_bytes = 32;
 }
 
 message ListRuntimesRequest {

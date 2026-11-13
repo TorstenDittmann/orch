@@ -66,3 +66,10 @@ export function pretty(json: string): string {
 		return json;
 	}
 }
+
+// detail returns a status message only when one of the statuses needs
+// attention. Healthy states explain themselves; their messages ("the desired
+// process passed its readiness gate") are noise.
+export function detail(message: string | undefined | null, ...statuses: (string | undefined | null)[]): string {
+	return statuses.some((status) => ['bad', 'warn'].includes(tone(status))) ? message || '' : '';
+}

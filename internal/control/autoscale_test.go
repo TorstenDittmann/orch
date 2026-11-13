@@ -129,7 +129,7 @@ func TestAutoscalerScalesUpAndWaitsBeforeScalingDown(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, allocation := range assignment.Allocations {
-			scaler.Record(allocation.ID, millis, now)
+			scaler.Record(allocation.ID, millis, 0, now)
 		}
 		if err := scaler.evaluate(ctx); err != nil {
 			t.Fatal(err)

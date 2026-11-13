@@ -3,7 +3,7 @@
 	import Filter from '../components/Filter.svelte';
 	import Segmented from '../components/Segmented.svelte';
 	import Status from '../components/Status.svelte';
-	import { ago, label, short, tone } from '../lib/format';
+	import { ago, detail, label, short, tone } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live } from '../lib/state.svelte';
 
@@ -68,7 +68,7 @@
 								</td>
 								<td class="mono faint">{short(app.revisionId)}</td>
 								<td class="faint" title={app.updatedAt ?? ''}>{ago(app.updatedAt, live.now)}</td>
-								<td class="wrap">{app.executionMessage || app.executionReason}</td>
+								<td class="wrap">{detail(app.executionMessage || app.executionReason, app.executionStatus)}</td>
 							</tr>
 						{/each}
 					</tbody>

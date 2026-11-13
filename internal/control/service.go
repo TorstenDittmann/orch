@@ -252,11 +252,16 @@ func (s *service) ListRuntimes(ctx context.Context, request *connect.Request[orc
 	for _, placement := range placements {
 		placement.Node = s.decorateNodeConnection(placement.Node)
 		status, ok := observations[placement.Allocation.ID]
+		var item *orchv1alpha1.RuntimeSummary
 		if ok {
-			runtimes = append(runtimes, serviceRuntimeSummary(placement, &status))
+			item = serviceRuntimeSummary(placement, &status)
 		} else {
-			runtimes = append(runtimes, serviceRuntimeSummary(placement, nil))
+			item = serviceRuntimeSummary(placement, nil)
 		}
+		if millis, memory, measured := s.autoscaler.AllocationUsage(placement.Allocation.ID); measured {
+			item.HasUsage, item.CpuUsedMillis, item.MemoryUsedBytes = true, millis, memory
+		}
+		runtimes = append(runtimes, item)
 	}
 	for _, run := range runs {
 		item := &orchv1alpha1.RuntimeSummary{

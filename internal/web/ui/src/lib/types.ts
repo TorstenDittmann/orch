@@ -108,7 +108,10 @@ export interface Application extends ApplicationSummary {
 	nodePorts: NodePort[];
 	cronJobs: CronJob[];
 	autoscale?: ServiceAutoscale[];
+	// Live usage keyed by allocation id: average CPU over the last minute
+	// and the latest memory working set. Absent until a replica reports.
 	allocationCpuMillis?: Record<string, string>;
+	allocationMemoryBytes?: Record<string, string>;
 }
 
 export interface ServiceAutoscale {
@@ -238,8 +241,13 @@ export interface Runtime {
 	exitCode: number;
 	hasExitCode: boolean;
 	address: string;
+	// What the runtime requested.
 	cpuMillis: string;
 	memoryBytes: string;
+	// What a running service replica actually uses; set once it reports.
+	hasUsage?: boolean;
+	cpuUsedMillis?: string;
+	memoryUsedBytes?: string;
 	reason: string;
 	message: string;
 	scheduledAt: Timestamp;
