@@ -38,6 +38,8 @@ const (
 type cpuSample struct {
 	at     time.Time
 	millis uint64
+	// memory is the replica's working set when the sample was taken.
+	memory uint64
 }
 
 type scaleRecommendation struct {
@@ -91,8 +93,8 @@ func newAutoscaler(state *store.Store, reconcile func(context.Context) error, co
 	}
 }
 
-// Record keeps one allocation's CPU use from a heartbeat.
-func (a *autoscaler) Record(allocationID string, millis uint64, at time.Time) {
+// Record keeps one allocation's CPU and memory use from a heartbeat.
+func (a *autoscaler) Record(allocationID string, millis, memory uint64, at time.Time) {
 	if a == nil || allocationID == "" {
 		return
 	}
@@ -101,7 +103,7 @@ func (a *autoscaler) Record(allocationID string, millis uint64, at time.Time) {
 	if _, known := a.samples[allocationID]; !known && len(a.samples) >= maxTrackedAllocations {
 		return
 	}
-	samples := append(a.samples[allocationID], cpuSample{at: at, millis: millis})
+	samples := append(a.samples[allocationID], cpuSample{at: at, millis: millis, memory: memory})
 	cutoff := at.Add(-autoscaleWindow)
 	for len(samples) > 0 && samples[0].at.Before(cutoff) {
 		samples = samples[1:]
@@ -109,15 +111,23 @@ func (a *autoscaler) Record(allocationID string, millis uint64, at time.Time) {
 	a.samples[allocationID] = samples
 }
 
-// AllocationCPU returns an allocation's average CPU use over the window, in
-// millicores, and whether there was any sample.
-func (a *autoscaler) AllocationCPU(allocationID string) (uint64, bool) {
+// AllocationUsage returns an allocation's average CPU use over the window,
+// in millicores, its latest memory working set in bytes, and whether there
+// was any sample in the window. Memory is 0 when the agent predates memory
+// reporting: a running task always has a working set.
+func (a *autoscaler) AllocationUsage(allocationID string) (millis, memory uint64, ok bool) {
 	if a == nil {
-		return 0, false
+		return 0, 0, false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.averageLocked(allocationID, a.now())
+	now := a.now()
+	millis, ok = a.averageLocked(allocationID, now)
+	if !ok {
+		return 0, 0, false
+	}
+	samples := a.samples[allocationID]
+	return millis, samples[len(samples)-1].memory, true
 }
 
 func (a *autoscaler) averageLocked(allocationID string, now time.Time) (uint64, bool) {
@@ -529,15 +539,19 @@ func applyServiceScales(applications []model.Application, scales map[string]map[
 	return nil
 }
 
-// decorateApplicationScaling adds live replica CPU and the autoscaled
-// services' replica counts to an application message.
+// decorateApplicationScaling adds live replica CPU and memory and the
+// autoscaled services' replica counts to an application message.
 func (s *service) decorateApplicationScaling(ctx context.Context, application model.Application, message *orchv1alpha1.Application) error {
 	for _, allocation := range application.Execution.Allocations {
-		if millis, ok := s.autoscaler.AllocationCPU(allocation.ID); ok {
+		if millis, memory, ok := s.autoscaler.AllocationUsage(allocation.ID); ok {
 			if message.AllocationCpuMillis == nil {
 				message.AllocationCpuMillis = map[string]uint64{}
+				message.AllocationMemoryBytes = map[string]uint64{}
 			}
 			message.AllocationCpuMillis[allocation.ID] = millis
+			if memory > 0 {
+				message.AllocationMemoryBytes[allocation.ID] = memory
+			}
 		}
 	}
 	var manifest config.Manifest

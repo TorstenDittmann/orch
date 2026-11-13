@@ -492,7 +492,8 @@ message AgentHeartbeat {
   string boot_id = 1;
   uint64 acknowledged_assignment_generation = 2;
   NodeResourceUsage usage = 3;
-  // Each running allocation's CPU use since the previous heartbeat.
+  // Each running allocation's CPU use since the previous heartbeat and its
+  // current memory use.
   repeated AllocationResourceUsage allocations = 4;
   // Set when installed updates, such as a new kernel, take effect only after
   // the host reboots.
@@ -502,6 +503,8 @@ message AgentHeartbeat {
 message AllocationResourceUsage {
   string allocation_id = 1;
   uint64 cpu_used_millis = 2;
+  // Working set: memory in use excluding reclaimable file cache.
+  uint64 memory_used_bytes = 3;
 }
 
 // NodeResourceUsage is the node's usage since the previous heartbeat; disk

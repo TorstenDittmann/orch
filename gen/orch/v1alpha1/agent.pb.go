@@ -4074,7 +4074,8 @@ type AgentHeartbeat struct {
 	BootId                           string                 `protobuf:"bytes,1,opt,name=boot_id,json=bootId,proto3" json:"boot_id,omitempty"`
 	AcknowledgedAssignmentGeneration uint64                 `protobuf:"varint,2,opt,name=acknowledged_assignment_generation,json=acknowledgedAssignmentGeneration,proto3" json:"acknowledged_assignment_generation,omitempty"`
 	Usage                            *NodeResourceUsage     `protobuf:"bytes,3,opt,name=usage,proto3" json:"usage,omitempty"`
-	// Each running allocation's CPU use since the previous heartbeat.
+	// Each running allocation's CPU use since the previous heartbeat and its
+	// current memory use.
 	Allocations []*AllocationResourceUsage `protobuf:"bytes,4,rep,name=allocations,proto3" json:"allocations,omitempty"`
 	// Set when installed updates, such as a new kernel, take effect only after
 	// the host reboots.
@@ -4152,8 +4153,10 @@ type AllocationResourceUsage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AllocationId  string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
 	CpuUsedMillis uint64                 `protobuf:"varint,2,opt,name=cpu_used_millis,json=cpuUsedMillis,proto3" json:"cpu_used_millis,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Working set: memory in use excluding reclaimable file cache.
+	MemoryUsedBytes uint64 `protobuf:"varint,3,opt,name=memory_used_bytes,json=memoryUsedBytes,proto3" json:"memory_used_bytes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AllocationResourceUsage) Reset() {
@@ -4196,6 +4199,13 @@ func (x *AllocationResourceUsage) GetAllocationId() string {
 func (x *AllocationResourceUsage) GetCpuUsedMillis() uint64 {
 	if x != nil {
 		return x.CpuUsedMillis
+	}
+	return 0
+}
+
+func (x *AllocationResourceUsage) GetMemoryUsedBytes() uint64 {
+	if x != nil {
+		return x.MemoryUsedBytes
 	}
 	return 0
 }
@@ -6335,10 +6345,11 @@ const file_orch_v1alpha1_agent_proto_rawDesc = "" +
 	"\"acknowledged_assignment_generation\x18\x02 \x01(\x04R acknowledgedAssignmentGeneration\x126\n" +
 	"\x05usage\x18\x03 \x01(\v2 .orch.v1alpha1.NodeResourceUsageR\x05usage\x12H\n" +
 	"\vallocations\x18\x04 \x03(\v2&.orch.v1alpha1.AllocationResourceUsageR\vallocations\x12'\n" +
-	"\x0freboot_required\x18\x05 \x01(\bR\x0erebootRequired\"f\n" +
+	"\x0freboot_required\x18\x05 \x01(\bR\x0erebootRequired\"\x92\x01\n" +
 	"\x17AllocationResourceUsage\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12&\n" +
-	"\x0fcpu_used_millis\x18\x02 \x01(\x04R\rcpuUsedMillis\"\xb9\x01\n" +
+	"\x0fcpu_used_millis\x18\x02 \x01(\x04R\rcpuUsedMillis\x12*\n" +
+	"\x11memory_used_bytes\x18\x03 \x01(\x04R\x0fmemoryUsedBytes\"\xb9\x01\n" +
 	"\x11NodeResourceUsage\x12&\n" +
 	"\x0fcpu_used_millis\x18\x01 \x01(\x04R\rcpuUsedMillis\x12*\n" +
 	"\x11memory_used_bytes\x18\x02 \x01(\x04R\x0fmemoryUsedBytes\x12&\n" +

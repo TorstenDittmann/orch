@@ -55,12 +55,12 @@ func TestAllocationSamplerReportsCPUPerAllocation(t *testing.T) {
 	later := start.Add(10 * time.Second)
 	fake.CPU = []orchruntime.TaskCPU{
 		// 5 CPU-seconds in 10 seconds is half a core.
-		{ObjectID: "a-1", AllocationID: "a", UsageMicros: 6_000_000, ObservedAt: later},
+		{ObjectID: "a-1", AllocationID: "a", UsageMicros: 6_000_000, MemoryBytes: 64 << 20, ObservedAt: later},
 		// A replacement task has no earlier reading yet.
 		{ObjectID: "b-2", AllocationID: "b", UsageMicros: 9_000_000, ObservedAt: later},
 	}
 	usage := sampler.Sample(context.Background())
-	if len(usage) != 1 || usage[0].GetAllocationId() != "a" || usage[0].GetCpuUsedMillis() != 500 {
+	if len(usage) != 1 || usage[0].GetAllocationId() != "a" || usage[0].GetCpuUsedMillis() != 500 || usage[0].GetMemoryUsedBytes() != 64<<20 {
 		t.Fatalf("usage = %v", usage)
 	}
 	var missing *allocationSampler

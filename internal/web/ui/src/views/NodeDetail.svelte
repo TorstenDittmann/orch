@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { ChevronRight, ScrollText } from '@lucide/svelte';
 	import Empty from '../components/Empty.svelte';
-	import Meter from '../components/Meter.svelte';
+	import UsageMeter from '../components/UsageMeter.svelte';
 	import Status from '../components/Status.svelte';
 	import UsageChart, { type Point } from '../components/UsageChart.svelte';
 	import { nodeActions } from '../lib/actions';
 	import { api } from '../lib/api';
-	import { ago, bytes, cores, datetime, label, ratio } from '../lib/format';
+	import { ago, bytes, cores, datetime, label } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live, openLogs } from '../lib/state.svelte';
 	import type { NodeUsage } from '../lib/types';
@@ -76,12 +76,12 @@
 
 		<div class="grid three">
 			<section class="panel pad">
-				<Meter value={ratio(node.assignedCpuMillis, node.allocatableCpuMillis)} label="CPU reserved" detail="{cores(node.assignedCpuMillis)} / {cores(node.allocatableCpuMillis)} cores" />
-				<p class="faint small">{cores(node.totalCpuMillis)} cores total</p>
+				<UsageMeter label="CPU" used={node.usage?.cpuUsedMillis} reserved={node.assignedCpuMillis} total={node.totalCpuMillis} format={cores} unit="cores" />
+				<p class="faint small">{cores(node.allocatableCpuMillis)} cores allocatable to workloads</p>
 			</section>
 			<section class="panel pad">
-				<Meter value={ratio(node.assignedMemoryBytes, node.allocatableMemoryBytes)} label="Memory reserved" detail="{bytes(node.assignedMemoryBytes)} / {bytes(node.allocatableMemoryBytes)}" />
-				<p class="faint small">{bytes(node.totalMemoryBytes)} total</p>
+				<UsageMeter label="Memory" used={node.usage?.memoryUsedBytes} reserved={node.assignedMemoryBytes} total={node.totalMemoryBytes} format={bytes} />
+				<p class="faint small">{bytes(node.allocatableMemoryBytes)} allocatable to workloads</p>
 			</section>
 			<section class="panel pad">
 				<div class="row between"><span class="muted small">Certificate</span><Status value={node.certificateState} /></div>

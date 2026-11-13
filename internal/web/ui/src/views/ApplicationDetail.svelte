@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { ArrowRight, ChevronRight, Copy, ExternalLink, GitCompare, History, RotateCcw, ScrollText } from '@lucide/svelte';
 	import { onDestroy } from 'svelte';
-	import DatabaseBackups from '../components/DatabaseBackups.svelte';
-	import Empty from '../components/Empty.svelte';
+		import Empty from '../components/Empty.svelte';
 	import Status from '../components/Status.svelte';
 	import { api } from '../lib/api';
-	import { ago, cores, datetime, label, pretty, short } from '../lib/format';
-	import { href } from '../lib/router.svelte';
+	import { ago, bytes, cores, datetime, detail, label, pretty, short, tone } from '../lib/format';
+	import { href, navigate } from '../lib/router.svelte';
 	import { ask, live, openLogs, toast } from '../lib/state.svelte';
 	import type { Application, Comparison, Deployment, JobRun } from '../lib/types';
 
@@ -73,12 +72,27 @@
 				};
 			});
 	});
-	let pickedDatabase = $state('');
-	// The backups panel follows the picked database, else the first one with backups.
-	const selectedDatabase = $derived(
-		databases.find((database) => database.name === pickedDatabase)?.name ?? (databases.find((database) => database.backup) ?? databases[0])?.name ?? ''
-	);
 	const engines = $derived(new Map(databases.map((database) => [database.name, database.engine])));
+	// One row per service with its replicas' combined live usage; each links
+	// to the service's own page.
+	const serviceRows = $derived(
+		services.map((service) => {
+			const replicas = allocations.filter((allocation) => allocation.service === service);
+			const reporting = replicas.filter((allocation) => app?.allocationCpuMillis?.[allocation.id] !== undefined);
+			const total = (values: Record<string, string> | undefined) => reporting.reduce((sum, allocation) => sum + Number(values?.[allocation.id] || 0), 0);
+			return {
+				name: service,
+				replicas: replicas.length,
+				ready: replicas.filter((allocation) => tone(allocation.healthStatus) === 'ok').length,
+				status: replicas.find((allocation) => tone(allocation.phase) === 'bad')?.phase ?? replicas.find((allocation) => tone(allocation.healthStatus) !== 'ok')?.healthStatus ?? replicas[0]?.healthStatus,
+				restarts: replicas.reduce((sum, allocation) => sum + allocation.restartCount, 0),
+				reporting: reporting.length > 0,
+				memoryReporting: replicas.some((allocation) => app?.allocationMemoryBytes?.[allocation.id] !== undefined),
+				cpu: total(app?.allocationCpuMillis),
+				memory: total(app?.allocationMemoryBytes)
+			};
+		})
+	);
 	const tabs = $derived([
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'replicas', label: 'Replicas', count: allocations.length },
@@ -168,7 +182,7 @@
 	{:else if !app}
 		<section class="panel"><Empty title="Loading…" /></section>
 	{:else}
-		{#if app.executionMessage}
+		{#if detail(app.executionMessage, app.executionStatus)}
 			<div class="notice">
 				<strong>{label(app.executionStatus)}</strong>
 				{#if app.executionReason}<span class="chip mono">{app.executionReason}</span>{/if}
@@ -186,8 +200,34 @@
 		</nav>
 
 		{#if tab === 'overview' || tab === 'replicas'}
+			{#if tab === 'overview' && serviceRows.length}
+				<section class="panel">
+					<div class="panel-head"><h2>Services</h2><span class="hint">Live use across each service's replicas · open one for its own view</span></div>
+					<div class="table-wrap">
+						<table class="data">
+							<thead>
+								<tr><th>Service</th><th>Status</th><th class="num">Ready</th><th class="num">CPU cores</th><th class="num">Memory</th><th class="num">Restarts</th><th></th></tr>
+							</thead>
+							<tbody>
+								{#each serviceRows as row (row.name)}
+									<tr class="clickable" onclick={() => navigate(href('apps', name, 'services', row.name))}>
+										<td class="primary-cell"><a href={href('apps', name, 'services', row.name)}>{row.name}</a>{#if engines.has(row.name)} <span class="chip">{engines.get(row.name)}</span>{/if}</td>
+										<td><Status value={row.status} /></td>
+										<td class="num">{row.ready}/{row.replicas}</td>
+										<td class="num mono">{row.reporting ? cores(row.cpu) : '—'}</td>
+										<td class="num mono">{row.memoryReporting ? bytes(row.memory) : '—'}</td>
+										<td class="num" class:warn={row.restarts > 0}>{row.restarts}</td>
+										<td><span class="btn sm ghost">Open <ChevronRight size={13} /></span></td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</section>
+			{/if}
+
 			{#if tab === 'overview'}
-				<div class="grid two">
+				<div class="grid two" class:spaced={serviceRows.length > 0}>
 					<section class="panel">
 						<div class="panel-head"><h2>Details</h2></div>
 						<dl class="kv panel-body">
@@ -263,7 +303,7 @@
 
 			{#if tab === 'overview' && databases.length}
 				<section class="panel spaced">
-					<div class="panel-head"><h2>Databases</h2><span class="hint">Services and cron jobs reach one with connect in orch.pkl · select one for its backups</span></div>
+					<div class="panel-head"><h2>Databases</h2><span class="hint">Services and cron jobs reach one with connect in orch.pkl · open one for its backups</span></div>
 					<div class="table-wrap">
 						<table class="data">
 							<thead>
@@ -271,8 +311,8 @@
 							</thead>
 							<tbody>
 								{#each databases as database (database.name)}
-									<tr class="clickable" class:selected={selectedDatabase === database.name} onclick={() => (pickedDatabase = database.name)}>
-										<td class="primary-cell">{database.name}</td>
+									<tr class="clickable" onclick={() => navigate(href('apps', name, 'services', database.name))}>
+										<td class="primary-cell"><a href={href('apps', name, 'services', database.name)}>{database.name}</a></td>
 										<td>{database.engine} <span class="faint">{database.version}</span></td>
 										<td>{#if database.replica}<Status value={database.replica.phase} />{:else}<span class="faint">unplaced</span>{/if}</td>
 										<td>{#if database.replica}<Status value={database.replica.healthStatus} />{/if}</td>
@@ -287,7 +327,6 @@
 						</table>
 					</div>
 				</section>
-				{#if selectedDatabase}<DatabaseBackups app={name} database={selectedDatabase} />{/if}
 			{/if}
 
 			<section class="panel spaced">
@@ -296,21 +335,22 @@
 					<div class="table-wrap">
 						<table class="data">
 							<thead>
-								<tr><th>Service</th><th>Replica</th><th>Phase</th><th>Health</th><th>Node</th><th>Address</th><th class="num">CPU cores</th><th class="num">Restarts</th><th>Ready</th><th>Message</th><th></th></tr>
+								<tr><th>Service</th><th>Replica</th><th>Phase</th><th>Health</th><th>Node</th><th>Address</th><th class="num">CPU cores</th><th class="num">Memory</th><th class="num">Restarts</th><th>Ready</th><th>Message</th><th></th></tr>
 							</thead>
 							<tbody>
 								{#each allocations as allocation (allocation.id || allocation.service + allocation.replica)}
 									<tr>
-										<td class="primary-cell">{allocation.service}{#if engines.has(allocation.service)} <span class="chip">{engines.get(allocation.service)}</span>{/if}</td>
+										<td class="primary-cell"><a href={href('apps', name, 'services', allocation.service)}>{allocation.service}</a>{#if engines.has(allocation.service)} <span class="chip">{engines.get(allocation.service)}</span>{/if}</td>
 										<td class="mono">#{allocation.replica}</td>
 										<td><Status value={allocation.phase} /></td>
 										<td><Status value={allocation.healthStatus} /></td>
 										<td>{#if allocation.nodeName}<a class="link" href={href('nodes', allocation.nodeName)}>{allocation.nodeName}</a>{:else}<span class="faint">unplaced</span>{/if}</td>
 										<td class="mono faint">{allocation.address || '—'}</td>
 										<td class="num faint">{app?.allocationCpuMillis?.[allocation.id] === undefined ? '—' : cores(app.allocationCpuMillis[allocation.id])}</td>
+										<td class="num faint">{app?.allocationMemoryBytes?.[allocation.id] === undefined ? '—' : bytes(app.allocationMemoryBytes[allocation.id])}</td>
 										<td class="num" class:warn={allocation.restartCount > 0}>{allocation.restartCount}</td>
 										<td class="faint">{ago(allocation.readyAt, live.now)}</td>
-										<td class="wrap">{allocation.message || allocation.reason || allocation.placementReason}</td>
+										<td class="wrap">{detail(allocation.message || allocation.reason || allocation.placementReason, allocation.phase, allocation.healthStatus)}</td>
 										<td>
 											<button class="btn sm" onclick={() => openLogs({ kind: 'service', app: name, service: allocation.service, replica: allocation.replica })}>
 												<ScrollText size={13} /> Logs

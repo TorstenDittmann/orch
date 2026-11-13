@@ -31,6 +31,8 @@ var mcpViews = []mcpView{
 	{"cluster", "Cluster status", "The cluster's server, network, certificates and controller backups."},
 	{"apps", "Applications", "Every application with its rollout status; select one to see its replicas and routes."},
 	{"app", "Application status", "An application's replicas, health, routes and cron jobs."},
+	{"nodes", "Nodes", "Every node with its CPU and memory in use and reserved; select one to see its usage over the last day."},
+	{"node", "Node usage", "A node's CPU, memory and disk use over the last 24 hours against what it reserves and can offer."},
 	{"deploy", "Deploy", "A deploy or rollback, followed live until the rollout is ready or fails."},
 }
 
@@ -57,6 +59,8 @@ func mcpUIResource(view mcpView) map[string]any {
 			"HealthStatus":    orchv1alpha1.HealthStatus_name,
 			"RouteState":      orchv1alpha1.RouteState_name,
 			"JobRunState":     orchv1alpha1.JobRunState_name,
+			"NodeLifecycle":   orchv1alpha1.NodeLifecycle_name,
+			"NodeConnection":  orchv1alpha1.NodeConnectionStatus_name,
 		},
 	})
 	return map[string]any{
@@ -116,11 +120,18 @@ func mcpClientSupportsUI(capabilities json.RawMessage) bool {
 }
 
 // mcpStructured returns a command's JSON output as structured content for a
-// view, or nil when the output is not a JSON object.
+// view, or nil when the output is not JSON. Structured content must be an
+// object, so a list (such as orch nodes) is wrapped as {"items": [...]}.
 func mcpStructured(stdout string) map[string]any {
-	var value map[string]any
+	var value any
 	if json.Unmarshal([]byte(stdout), &value) != nil {
 		return nil
 	}
-	return value
+	switch value := value.(type) {
+	case map[string]any:
+		return value
+	case []any:
+		return map[string]any{"items": value}
+	}
+	return nil
 }

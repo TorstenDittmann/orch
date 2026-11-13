@@ -15,7 +15,7 @@ import (
 
 func runNode(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: orch node doctor|install|upgrade, orch node update NODE...|--all, or orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE")
+		fmt.Fprintln(stderr, "usage: orch node doctor|install|upgrade, orch node update NODE...|--all, orch node usage NODE, or orch node label|unlabel|cordon|uncordon|drain|ingress|remove NODE --context FILE")
 		return ExitInvalid
 	}
 	if args[0] == "install" || args[0] == "doctor" {
@@ -26,6 +26,9 @@ func runNode(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "update" {
 		return runNodeUpdate(ctx, args[1:], stdout, stderr)
+	}
+	if args[0] == "usage" {
+		return runNodeUsage(ctx, args[1:], stdout, stderr)
 	}
 	if args[0] == "join" {
 		return runNodeJoin(ctx, args[1:], stdout, stderr)

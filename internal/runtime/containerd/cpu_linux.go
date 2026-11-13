@@ -12,8 +12,8 @@ import (
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
-// TaskCPU reads the cumulative CPU time of every owned task from its
-// cgroup in one containerd call.
+// TaskCPU reads the cumulative CPU time and the memory working set of every
+// owned task from its cgroup in one containerd call.
 func (c *runtimeClient) TaskCPU(ctx context.Context) ([]orchruntime.TaskCPU, error) {
 	containers, err := c.client.Containers(ctx)
 	if err != nil {
@@ -49,8 +49,22 @@ func (c *runtimeClient) TaskCPU(ctx context.Context) ([]orchruntime.TaskCPU, err
 		}
 		result = append(result, orchruntime.TaskCPU{
 			ObjectID: metric.GetID(), AllocationID: allocationID,
-			UsageMicros: cgroup.GetCPU().GetUsageUsec(), ObservedAt: metric.GetTimestamp().AsTime(),
+			UsageMicros: cgroup.GetCPU().GetUsageUsec(), MemoryBytes: workingSet(cgroup.GetMemory()),
+			ObservedAt: metric.GetTimestamp().AsTime(),
 		})
 	}
 	return result, nil
+}
+
+// workingSet is the cgroup's memory use without the inactive file cache the
+// kernel reclaims under pressure, the figure an out-of-memory kill compares.
+func workingSet(memory *stats.MemoryStat) uint64 {
+	if memory == nil {
+		return 0
+	}
+	usage, inactive := memory.GetUsage(), memory.GetInactiveFile()
+	if inactive >= usage {
+		return 0
+	}
+	return usage - inactive
 }

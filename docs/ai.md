@@ -84,6 +84,8 @@ the assistant reads:
 | `status` | The cluster's server, network, certificate expiry and backups |
 | `list_apps` | Every application and its rollout status; select one to open it |
 | `app_status` | Replicas with phase, health and restarts, routes and cron jobs |
+| `list_nodes` | Every node's CPU and memory in use against what its replicas reserve; select one to open its graphs |
+| `node_usage` | Graphs of a node's CPU, memory and disk over the last 24 hours, with its reserved and allocatable lines |
 | `deploy`, `rollback`, `wait_for_rollout` | The rollout, followed live until it is ready or fails |
 
 Views refresh through orch's own read-only tools, with the same target and
@@ -214,7 +216,7 @@ before running them, and they are only offered with `--allow-destructive`.
 | Area | Read-only | Changes the cluster |
 | --- | --- | --- |
 | Manifests | `schema`, `validate`, `plan`, `render` | |
-| Cluster | `targets`, `status`, `list_nodes`, `events` | `update_node`*, `label_node`, `unlabel_node` |
+| Cluster | `targets`, `status`, `list_nodes`, `node_usage`, `events` | `update_node`*, `label_node`, `unlabel_node` |
 | Applications | `list_apps`, `app_status`, `app_history`, `app_diff`, `wait_for_rollout`, `logs` | `deploy`, `rollback`, `restart`, `remove_app`*, `exec`* |
 | Jobs and cron | `list_jobs`, `job_status`, `job_logs`, `cron_runs`, `cron_logs` | `run_job`*, `cancel_job`*, `retry_job`, `run_cron` |
 | Secrets and registries | `list_secrets`, `list_registries` | `set_secret`*, `delete_secret`*, `registry_login`, `registry_logout`* |

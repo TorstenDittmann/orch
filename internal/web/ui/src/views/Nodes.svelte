@@ -2,10 +2,10 @@
 	import { EllipsisVertical } from '@lucide/svelte';
 	import Empty from '../components/Empty.svelte';
 	import Filter from '../components/Filter.svelte';
-	import Meter from '../components/Meter.svelte';
+	import UsageMeter from '../components/UsageMeter.svelte';
 	import Status from '../components/Status.svelte';
 	import { nodeActions } from '../lib/actions';
-	import { ago, bytes, cores, ratio } from '../lib/format';
+	import { ago, bytes, cores } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live } from '../lib/state.svelte';
 
@@ -56,16 +56,9 @@
 						{#if node.ingress}<span class="chip">ingress</span>{/if}
 					</div>
 					<div class="meters">
-						<Meter value={ratio(node.assignedCpuMillis, node.allocatableCpuMillis)} label="CPU reserved" detail="{cores(node.assignedCpuMillis)} / {cores(node.allocatableCpuMillis)} cores" />
-						<Meter value={ratio(node.assignedMemoryBytes, node.allocatableMemoryBytes)} label="Memory reserved" detail="{bytes(node.assignedMemoryBytes)} / {bytes(node.allocatableMemoryBytes)}" />
+						<UsageMeter label="CPU" used={node.usage?.cpuUsedMillis} reserved={node.assignedCpuMillis} total={node.totalCpuMillis} format={cores} unit="cores" />
+						<UsageMeter label="Memory" used={node.usage?.memoryUsedBytes} reserved={node.assignedMemoryBytes} total={node.totalMemoryBytes} format={bytes} />
 					</div>
-					{#if node.usage}
-						<div class="in-use">
-							<span class="faint">In use</span>
-							<span><strong>{cores(node.usage.cpuUsedMillis)}</strong> <span class="faint">/ {cores(node.totalCpuMillis)} cores</span></span>
-							<span><strong>{bytes(node.usage.memoryUsedBytes)}</strong> <span class="faint">/ {bytes(node.totalMemoryBytes)}</span></span>
-						</div>
-					{/if}
 					<dl class="facts">
 						<div><dt>Address</dt><dd class="mono">{node.advertiseAddress || '—'}</dd></div>
 						<div><dt>Platform</dt><dd>{node.operatingSystem || '?'}/{node.architecture || '?'}</dd></div>
@@ -120,19 +113,6 @@
 	.meters {
 		display: grid;
 		gap: 12px;
-	}
-	.in-use {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px 14px;
-		font-size: 12px;
-		color: var(--text-2);
-		margin-top: -4px;
-		font-variant-numeric: tabular-nums;
-	}
-	.in-use strong {
-		font-weight: 600;
-		color: var(--text);
 	}
 	.facts {
 		display: grid;
