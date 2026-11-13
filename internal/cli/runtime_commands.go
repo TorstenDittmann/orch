@@ -251,6 +251,9 @@ func runNodes(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return ExitRuntime
 	}
 	if jsonOutput {
+		if nodes == nil {
+			nodes = []*orchv1alpha1.Node{} // [] rather than null, so the MCP view shows its empty state
+		}
 		return writeJSON(stdout, stderr, nodes)
 	}
 	if len(nodes) == 0 {

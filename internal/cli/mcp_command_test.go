@@ -329,3 +329,15 @@ func TestMCPUIViews(t *testing.T) {
 		t.Fatalf("tool without a view returned structured content: %v", result)
 	}
 }
+
+func TestMCPStructuredWrapsLists(t *testing.T) {
+	if got := mcpStructured(`[{"name":"node-1"}]`); got == nil || got["items"].([]any)[0].(map[string]any)["name"] != "node-1" {
+		t.Fatalf("list = %v", got)
+	}
+	if got := mcpStructured(`[]`); got == nil || len(got["items"].([]any)) != 0 {
+		t.Fatalf("empty list = %v", got)
+	}
+	if mcpStructured(`null`) != nil || mcpStructured(`"text"`) != nil || mcpStructured(`not json`) != nil {
+		t.Fatal("non-object, non-list output became structured content")
+	}
+}
