@@ -67,9 +67,14 @@ export function pretty(json: string): string {
 	}
 }
 
-// detail returns a status message only when one of the statuses needs
-// attention. Healthy states explain themselves; their messages ("the desired
-// process passed its readiness gate") are noise.
+// detail returns a status message unless every status it describes is
+// settled and fine. Healthy states explain themselves; their messages ("the
+// desired process passed its readiness gate") are noise. Anything else, such
+// as a rollback or a stopped replica, keeps its explanation.
 export function detail(message: string | undefined | null, ...statuses: (string | undefined | null)[]): string {
-	return statuses.some((status) => ['bad', 'warn'].includes(tone(status))) ? message || '' : '';
+	const unsettled = statuses.some((status) => {
+		const text = label(status);
+		return !!text && text !== 'unspecified' && tone(status) !== 'ok';
+	});
+	return unsettled ? message || '' : '';
 }

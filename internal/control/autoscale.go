@@ -113,7 +113,8 @@ func (a *autoscaler) Record(allocationID string, millis, memory uint64, at time.
 
 // AllocationUsage returns an allocation's average CPU use over the window,
 // in millicores, its latest memory working set in bytes, and whether there
-// was any sample in the window.
+// was any sample in the window. Memory is 0 when the agent predates memory
+// reporting: a running task always has a working set.
 func (a *autoscaler) AllocationUsage(allocationID string) (millis, memory uint64, ok bool) {
 	if a == nil {
 		return 0, 0, false
@@ -548,7 +549,9 @@ func (s *service) decorateApplicationScaling(ctx context.Context, application mo
 				message.AllocationMemoryBytes = map[string]uint64{}
 			}
 			message.AllocationCpuMillis[allocation.ID] = millis
-			message.AllocationMemoryBytes[allocation.ID] = memory
+			if memory > 0 {
+				message.AllocationMemoryBytes[allocation.ID] = memory
+			}
 		}
 	}
 	var manifest config.Manifest

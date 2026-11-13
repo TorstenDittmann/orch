@@ -87,6 +87,7 @@
 				status: replicas.find((allocation) => tone(allocation.phase) === 'bad')?.phase ?? replicas.find((allocation) => tone(allocation.healthStatus) !== 'ok')?.healthStatus ?? replicas[0]?.healthStatus,
 				restarts: replicas.reduce((sum, allocation) => sum + allocation.restartCount, 0),
 				reporting: reporting.length > 0,
+				memoryReporting: replicas.some((allocation) => app?.allocationMemoryBytes?.[allocation.id] !== undefined),
 				cpu: total(app?.allocationCpuMillis),
 				memory: total(app?.allocationMemoryBytes)
 			};
@@ -214,7 +215,7 @@
 										<td><Status value={row.status} /></td>
 										<td class="num">{row.ready}/{row.replicas}</td>
 										<td class="num mono">{row.reporting ? cores(row.cpu) : '—'}</td>
-										<td class="num mono">{row.reporting ? bytes(row.memory) : '—'}</td>
+										<td class="num mono">{row.memoryReporting ? bytes(row.memory) : '—'}</td>
 										<td class="num" class:warn={row.restarts > 0}>{row.restarts}</td>
 										<td><span class="btn sm ghost">Open <ChevronRight size={13} /></span></td>
 									</tr>

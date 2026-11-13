@@ -113,7 +113,7 @@
 									<td>{#if !isRun(runtime)}<Status value={runtime.healthStatus} />{/if}</td>
 									{#if group !== 'node'}<td>{runtime.nodeName || '—'}</td>{/if}
 									<td class="num mono">{#if runtime.hasUsage}{cores(runtime.cpuUsedMillis)}{:else}<span class="faint">—</span>{/if} <span class="faint">/ {cores(runtime.cpuMillis)}</span></td>
-									<td class="num mono">{#if runtime.hasUsage}{bytes(runtime.memoryUsedBytes)}{:else}<span class="faint">—</span>{/if} <span class="faint">/ {bytes(runtime.memoryBytes)}</span></td>
+									<td class="num mono">{#if runtime.hasUsage && Number(runtime.memoryUsedBytes || 0) > 0}{bytes(runtime.memoryUsedBytes)}{:else}<span class="faint">—</span>{/if} <span class="faint">/ {bytes(runtime.memoryBytes)}</span></td>
 									<td class="num">{runtime.restartCount}</td>
 									<td class="faint">{ago(runtime.startedAt, live.now)}</td>
 									<td class="wrap">{detail(runtime.message || runtime.reason, isRun(runtime) ? runtime.jobRunState : runtime.allocationPhase, isRun(runtime) ? '' : runtime.healthStatus)}{runtime.hasExitCode && tone(isRun(runtime) ? runtime.jobRunState : runtime.allocationPhase) === 'bad' ? ` (exit ${runtime.exitCode})` : ''}</td>

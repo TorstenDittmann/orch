@@ -88,7 +88,10 @@
 	const restarts = $derived(replicas.reduce((total, allocation) => total + allocation.restartCount, 0));
 	const reporting = $derived(rows.filter((row) => row.cpu !== undefined));
 	const cpuUsed = $derived(reporting.reduce((total, row) => total + Number(row.cpu || 0), 0));
-	const memoryUsed = $derived(reporting.reduce((total, row) => total + Number(row.memory || 0), 0));
+	// Agents older than memory reporting send CPU only.
+	const memoryReporting = $derived(rows.filter((row) => row.memory !== undefined));
+	const memoryUsed = $derived(memoryReporting.reduce((total, row) => total + Number(row.memory || 0), 0));
+	const memoryRequestedReporting = $derived(memoryReporting.reduce((total, row) => total + row.memoryRequest, 0));
 	const cpuRequested = $derived(rows.reduce((total, row) => total + row.cpuRequest, 0));
 	const memoryRequested = $derived(rows.reduce((total, row) => total + row.memoryRequest, 0));
 	const scale = $derived(app?.autoscale?.find((item) => item.service === service));
@@ -174,8 +177,8 @@
 			/>
 			<Stat
 				label="Memory in use"
-				value={reporting.length ? bytes(memoryUsed) : '—'}
-				detail={reporting.length ? `${Math.round(ratio(memoryUsed, memoryRequested) * 100)}% of ${bytes(memoryRequested)} requested` : 'waiting for the first report'}
+				value={memoryReporting.length ? bytes(memoryUsed) : '—'}
+				detail={memoryReporting.length ? `${Math.round(ratio(memoryUsed, memoryRequestedReporting) * 100)}% of ${bytes(memoryRequestedReporting)} requested` : `waiting for a report · ${bytes(memoryRequested)} requested`}
 				icon={MemoryStick}
 			/>
 			<Stat label="Restarts" value={restarts} detail="across all replicas" icon={RotateCcw} />

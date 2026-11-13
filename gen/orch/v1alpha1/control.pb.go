@@ -381,7 +381,7 @@ type Application struct {
 	// millicores, keyed by allocation id.
 	AllocationCpuMillis map[string]uint64 `protobuf:"bytes,22,rep,name=allocation_cpu_millis,json=allocationCpuMillis,proto3" json:"allocation_cpu_millis,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	// Each reporting allocation's latest memory working set, in bytes, keyed by
-	// allocation id.
+	// allocation id. Allocations on agents that do not report memory are absent.
 	AllocationMemoryBytes map[string]uint64 `protobuf:"bytes,23,rep,name=allocation_memory_bytes,json=allocationMemoryBytes,proto3" json:"allocation_memory_bytes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
@@ -1772,7 +1772,8 @@ type RuntimeSummary struct {
 	UpdatedAt             *timestamppb.Timestamp `protobuf:"bytes,29,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// Live usage of a running service replica: average CPU over the last
 	// minute and the latest memory working set. cpu_millis and memory_bytes
-	// above are what the replica requested. Unset when it has not reported.
+	// above are what the replica requested. has_usage is unset when it has not
+	// reported; memory_used_bytes stays 0 when its agent does not report memory.
 	HasUsage        bool   `protobuf:"varint,30,opt,name=has_usage,json=hasUsage,proto3" json:"has_usage,omitempty"`
 	CpuUsedMillis   uint64 `protobuf:"varint,31,opt,name=cpu_used_millis,json=cpuUsedMillis,proto3" json:"cpu_used_millis,omitempty"`
 	MemoryUsedBytes uint64 `protobuf:"varint,32,opt,name=memory_used_bytes,json=memoryUsedBytes,proto3" json:"memory_used_bytes,omitempty"`

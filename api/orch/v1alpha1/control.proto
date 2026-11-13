@@ -139,7 +139,7 @@ message Application {
   // millicores, keyed by allocation id.
   map<string, uint64> allocation_cpu_millis = 22;
   // Each reporting allocation's latest memory working set, in bytes, keyed by
-  // allocation id.
+  // allocation id. Allocations on agents that do not report memory are absent.
   map<string, uint64> allocation_memory_bytes = 23;
 }
 
@@ -321,7 +321,8 @@ message RuntimeSummary {
   google.protobuf.Timestamp updated_at = 29;
   // Live usage of a running service replica: average CPU over the last
   // minute and the latest memory working set. cpu_millis and memory_bytes
-  // above are what the replica requested. Unset when it has not reported.
+  // above are what the replica requested. has_usage is unset when it has not
+  // reported; memory_used_bytes stays 0 when its agent does not report memory.
   bool has_usage = 30;
   uint64 cpu_used_millis = 31;
   uint64 memory_used_bytes = 32;
