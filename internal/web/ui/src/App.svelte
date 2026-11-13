@@ -15,6 +15,7 @@
 	import Nodes from './views/Nodes.svelte';
 	import Overview from './views/Overview.svelte';
 	import Runtimes from './views/Runtimes.svelte';
+	import ServiceDetail from './views/ServiceDetail.svelte';
 
 	refresh();
 
@@ -68,6 +69,8 @@
 					<div class="spinner" aria-label="Loading"></div>
 				{/if}
 			</div>
+		{:else if parts[0] === 'apps' && parts[1] && parts[2] === 'services' && parts[3]}
+			{#key `${parts[1]}/${parts[3]}`}<ServiceDetail app={parts[1]} service={parts[3]} />{/key}
 		{:else if parts[0] === 'apps' && parts[1]}
 			{#key parts[1]}<ApplicationDetail name={parts[1]} tab={parts[2] ?? 'overview'} />{/key}
 		{:else if parts[0] === 'apps'}

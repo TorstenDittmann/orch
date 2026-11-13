@@ -4,7 +4,7 @@
 	import Filter from '../components/Filter.svelte';
 	import Segmented from '../components/Segmented.svelte';
 	import Status from '../components/Status.svelte';
-	import { ago, bytes, cores, label } from '../lib/format';
+	import { ago, bytes, cores, detail, label, tone } from '../lib/format';
 	import { href } from '../lib/router.svelte';
 	import { live, openLogs } from '../lib/state.svelte';
 	import type { Runtime } from '../lib/types';
@@ -45,7 +45,7 @@
 	<div class="page-head">
 		<div>
 			<h1>Runtimes</h1>
-			<p>Every Orch-managed service replica and retained cron run. Select one to stream its logs.</p>
+			<p>Every Orch-managed service replica and retained cron run, with what each actually uses against what it requested. Select one to stream its logs.</p>
 		</div>
 	</div>
 
@@ -97,7 +97,7 @@
 								{#if group !== 'application'}<th>Application</th>{/if}
 								<th>Resource</th><th>Kind</th><th>State</th><th>Health</th>
 								{#if group !== 'node'}<th>Node</th>{/if}
-								<th class="num">CPU</th><th class="num">Memory</th><th class="num">Restarts</th><th>Started</th><th>Message</th><th></th>
+								<th class="num" title="Average over the last minute / requested">CPU used</th><th class="num" title="Working set / requested">Memory used</th><th class="num">Restarts</th><th>Started</th><th>Message</th><th></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -105,18 +105,18 @@
 								<tr class="clickable" onclick={() => logs(runtime)}>
 									{#if group !== 'application'}<td>{runtime.application}</td>{/if}
 									<td class="primary-cell">
-										{runtime.resource}
+										{#if isRun(runtime)}{runtime.resource}{:else}<a href={href('apps', runtime.application, 'services', runtime.resource)} onclick={(event) => event.stopPropagation()}>{runtime.resource}</a>{/if}
 										<span class="faint mono">{isRun(runtime) ? runtime.runId.slice(0, 8) : `#${runtime.replica}`}</span>
 									</td>
 									<td><span class="chip">{isRun(runtime) ? 'cron run' : 'service'}</span></td>
 									<td><Status value={isRun(runtime) ? runtime.jobRunState : runtime.allocationPhase} /></td>
 									<td>{#if !isRun(runtime)}<Status value={runtime.healthStatus} />{/if}</td>
 									{#if group !== 'node'}<td>{runtime.nodeName || '—'}</td>{/if}
-									<td class="num mono">{cores(runtime.cpuMillis)}</td>
-									<td class="num mono">{bytes(runtime.memoryBytes)}</td>
+									<td class="num mono">{#if runtime.hasUsage}{cores(runtime.cpuUsedMillis)}{:else}<span class="faint">—</span>{/if} <span class="faint">/ {cores(runtime.cpuMillis)}</span></td>
+									<td class="num mono">{#if runtime.hasUsage && Number(runtime.memoryUsedBytes || 0) > 0}{bytes(runtime.memoryUsedBytes)}{:else}<span class="faint">—</span>{/if} <span class="faint">/ {bytes(runtime.memoryBytes)}</span></td>
 									<td class="num">{runtime.restartCount}</td>
 									<td class="faint">{ago(runtime.startedAt, live.now)}</td>
-									<td class="wrap">{runtime.message || runtime.reason}{runtime.hasExitCode ? ` (exit ${runtime.exitCode})` : ''}</td>
+									<td class="wrap">{detail(runtime.message || runtime.reason, isRun(runtime) ? runtime.jobRunState : runtime.allocationPhase, isRun(runtime) ? '' : runtime.healthStatus)}{runtime.hasExitCode && tone(isRun(runtime) ? runtime.jobRunState : runtime.allocationPhase) === 'bad' ? ` (exit ${runtime.exitCode})` : ''}</td>
 									<td><span class="btn sm ghost"><ScrollText size={13} /> Logs</span></td>
 								</tr>
 							{/each}

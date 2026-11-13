@@ -90,7 +90,9 @@ func newAllocationSampler(runtime orchruntime.Runtime) *allocationSampler {
 }
 
 // Sample returns the CPU each allocation used since the previous call, in
-// millicores, summed over its tasks. Tasks seen for the first time have none.
+// millicores, and its current memory working set, each summed over its
+// tasks. Allocations whose tasks were all seen for the first time have no
+// CPU reading yet and are left out until the next call.
 func (a *allocationSampler) Sample(ctx context.Context) []*orchv1alpha1.AllocationResourceUsage {
 	if a == nil {
 		return nil
@@ -105,8 +107,12 @@ func (a *allocationSampler) Sample(ctx context.Context) []*orchv1alpha1.Allocati
 	}
 	current := make(map[string]orchruntime.TaskCPU, len(readings))
 	used := make(map[string]uint64)
+	memory := make(map[string]uint64)
 	for _, reading := range readings {
 		current[reading.ObjectID] = reading
+		if reading.AllocationID != "" {
+			memory[reading.AllocationID] += reading.MemoryBytes
+		}
 		previous, ok := a.previous[reading.ObjectID]
 		if !ok || reading.AllocationID == "" || reading.UsageMicros < previous.UsageMicros {
 			continue
@@ -120,7 +126,7 @@ func (a *allocationSampler) Sample(ctx context.Context) []*orchv1alpha1.Allocati
 	a.previous = current
 	usage := make([]*orchv1alpha1.AllocationResourceUsage, 0, len(used))
 	for allocationID, millis := range used {
-		usage = append(usage, &orchv1alpha1.AllocationResourceUsage{AllocationId: allocationID, CpuUsedMillis: millis})
+		usage = append(usage, &orchv1alpha1.AllocationResourceUsage{AllocationId: allocationID, CpuUsedMillis: millis, MemoryUsedBytes: memory[allocationID]})
 	}
 	sort.Slice(usage, func(i, j int) bool { return usage[i].GetAllocationId() < usage[j].GetAllocationId() })
 	return usage

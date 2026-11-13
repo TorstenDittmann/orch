@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppWindow, Boxes, Cpu, MemoryStick, Server } from '@lucide/svelte';
-	import Meter from '../components/Meter.svelte';
+	import UsageMeter from '../components/UsageMeter.svelte';
 	import Stat from '../components/Stat.svelte';
 	import Status from '../components/Status.svelte';
 	import { ago, bytes, cores, label, ratio, tone } from '../lib/format';
@@ -44,12 +44,13 @@
 	const failedJob = (runtime: Runtime) =>
 		tone(runtime.jobRunState) === 'bad' && latestRuns.has(runtime.id) && !oneOff(runtime) && !stoppedReasons.includes(runtime.reason);
 
-	const sum = (key: 'assignedCpuMillis' | 'allocatableCpuMillis' | 'assignedMemoryBytes' | 'allocatableMemoryBytes') =>
-		nodes.reduce((total, node) => total + Number(node[key] || 0), 0);
-	const cpuUsed = $derived(sum('assignedCpuMillis'));
-	const cpuTotal = $derived(sum('allocatableCpuMillis'));
-	const memUsed = $derived(sum('assignedMemoryBytes'));
-	const memTotal = $derived(sum('allocatableMemoryBytes'));
+	const sum = (value: (node: (typeof nodes)[number]) => string | undefined) => nodes.reduce((total, node) => total + Number(value(node) || 0), 0);
+	const cpuInUse = $derived(sum((node) => node.usage?.cpuUsedMillis));
+	const cpuReserved = $derived(sum((node) => node.assignedCpuMillis));
+	const cpuTotal = $derived(sum((node) => node.totalCpuMillis));
+	const memInUse = $derived(sum((node) => node.usage?.memoryUsedBytes));
+	const memReserved = $derived(sum((node) => node.assignedMemoryBytes));
+	const memTotal = $derived(sum((node) => node.totalMemoryBytes));
 
 	const problems = $derived([
 		...(backup?.enabled && (backup.failure || backupStale)
@@ -64,7 +65,7 @@
 		...runtimes
 			.filter((runtime) => (label(runtime.kind) === 'cron run' ? failedJob(runtime) : tone(runtime.healthStatus) === 'bad' || tone(runtime.allocationPhase) === 'bad'))
 			.slice(0, 8)
-			.map((runtime) => ({ key: `r${runtime.id}`, href: href('apps', runtime.application), title: `${runtime.application} / ${runtime.resource}`, kind: 'Runtime', status: runtime.jobRunState !== 'JOB_RUN_STATE_UNSPECIFIED' && runtime.jobRunState ? runtime.jobRunState : runtime.healthStatus, detail: runtime.message || runtime.reason }))
+			.map((runtime) => ({ key: `r${runtime.id}`, href: label(runtime.kind) === 'cron run' ? href('apps', runtime.application, 'cron') : href('apps', runtime.application, 'services', runtime.resource), title: `${runtime.application} / ${runtime.resource}`, kind: 'Runtime', status: runtime.jobRunState !== 'JOB_RUN_STATE_UNSPECIFIED' && runtime.jobRunState ? runtime.jobRunState : runtime.healthStatus, detail: runtime.message || runtime.reason }))
 	]);
 </script>
 
@@ -89,8 +90,8 @@
 		<Stat label="Applications" value="{runningApps}/{apps.length}" detail="running" icon={AppWindow} href="#/apps" />
 		<Stat label="Nodes" value="{connected}/{nodes.length}" detail="connected" icon={Server} href="#/nodes" />
 		<Stat label="Replicas" value="{healthy}/{services.length}" detail="healthy" icon={Boxes} href="#/runtimes" />
-		<Stat label="CPU reserved" value="{Math.round(ratio(cpuUsed, cpuTotal) * 100)}%" detail="{cores(cpuUsed)} of {cores(cpuTotal)} cores" icon={Cpu} />
-		<Stat label="Memory reserved" value="{Math.round(ratio(memUsed, memTotal) * 100)}%" detail="{bytes(memUsed)} of {bytes(memTotal)}" icon={MemoryStick} />
+		<Stat label="CPU in use" value="{Math.round(ratio(cpuInUse, cpuTotal) * 100)}%" detail="{cores(cpuInUse)} of {cores(cpuTotal)} cores · {cores(cpuReserved)} reserved" icon={Cpu} />
+		<Stat label="Memory in use" value="{Math.round(ratio(memInUse, memTotal) * 100)}%" detail="{bytes(memInUse)} of {bytes(memTotal)} · {bytes(memReserved)} reserved" icon={MemoryStick} />
 	</div>
 
 	<div class="grid columns">
@@ -165,8 +166,8 @@
 									<Status value={node.connectionStatus} />
 								</div>
 								<div class="meters">
-									<Meter value={ratio(node.assignedCpuMillis, node.allocatableCpuMillis)} label="CPU" detail="{cores(node.assignedCpuMillis)}/{cores(node.allocatableCpuMillis)}" />
-									<Meter value={ratio(node.assignedMemoryBytes, node.allocatableMemoryBytes)} label="Memory" detail="{bytes(node.assignedMemoryBytes)}/{bytes(node.allocatableMemoryBytes)}" />
+									<UsageMeter label="CPU" used={node.usage?.cpuUsedMillis} reserved={node.assignedCpuMillis} total={node.totalCpuMillis} format={cores} unit="cores" />
+									<UsageMeter label="Memory" used={node.usage?.memoryUsedBytes} reserved={node.assignedMemoryBytes} total={node.totalMemoryBytes} format={bytes} />
 								</div>
 							</a>
 						</li>

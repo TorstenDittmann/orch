@@ -27,8 +27,9 @@ health and controller backups, applications with replicas, HTTP and TCP routes,
 UDP and TCP node ports, cron runs, deployment history (including automatic image
 updates), diffs and rollback, runtimes, nodes with usage, agent version,
 certificate and cordon, drain and ingress controls, one-off jobs with cancel and
-retry, events, and live logs. `orch web` also lists each database's backups and
-can take and restore them. The TUI is keyboard-driven; press `?` for its
+retry, events, and live logs. `orch web` also gives each service and database
+its own page with live CPU and memory use against its requests, and lists each
+database's backups and can take and restore them. The TUI is keyboard-driven; press `?` for its
 keys. In the browser dashboard, press `⌘K` or `/` to jump anywhere.
 
 The dashboard is served from the `orch` binary on a loopback address. It prints

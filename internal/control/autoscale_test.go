@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	orchv1alpha1 "github.com/TorstenDittmann/orch/gen/orch/v1alpha1"
 	"github.com/TorstenDittmann/orch/internal/config"
 	"github.com/TorstenDittmann/orch/internal/ingress"
 	"github.com/TorstenDittmann/orch/internal/model"
@@ -129,7 +130,7 @@ func TestAutoscalerScalesUpAndWaitsBeforeScalingDown(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, allocation := range assignment.Allocations {
-			scaler.Record(allocation.ID, millis, now)
+			scaler.Record(allocation.ID, millis, 0, now)
 		}
 		if err := scaler.evaluate(ctx); err != nil {
 			t.Fatal(err)
@@ -190,5 +191,25 @@ func TestAutoscalerScalesUpAndWaitsBeforeScalingDown(t *testing.T) {
 	}
 	if got := replicas(); got != 2 {
 		t.Fatalf("replicas after the scale-down delay = %d, want 2", got)
+	}
+}
+
+func TestApplicationUsageLeavesOutUnreportedMemory(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	scaler := newAutoscaler(nil, nil, nil, func() time.Time { return now })
+	// An agent that predates memory reporting sends 0.
+	scaler.Record("old", 250, 0, now)
+	scaler.Record("new", 400, 64<<20, now)
+	application := model.Application{Execution: model.ApplicationExecution{Allocations: []model.AllocationStatus{{ID: "old"}, {ID: "new"}, {ID: "silent"}}}}
+	message := &orchv1alpha1.Application{}
+	if err := (&service{autoscaler: scaler}).decorateApplicationScaling(context.Background(), application, message); err != nil {
+		t.Fatal(err)
+	}
+	if got := message.GetAllocationCpuMillis(); len(got) != 2 || got["old"] != 250 || got["new"] != 400 {
+		t.Fatalf("cpu = %v", got)
+	}
+	if got := message.GetAllocationMemoryBytes(); len(got) != 1 || got["new"] != 64<<20 {
+		t.Fatalf("memory = %v, want only the reporting allocation", got)
 	}
 }
