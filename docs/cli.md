@@ -939,6 +939,16 @@ token must be reachable from where the token is used.
 
 ## Nodes
 
+### orch node usage
+
+```text
+orch node usage NODE [--target NAME] [--json]
+```
+
+Shows a node's CPU, memory and disk use over the last 24 hours (in 5-minute
+buckets) next to what its replicas reserve and what it can offer. `--json`
+prints the node and its samples, which `orch mcp` draws as graphs.
+
 ### orch node label and unlabel
 
 ```text

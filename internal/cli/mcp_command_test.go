@@ -183,6 +183,8 @@ func TestMCPToolsBuildCommandLines(t *testing.T) {
 			[]string{"secret", "set", "--from-stdin", "shop", "api-token", "--json", "--target", "production"}, "s3cret"},
 		{"update_node", map[string]any{"node": "worker-1", "action": "drain"},
 			[]string{"node", "drain", "worker-1", "--json", "--target", "production"}, ""},
+		{"node_usage", map[string]any{"node": "worker-1"},
+			[]string{"node", "usage", "worker-1", "--json", "--target", "production"}, ""},
 		{"schema", map[string]any{}, []string{"schema"}, ""},
 	}
 	for _, test := range cases {
@@ -297,7 +299,7 @@ func TestMCPUIViews(t *testing.T) {
 		}
 	}
 	want := map[string]string{"status": "ui://orch/cluster", "list_apps": "ui://orch/apps", "app_status": "ui://orch/app",
-		"deploy": "ui://orch/deploy", "rollback": "ui://orch/deploy", "wait_for_rollout": "ui://orch/deploy"}
+		"list_nodes": "ui://orch/nodes", "node_usage": "ui://orch/node", "deploy": "ui://orch/deploy", "rollback": "ui://orch/deploy", "wait_for_rollout": "ui://orch/deploy"}
 	if !reflect.DeepEqual(views, want) {
 		t.Fatalf("views = %v", views)
 	}
@@ -323,7 +325,19 @@ func TestMCPUIViews(t *testing.T) {
 	if !ok || structured["applications"].([]any)[0].(map[string]any)["name"] != "shop" {
 		t.Fatalf("list_apps result = %v", result)
 	}
-	if result := session.request("tools/call", map[string]any{"name": "list_nodes", "arguments": map[string]any{}})["result"].(map[string]any); result["structuredContent"] != nil {
+	if result := session.request("tools/call", map[string]any{"name": "events", "arguments": map[string]any{}})["result"].(map[string]any); result["structuredContent"] != nil {
 		t.Fatalf("tool without a view returned structured content: %v", result)
+	}
+}
+
+func TestMCPStructuredWrapsLists(t *testing.T) {
+	if got := mcpStructured(`[{"name":"node-1"}]`); got == nil || got["items"].([]any)[0].(map[string]any)["name"] != "node-1" {
+		t.Fatalf("list = %v", got)
+	}
+	if got := mcpStructured(`[]`); got == nil || len(got["items"].([]any)) != 0 {
+		t.Fatalf("empty list = %v", got)
+	}
+	if mcpStructured(`null`) != nil || mcpStructured(`"text"`) != nil || mcpStructured(`not json`) != nil {
+		t.Fatal("non-object, non-list output became structured content")
 	}
 }

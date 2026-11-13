@@ -57,6 +57,18 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg2); }
 pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.5 var(--mono); }
 a { color: var(--info); text-decoration: none; cursor: pointer; } a:hover { text-decoration: underline; }
 .scroll { overflow-x: auto; }
+.meter { position: relative; height: 6px; min-width: 90px; border-radius: 3px; background: var(--bg2); margin-top: 4px; overflow: hidden; }
+.meter > .used { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--info); }
+.meter > .reserved { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); }
+.chart { margin: 4px 0 6px; }
+.chart svg { display: block; width: 100%; height: 120px; overflow: visible; }
+.chart .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.chart .readout { font-size: 12px; color: var(--fg2); min-height: 18px; }
+.chart .readout strong { color: var(--fg); font-weight: 500; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--fg2); margin-top: 2px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 0; border-top: 2px solid var(--info); vertical-align: middle; margin-right: 5px; }
+.legend span.reserved::before { border-top: 2px dashed var(--fg2); }
+.legend span.limit::before { border-top: 1px solid var(--fg2); }
 </style>
 </head>
 <body>
@@ -139,13 +151,13 @@ function render(...nodes) { fill(root, ...nodes); }
 // Enums arrive as numbers (or names); show them as short lowercase words.
 function enumName(kind, value) {
   const name = typeof value === "string" ? value : (enums[kind] || {})[value || 0] || "";
-  return name.replace(/^(EXECUTION_STATUS|ALLOCATION_PHASE|HEALTH_STATUS|ROUTE_STATE|JOB_RUN_STATE)_/, "").toLowerCase().replace(/_/g, " ");
+  return name.replace(/^(EXECUTION_STATUS|ALLOCATION_PHASE|HEALTH_STATUS|ROUTE_STATE|JOB_RUN_STATE|NODE_LIFECYCLE|NODE_CONNECTION_STATUS)_/, "").toLowerCase().replace(/_/g, " ");
 }
 function tone(word) {
-  if (/^(healthy|running|ready|active|succeeded|valid|issued)$/.test(word)) return "ok";
-  if (/^(pending|starting|pulling|checking|waiting)$/.test(word)) return "info";
-  if (/^(degraded|backoff|blocked|stopping|skipped)$/.test(word)) return "warn";
-  if (/^(failed|unhealthy|timed out|rolled back|canceled)$/.test(word)) return "bad";
+  if (/^(healthy|running|ready|active|succeeded|valid|issued|connected)$/.test(word)) return "ok";
+  if (/^(pending|starting|pulling|checking|waiting|enrolled)$/.test(word)) return "info";
+  if (/^(degraded|backoff|blocked|stopping|skipped|cordoned|draining)$/.test(word)) return "warn";
+  if (/^(failed|unhealthy|timed out|rolled back|canceled|disconnected|unreachable)$/.test(word)) return "bad";
   return "muted";
 }
 function badge(word) { return word && word !== "unspecified" ? h("span", { class: "badge " + tone(word) }, word) : h("span", { class: "muted" }, "–"); }
@@ -369,6 +381,154 @@ function rollout(app, generation, revision) {
   return { word: status === "unspecified" ? "pending" : status, detail: app.execution_reason, done: false };
 }
 
+// Node usage. CPU is in millicores and memory in bytes, as orch reports them.
+
+function cores(millis) { return (Number(millis || 0) / 1000).toFixed(2).replace(/\.?0+$/, "") || "0"; }
+function bytes(value) {
+  value = Number(value || 0);
+  const units = [["Ti", 2 ** 40], ["Gi", 2 ** 30], ["Mi", 2 ** 20], ["Ki", 2 ** 10]];
+  for (const [unit, size] of units) if (value >= size) return (value / size).toFixed(value >= 10 * size ? 0 : 1).replace(/\.0$/, "") + unit;
+  return value + "B";
+}
+// resources lists what the views draw per node: what is used now, what the
+// node's replicas reserve, and what it can offer to them.
+function resources(node) {
+  const usage = node.usage || {};
+  return [
+    { label: "CPU", key: "cpu_used_millis", now: usage.cpu_used_millis, reserved: node.assigned_cpu_millis, limit: node.allocatable_cpu_millis || node.total_cpu_millis, total: node.total_cpu_millis, format: (v) => cores(v) + " cores" },
+    { label: "Memory", key: "memory_used_bytes", now: usage.memory_used_bytes, reserved: node.assigned_memory_bytes, limit: node.allocatable_memory_bytes || node.total_memory_bytes, total: node.total_memory_bytes, format: bytes },
+  ];
+}
+function nodeState(node) {
+  const lifecycle = enumName("NodeLifecycle", node.lifecycle);
+  const connection = enumName("NodeConnection", node.connection_status);
+  return h("span", {}, badge(connection), lifecycle && lifecycle !== "active" && lifecycle !== "unspecified" ? h("span", {}, " ", badge(lifecycle)) : null);
+}
+function meter(resource) {
+  const scale = Math.max(Number(resource.limit || 0), Number(resource.now || 0), Number(resource.reserved || 0), 1);
+  const percent = (value) => Math.min(100, (Number(value || 0) / scale) * 100) + "%";
+  const known = resource.now != null;
+  return h("div", {},
+    h("div", {}, known ? resource.format(resource.now) : h("span", { class: "muted" }, "–"), h("span", { class: "muted" }, " of " + resource.format(resource.limit))),
+    h("div", { class: "meter", title: "used " + (known ? resource.format(resource.now) : "unknown") + ", reserved " + resource.format(resource.reserved) + ", allocatable " + resource.format(resource.limit) },
+      known ? h("div", { class: "used", style: "width:" + percent(resource.now) }) : null,
+      resource.reserved ? h("div", { class: "reserved", style: "left:calc(" + percent(resource.reserved) + " - 1px)" }) : null),
+    h("div", { class: "note" }, resource.format(resource.reserved) + " reserved"));
+}
+
+function nodesView(data) {
+  const nodes = (data.items || data.nodes || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const top = header("Nodes", nodes.length + (nodes.length === 1 ? " node" : " nodes"), () => refreshWith("list_nodes", {}, nodesView));
+  if (nodes.length === 0) return [top, h("p", { class: "sub" }, "No node has joined yet.")];
+  return [top, h("div", { class: "scroll" }, h("table", {},
+    h("tr", {}, h("th", {}, "Name"), h("th", {}, "State"), h("th", {}, "CPU"), h("th", {}, "Memory")),
+    nodes.map((node) => h("tr", { class: "click", title: "Show " + node.name + " over the last day", onclick: () => openNode(node.name, data) },
+      h("td", {}, h("strong", {}, node.name), h("div", { class: "note" }, [node.ingress ? "ingress" : null, node.controller_host ? "controller" : null, node.architecture].filter(Boolean).join(" · "))),
+      h("td", {}, nodeState(node)),
+      resources(node).map((resource) => h("td", {}, meter(resource)))))),
+  ), h("div", { class: "legend" }, h("span", {}, "used now"), h("span", { class: "reserved" }, "reserved by replicas"))];
+}
+
+async function openNode(name, list) {
+  render(header(name), h("p", { class: "sub" }, "Loading…"));
+  const result = await callTool("node_usage", { node: name });
+  const back = h("button", { onclick: () => render(...nodesView(list)) }, "← All nodes");
+  if (!result.data) return render(back, ...failure(name, result.text));
+  render(back, ...nodeView(result.data));
+}
+
+function nodeView(data) {
+  const node = data.node || {};
+  const samples = data.samples || [];
+  const step = Number(data.step_seconds || 300) * 1000;
+  const items = resources(node);
+  const diskTotal = Math.max(0, ...samples.map((s) => Number(s.disk_total_bytes || 0)), Number((node.usage || {}).disk_total_bytes || 0));
+  if (diskTotal) items.push({ label: "Disk", key: "disk_used_bytes", now: (node.usage || {}).disk_used_bytes, limit: diskTotal, total: diskTotal, format: bytes });
+  const nodes = [
+    header(node.name || "Node", "last 24 hours", () => refreshWith("node_usage", { node: node.name }, nodeView)),
+    h("div", { class: "grid" }, h("div", {}, "State"), h("div", {}, nodeState(node)),
+      h("div", {}, "Reported"), h("div", {}, node.usage ? ago(node.usage.observed_at) : h("span", { class: "muted" }, "not yet"))),
+  ];
+  if (samples.length === 0) nodes.push(h("p", { class: "sub" }, "No usage reported in the last 24 hours."));
+  for (const item of items) {
+    nodes.push(h("h2", {}, item.label), usageChart(item, samples, step));
+  }
+  if (samples.length) nodes.push(h("div", { class: "legend" }, h("span", {}, "used"), h("span", { class: "reserved" }, "reserved now"), h("span", { class: "limit" }, "allocatable")));
+  return nodes;
+}
+
+const svgNS = "http://www.w3.org/2000/svg";
+function s(tag, attrs) {
+  const element = document.createElementNS(svgNS, tag);
+  for (const [key, value] of Object.entries(attrs || {})) element.setAttribute(key, value);
+  return element;
+}
+
+// usageChart draws one resource over the day: the used area, a dashed line
+// for what replicas reserve now, and the allocatable ceiling. Missing buckets
+// break the line rather than being drawn across.
+function usageChart(item, samples, step) {
+  const points = samples.map((sample) => ({ t: toDate(sample.observed_at), v: Number(sample[item.key] || 0), sample })).filter((p) => p.t && !isNaN(p.t));
+  const readout = h("div", { class: "readout" });
+  const summary = () => {
+    const peak = Math.max(0, ...points.map((p) => p.v));
+    const average = points.length ? points.reduce((sum, p) => sum + p.v, 0) / points.length : 0;
+    fill(readout, "now ", h("strong", {}, item.now != null ? item.format(item.now) : "–"),
+      points.length ? [" · avg ", h("strong", {}, item.format(average)), " · peak ", h("strong", {}, item.format(peak))] : null,
+      item.reserved != null ? [" · reserved ", h("strong", {}, item.format(item.reserved))] : null,
+      " · of ", h("strong", {}, item.format(item.limit)));
+  };
+  summary();
+  if (!points.length) return h("div", { class: "chart" }, readout);
+
+  const width = 600, height = 120, left = 0, right = 600, top = 6, bottom = 118;
+  const end = Date.now();
+  const start = end - 24 * 3600000;
+  const max = Math.max(Number(item.limit || 0), Number(item.reserved || 0), ...points.map((p) => p.v), 1);
+  const x = (t) => left + ((t - start) / (end - start)) * (right - left);
+  const y = (v) => bottom - (v / max) * (bottom - top);
+  const svg = s("svg", { viewBox: "0 0 " + width + " " + height, preserveAspectRatio: "none", role: "img", "aria-label": item.label + " use over the last 24 hours" });
+
+  for (const fraction of [0.5]) svg.append(s("line", { x1: left, x2: right, y1: y(max * fraction), y2: y(max * fraction), stroke: "var(--line)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }));
+  svg.append(s("line", { x1: left, x2: right, y1: bottom, y2: bottom, stroke: "var(--line)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }));
+  if (item.limit) svg.append(s("line", { x1: left, x2: right, y1: y(item.limit), y2: y(item.limit), stroke: "var(--fg2)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }));
+
+  const segments = [];
+  for (const point of points) {
+    const last = segments.length && segments[segments.length - 1];
+    if (last && point.t - last[last.length - 1].t <= step * 1.5) last.push(point);
+    else segments.push([point]);
+  }
+  for (const segment of segments) {
+    const line = segment.map((p, i) => (i ? "L" : "M") + x(p.t).toFixed(1) + " " + y(p.v).toFixed(1)).join(" ");
+    const first = segment[0], last = segment[segment.length - 1];
+    if (segment.length > 1) svg.append(s("path", { d: line + " L" + x(last.t).toFixed(1) + " " + bottom + " L" + x(first.t).toFixed(1) + " " + bottom + " Z", fill: "var(--info)", "fill-opacity": 0.15 }));
+    svg.append(s("path", { d: segment.length > 1 ? line : line + " l0.01 0", fill: "none", stroke: "var(--info)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }));
+  }
+  if (item.reserved) svg.append(s("line", { x1: left, x2: right, y1: y(item.reserved), y2: y(item.reserved), stroke: "var(--fg2)", "stroke-width": 2, "stroke-dasharray": "5 4", "vector-effect": "non-scaling-stroke" }));
+
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const axis = h("div", { class: "axis" }, h("span", {}, clock(start)), h("span", {}, clock(start + 12 * 3600000)), h("span", {}, "now"));
+
+  // Hover: a crosshair on the nearest sample, read out above the chart.
+  const cross = s("line", { y1: top, y2: bottom, stroke: "var(--fg2)", "stroke-width": 1, "vector-effect": "non-scaling-stroke", visibility: "hidden" });
+  const hit = s("rect", { x: 0, y: 0, width, height, fill: "transparent" });
+  svg.append(cross, hit);
+  hit.addEventListener("mousemove", (event) => {
+    const box = svg.getBoundingClientRect();
+    const t = start + ((event.clientX - box.left) / box.width) * (end - start);
+    let nearest = points[0];
+    for (const p of points) if (Math.abs(p.t - t) < Math.abs(nearest.t - t)) nearest = p;
+    cross.setAttribute("x1", x(nearest.t));
+    cross.setAttribute("x2", x(nearest.t));
+    cross.setAttribute("visibility", "visible");
+    fill(readout, nearest.t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), " · ", h("strong", {}, item.format(nearest.v)),
+      item.limit ? h("span", {}, " (" + Math.round((nearest.v / item.limit) * 100) + "% of allocatable)") : null);
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); summary(); });
+  return h("div", { class: "chart" }, readout, svg, axis);
+}
+
 async function refreshWith(tool, extra, draw) {
   const params = Object.assign({}, extra);
   const result = await callTool(tool, params);
@@ -376,8 +536,8 @@ async function refreshWith(tool, extra, draw) {
   render(...draw(result.data));
 }
 
-const views = { cluster: clusterView, apps: appsView, app: appView, deploy: deployView };
-const titles = { cluster: "Cluster", apps: "Applications", app: "Application", deploy: "Deploy" };
+const views = { cluster: clusterView, apps: appsView, app: appView, nodes: nodesView, node: nodeView, deploy: deployView };
+const titles = { cluster: "Cluster", apps: "Applications", app: "Application", nodes: "Nodes", node: "Node usage", deploy: "Deploy" };
 
 function show(result) {
   clearTimeout(pollTimer);

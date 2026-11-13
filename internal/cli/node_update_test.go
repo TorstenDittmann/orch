@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net"
 	"path/filepath"
@@ -157,6 +158,22 @@ func TestNodeUpdateUpgradesRebootsAndReturnsTheNodeThroughControllerAndAgent(t *
 		}
 	}
 	bootID := node().GetBootId()
+
+	var usageOut, usageErr bytes.Buffer
+	if code := RunContext(ctx, []string{"node", "usage", "node-one", "--json", "--context", path}, &usageOut, &usageErr); code != ExitOK {
+		t.Fatalf("node usage code=%d err=%s", code, usageErr.String())
+	}
+	var usage struct {
+		Node struct {
+			Name           string `json:"name"`
+			TotalCPUMillis uint64 `json:"total_cpu_millis"`
+		} `json:"node"`
+		StepSeconds uint32            `json:"step_seconds"`
+		Samples     []json.RawMessage `json:"samples"`
+	}
+	if err := json.Unmarshal(usageOut.Bytes(), &usage); err != nil || usage.Node.Name != "node-one" || usage.Node.TotalCPUMillis != 4000 || usage.StepSeconds == 0 || usage.Samples == nil {
+		t.Fatalf("node usage = %s (%v)", usageOut.String(), err)
+	}
 
 	var out, errOut bytes.Buffer
 	if code := RunContext(ctx, []string{"node", "update", "--all", "--reboot-timeout", "30s", "--context", path}, &out, &errOut); code != ExitOK {
