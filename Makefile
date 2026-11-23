@@ -6,6 +6,11 @@ PKL := $(MISE) exec -- pkl
 
 VERSION ?= 0.1.0-dev
 BUILD_ID ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo development)
+# LOG_SINK is cmd/orch-log-sink built where orch embeds it on Linux; containerd
+# starts one per task, so it is kept far smaller than orch. log_sink builds it
+# for the architecture $(1).
+LOG_SINK := internal/runtime/containerd/logsinkbin/orch-log-sink
+log_sink = GOOS=linux GOARCH=$(1) CGO_ENABLED=0 $(GO) build -trimpath -ldflags '-s -w' -o $(LOG_SINK) ./cmd/orch-log-sink
 LDFLAGS := -s -w -X github.com/TorstenDittmann/orch/internal/buildinfo.Version=$(VERSION) -X github.com/TorstenDittmann/orch/internal/buildinfo.BuildID=$(BUILD_ID)
 
 .PHONY: all build check clean containerd-e2e dev-context dev-image dev-image-release release coverage fmt fmt-check generate generate-check network-e2e pkl-test test test-race vet web web-check
@@ -14,6 +19,7 @@ all: check
 
 build:
 	mkdir -p bin
+	$(call log_sink,$$($(GO) env GOARCH))
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/orch ./cmd/orch
 
 # Release binaries are static builds for each supported platform, each also
@@ -28,6 +34,7 @@ release:
 		os=$${platform%/*}; arch=$${platform#*/}; ext=; \
 		if [ "$$os" = windows ]; then ext=.exe; fi; \
 		echo "build dist/orch-$$os-$$arch$$ext"; \
+		if [ "$$os" = linux ]; then $(call log_sink,$$arch); fi; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/orch-$$os-$$arch$$ext ./cmd/orch; \
 		gzip -9 -k -n dist/orch-$$os-$$arch$$ext; \
 	done
@@ -50,6 +57,7 @@ dev-image-release:
 dev-context:
 	rm -rf dist/dev && mkdir -p dist/dev
 	for arch in $(DEV_ARCHES); do \
+		$(call log_sink,$$arch) || exit 1; \
 		GOOS=linux GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/dev/orch-linux-$$arch ./cmd/orch || exit 1; \
 	done
 	cp packaging/dev/Dockerfile packaging/dev/containerd.toml packaging/dev/entrypoint.sh dist/dev/

@@ -18,11 +18,6 @@ import (
 	orchruntime "github.com/TorstenDittmann/orch/internal/runtime"
 )
 
-const (
-	maxLogFileBytes = 8 << 20
-	rotatedLogBytes = 4 << 20
-)
-
 func ensureLogFiles(directory, id string) (string, error) {
 	prefix := filepath.Join(directory, id)
 	stdout := prefix + ".stdout.log"
