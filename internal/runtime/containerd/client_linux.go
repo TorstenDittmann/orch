@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,7 @@ const (
 type runtimeClient struct {
 	client              *containerdclient.Client
 	options             orchruntime.Options
+	logSinkPath         string
 	mu                  sync.RWMutex
 	networkConfig       model.NetworkConfig
 	networkCapabilities network.Capabilities
@@ -86,6 +88,14 @@ func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error
 	if err != nil || !loggerInfo.Mode().IsRegular() || loggerInfo.Mode().Perm()&0o111 == 0 || loggerInfo.Mode().Perm()&0o022 != 0 {
 		return nil, fmt.Errorf("orch log sink must be an executable regular file that is not group/world-writable: %s", options.LoggerPath)
 	}
+	// Tasks log through the small embedded sink when this build has one; one
+	// runs per container, so the orch binary is only the fallback.
+	logSinkPath := options.LoggerPath
+	if installed, installErr := installLogSink(filepath.Join(filepath.Dir(options.LogsDir), "log-sink")); installErr != nil {
+		log.Printf("runtime: install log sink, using %s instead: %v", options.LoggerPath, installErr)
+	} else if installed != "" {
+		logSinkPath = installed
+	}
 	if options.SecretsDir != "" {
 		options.SecretsDir, err = filepath.Abs(options.SecretsDir)
 		if err != nil {
@@ -101,7 +111,7 @@ func New(socket string, options orchruntime.Options) (orchruntime.Runtime, error
 	if err != nil {
 		return nil, fmt.Errorf("connect to containerd: %w", err)
 	}
-	return &runtimeClient{client: client, options: options}, nil
+	return &runtimeClient{client: client, options: options, logSinkPath: logSinkPath}, nil
 }
 
 func (c *runtimeClient) Preflight(ctx context.Context) (orchruntime.Capabilities, error) {
@@ -498,7 +508,7 @@ func (c *runtimeClient) startTask(ctx context.Context, container containerdclien
 	if _, err := container.SetLabels(ctx, map[string]string{labelStartedAt: startedAt.Format(time.RFC3339Nano)}); err != nil {
 		return orchruntime.Object{}, fmt.Errorf("record task start %q: %w", container.ID(), err)
 	}
-	task, err := container.NewTask(ctx, taskLogCreator(c.options.LoggerPath, logPrefix))
+	task, err := container.NewTask(ctx, taskLogCreator(c.logSinkPath, logPrefix))
 	if err != nil {
 		return orchruntime.Object{}, fmt.Errorf("create task %q: %w", container.ID(), err)
 	}

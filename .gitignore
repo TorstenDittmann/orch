@@ -4,3 +4,4 @@
 coverage.out
 .DS_Store
 orch-release-signing-key
+/internal/runtime/containerd/logsinkbin/orch-log-sink

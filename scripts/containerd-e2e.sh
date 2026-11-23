@@ -179,6 +179,9 @@ case "$go_architecture" in
 		;;
 esac
 
+# Tasks log through the small sink orch embeds, as in release builds.
+GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" \
+	mise exec -- go build -trimpath -ldflags '-s -w' -o internal/runtime/containerd/logsinkbin/orch-log-sink ./cmd/orch-log-sink
 GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" \
 	mise exec -- go build -trimpath -o "$work_dir/orch" ./cmd/orch
 GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" \
